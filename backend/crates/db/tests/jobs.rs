@@ -193,3 +193,29 @@ async fn requeue_stale_and_purge(pool: PgPool) {
     );
     assert!(jobs::list(&pool, None, 10).await.unwrap().is_empty());
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn requeue_stale_fails_when_attempts_exhausted(pool: PgPool) {
+    let id = jobs::enqueue_with_attempts(&pool, &Job::DiscoverAlbum { album_id: 1 }, None, Some(1))
+        .await
+        .unwrap()
+        .unwrap();
+    jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+    sqlx::query("UPDATE jobs SET locked_at = now() - interval '20 minutes'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        jobs::requeue_stale(&pool, Duration::from_secs(600))
+            .await
+            .unwrap(),
+        1
+    );
+    assert!(jobs::claim(&pool, "w2", KINDS).await.unwrap().is_none());
+    let state: String = sqlx::query_scalar("SELECT state FROM jobs WHERE id = $1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(state, "failed");
+}

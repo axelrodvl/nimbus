@@ -127,9 +127,14 @@ pub async fn fail(
 }
 
 /// Возвращает в очередь задачи, зависшие в `running` дольше `older_than` (процесс упал).
+/// Если попытки исчерпаны, задача становится `failed` — иначе «ядовитая» задача, роняющая
+/// процесс, перезапускалась бы бесконечно.
 pub async fn requeue_stale(db: impl PgExecutor<'_>, older_than: Duration) -> sqlx::Result<u64> {
     Ok(sqlx::query(
-        "UPDATE jobs SET state = 'queued', locked_at = NULL, locked_by = NULL, updated_at = now()
+        "UPDATE jobs SET
+            state = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'queued' END,
+            last_error = CASE WHEN attempts >= max_attempts THEN 'worker lost; attempts exhausted' ELSE last_error END,
+            locked_at = NULL, locked_by = NULL, updated_at = now()
          WHERE state = 'running' AND locked_at < now() - make_interval(secs => $1)",
     )
     .bind(older_than.as_secs_f64())
