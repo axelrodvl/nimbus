@@ -43,15 +43,7 @@ yarn-error.log*
 # generated
 /generated
 
-# sqlite
-prisma/*.db
-prisma/*.db-journal
-
 # typescript
 *.tsbuildinfo
 next-env.d.ts
 
-# prisma
-/generated/
-prisma/dev.db
-prisma/dev.db-journal

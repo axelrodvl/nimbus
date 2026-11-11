@@ -7,24 +7,15 @@ const nextConfig: NextConfig = {
     inlineCss: true,
     useOffline: true,
   },
-  async headers() {
-    return [
-      {
-        headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
-        source: '/covers/:path*',
-      },
-    ];
+  images: {
+    // Обложки из Cover Art Archive (редиректит на archive.org).
+    remotePatterns: [
+      { hostname: 'coverartarchive.org', protocol: 'https' },
+      { hostname: '**.archive.org', protocol: 'https' },
+    ],
   },
   partialPrefetching: true,
   reactCompiler: true,
-  turbopack: {
-    rules: {
-      '*.wgsl': {
-        as: '*.js',
-        loaders: ['@vgpu/wgsl/loader-webpack'],
-      },
-    },
-  },
   typedRoutes: true,
 };
 

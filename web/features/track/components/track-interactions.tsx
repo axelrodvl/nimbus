@@ -1,15 +1,10 @@
 'use client';
 
-import { Heart, Play } from 'lucide-react';
-import { useOptimistic, useTransition } from 'react';
-import { Boundary } from '@/components/demo/boundary';
+import { Play } from 'lucide-react';
 import { Equalizer } from '@/components/ui/equalizer';
-import { PrefetchLink } from '@/components/ui/prefetch-link';
-import { toggleFavorite } from '@/features/track/track-actions';
 import { cn } from '@/lib/utils';
 import { usePlayer } from '@/providers/player-provider';
 import type { Track } from '@/types/track';
-import type { Route } from 'next';
 
 export function TrackPlayRow({ track, queue, children }: { track: Track; queue?: Track[]; children: React.ReactNode }) {
   const player = usePlayer();
@@ -27,67 +22,24 @@ export function TrackPlayRow({ track, queue, children }: { track: Track; queue?:
   }
 
   return (
-    <Boundary label="TrackPlayRow">
-      <article
-        role="button"
-        tabIndex={0}
-        onClick={handleClick}
-        onKeyDown={e => {
-          if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
-            e.preventDefault();
-            handleClick();
-          }
-        }}
-        aria-label={isThisPlaying ? `Pause ${track.title}` : `Play ${track.title}`}
-        className={cn(
-          'group/track cursor-pointer rounded-md transition-colors',
-          isThisTrack ? 'bg-card/40 dark:bg-card-dark/40' : 'hover:bg-card/60 dark:hover:bg-card-dark/60',
-        )}
-      >
-        {children}
-      </article>
-    </Boundary>
-  );
-}
-
-export function TrackLink({
-  href,
-  children,
-  className,
-}: {
-  href: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <PrefetchLink
-      href={href as Route}
-      onClick={e => e.stopPropagation()}
+    <article
+      role="button"
+      tabIndex={0}
+      onClick={handleClick}
+      onKeyDown={e => {
+        if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+          e.preventDefault();
+          handleClick();
+        }
+      }}
+      aria-label={isThisPlaying ? `Pause ${track.title}` : `Play ${track.title}`}
       className={cn(
-        'cursor-default truncate text-sm font-medium hover:cursor-pointer hover:underline',
-        className ?? 'text-black dark:text-white',
+        'group/track cursor-pointer rounded-md transition-colors',
+        isThisTrack ? 'bg-card/40 dark:bg-card-dark/40' : 'hover:bg-card/60 dark:hover:bg-card-dark/60',
       )}
     >
       {children}
-    </PrefetchLink>
-  );
-}
-
-export function NowPlayingTrackLink({
-  trackId,
-  href,
-  children,
-}: {
-  trackId: string;
-  href: string;
-  children: React.ReactNode;
-}) {
-  const player = usePlayer();
-  const isThisTrack = player.track?.id === trackId;
-  return (
-    <TrackLink href={href} className={isThisTrack ? 'text-accent' : 'text-black dark:text-white'}>
-      {children}
-    </TrackLink>
+    </article>
   );
 }
 
@@ -96,7 +48,7 @@ export function NowPlayingTrackTitle({
   children,
   className,
 }: {
-  trackId: string;
+  trackId: number;
   children: React.ReactNode;
   className?: string;
 }) {
@@ -114,7 +66,7 @@ export function NowPlayingTrackTitle({
   );
 }
 
-export function TrackIndexCell({ trackId, index }: { trackId: string; index?: number }) {
+export function TrackIndexCell({ trackId, index }: { trackId: number; index?: number }) {
   const player = usePlayer();
   const isPlaying = player.isPlaying && player.track?.id === trackId;
   const isCurrent = player.track?.id === trackId;
@@ -154,48 +106,5 @@ export function TrackIndexCell({ trackId, index }: { trackId: string; index?: nu
         />
       )}
     </span>
-  );
-}
-
-export function FavoriteButton({
-  trackId,
-  isFavorite,
-  size = 'sm',
-}: {
-  trackId: string;
-  isFavorite: boolean;
-  size?: 'sm' | 'lg';
-}) {
-  const [, startTransition] = useTransition();
-  const [optimisticFavorite, setOptimisticFavorite] = useOptimistic(isFavorite);
-  const [removing, setRemoving] = useOptimistic(false);
-
-  function handleToggle(e: React.MouseEvent) {
-    e.stopPropagation();
-    const willRemove = optimisticFavorite;
-    startTransition(async () => {
-      setOptimisticFavorite(!optimisticFavorite);
-      if (willRemove) setRemoving(true);
-      await toggleFavorite(trackId);
-    });
-  }
-
-  return (
-    <Boundary label="FavoriteButton">
-      <button
-        type="button"
-        onClick={handleToggle}
-        data-removing={removing || undefined}
-        aria-label={optimisticFavorite ? 'Remove from favorites' : 'Add to favorites'}
-        className={cn(
-          'rounded-full p-1.5 transition-colors',
-          optimisticFavorite
-            ? 'text-accent hover:text-accent-hover'
-            : 'text-gray hover:text-black dark:hover:text-white',
-        )}
-      >
-        <Heart className={cn(size === 'lg' ? 'h-5 w-5' : 'h-4 w-4', optimisticFavorite && 'fill-current')} />
-      </button>
-    </Boundary>
   );
 }

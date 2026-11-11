@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3002';
-const { hostname, port } = new URL(baseURL);
+const { port } = new URL(baseURL);
 
 export default defineConfig({
   forbidOnly: !!process.env.CI,
@@ -9,7 +9,11 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        // Если нужная версия Chromium не установлена, можно указать готовый бинарник.
+        launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined },
+      },
     },
   ],
   reporter: 'html',
@@ -17,28 +21,13 @@ export default defineConfig({
   testDir: './tests',
   use: {
     baseURL,
-    storageState: {
-      cookies: [
-        {
-          domain: hostname,
-          expires: -1,
-          httpOnly: false,
-          name: 'beats-user',
-          path: '/',
-          sameSite: 'Lax',
-          secure: false,
-          value: 'e2e',
-        },
-      ],
-      origins: [],
-    },
     trace: 'on-first-retry',
   },
   webServer: {
     command: `pnpm dev --port ${port}`,
     reuseExistingServer: true,
     stdout: 'pipe',
-    url: `${baseURL}/login`,
+    url: baseURL,
   },
   workers: process.env.CI ? 1 : undefined,
 });

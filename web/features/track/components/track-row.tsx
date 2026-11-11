@@ -1,18 +1,9 @@
-import { navigation } from 'next/cache';
 import { ViewTransition } from 'react';
 import { Collapsible } from '@/components/ui/collapsible';
+import { Cover } from '@/components/ui/cover';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlbumArt } from '@/features/artwork/components/album-art';
-import { AddToPlaylistMenu } from '@/features/playlist/components/add-to-playlist-menu';
-import { getPlaylistMenuItems } from '@/features/playlist/playlist-queries';
-import {
-  FavoriteButton,
-  NowPlayingTrackLink,
-  TrackIndexCell,
-  TrackPlayRow,
-} from '@/features/track/components/track-interactions';
-import { getRecommendedTracks, getUserFavoriteIds } from '@/features/track/track-queries';
-import { formatDuration, formatCount } from '@/lib/utils';
+import { NowPlayingTrackTitle, TrackIndexCell, TrackPlayRow } from '@/features/track/components/track-interactions';
+import { formatDuration } from '@/lib/utils';
 import type { Track as TrackT } from '@/types/track';
 
 type Props = {
@@ -21,39 +12,24 @@ type Props = {
   showAlbum?: boolean;
 };
 
-export async function TrackRow({ track, index, showAlbum = true, queue }: Props & { queue?: TrackT[] }) {
-  const favoriteIds = await getUserFavoriteIds();
-  const isFavorite = track.isFavorite || favoriteIds.has(track.id);
+export function TrackRow({ track, index, showAlbum = true, queue }: Props & { queue?: TrackT[] }) {
   return (
     <TrackPlayRow track={track} queue={queue}>
       <div className="flex items-center gap-3 px-3 py-2">
         <TrackIndexCell trackId={track.id} index={index} />
-        <AlbumArt coverColor={track.coverColor} coverSeed={track.id} label={track.title} size="sm" />
+        <Cover src={track.coverUrl} alt={track.title} size="sm" />
         <div className="flex min-w-0 flex-1 flex-col">
-          <NowPlayingTrackLink trackId={track.id} href={`/track/${track.id}`}>
-            {track.title}
-          </NowPlayingTrackLink>
+          <NowPlayingTrackTitle trackId={track.id}>{track.title}</NowPlayingTrackTitle>
           <span className="text-muted truncate text-xs">
             {track.artist}
-            {showAlbum ? ` · ${track.album}` : ''}
+            {showAlbum && track.album ? ` · ${track.album}` : ''}
           </span>
         </div>
-        <span className="text-muted hidden text-xs sm:block">{formatCount(track.playCount)} plays</span>
-        <span className="text-muted font-mono text-xs">{formatDuration(track.duration)}</span>
-        <FavoriteButton trackId={track.id} isFavorite={isFavorite} />
-        <AddToPlaylistMenu trackId={track.id} itemsPromise={getPlaylistMenuItems(track.id)} />
+        {track.durationMs ? (
+          <span className="text-muted font-mono text-xs">{formatDuration(Math.floor(track.durationMs / 1000))}</span>
+        ) : null}
       </div>
     </TrackPlayRow>
-  );
-}
-
-export async function RecommendedTracks({ trackId }: { trackId: string }) {
-  await navigation();
-  const tracks = await getRecommendedTracks(trackId);
-  return (
-    <div data-testid="recommended-tracks">
-      <TrackList tracks={tracks} animateItems />
-    </div>
   );
 }
 
@@ -102,14 +78,7 @@ export function TrackRowSkeleton({ showIndex = false, index }: { showIndex?: boo
         <Skeleton className="h-3.5 w-28 max-w-full" />
         <Skeleton className="h-3 w-20 max-w-full" />
       </div>
-      <Skeleton className="hidden h-3 w-14 sm:block" />
       <Skeleton className="h-3 w-8" />
-      <span className="p-1.5">
-        <Skeleton className="h-4 w-4 rounded-full" />
-      </span>
-      <span className="p-1.5">
-        <Skeleton className="h-4 w-4 rounded-full" />
-      </span>
     </div>
   );
 }

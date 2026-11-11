@@ -5,11 +5,6 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// Artificial latency to simulate a slow DB, gated by the demo's Slow toggle.
-export function delay(ms: number, enabled = true) {
-  return enabled ? new Promise(resolve => setTimeout(resolve, ms)) : Promise.resolve();
-}
-
 export function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;

@@ -2,11 +2,7 @@
 
 import { useSelectedLayoutSegments } from 'next/navigation';
 import { createContext, Suspense, useContext, useOptimistic, useState } from 'react';
-import { Boundary } from '@/components/demo/boundary';
-import { usePrefetchDefault } from '@/components/demo/use-prefetch-default';
 import { FastLink } from '@/components/ui/fast-link';
-import { preloadImages } from '@/lib/preload-images';
-import type { PreloadImageSource } from '@/lib/preload-images';
 import type { Route } from 'next';
 import type Link from 'next/link';
 
@@ -16,7 +12,6 @@ type Props<T extends string = string> = Omit<React.ComponentProps<typeof Link>, 
   // than firing it eagerly when the link enters the viewport. Use for unbounded
   // lists (e.g. the playlist sidebar) so N links don't each wake a server on load.
   hoverPrefetch?: boolean;
-  preloadImageSources?: readonly PreloadImageSource[];
 };
 
 type OptimisticNavigation = {
@@ -38,11 +33,9 @@ export function OptimisticNavigationProvider({ children }: { children: React.Rea
 // reconciles the resolved tree in place — no element swap, no flash.
 export function NavLink<T extends string>(props: Props<T>) {
   return (
-    <Boundary label="NavLink">
-      <Suspense fallback={<NavLinkShell {...props} isActive={false} />}>
-        <ActiveLink {...props} />
-      </Suspense>
-    </Boundary>
+    <Suspense fallback={<NavLinkShell {...props} isActive={false} />}>
+      <ActiveLink {...props} />
+    </Suspense>
   );
 }
 
@@ -57,18 +50,14 @@ function NavLinkShell<T extends string>({
   href,
   isActive,
   hoverPrefetch = false,
-  preloadImageSources,
   onMouseEnter,
   onFocus,
   ...rest
 }: Props<T> & { isActive: boolean }) {
   const [intent, setIntent] = useState(false);
   const optimisticNavigation = useContext(OptimisticNavigationContext);
-  const prefetch = usePrefetchDefault();
-  // `prefetch` is already `true` or `null` (App Shell only) from the demo toggle.
-  // Hover-gated links stay at `null` until intent, then upgrade to the full prefetch.
-  const resolvedPrefetch = !prefetch ? null : hoverPrefetch ? (intent ? true : null) : true;
-  if (resolvedPrefetch) preloadImages(preloadImageSources);
+  // Hover-gated links stay at `null` (App Shell only) until intent, then upgrade to the full prefetch.
+  const resolvedPrefetch = hoverPrefetch ? (intent ? true : null) : true;
   const showIntent = () => setIntent(true);
   const destination = pathname(href);
   const resolvedActive = optimisticNavigation?.destination

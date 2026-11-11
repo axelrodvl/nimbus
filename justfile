@@ -32,6 +32,9 @@ backend-check:
 web:
     cd web && pnpm dev
 
+web-gen-api: openapi
+    cd web && pnpm gen:api
+
 web-build:
     cd web && pnpm build
 

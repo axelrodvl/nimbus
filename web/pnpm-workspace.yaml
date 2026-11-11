@@ -11,9 +11,6 @@ overrides:
   brace-expansion: 5.0.6
   postcss: 8.5.14
 onlyBuiltDependencies:
-  - '@prisma/client'
-  - '@prisma/engines'
   - esbuild
-  - prisma
   - sharp
   - unrs-resolver

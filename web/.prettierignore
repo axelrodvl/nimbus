@@ -12,3 +12,4 @@ generated
 
 # Vendored agent skills, kept byte-identical to upstream
 .agents
+lib/api/schema.d.ts

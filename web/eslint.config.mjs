@@ -8,15 +8,13 @@ import sortKeysFix from 'eslint-plugin-sort-keys-fix';
 export default defineConfig([
   globalIgnores([
     '.next/**',
-    '.next-cover-studio/**',
     '.pnpm-store/**',
     '.vercel/**',
-    'generated/**',
     'node_modules/**',
+    'lib/api/schema.d.ts',
     'playwright-report/**',
     'test-results/**',
     'next-env.d.ts',
-    'wgsl-env.d.ts',
   ]),
   ...nextVitals,
   ...nextTypeScript,
@@ -71,10 +69,5 @@ export default defineConfig([
     // interleave t1/t10/t2 and buys nothing over the authored grouping.
     files: ['lib/audio/**', 'features/artwork/artwork-motif.ts'],
     rules: { 'sort-keys-fix/sort-keys-fix': 'off' },
-  },
-  {
-    // Seed and codegen scripts are CLIs: progress logging is the interface.
-    files: ['prisma/**', 'scripts/**'],
-    rules: { 'no-console': 'off' },
   },
 ]);

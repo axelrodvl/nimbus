@@ -1,36 +1,15 @@
-import { AnimatedSuspense } from '@/components/ui/animated-suspense';
-import ErrorBoundary from '@/components/ui/error-boundary';
+import { EmptyState } from '@/components/ui/empty-state';
 import { PageWrapper } from '@/components/ui/page-layout';
-import { GenreBrowse, GenreBrowseSkeleton } from '@/features/genre/components/genre-browse';
-import { Search } from '@/features/search/components/search';
-import { SearchResults } from '@/features/search/components/search-results';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Search',
 };
 
-export default function SearchPage({ searchParams }: PageProps<'/search'>) {
+export default function SearchPage() {
   return (
     <PageWrapper title="Search">
-      <Search>
-        <ErrorBoundary title="Search is taking a breather">
-          <AnimatedSuspense fallback={<GenreBrowseSkeleton />}>
-            {searchParams.then(sp => {
-              const q = typeof sp.q === 'string' ? sp.q : '';
-              if (!q) {
-                return (
-                  <>
-                    <h2 className="mb-4">Browse All</h2>
-                    <GenreBrowse />
-                  </>
-                );
-              }
-              return <SearchResults query={q} />;
-            })}
-          </AnimatedSuspense>
-        </ErrorBoundary>
-      </Search>
+      <EmptyState title="Поиск скоро появится" body="Поиск по MusicBrainz будет добавлен на следующем шаге." />
     </PageWrapper>
   );
 }
