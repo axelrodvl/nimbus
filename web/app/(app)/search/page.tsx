@@ -1,5 +1,7 @@
-import { EmptyState } from '@/components/ui/empty-state';
+import { Suspense } from 'react';
 import { PageWrapper } from '@/components/ui/page-layout';
+import { SearchSkeleton } from '@/features/search/components/search-results';
+import { SearchView } from '@/features/search/components/search-view';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -9,7 +11,10 @@ export const metadata: Metadata = {
 export default function SearchPage() {
   return (
     <PageWrapper title="Search">
-      <EmptyState title="Поиск скоро появится" body="Поиск по MusicBrainz будет добавлен на следующем шаге." />
+      {/* useSearchParams() требует Suspense при Cache Components */}
+      <Suspense fallback={<SearchSkeleton />}>
+        <SearchView />
+      </Suspense>
     </PageWrapper>
   );
 }

@@ -1,0 +1,89 @@
+{
+  "query": "radiohead",
+  "errors": [],
+  "artists": [
+    {
+      "mbid": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "name": "Radiohead",
+      "disambiguation": null,
+      "country": "GB",
+      "score": 100,
+      "library_id": null
+    },
+    {
+      "mbid": "5c2c3f0e-4b3f-4d8f-9b8b-0d1f7a2b6e10",
+      "name": "Radio Head",
+      "disambiguation": "UK DJ",
+      "country": null,
+      "score": 62,
+      "library_id": 7
+    }
+  ],
+  "albums": [
+    {
+      "mbid": "b1392450-e666-3926-a536-22c65f834433",
+      "title": "OK Computer",
+      "artist_mbid": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "artist_name": "Radiohead",
+      "primary_type": "Album",
+      "secondary_types": [],
+      "year": 1997,
+      "cover_url": "https://coverartarchive.org/release-group/b1392450-e666-3926-a536-22c65f834433/front-250",
+      "score": 100,
+      "library_id": null
+    },
+    {
+      "mbid": "3f0c6c1a-98a1-3d77-a3c8-5b8a2c7d9e22",
+      "title": "Kid A",
+      "artist_mbid": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "artist_name": "Radiohead",
+      "primary_type": "Album",
+      "secondary_types": [],
+      "year": 2000,
+      "cover_url": "https://coverartarchive.org/release-group/3f0c6c1a-98a1-3d77-a3c8-5b8a2c7d9e22/front-250",
+      "score": 95,
+      "library_id": 3
+    }
+  ],
+  "tracks": [
+    {
+      "mbid": "8c2a6b1d-1f5e-4a3b-9c7d-2e4f6a8b0c12",
+      "title": "Paranoid Android",
+      "artist_mbid": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "artist_name": "Radiohead",
+      "album_mbid": "b1392450-e666-3926-a536-22c65f834433",
+      "album_title": "OK Computer",
+      "duration_ms": 387000,
+      "cover_url": "https://coverartarchive.org/release-group/b1392450-e666-3926-a536-22c65f834433/front-250",
+      "score": 100,
+      "library_id": null,
+      "status": null
+    },
+    {
+      "mbid": "2d4f6a8c-3e5b-4c7d-8e9f-0a1b2c3d4e66",
+      "title": "Karma Police",
+      "artist_mbid": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "artist_name": "Radiohead",
+      "album_mbid": "b1392450-e666-3926-a536-22c65f834433",
+      "album_title": "OK Computer",
+      "duration_ms": 261000,
+      "cover_url": "https://coverartarchive.org/release-group/b1392450-e666-3926-a536-22c65f834433/front-250",
+      "score": 98,
+      "library_id": 11,
+      "status": "found"
+    },
+    {
+      "mbid": "1b3d5f70-8e56-3f2e-9b3d-7f5a3b4c0d55",
+      "title": "Creep",
+      "artist_mbid": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "artist_name": "Radiohead",
+      "album_mbid": null,
+      "album_title": null,
+      "duration_ms": null,
+      "cover_url": null,
+      "score": 90,
+      "library_id": null,
+      "status": null
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import { Home, Library, Search } from 'lucide-react';
 import { ConnectionIndicator } from '@/components/connection-indicator';
+import { ShortcutHint } from '@/components/shortcut-hint';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
 import { FastLink } from '@/components/ui/fast-link';
 import { MusicNote } from '@/components/ui/music-note';
@@ -30,6 +31,7 @@ export function Sidebar() {
           <NavLink href="/search" aria-label="Search" className={sidebarLink}>
             <Search className="h-5 w-5" />
             <span className="hidden truncate lg:inline">Search</span>
+            <ShortcutHint className="text-muted border-divider dark:border-divider-dark ml-auto hidden rounded border px-1.5 py-0.5 font-mono text-[10px] lg:inline" />
           </NavLink>
           <NavLink href="/library" aria-label="Library" className={sidebarLink}>
             <Library className="h-5 w-5" />
