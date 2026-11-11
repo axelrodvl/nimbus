@@ -7,12 +7,13 @@ export default defineConfig({
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
-        // Сценарий написан под русский интерфейс (язык по Accept-Language).
-        locale: 'ru-RU',
+        
         launchOptions: {
           args: ['--autoplay-policy=no-user-gesture-required'],
           executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined,
         },
+        // Сценарий написан под русский интерфейс (язык по Accept-Language).
+locale: 'ru-RU',
       },
     },
   ],

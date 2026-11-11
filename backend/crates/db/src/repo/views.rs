@@ -20,6 +20,12 @@ pub struct ArtistView {
     pub album_count: i64,
     /// Треки артиста в библиотеке.
     pub track_count: i64,
+    /// Последняя задача импорта дискографии (`jobs.state`): `queued` / `running` / `done` / `failed`.
+    pub import_state: Option<String>,
+    pub import_attempts: Option<i32>,
+    pub import_max_attempts: Option<i32>,
+    pub import_run_after: Option<DateTime<Utc>>,
+    pub import_error: Option<String>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -70,8 +76,14 @@ const ARTIST_SELECT: &str = "
       (SELECT count(*) FROM albums al WHERE al.artist_id = a.id
          AND (al.in_library OR EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = al.id AND t.in_library))) AS album_count,
       (SELECT count(*) FROM tracks t WHERE t.in_library
-         AND (t.artist_id = a.id OR t.album_id IN (SELECT id FROM albums WHERE artist_id = a.id))) AS track_count
-    FROM artists a";
+         AND (t.artist_id = a.id OR t.album_id IN (SELECT id FROM albums WHERE artist_id = a.id))) AS track_count,
+      ij.state AS import_state, ij.attempts AS import_attempts, ij.max_attempts AS import_max_attempts,
+      ij.run_after AS import_run_after, ij.last_error AS import_error
+    FROM artists a
+    LEFT JOIN LATERAL (
+      SELECT j.state, j.attempts, j.max_attempts, j.run_after, j.last_error FROM jobs j
+       WHERE j.kind = 'import_artist' AND j.payload->>'artist_id' = a.id::text
+       ORDER BY j.id DESC LIMIT 1) ij ON TRUE";
 
 const ALBUM_SELECT: &str = "
     SELECT al.id, al.mbid_release_group AS mbid, al.title, al.artist_id, ar.name AS artist_name,

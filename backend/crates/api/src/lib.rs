@@ -25,6 +25,10 @@ pub use state::AppState;
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .nest("/api", routes::api_routes(&state))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_token,
+        ))
         .layer(cors_layer(&state.config.cors_origin))
         .layer(TraceLayer::new_for_http())
         .with_state(state)

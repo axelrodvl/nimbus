@@ -1,6 +1,5 @@
 import { GeistMono } from 'geist/font/mono';
 import { GeistSans } from 'geist/font/sans';
-import { Suspense } from 'react';
 import { OfflineIndicator } from '@/components/offline-indicator';
 import { ThemeProvider } from '@/components/theme/theme-provider';
 import { Toaster } from '@/components/toaster';
@@ -20,7 +19,9 @@ export const viewport: Viewport = {
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getT();
   return {
+    appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'Nimbus' },
     description: t('app.description'),
+    icons: { apple: '/icons/apple-touch-icon.png' },
     title: {
       default: 'Nimbus',
       template: '%s · Nimbus',
@@ -28,28 +29,22 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-// Язык берётся из cookie/заголовка, то есть зависит от запроса: всё содержимое страницы лежит внутри
-// Suspense, а `<html lang>` обновляет I18nProvider на клиенте (статическая оболочка остаётся пререндеримой).
-async function LocalizedShell({ children }: { children: React.ReactNode }) {
+// Язык зависит от запроса (cookie / Accept-Language), поэтому корневой layout динамический:
+// страница отдаётся целиком по запросу, без статической оболочки.
+export const instant = false;
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const [locale, messages] = await Promise.all([getLocale(), getMessages()]);
   return (
-    <I18nProvider locale={locale} messages={messages}>
-      <ThemeProvider>
-        <OfflineIndicator />
-        {children}
-        <Toaster />
-      </ThemeProvider>
-    </I18nProvider>
-  );
-}
-
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`} suppressHydrationWarning>
+    <html lang={locale} className={`${GeistSans.variable} ${GeistMono.variable}`} suppressHydrationWarning>
       <body className="bg-surface dark:bg-surface-dark flex h-[100dvh] flex-col text-black antialiased dark:text-white">
-        <Suspense fallback={null}>
-          <LocalizedShell>{children}</LocalizedShell>
-        </Suspense>
+        <I18nProvider locale={locale} messages={messages}>
+          <ThemeProvider>
+            <OfflineIndicator />
+            {children}
+            <Toaster />
+          </ThemeProvider>
+        </I18nProvider>
       </body>
     </html>
   );

@@ -52,6 +52,12 @@ async fn main() -> anyhow::Result<()> {
 
     let bind = config.bind;
     let events = EventBus::new();
+    if config.mb_user_agent.contains("your/nimbus") {
+        tracing::warn!(
+            "NIMBUS_MB_USER_AGENT is still the placeholder: MusicBrainz rate-limits generic clients \
+             (503 errors, slow imports). Set it to something like \"Nimbus/0.1 ( you@example.org )\""
+        );
+    }
 
     // Фейковые внешние сервисы (только e2e): подменяют MB, провайдеры и пиров.
     let fake_requested = std::env::var("NIMBUS_FAKE_EXTERNAL")

@@ -374,7 +374,10 @@ impl Inner {
                         return Err(MbError::RateLimited);
                     }
                     attempt += 1;
-                    let wait = retry_after(&resp).unwrap_or(self.cfg.retry_delay);
+                    // `Retry-After: 0` (или его отсутствие) не повод долбить сервер сразу: пауза растёт 1×, 2×, 4×…
+                    let wait = retry_after(&resp)
+                        .filter(|d| !d.is_zero())
+                        .unwrap_or_else(|| self.cfg.retry_delay * 2u32.pow(attempt - 1));
                     tracing::warn!(%status, ?wait, attempt, "MusicBrainz throttled, retrying");
                     tokio::time::sleep(wait).await;
                 }

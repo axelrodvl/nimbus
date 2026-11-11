@@ -95,6 +95,33 @@ pub fn authorize_with_query(
     }
 }
 
+/// Пути, доступные без токена: проверка живости, вход/выход, схема OpenAPI.
+/// `/api/internal/raw/…` защищён проверкой loopback в самом обработчике (его вызывает ffmpeg),
+/// `/api/ws` проверяет токен сам (допускает ещё и `?token=`).
+fn is_public(path: &str) -> bool {
+    matches!(
+        path,
+        "/api/health" | "/api/openapi.json" | "/api/auth/login" | "/api/auth/logout" | "/api/ws"
+    ) || path.starts_with("/api/internal/raw/")
+}
+
+/// Слой авторизации для всего API: новые маршруты закрыты по умолчанию, а не «если не забыли `authorize`».
+pub async fn require_token(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<Response, ApiError> {
+    let path = req.uri().path();
+    if state.config.api_token.is_none()
+        || req.method() == axum::http::Method::OPTIONS
+        || is_public(path)
+    {
+        return Ok(next.run(req).await);
+    }
+    authorize_with_query(&state, req.headers(), None)?;
+    Ok(next.run(req).await)
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct LoginRequest {
     pub token: String,

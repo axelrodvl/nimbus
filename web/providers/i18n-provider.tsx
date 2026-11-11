@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useMemo } from 'react';
+import { createContext, useContext, useMemo } from 'react';
 import type { Locale } from '@/lib/i18n/config';
 import type { Messages, TFn } from '@/lib/i18n/messages';
 import { translate } from '@/lib/i18n/translate';
@@ -20,10 +20,6 @@ export function I18nProvider({
   messages: Messages;
   children: React.ReactNode;
 }) {
-  // Сервер отдаёт статический `<html lang>`: уточняем язык документа на клиенте.
-  useEffect(() => {
-    document.documentElement.lang = locale;
-  }, [locale]);
   const value = useMemo<I18nValue>(
     () => ({ locale, t: (key, params) => translate(messages, locale, key, params) }),
     [locale, messages],

@@ -32,8 +32,11 @@ impl JobHandler for ImportArtistHandler {
                 );
                 Ok(())
             }
+            // Пауза растёт: 30 с, 1, 2, 4, 8 мин, затем не больше 10 мин.
             Err(LibraryError::MbUnavailable(reason)) => Err(JobError::Retry {
-                after: std::time::Duration::from_secs(60),
+                after: std::time::Duration::from_secs(
+                    (30u64 << ctx.attempt.saturating_sub(1).clamp(0, 5)).min(600),
+                ),
                 reason,
             }),
             Err(e @ (LibraryError::MbNotFound | LibraryError::NotFound(_))) => {

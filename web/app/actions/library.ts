@@ -40,6 +40,18 @@ export async function addToLibrary(input: AddToLibraryInput): Promise<AddResult>
   }
 }
 
+/** Повторный импорт дискографии (после неудачи или зависшей попытки). */
+export async function retryArtistImport(artistId: number): Promise<ActionResult> {
+  try {
+    unwrapEmpty(await api.POST('/api/artists/{id}/import', { params: { path: { id: artistId } } }));
+    updateTag('library');
+    updateTag(`artist:${artistId}`);
+    return { ok: true };
+  } catch (e) {
+    return actionFailure(e);
+  }
+}
+
 export async function removeFromLibrary(type: LibraryType, id: number): Promise<ActionResult> {
   try {
     unwrapEmpty(await api.DELETE('/api/library/{type}/{id}', { params: { path: { id, type } } }));

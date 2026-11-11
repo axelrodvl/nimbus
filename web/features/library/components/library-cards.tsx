@@ -26,6 +26,18 @@ export function ArtistCard({ artist }: { artist: Artist }) {
         <span className="text-muted text-xs">
           {t('count.albums', { count: artist.album_count })} · {t('count.tracks', { count: artist.track_count })}
         </span>
+        {artist.import ? (
+          <span
+            data-testid="artist-import-badge"
+            className={cn('text-xs italic', artist.import.state === 'failed' ? 'text-danger' : 'text-muted')}
+          >
+            {artist.import.state === 'failed'
+              ? t('artist.badge.failed')
+              : artist.import.state === 'retrying'
+                ? t('artist.badge.retrying')
+                : t('artist.badge.importing')}
+          </span>
+        ) : null}
       </div>
     </Link>
   );

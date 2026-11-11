@@ -235,6 +235,40 @@
         }
       }
     },
+    "/api/artists/{id}/import": {
+      "post": {
+        "tags": [
+          "library"
+        ],
+        "operationId": "retry_artist_import",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Импорт дискографии поставлен в очередь (или уже идёт)"
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/login": {
       "post": {
         "tags": [
@@ -1675,6 +1709,17 @@
             "type": "integer",
             "format": "int64"
           },
+          "import": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ImportStatusDto",
+                "description": "Состояние импорта дискографии; `null`, если импорт завершён или не запускался."
+              }
+            ]
+          },
           "in_library": {
             "type": "boolean"
           },
@@ -1848,6 +1893,51 @@
           },
           "version": {
             "type": "string"
+          }
+        }
+      },
+      "ImportState": {
+        "type": "string",
+        "enum": [
+          "importing",
+          "retrying",
+          "failed"
+        ]
+      },
+      "ImportStatusDto": {
+        "type": "object",
+        "required": [
+          "state",
+          "attempt",
+          "max_attempts"
+        ],
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Сколько попыток уже начато."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Причина последней неудачи (для подсказки; текст от бэкенда, на английском)."
+          },
+          "max_attempts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "retry_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Когда будет следующая попытка (только `retrying`)."
+          },
+          "state": {
+            "$ref": "#/components/schemas/ImportState"
           }
         }
       },

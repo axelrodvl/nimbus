@@ -396,6 +396,14 @@ async fn process(row: &JobRow, handler: &Arc<dyn JobHandler>, ctx: &JobCtx, cfg:
     if let Err(e) = jobs::fail(&ctx.db, row.id, &reason, retry_at).await {
         tracing::error!(job_id = row.id, error = %e, "fail update failed");
     }
+    // Статус импорта дискографии виден в UI: сообщаем, что он изменился (повтор или окончательная неудача).
+    if let Ok(Job::ImportArtist { artist_id }) = row.job() {
+        ctx.events
+            .publish(nimbus_core::events::Event::LibraryChanged {
+                entity: nimbus_core::events::Entity::Artist,
+                id: artist_id,
+            });
+    }
 }
 
 #[cfg(test)]

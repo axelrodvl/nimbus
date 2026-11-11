@@ -124,6 +124,19 @@ function seed() {
   tracks.clear();
   seq = 0;
   addArtist({ id: 1, mbid: RH, name: 'Radiohead' });
+  // Импорт дискографии: ждём MusicBrainz (повтор) и неудача (после исчерпания попыток).
+  addArtist({
+    id: 20,
+    import: { attempt: 2, error: 'MusicBrainz is unavailable: rate limited', max_attempts: 8, retry_at: new Date(Date.now() + 150_000).toISOString(), state: 'retrying' },
+    mbid: 'aaaaaaaa-0000-4000-8000-000000000020',
+    name: 'Retry Artist',
+  });
+  addArtist({
+    id: 21,
+    import: { attempt: 8, error: 'MusicBrainz is unavailable: rate limited', max_attempts: 8, retry_at: null, state: 'failed' },
+    mbid: 'aaaaaaaa-0000-4000-8000-000000000021',
+    name: 'Failed Artist',
+  });
   for (let i = 0; i < 52; i++) addAlbum({ id: 300 + i, mbid: crypto.randomUUID(), title: `Filler ${i}` }, []);
   addAlbum({ id: 101, mbid: 'aaaaaaaa-0000-4000-8000-000000000101', title: 'Kid A', year: 2000 }, [
     { id: 1011, title: 'Everything in Its Right Place' },
@@ -263,6 +276,7 @@ function artistDto(a) {
     album_count: partial.length,
     disambiguation: a.disambiguation,
     id: a.id,
+    import: a.import ?? null,
     in_library: a.in_library,
     mbid: a.mbid,
     name: a.name,
@@ -382,6 +396,12 @@ createServer(async (req, res) => {
     return res.end(req.method === 'HEAD' ? undefined : WAV.subarray(start, end + 1));
   }
 
+  // Возвращает артиста 21 в состояние «импорт не удался» (без полного сброса: тесты идут параллельно).
+  if (p === '/__artist-import-failed') {
+    const a = artists.get(21);
+    if (a) a.import = { attempt: 8, error: 'MusicBrainz is unavailable: rate limited', max_attempts: 8, retry_at: null, state: 'failed' };
+    return send(res, 200, { ok: true });
+  }
   if (p === '/__log') return send(res, 200, requestLog);
 
   if (p === '/api/settings' && req.method === 'GET') return send(res, 200, maskedSettings());
@@ -407,6 +427,14 @@ createServer(async (req, res) => {
     if (body?.provider === 'torznab' && !settings.providers.torznab)
       return err(res, 400, 'not_configured', 'provider is not configured');
     return send(res, 200, { message: 'Найдено раздач: 25', ok: true, sample_count: 25 });
+  }
+  const importMatch = req.method === 'POST' ? p.match(/^\/api\/artists\/(\d+)\/import$/) : null;
+  if (importMatch) {
+    requestLog.push({ method: 'POST', path: p });
+    const a = artists.get(Number(importMatch[1]));
+    if (!a) return err(res, 404, 'not_found', 'artist not found');
+    a.import = { attempt: 1, error: null, max_attempts: 8, retry_at: null, state: 'importing' };
+    return send(res, 202, {});
   }
   if (req.method === 'POST' && /^\/api\/tracks\/\d+\/prefetch$/.test(p)) {
     requestLog.push({ method: 'POST', path: p });

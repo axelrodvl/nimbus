@@ -77,6 +77,9 @@ pub struct LibraryService {
     events: EventBus,
 }
 
+/// Попыток задачи `ImportArtist` (с растущей паузой это около получаса).
+pub const IMPORT_MAX_ATTEMPTS: i32 = 8;
+
 impl LibraryService {
     /// `mb` задаёт приоритет MB-запросов: для запросов пользователя — обычный клиент,
     /// для фоновых задач — `mb.background()`.
@@ -271,16 +274,22 @@ impl LibraryService {
             return Ok(AddOutcome::Exists { id: artist.id });
         }
         artists::set_in_library(&self.db, artist.id, true).await?;
-        jobs::enqueue(
-            &self.db,
-            &Job::ImportArtist {
-                artist_id: artist.id,
-            },
-            None,
-        )
-        .await?;
+        self.enqueue_import(artist.id).await?;
         self.changed(Entity::Artist, artist.id);
         Ok(AddOutcome::Importing { id: artist.id })
+    }
+
+    /// Ставит задачу импорта дискографии (повторно можно вызывать после неудачи: активная задача не дублируется).
+    /// Попыток больше обычного: MusicBrainz часто отвечает 503, и импорт должен пережить паузу.
+    pub async fn enqueue_import(&self, artist_id: i64) -> Result<()> {
+        jobs::enqueue_with_attempts(
+            &self.db,
+            &Job::ImportArtist { artist_id },
+            None,
+            Some(IMPORT_MAX_ATTEMPTS),
+        )
+        .await?;
+        Ok(())
     }
 
     /// Тело задачи `ImportArtist`: альбомы и EP артиста без Compilation/Live/Remix/DJ-mix/Demo,

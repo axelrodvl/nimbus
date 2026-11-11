@@ -27,6 +27,7 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
         .route("/library/albums", get(library::list_albums))
         .route("/library/tracks", get(library::list_tracks))
         .route("/artists/{id}", get(library::get_artist))
+        .route("/artists/{id}/import", post(library::retry_artist_import))
         .route("/albums/{id}", get(library::get_album))
         .route("/tracks/{id}", get(library::get_track))
         .route("/tracks/{id}/stream", get(crate::stream::stream_track))

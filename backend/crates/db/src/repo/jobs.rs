@@ -41,11 +41,21 @@ pub async fn enqueue(
     job: &Job,
     run_after: Option<DateTime<Utc>>,
 ) -> sqlx::Result<Option<i64>> {
+    enqueue_with_attempts(db, job, run_after, None).await
+}
+
+/// То же, но со своим числом попыток (по умолчанию — 5).
+pub async fn enqueue_with_attempts(
+    db: impl PgExecutor<'_>,
+    job: &Job,
+    run_after: Option<DateTime<Utc>>,
+    max_attempts: Option<i32>,
+) -> sqlx::Result<Option<i64>> {
     let (kind, payload) = job.to_parts();
     sqlx::query_scalar(
         "WITH ins AS (
-            INSERT INTO jobs (kind, payload, dedup_key, run_after)
-            VALUES ($1, $2, $3, COALESCE($4, now()))
+            INSERT INTO jobs (kind, payload, dedup_key, run_after, max_attempts)
+            VALUES ($1, $2, $3, COALESCE($4, now()), COALESCE($5, 5))
             ON CONFLICT (dedup_key) WHERE state IN ('queued','running') DO NOTHING
             RETURNING id
          )
@@ -55,6 +65,7 @@ pub async fn enqueue(
     .bind(payload)
     .bind(job.dedup_key())
     .bind(run_after)
+    .bind(max_attempts)
     .fetch_optional(db)
     .await
 }

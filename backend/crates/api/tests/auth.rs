@@ -173,3 +173,60 @@ async fn health_reports_jobs_and_engine(pool: PgPool) {
     assert_eq!(v["jobs"]["failed_24h"], 0);
     assert!(v["engine"].is_null());
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn every_api_route_is_closed_without_a_token(pool: PgPool) {
+    let app = secured(pool);
+    let get_paths = [
+        "/api/search?q=radiohead",
+        "/api/library/artists",
+        "/api/library/albums",
+        "/api/library/tracks",
+        "/api/artists/1",
+        "/api/albums/1",
+        "/api/tracks/1",
+        "/api/albums/1/torrents",
+        "/api/tracks/1/sources",
+        "/api/torrents/1/files",
+        "/api/storage",
+        "/api/settings",
+        "/api/debug/jobs",
+    ];
+    for uri in get_paths {
+        let res = send(&app, get(uri).body(Body::empty()).unwrap()).await;
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED, "GET {uri}");
+    }
+    for (method, uri) in [
+        ("POST", "/api/library"),
+        ("DELETE", "/api/library/album/1"),
+        ("POST", "/api/artists/1/import"),
+        ("POST", "/api/albums/1/retry"),
+        ("POST", "/api/tracks/1/retry"),
+        ("PUT", "/api/settings"),
+        ("POST", "/api/settings/providers/test"),
+    ] {
+        let req = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .unwrap();
+        let res = send(&app, req).await;
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED, "{method} {uri}");
+    }
+    // Публичные: схема и проверка живости.
+    for uri in ["/api/health", "/api/openapi.json"] {
+        let res = send(&app, get(uri).body(Body::empty()).unwrap()).await;
+        assert_eq!(res.status(), StatusCode::OK, "{uri}");
+    }
+    // С токеном — открыто.
+    let res = send(
+        &app,
+        get("/api/library/artists")
+            .header("authorization", format!("Bearer {TOKEN}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+}

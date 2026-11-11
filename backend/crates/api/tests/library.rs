@@ -772,3 +772,86 @@ async fn openapi_lists_library_endpoints(pool: PgPool) {
     }
     assert!(v["components"]["schemas"]["AlbumDetailDto"].is_object());
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn artist_import_status_follows_the_job_and_can_be_retried(pool: PgPool) {
+    let server = mb_server().await;
+    let (_state, router) = app(&pool, &server);
+    let (status, body) = post_json(
+        router.clone(),
+        "/api/library",
+        json!({"type": "artist", "mbid": RADIOHEAD}),
+    )
+    .await;
+    assert_eq!(status, 202, "{body}");
+    let id = body["id"].as_i64().unwrap();
+    let artist_import = |router: axum::Router| async move {
+        let (s, v) = get_json(router, &format!("/api/artists/{id}")).await;
+        assert_eq!(s, 200);
+        v["artist"]["import"].clone()
+    };
+
+    // Задача ждёт своей очереди: «импортируем», попыток ещё нет, число попыток увеличено.
+    let v = artist_import(router.clone()).await;
+    assert_eq!(v["state"], "importing");
+    assert_eq!(v["attempt"], 0);
+    assert_eq!(v["max_attempts"], 8);
+    assert!(v["retry_at"].is_null());
+
+    // Неудачная попытка, будет повтор: «повторяем», когда и почему.
+    sqlx::query(
+        "UPDATE jobs SET attempts = 2, last_error = 'MusicBrainz is unavailable: rate limited',
+                run_after = now() + interval '2 minutes' WHERE kind = 'import_artist'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let v = artist_import(router.clone()).await;
+    assert_eq!(v["state"], "retrying");
+    assert_eq!(v["attempt"], 2);
+    assert!(v["retry_at"].is_string());
+    assert!(v["error"].as_str().unwrap().contains("rate limited"));
+
+    // Попытка идёт: снова «импортируем» (с прошлой ошибкой в подсказке).
+    sqlx::query("UPDATE jobs SET state = 'running', attempts = 3 WHERE kind = 'import_artist'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(artist_import(router.clone()).await["state"], "importing");
+
+    // Попытки исчерпаны.
+    sqlx::query("UPDATE jobs SET state = 'failed', attempts = 8 WHERE kind = 'import_artist'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let v = artist_import(router.clone()).await;
+    assert_eq!(v["state"], "failed");
+    assert!(v["retry_at"].is_null());
+
+    // Ручной повтор ставит новую задачу; повторный вызов её не дублирует.
+    for _ in 0..2 {
+        let (s, _) = post_json(
+            router.clone(),
+            &format!("/api/artists/{id}/import"),
+            json!({}),
+        )
+        .await;
+        assert_eq!(s, 202);
+    }
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM jobs WHERE state = 'queued'").await,
+        1
+    );
+    assert_eq!(artist_import(router.clone()).await["state"], "importing");
+
+    // Завершённая задача статуса не оставляет.
+    sqlx::query("UPDATE jobs SET state = 'done' WHERE state = 'queued'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(artist_import(router.clone()).await.is_null());
+
+    // Артиста вне библиотеки или несуществующего повторять нельзя.
+    let (s, _) = post_json(router, "/api/artists/99999/import", json!({})).await;
+    assert_eq!(s, 404);
+}

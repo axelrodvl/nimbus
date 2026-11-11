@@ -68,6 +68,31 @@ pub struct ArtistDto {
     pub album_count: i64,
     /// Треки артиста в библиотеке.
     pub track_count: i64,
+    /// Состояние импорта дискографии; `null`, если импорт завершён или не запускался.
+    pub import: Option<ImportStatusDto>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ImportState {
+    /// Импорт идёт или ждёт своей очереди.
+    Importing,
+    /// Попытка не удалась (обычно MusicBrainz недоступен), будет повтор.
+    Retrying,
+    /// Попытки исчерпаны: нужен ручной повтор.
+    Failed,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ImportStatusDto {
+    pub state: ImportState,
+    /// Сколько попыток уже начато.
+    pub attempt: i32,
+    pub max_attempts: i32,
+    /// Когда будет следующая попытка (только `retrying`).
+    pub retry_at: Option<DateTime<Utc>>,
+    /// Причина последней неудачи (для подсказки; текст от бэкенда, на английском).
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -117,9 +142,33 @@ pub enum PlaybackMode {
     Transcode,
 }
 
+fn import_status(a: &ArtistView) -> Option<ImportStatusDto> {
+    let attempt = a.import_attempts.unwrap_or(0);
+    let state = match (a.import_state.as_deref()?, attempt) {
+        ("running", _) | ("queued", 0) => ImportState::Importing,
+        ("queued", _) => ImportState::Retrying,
+        ("failed", _) => ImportState::Failed,
+        _ => return None,
+    };
+    Some(ImportStatusDto {
+        attempt,
+        error: a
+            .import_error
+            .clone()
+            .filter(|_| state != ImportState::Importing || attempt > 1),
+        max_attempts: a.import_max_attempts.unwrap_or(0),
+        retry_at: (state == ImportState::Retrying)
+            .then_some(a.import_run_after)
+            .flatten(),
+        state,
+    })
+}
+
 impl From<ArtistView> for ArtistDto {
     fn from(a: ArtistView) -> Self {
+        let import = import_status(&a);
         Self {
+            import,
             id: a.id,
             mbid: a.mbid,
             name: a.name,
@@ -500,6 +549,34 @@ pub async fn get_artist(
         artist: artist.into(),
         albums: albums.into_iter().map(Into::into).collect(),
     }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/artists/{id}/import",
+    tag = "library",
+    params(("id" = i64, Path)),
+    responses(
+        (status = 202, description = "Импорт дискографии поставлен в очередь (или уже идёт)"),
+        (status = 404, body = ErrorResponse),
+    )
+)]
+pub async fn retry_artist_import(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, ApiError> {
+    let artist = views::get_artist(&state.db, id)
+        .await?
+        .filter(|a| a.in_library)
+        .ok_or_else(|| ApiError::not_found("artist not found in the library"))?;
+    state.library.enqueue_import(artist.id).await?;
+    state
+        .events
+        .publish(nimbus_core::events::Event::LibraryChanged {
+            entity: nimbus_core::events::Entity::Artist,
+            id: artist.id,
+        });
+    Ok(StatusCode::ACCEPTED)
 }
 
 #[utoipa::path(

@@ -1,3 +1,4 @@
+import { ArtistImportStatus } from '@/features/library/components/artist-import-status';
 import { LibraryAlbumCard } from '@/features/library/components/library-cards';
 import { RemoveFromLibraryButton } from '@/features/library/components/remove-from-library-button';
 import { ArtistAvatar } from '@/features/search/components/artist-avatar';
@@ -21,6 +22,7 @@ export async function ArtistPage({ id }: { id: string }) {
               tracks: t('count.tracks', { count: artist.track_count }),
             })}
           </p>
+          {artist.import ? <ArtistImportStatus artistId={artist.id} status={artist.import} /> : null}
           {artist.in_library ? (
             <RemoveFromLibraryButton
               type="artist"
@@ -34,7 +36,7 @@ export async function ArtistPage({ id }: { id: string }) {
       <h2 className="mb-4">{t('artist.albums')}</h2>
       {albums.length === 0 ? (
         <p className="text-muted text-sm">
-          {artist.in_library ? t('artist.importing') : t('artist.noAlbums')}
+          {artist.import ? null : t('artist.noAlbums')}
         </p>
       ) : (
         <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">

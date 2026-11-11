@@ -68,6 +68,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/artists/{id}/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retry_artist_import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/login": {
         parameters: {
             query?: never;
@@ -562,6 +578,7 @@ export interface components {
             disambiguation?: string | null;
             /** Format: int64 */
             id: number;
+            import?: null | components["schemas"]["ImportStatusDto"];
             in_library: boolean;
             /** Format: uuid */
             mbid: string;
@@ -615,6 +632,25 @@ export interface components {
             jobs: components["schemas"]["JobsHealth"];
             status: string;
             version: string;
+        };
+        /** @enum {string} */
+        ImportState: "importing" | "retrying" | "failed";
+        ImportStatusDto: {
+            /**
+             * Format: int32
+             * @description Сколько попыток уже начато.
+             */
+            attempt: number;
+            /** @description Причина последней неудачи (для подсказки; текст от бэкенда, на английском). */
+            error?: string | null;
+            /** Format: int32 */
+            max_attempts: number;
+            /**
+             * Format: date-time
+             * @description Когда будет следующая попытка (только `retrying`).
+             */
+            retry_at?: string | null;
+            state: components["schemas"]["ImportState"];
         };
         JobsHealth: {
             /**
@@ -967,6 +1003,34 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ArtistDetailDto"];
                 };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    retry_artist_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Импорт дискографии поставлен в очередь (или уже идёт) */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             404: {
                 headers: {
