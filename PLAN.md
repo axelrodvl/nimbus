@@ -52,7 +52,7 @@
 | 10 | [x] | [Бэкенд: добавление в библиотеку и API библиотеки](docs/plan/10-library-backend.md) | 05, 07 |
 | 11 | [x] | [Фронтенд: библиотека, статусы, live-события](docs/plan/11-web-library-ui.md) | 09, 10 |
 | 12 | [x] | [Провайдеры торрентов: trait, TPB, Torznab](docs/plan/12-providers-tpb-torznab.md) | 04 |
-| 13 | [ ] | [Провайдер RuTracker](docs/plan/13-provider-rutracker.md) | 12 |
+| 13 | [x] | [Провайдер RuTracker](docs/plan/13-provider-rutracker.md) | 12 |
 | 14 | [ ] | [Задача поиска раздач (discover)](docs/plan/14-discover-job.md) | 10, 12 |
 | 15 | [ ] | [Торрент-движок: обёртка над librqbit](docs/plan/15-torrent-engine.md) | 03 |
 | 16 | [ ] | [Matcher: сопоставление файлов с треками](docs/plan/16-matcher.md) | 03 |
@@ -172,6 +172,11 @@ Web — порт `3000`, backend — `8080`, Postgres — `5432`.
 - Отклонения: ...
 - Важно для следующих шагов: ...
 -->
+
+### 2026-11-11 — шаг 13
+- Сделано: `trackers::rutracker::RutrackerProvider` (`RutrackerOptions`): reqwest с cookie jar, браузерный UA, таймаут 20 с, опциональный прокси; декодирование ответов и кодирование запроса/формы логина в cp1251 (`encoding_rs`, `encode_cp1251`); вход через `POST login.php` (капча → `Auth("captcha required: set NIMBUS_RUTRACKER_COOKIE")`, нет `bb_session` → `Auth`), либо готовая cookie (логин пропускается); разлогин (редирект на `login.php` или нет `#logged-in-username`) → один повторный вход, затем `Auth`; для режима «только cookie» — сразу `Auth("…update NIMBUS_RUTRACKER_COOKIE")`. Поиск `tracker.php?nm=…&o=10&s=2`, разбор `scraper` (селекторы — в модуле `sel`, музыкальная регулярка — константа `MUSIC_CATEGORY_RE`), размер из `data-ts_text` либо из текста «1.2 GB». `resolve`: сначала API `api.rutracker.cc` (magnet из `RUTRACKER_TRACKERS`), при `null`/ошибке — `viewtopic.php` → `a.magnet-link` (magnet с passkey не трогается). Сеть/таймаут → `Blocked` с подсказкой про `NIMBUS_RUTRACKER_PROXY`. Лимитер 1 запрос / 2 с. `ProviderRegistry::from_config` регистрирует RuTracker при логине+пароле или cookie (`from_config` теперь возвращает `ProviderError`). Тесты: 2 unit + 13 интеграционных (wiremock; cp1251-фикстуры `rutracker_*.html`, `rutracker_api*.json`) + живой `#[ignore]` (нужны креды в env).
+- Отклонения: **RuTracker из этого окружения недоступен** (`rutracker.org` → 403, `api.rutracker.cc` → «Temporarily disabled»), живой тест не запускался — провайдер проверен **только на фикстурах**, собранных вручную по описанной структуре страницы; селекторы на реальной вёрстке не сверены. Голое значение cookie без `=` трактуется как `bb_session=<значение>`. Сиды `-`/пусто/отрицательные → `None`.
+- Важно для следующих шагов: при первом реальном запуске с кредами прогнать `cargo test -p nimbus-trackers -- --ignored live_rutracker` и при расхождении поправить только константы в `rutracker::sel`. `resolve` для RuTracker может пойти в viewtopic (нужна сессия) — шаг 14 должен обрабатывать `Err` у отдельного кандидата и не ронять весь поиск. Шаг 22 переносит cookie в `settings`: `RutrackerOptions.cookie` задаётся при создании провайдера, для смены на лету потребуется пересоздавать провайдер в реестре.
 
 ### 2026-11-11 — шаг 12
 - Сделано: крейт `nimbus-trackers`: `TorrentProvider` (`search`, `resolve`), `SearchQuery`, `TorrentCandidate`, `ProviderError`; `build_magnet` + `PUBLIC_TRACKERS`; `TpbProvider` (apibay, строки-числа, «No results returned» → пусто, категории только 100–199, настраиваемый base URL); `TorznabProvider` (`t=music` → fallback `t=search&cat=3000`, `<torznab:attr>`, `leechers = peers - seeders`, `<error>` → `Auth`; `resolve` скачивает `.torrent` и считает info-hash — собственный разбор bencode + `sha1`); `ProviderRegistry::from_config` / `search_all` (параллельно, таймаут 20 с, сбой/таймаут одного не мешает остальным); `build_queries` (4 варианта, скобки убираются, `&`→`and` во второй). Лимитер `governor` 1 запрос / 2 с на провайдера. Тесты: 6 unit + 12 интеграционных (wiremock, фикстуры в `tests/fixtures/`, реальный ответ apibay `tpb_real.json` записан 2026-11-11) + живой `#[ignore]` — прошёл (`cargo test -p nimbus-trackers -- --ignored`).

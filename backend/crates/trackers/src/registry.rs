@@ -4,6 +4,7 @@ use std::time::Duration;
 use nimbus_core::config::Config;
 use nimbus_core::model::TorrentSource;
 
+use crate::rutracker::{RutrackerOptions, RutrackerProvider};
 use crate::torznab::TorznabProvider;
 use crate::tpb::TpbProvider;
 use crate::types::*;
@@ -25,13 +26,15 @@ impl ProviderRegistry {
         }
     }
 
-    /// TPB — при `tpb_enabled`, Torznab — при заданном `torznab_url`. RuTracker — шаг 13.
-    pub fn from_config(config: &Config) -> Result<Self, reqwest::Error> {
+    /// TPB — при `tpb_enabled`, Torznab — при заданном `torznab_url`,
+    /// RuTracker — при заданных логине+пароле или cookie.
+    pub fn from_config(config: &Config) -> Result<Self, ProviderError> {
         let http = reqwest::Client::builder()
             .user_agent("Mozilla/5.0 (compatible; Nimbus/0.1)")
             .connect_timeout(Duration::from_secs(10))
             .timeout(PROVIDER_TIMEOUT)
-            .build()?;
+            .build()
+            .map_err(ProviderError::from)?;
         let mut providers: Vec<Arc<dyn TorrentProvider>> = Vec::new();
         if config.tpb_enabled {
             providers.push(Arc::new(TpbProvider::new(http.clone())));
@@ -39,6 +42,16 @@ impl ProviderRegistry {
         if let Some(url) = &config.torznab_url {
             let key = config.torznab_api_key.as_deref().unwrap_or("");
             providers.push(Arc::new(TorznabProvider::new(http.clone(), url, key)));
+        }
+        let has_creds = config.rutracker_username.is_some() && config.rutracker_password.is_some();
+        if has_creds || config.rutracker_cookie.is_some() {
+            providers.push(Arc::new(RutrackerProvider::new(RutrackerOptions {
+                username: config.rutracker_username.clone(),
+                password: config.rutracker_password.clone(),
+                cookie: config.rutracker_cookie.clone(),
+                proxy: config.rutracker_proxy.clone(),
+                ..RutrackerOptions::default()
+            })?));
         }
         Ok(Self::new(providers))
     }
