@@ -43,7 +43,7 @@
 | 01 | [x] | [Монорепо и инфраструктура](docs/plan/01-monorepo-infra.md) | — |
 | 02 | [x] | [Импорт next-beats и инвентаризация](docs/plan/02-import-next-beats.md) | 01 |
 | 03 | [x] | [Каркас Rust-бэкенда](docs/plan/03-backend-skeleton.md) | 01 |
-| 04 | [ ] | [Схема БД, доменные модели, репозитории](docs/plan/04-db-schema.md) | 03 |
+| 04 | [x] | [Схема БД, доменные модели, репозитории](docs/plan/04-db-schema.md) | 03 |
 | 05 | [ ] | [Очередь задач, шина событий, WebSocket](docs/plan/05-jobs-events-ws.md) | 04 |
 | 06 | [ ] | [Клиент MusicBrainz](docs/plan/06-musicbrainz-client.md) | 04 |
 | 07 | [ ] | [API поиска + OpenAPI](docs/plan/07-search-api-openapi.md) | 06 |
@@ -172,6 +172,11 @@ Web — порт `3000`, backend — `8080`, Postgres — `5432`.
 - Отклонения: ...
 - Важно для следующих шагов: ...
 -->
+
+### 2026-11-11 — шаг 04
+- Сделано: миграция `0002_schema.sql` (artists, albums, tracks, torrents, torrent_files, album_torrents, track_sources, downloads, jobs, mb_cache — ровно по плану); `core::model` (enum'ы `TrackStatus/NotFoundReason/TorrentKind/MetaStatus/TorrentSource` как TEXT с ручными `Type/Encode/Decode`, `InfoHash` с hex/base32/`from_magnet`, строки таблиц с `FromRow`, структуры `New*`, `TrackFilter`, `RankedTorrent`); репозитории `db::repo::{artists, albums, tracks, torrents, album_torrents, track_sources, downloads, mb_cache}`. Тесты: 5 unit в core, 10 интеграционных в `crates/db/tests/repos.rs`. `just db-reset && just backend` — миграции применяются (11 таблиц), health ok; `backend-check` чисто.
+- Отклонения: запросы написаны через рантайм `sqlx::query_as`/`query` (не макросы `query!`) — из-за самописных text-enum'ов; поэтому `.sqlx/` и `cargo sqlx prepare` не нужны, `SQLX_OFFLINE=true cargo build` проходит. `sqlx` подключён в `core` (для `FromRow`/`Type`), `core` от `db` не зависит. Тестовый макрос: `#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]`.
+- Важно для следующих шагов: сигнатуры репозиториев — функции принимают `impl PgExecutor<'_>` (пул/транзакция), кроме `torrents::replace_files` и `track_sources::set_primary`, которым нужен `&PgPool` (внутри своя транзакция). `tracks.status_reason` в строке — `Option<String>`, при записи — `Option<NotFoundReason>`. `Torrent.info_hash` — `String` (в `NewTorrent` — `InfoHash`). `set_meta_status` увеличивает `meta_attempts` только при переходе в `fetching`. `tracks::upsert_by_mbid_track` конфликтует только по `mbid_track` (для треков без него — вставка новой строки, возможен конфликт `(album_id, disc_no, position)`). `list_*_in_library` — курсор по `id DESC`. Таблица `jobs` создана, репозиторий очереди — шаг 05.
 
 ### 2026-11-11 — шаг 03
 - Сделано: Rust-workspace `backend/` (крейты core, db, musicbrainz, trackers, matcher, torrent, worker, api; пакеты называются `nimbus-<имя>`, бинарник `nimbus` в `nimbus-api`), `Config::from_env` (ручной разбор, пустая строка = None), `db::connect/migrate/MIGRATOR` (`migrations/0001_init.sql` = `SELECT 1;`), `AppState`, роутер `/api` с TraceLayer и CORS, `GET /api/health`, `ApiError`, graceful shutdown, Dockerfile, рецепты `justfile` (backend, backend-test, backend-check, test, check). Тесты: 4 unit (конфиг) + 2 интеграционных (`#[sqlx::test]`: health, CORS). `cargo fmt`/`clippy -D warnings` чисто, `docker build backend` собирается, `curl /api/health` → `{"db":true,"status":"ok","version":"0.1.0"}`.
