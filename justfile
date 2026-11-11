@@ -20,6 +20,9 @@ psql:
 backend:
     cd backend && cargo run -p nimbus-api --bin nimbus
 
+openapi:
+    cd backend && cargo run -q -p nimbus-api --bin nimbus -- --print-openapi > ../web/openapi.json
+
 backend-test:
     cd backend && cargo test --workspace
 

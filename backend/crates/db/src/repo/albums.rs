@@ -73,3 +73,14 @@ pub async fn list_in_library(
     .fetch_all(db)
     .await
 }
+
+/// `(mbid_release_group, id)` для альбомов из `mbids`, добавленных в библиотеку.
+pub async fn library_ids_by_rg_mbid(
+    db: impl PgExecutor<'_>,
+    mbids: &[uuid::Uuid],
+) -> sqlx::Result<Vec<(uuid::Uuid, i64)>> {
+    sqlx::query_as("SELECT mbid_release_group, id FROM albums WHERE mbid_release_group = ANY($1) AND in_library")
+        .bind(mbids)
+        .fetch_all(db)
+        .await
+}

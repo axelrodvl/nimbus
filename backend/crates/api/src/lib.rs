@@ -1,6 +1,8 @@
 pub mod auth;
 pub mod error;
+pub mod openapi;
 pub mod routes;
+pub mod search;
 pub mod state;
 pub mod ws;
 

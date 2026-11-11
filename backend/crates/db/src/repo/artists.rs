@@ -66,3 +66,14 @@ pub async fn list_in_library(
     .fetch_all(db)
     .await
 }
+
+/// `(mbid, id)` для артистов из `mbids`, которые находятся в библиотеке.
+pub async fn library_ids_by_mbid(
+    db: impl PgExecutor<'_>,
+    mbids: &[Uuid],
+) -> sqlx::Result<Vec<(Uuid, i64)>> {
+    sqlx::query_as("SELECT mbid, id FROM artists WHERE mbid = ANY($1) AND in_library")
+        .bind(mbids)
+        .fetch_all(db)
+        .await
+}

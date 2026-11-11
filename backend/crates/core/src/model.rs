@@ -15,7 +15,7 @@ pub struct ParseEnumError {
 macro_rules! text_enum {
     ($(#[$meta:meta])* $name:ident { $($variant:ident => $s:literal),+ $(,)? }) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
         pub enum $name {
             $(#[serde(rename = $s)] $variant),+
         }

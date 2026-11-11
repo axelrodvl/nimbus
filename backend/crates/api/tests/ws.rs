@@ -1,25 +1,18 @@
-use std::sync::Arc;
+mod common;
+
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
 use nimbus_api::{build_router, AppState};
 use nimbus_core::events::{Entity, Event, EventBus};
 use nimbus_core::model::TrackStatus;
-use nimbus_core::Config;
 use sqlx::PgPool;
 use tokio_tungstenite::tungstenite::Message;
 
 fn state(pool: PgPool, events: EventBus) -> AppState {
-    let config = Config::from_map(&std::collections::HashMap::from([(
-        "DATABASE_URL",
-        "postgres://unused",
-    )]))
-    .unwrap();
-    AppState {
-        db: pool,
-        config: Arc::new(config),
-        events,
-    }
+    let mut s = common::state(pool);
+    s.events = events;
+    s
 }
 
 async fn serve(state: AppState) -> std::net::SocketAddr {

@@ -116,3 +116,19 @@ pub async fn list_in_library(
     .fetch_all(db)
     .await
 }
+
+/// `(mbid_recording, id, status)` для записей из `mbids`, находящихся в библиотеке
+/// (если запись есть в нескольких альбомах — трек с наименьшим `id`).
+pub async fn library_info_by_recording(
+    db: impl PgExecutor<'_>,
+    mbids: &[uuid::Uuid],
+) -> sqlx::Result<Vec<(uuid::Uuid, i64, TrackStatus)>> {
+    sqlx::query_as(
+        "SELECT DISTINCT ON (mbid_recording) mbid_recording, id, status
+         FROM tracks WHERE mbid_recording = ANY($1) AND in_library
+         ORDER BY mbid_recording, id",
+    )
+    .bind(mbids)
+    .fetch_all(db)
+    .await
+}

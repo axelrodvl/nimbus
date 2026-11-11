@@ -46,7 +46,7 @@
 | 04 | [x] | [Схема БД, доменные модели, репозитории](docs/plan/04-db-schema.md) | 03 |
 | 05 | [x] | [Очередь задач, шина событий, WebSocket](docs/plan/05-jobs-events-ws.md) | 04 |
 | 06 | [x] | [Клиент MusicBrainz](docs/plan/06-musicbrainz-client.md) | 04 |
-| 07 | [ ] | [API поиска + OpenAPI](docs/plan/07-search-api-openapi.md) | 06 |
+| 07 | [x] | [API поиска + OpenAPI](docs/plan/07-search-api-openapi.md) | 06 |
 | 08 | [ ] | [Фронтенд: отвязка от Prisma и синтеза, API-клиент](docs/plan/08-web-data-layer.md) | 02, 07 |
 | 09 | [ ] | [Фронтенд: поиск](docs/plan/09-web-search-ui.md) | 08 |
 | 10 | [ ] | [Бэкенд: добавление в библиотеку и API библиотеки](docs/plan/10-library-backend.md) | 05, 07 |
@@ -172,6 +172,11 @@ Web — порт `3000`, backend — `8080`, Postgres — `5432`.
 - Отклонения: ...
 - Важно для следующих шагов: ...
 -->
+
+### 2026-11-11 — шаг 07
+- Сделано: `utoipa` 5 подключён; `GET /api/openapi.json`, `nimbus --print-openapi` (разбор до подключения к БД), `just openapi` → `web/openapi.json` (закоммичен); `GET /api/search?q=&types=&limit=` (три запроса к MB конкурентно, общий таймаут 12 с с частичной выдачей в `errors`, обогащение `library_id`/`status` одним SQL на тип; `q` < 3 символов → только артисты; ошибки `bad_query`/`bad_limit`/`bad_types`). В OpenAPI зарегистрированы `/api/health`, `/api/search`, `/api/ws`, `/api/debug/jobs`; DTO ошибок `ErrorResponse`. Тесты: 7 интеграционных поиска/OpenAPI (wiremock + `#[sqlx::test]`) + unit; `health`/`ws` тесты переведены на `tests/common`. Вручную с живым MB: `q=radiohead` → «Radiohead», 3/3/3 результата, холодный запрос 2.35 с, повторный 20 мс (кэш).
+- Отклонения: SSE `/api/search/stream` и Swagger UI не делались (необязательные). `TrackStatus` и прочие text-enum'ы в `core` получили `utoipa::ToSchema` (зависимость `utoipa` в `core`). Эндпоинт `/api/debug/jobs` описан с `body = Object`. Лимит > 25 или < 1 отклоняется (400 `bad_limit`), а не обрезается.
+- Важно для следующих шагов: **каждый новый эндпоинт и DTO нужно добавлять в `openapi::ApiDoc` (`paths(...)`, `components(schemas(...))`)** и после изменений запускать `just openapi`. `AppState::new(db, config, events, mb)` — единственный конструктор (+ поле `search_timeout`); `AppState.mb` — интерактивный `MbClient` (для фоновых задач — `state.mb.background()`). Для тестов API есть общий `crates/api/tests/common` (`state`, `state_with_mb`, `mb_client` на wiremock, `get_json`). Пути в `#[utoipa::path]` указываются полностью (`/api/...`).
 
 ### 2026-11-11 — шаг 06
 - Сделано: крейт `nimbus-musicbrainz`: `MbClient` (`Clone`, общий лимитер/кэш/single-flight), `get_json` (кэш `mb_cache` → single-flight через `Shared` → лимитер → HTTP, повторы 503/429 до 3 раз с `Retry-After`/2 с), приоритеты (`Interactive` по умолчанию, `client.background()` для массовых lookup'ов; лимитер собственный, а не `governor`, интервал 1.1 с настраивается), `lucene_escape` и `search_query` (термы + `*` на последнем ≥ 3 символов), методы `search_artists/release_groups/recordings`, `artist`, `release_group`, `artist_release_groups` (пагинация по 100), `pick_canonical_release` (+ `score_release`/`pick_canonical`, запасной запрос без `status=official`), `release_tracklist`, `cover_url`. TTL: поиск 24 ч, lookup 7 дней. Тесты: 9 unit + 19 интеграционных (wiremock + `#[sqlx::test]`: парсинг, 503→успех, исчерпание повторов, 404, single-flight, кэш и TTL, интервал лимитера, приоритет, пагинация, реальные ответы) + 1 живой `#[ignore]` — прошёл (`cargo test -p nimbus-musicbrainz -- --ignored`).

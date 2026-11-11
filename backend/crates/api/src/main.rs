@@ -4,12 +4,19 @@ use anyhow::Context;
 use nimbus_api::{build_router, AppState};
 use nimbus_core::events::EventBus;
 use nimbus_core::Config;
+use nimbus_musicbrainz::MbClient;
 use nimbus_worker::handlers::default_handlers;
 use nimbus_worker::{JobCtx, WorkerConfig, WorkerPool};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Разбор аргументов — до подключения к БД: `--print-openapi` работает без окружения.
+    if std::env::args().skip(1).any(|a| a == "--print-openapi") {
+        println!("{}", nimbus_api::openapi::openapi().to_pretty_json()?);
+        return Ok(());
+    }
+
     // В dev подхватываем .env из корня репозитория (ищется вверх по каталогам).
     let _ = dotenvy::dotenv();
 
@@ -39,11 +46,9 @@ async fn main() -> anyhow::Result<()> {
         default_handlers(),
         WorkerConfig::default(),
     );
-    let state = AppState {
-        db,
-        config: Arc::new(config),
-        events,
-    };
+    let mb = MbClient::new(&config.mb_user_agent, Some(db.clone()))
+        .context("cannot create MusicBrainz client")?;
+    let state = AppState::new(db, Arc::new(config), events, mb);
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind(bind)

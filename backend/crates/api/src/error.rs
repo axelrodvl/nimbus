@@ -1,7 +1,20 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde_json::json;
+use serde::Serialize;
+use utoipa::ToSchema;
+
+/// Тело ошибки: `{ "error": { "code": "...", "message": "..." } }`.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ErrorResponse {
+    pub error: ErrorBody,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ErrorBody {
+    pub code: String,
+    pub message: String,
+}
 
 #[derive(Debug)]
 pub struct ApiError {
@@ -38,7 +51,12 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let body = Json(json!({ "error": { "code": self.code, "message": self.message } }));
+        let body = Json(ErrorResponse {
+            error: ErrorBody {
+                code: self.code,
+                message: self.message,
+            },
+        });
         (self.status, body).into_response()
     }
 }

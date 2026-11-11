@@ -1,0 +1,433 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Nimbus API",
+    "description": "Бэкенд веб-плеера Nimbus: метаданные MusicBrainz, музыка из торрентов.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/debug/jobs": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "debug_jobs",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Список задач (только debug / NIMBUS_DEBUG=true)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Сервис работает, БД доступна",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/search": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "operationId": "search",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Строка поиска, 1..200 символов.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "types",
+            "in": "query",
+            "description": "Через запятую: `artist,album,track` (по умолчанию все).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1..25, по умолчанию 8.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Результаты поиска",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Некорректный запрос (bad_query, bad_types, bad_limit)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ws": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Только документация: сам обработчик — `ws::ws_handler`.",
+        "operationId": "ws_doc",
+        "responses": {
+          "101": {
+            "description": "WebSocket: события `track.status`, `job.progress`, `stream.progress`, `library.changed`, `resync`"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AlbumResult": {
+        "type": "object",
+        "required": [
+          "mbid",
+          "title",
+          "artist_mbid",
+          "artist_name",
+          "secondary_types",
+          "cover_url",
+          "score"
+        ],
+        "properties": {
+          "artist_mbid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "artist_name": {
+            "type": "string"
+          },
+          "cover_url": {
+            "type": "string"
+          },
+          "library_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "mbid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "primary_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "score": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "secondary_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "title": {
+            "type": "string"
+          },
+          "year": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "ArtistResult": {
+        "type": "object",
+        "required": [
+          "mbid",
+          "name",
+          "score"
+        ],
+        "properties": {
+          "country": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "disambiguation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "library_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "`id` в нашей БД, если артист добавлен в библиотеку."
+          },
+          "mbid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "score": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ErrorBody": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "description": "Тело ошибки: `{ \"error\": { \"code\": \"...\", \"message\": \"...\" } }`.",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorBody"
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "db",
+          "version"
+        ],
+        "properties": {
+          "db": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "SearchResponse": {
+        "type": "object",
+        "required": [
+          "query",
+          "artists",
+          "albums",
+          "tracks",
+          "errors"
+        ],
+        "properties": {
+          "albums": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlbumResult"
+            }
+          },
+          "artists": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtistResult"
+            }
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Если часть запросов к MusicBrainz не удалась — остальное всё равно отдаётся."
+          },
+          "query": {
+            "type": "string"
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrackResult"
+            }
+          }
+        }
+      },
+      "TrackResult": {
+        "type": "object",
+        "required": [
+          "mbid",
+          "title",
+          "artist_mbid",
+          "artist_name",
+          "score"
+        ],
+        "properties": {
+          "album_mbid": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "album_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "artist_mbid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "artist_name": {
+            "type": "string"
+          },
+          "cover_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duration_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "library_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "mbid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "score": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TrackStatus"
+              }
+            ]
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "TrackStatus": {
+        "type": "string",
+        "description": "Статус трека (жизненный цикл см. PLAN.md).",
+        "enum": [
+          "Adding",
+          "Found",
+          "NotFound",
+          "Ready"
+        ]
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "system",
+      "description": "Служебные эндпоинты"
+    },
+    {
+      "name": "search",
+      "description": "Поиск в MusicBrainz"
+    }
+  ]
+}
