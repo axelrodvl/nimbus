@@ -1,0 +1,76 @@
+{
+  "id": "c0000000-0000-4000-8000-000000000002",
+  "title": "OK Computer",
+  "status": "Official",
+  "date": "2008-01-01",
+  "media": [
+    {
+      "position": 1,
+      "format": "Digital Media",
+      "title": "",
+      "track-count": 3,
+      "tracks": [
+        {
+          "id": "e0000000-0000-4000-8000-000000000001",
+          "number": "1",
+          "position": 1,
+          "title": "Airbag",
+          "length": 284000,
+          "recording": {
+            "id": "f0000000-0000-4000-8000-000000000001",
+            "title": "Airbag",
+            "length": 284000,
+            "video": false
+          }
+        },
+        {
+          "id": "e0000000-0000-4000-8000-000000000002",
+          "number": "2",
+          "position": 2,
+          "title": "Paranoid Android",
+          "length": null,
+          "recording": {
+            "id": "f0000000-0000-4000-8000-000000000002",
+            "title": "Paranoid Android",
+            "length": 387000,
+            "video": false
+          }
+        },
+        {
+          "id": "e0000000-0000-4000-8000-000000000003",
+          "number": "3",
+          "position": 3,
+          "title": "Subterranean Homesick Alien",
+          "length": null,
+          "recording": {
+            "id": "f0000000-0000-4000-8000-000000000003",
+            "title": "Subterranean Homesick Alien",
+            "length": null,
+            "video": false
+          }
+        }
+      ]
+    },
+    {
+      "position": 2,
+      "format": "Digital Media",
+      "title": "Bonus",
+      "track-count": 1,
+      "tracks": [
+        {
+          "id": "e0000000-0000-4000-8000-000000000004",
+          "number": "1",
+          "position": 1,
+          "title": "Lift",
+          "length": 259000,
+          "recording": {
+            "id": "f0000000-0000-4000-8000-000000000004",
+            "title": "Lift",
+            "length": 259000,
+            "video": false
+          }
+        }
+      ]
+    }
+  ]
+}

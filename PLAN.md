@@ -45,7 +45,7 @@
 | 03 | [x] | [Каркас Rust-бэкенда](docs/plan/03-backend-skeleton.md) | 01 |
 | 04 | [x] | [Схема БД, доменные модели, репозитории](docs/plan/04-db-schema.md) | 03 |
 | 05 | [x] | [Очередь задач, шина событий, WebSocket](docs/plan/05-jobs-events-ws.md) | 04 |
-| 06 | [ ] | [Клиент MusicBrainz](docs/plan/06-musicbrainz-client.md) | 04 |
+| 06 | [x] | [Клиент MusicBrainz](docs/plan/06-musicbrainz-client.md) | 04 |
 | 07 | [ ] | [API поиска + OpenAPI](docs/plan/07-search-api-openapi.md) | 06 |
 | 08 | [ ] | [Фронтенд: отвязка от Prisma и синтеза, API-клиент](docs/plan/08-web-data-layer.md) | 02, 07 |
 | 09 | [ ] | [Фронтенд: поиск](docs/plan/09-web-search-ui.md) | 08 |
@@ -172,6 +172,11 @@ Web — порт `3000`, backend — `8080`, Postgres — `5432`.
 - Отклонения: ...
 - Важно для следующих шагов: ...
 -->
+
+### 2026-11-11 — шаг 06
+- Сделано: крейт `nimbus-musicbrainz`: `MbClient` (`Clone`, общий лимитер/кэш/single-flight), `get_json` (кэш `mb_cache` → single-flight через `Shared` → лимитер → HTTP, повторы 503/429 до 3 раз с `Retry-After`/2 с), приоритеты (`Interactive` по умолчанию, `client.background()` для массовых lookup'ов; лимитер собственный, а не `governor`, интервал 1.1 с настраивается), `lucene_escape` и `search_query` (термы + `*` на последнем ≥ 3 символов), методы `search_artists/release_groups/recordings`, `artist`, `release_group`, `artist_release_groups` (пагинация по 100), `pick_canonical_release` (+ `score_release`/`pick_canonical`, запасной запрос без `status=official`), `release_tracklist`, `cover_url`. TTL: поиск 24 ч, lookup 7 дней. Тесты: 9 unit + 19 интеграционных (wiremock + `#[sqlx::test]`: парсинг, 503→успех, исчерпание повторов, 404, single-flight, кэш и TTL, интервал лимитера, приоритет, пагинация, реальные ответы) + 1 живой `#[ignore]` — прошёл (`cargo test -p nimbus-musicbrainz -- --ignored`).
+- Отклонения: в `ArtistHit` добавлено поле `sort_name: Option<String>` (нужно `NewArtist` на шаге 10). Лимитер реализован вручную (без `governor`). Фикстуры: сценарные (`tests/fixtures/*.json`) составлены вручную по формату MB — на них проверяются детерминированные сценарии; рядом лежат реальные ответы `real_*.json` (записаны 2026-11-11), на них проверяется, что разбор работает с настоящим API. При записи фикстур MB временно отказывал в TLS-соединении после серии запросов подряд (7 за ~10 с) и отвечал «throttled» — запросы к реальному API нужно держать ≥ 1 с друг от друга (в тестах/скриптах 3 с).
+- Важно для следующих шагов: `MbClient::new(&config.mb_user_agent, Some(pool))`; для фоновых задач (шаги 10, 14) использовать `client.background()`, для запросов пользователя (шаг 07) — сам клиент. `artist_release_groups(artist, &["album","ep"])`. Ошибки — `MbError` (`NotFound`, `RateLimited`, `Http`, `Transport`, `Parse`), он `Clone`. `release_tracklist` отдаёт `disc_no` из `media[].position`, длина — `track.length` либо `recording.length`. `RecordingHit.release_group_mbid` выбирается по правилу Album без secondary types > EP > Single > прочее, Official раньше, ранняя дата.
 
 ### 2026-11-11 — шаг 05
 - Сделано: `core::jobs::Job` (+ `to_parts/from_parts`, `dedup_key`), `core::events::{Event, EventBus, JobStage, Entity}`; `db::repo::jobs` (`enqueue` с `pg_notify` в одном операторе, `claim`, `complete`, `fail`, `requeue_stale`, `purge_done`, `list`), `db::helpers::set_track_status_and_publish`; `worker::{JobHandler, JobError, JobCtx, WorkerConfig, WorkerPool}` (LISTEN/NOTIFY + опрос раз в 5 с, backoff `30с·2^(n-1)` до 30 мин, паника изолирована через `tokio::spawn`, graceful shutdown 10 с, обслуживание очереди раз в минуту) и заглушки handler'ов (`discover_*` ×2, `verify_torrent` ×4); `api`: `GET /api/ws` (ping 25 с, таймаут 60 с, `{"type":"resync"}` при Lagged), `GET /api/debug/jobs?state=&limit=`, гард `auth::authorize` (пока пропускает всех), `AppState.events`. Тесты: 5 (очередь) + 5 (раннер) + 3 (WS/debug) + unit'ы; весь workspace и `backend-check` зелёные. Вручную: задача, вставленная в БД, подхвачена воркером и завершена, shutdown корректный.

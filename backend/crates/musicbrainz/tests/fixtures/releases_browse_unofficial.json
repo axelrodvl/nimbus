@@ -1,0 +1,21 @@
+{
+  "release-count": 1,
+  "release-offset": 0,
+  "releases": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000009",
+      "title": "OK Computer",
+      "status": "Bootleg",
+      "date": "2010",
+      "country": "US",
+      "media": [
+        {
+          "position": 1,
+          "format": "CD",
+          "track-count": 10,
+          "title": ""
+        }
+      ]
+    }
+  ]
+}

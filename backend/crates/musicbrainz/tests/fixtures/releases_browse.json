@@ -1,0 +1,78 @@
+{
+  "release-count": 4,
+  "release-offset": 0,
+  "releases": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000001",
+      "title": "OK Computer",
+      "status": "Official",
+      "date": "1997-06-16",
+      "country": "GB",
+      "media": [
+        {
+          "position": 1,
+          "format": "CD",
+          "track-count": 12,
+          "title": ""
+        }
+      ]
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000002",
+      "title": "OK Computer",
+      "status": "Official",
+      "date": "2008-01-01",
+      "country": "XW",
+      "media": [
+        {
+          "position": 1,
+          "format": "Digital Media",
+          "track-count": 12,
+          "title": ""
+        }
+      ]
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000003",
+      "title": "OK Computer",
+      "status": "Official",
+      "date": "2017-06-23",
+      "country": "XW",
+      "media": [
+        {
+          "position": 1,
+          "format": "Digital Media",
+          "track-count": 12,
+          "title": ""
+        },
+        {
+          "position": 2,
+          "format": "Digital Media",
+          "track-count": 12,
+          "title": ""
+        }
+      ]
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000004",
+      "title": "OK Computer",
+      "status": "Official",
+      "date": "1997-06-16",
+      "country": "US",
+      "media": [
+        {
+          "position": 1,
+          "format": "12\" Vinyl",
+          "track-count": 6,
+          "title": ""
+        },
+        {
+          "position": 2,
+          "format": "12\" Vinyl",
+          "track-count": 6,
+          "title": ""
+        }
+      ]
+    }
+  ]
+}

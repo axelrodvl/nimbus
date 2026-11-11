@@ -1,0 +1,35 @@
+{
+  "created": "2026-11-11T12:00:00.000Z",
+  "count": 2,
+  "offset": 0,
+  "artists": [
+    {
+      "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+      "type": "Group",
+      "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
+      "score": 100,
+      "name": "Radiohead",
+      "sort-name": "Radiohead",
+      "country": "GB",
+      "area": {
+        "id": "8a754a16-0027-3a29-b6d7-2b40ea0481ed",
+        "type": "Country",
+        "name": "United Kingdom",
+        "sort-name": "United Kingdom"
+      },
+      "life-span": {
+        "begin": "1991",
+        "ended": false
+      },
+      "disambiguation": ""
+    },
+    {
+      "id": "5c2c3f0e-4b3f-4d8f-9b8b-0d1f7a2b6e10",
+      "type": "Person",
+      "score": 62,
+      "name": "Radio Head",
+      "sort-name": "Head, Radio",
+      "disambiguation": "UK DJ"
+    }
+  ]
+}
