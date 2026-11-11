@@ -28,6 +28,7 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
         .route("/artists/{id}", get(library::get_artist))
         .route("/albums/{id}", get(library::get_album))
         .route("/tracks/{id}", get(library::get_track))
+        .route("/tracks/{id}/stream", get(crate::stream::stream_track))
         .route("/ws", get(ws_handler));
     if cfg!(debug_assertions) || state.config.debug {
         r = r

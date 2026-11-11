@@ -62,6 +62,12 @@ async fn main() -> anyhow::Result<()> {
         WorkerConfig::default(),
     );
     let state = AppState::new(db, Arc::new(config), events, mb).with_engine(engine.clone());
+    match nimbus_api::stream::reconcile_downloads(&state).await {
+        Ok(0) => {}
+        Ok(n) => tracing::warn!(count = n, "reset downloads whose files are missing"),
+        Err(e) => tracing::warn!(error = %e, "downloads reconcile failed"),
+    }
+    let watcher = nimbus_api::stream::spawn_watcher(state.clone());
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind(bind)
@@ -71,6 +77,7 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
+    watcher.abort();
     workers.shutdown().await;
     engine.shutdown().await;
     tracing::info!("shutdown complete");

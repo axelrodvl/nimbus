@@ -5,7 +5,7 @@ use nimbus_core::events::EventBus;
 use nimbus_core::Config;
 use nimbus_library::LibraryService;
 use nimbus_musicbrainz::MbClient;
-use nimbus_torrent::TorrentEngine;
+use nimbus_torrent::{FileProvider, TorrentEngine};
 use sqlx::PgPool;
 
 #[derive(Clone)]
@@ -17,6 +17,10 @@ pub struct AppState {
     pub library: LibraryService,
     /// Торрент-движок (в тестах без торрентов отсутствует).
     pub engine: Option<Arc<TorrentEngine>>,
+    /// Источник файлов для стриминга (по умолчанию — движок; в тестах — фейк).
+    pub files: Option<Arc<dyn FileProvider>>,
+    /// Сколько ждать первых байт стрима, прежде чем ответить `504 no_peers`.
+    pub first_byte_timeout: Duration,
     /// Общий таймаут эндпоинта поиска.
     pub search_timeout: Duration,
 }
@@ -26,6 +30,8 @@ impl AppState {
         Self {
             library: LibraryService::new(db.clone(), mb.clone(), events.clone()),
             engine: None,
+            files: None,
+            first_byte_timeout: Duration::from_secs(60),
             db,
             config,
             events,
@@ -35,7 +41,13 @@ impl AppState {
     }
 
     pub fn with_engine(mut self, engine: Arc<TorrentEngine>) -> Self {
+        self.files = Some(engine.clone());
         self.engine = Some(engine);
+        self
+    }
+
+    pub fn with_files(mut self, files: Arc<dyn FileProvider>) -> Self {
+        self.files = Some(files);
         self
     }
 }

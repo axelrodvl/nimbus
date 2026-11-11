@@ -123,6 +123,47 @@ impl MetadataFetcher for TorrentEngine {
     }
 }
 
+/// Доступ к файлам торрентов для стриминга (реализуется движком и фейком в тестах API).
+#[async_trait::async_trait]
+pub trait FileProvider: Send + Sync {
+    async fn ensure_file(
+        &self,
+        magnet: &str,
+        file_index: usize,
+    ) -> Result<TorrentHandleId, EngineError>;
+    async fn open_stream(
+        &self,
+        id: &TorrentHandleId,
+        file_index: usize,
+    ) -> Result<Box<dyn AsyncReadSeek + Send + Unpin>, EngineError>;
+    fn file_progress(&self, id: &TorrentHandleId, file_index: usize) -> Option<FileProgress>;
+    fn file_path(&self, id: &TorrentHandleId, file_index: usize) -> Option<PathBuf>;
+}
+
+#[async_trait::async_trait]
+impl FileProvider for TorrentEngine {
+    async fn ensure_file(
+        &self,
+        magnet: &str,
+        file_index: usize,
+    ) -> Result<TorrentHandleId, EngineError> {
+        TorrentEngine::ensure_file(self, magnet, file_index).await
+    }
+    async fn open_stream(
+        &self,
+        id: &TorrentHandleId,
+        file_index: usize,
+    ) -> Result<Box<dyn AsyncReadSeek + Send + Unpin>, EngineError> {
+        TorrentEngine::open_stream(self, id, file_index).await
+    }
+    fn file_progress(&self, id: &TorrentHandleId, file_index: usize) -> Option<FileProgress> {
+        TorrentEngine::file_progress(self, id, file_index)
+    }
+    fn file_path(&self, id: &TorrentHandleId, file_index: usize) -> Option<PathBuf> {
+        TorrentEngine::file_path(self, id, file_index)
+    }
+}
+
 pub trait AsyncReadSeek: AsyncRead + AsyncSeek {}
 impl<T: AsyncRead + AsyncSeek> AsyncReadSeek for T {}
 

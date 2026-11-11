@@ -61,3 +61,54 @@ pub async fn touch_played(
     .await?;
     Ok(())
 }
+
+/// Незавершённые загрузки (для наблюдателя прогресса).
+pub async fn list_active(db: impl PgExecutor<'_>) -> sqlx::Result<Vec<Download>> {
+    sqlx::query_as(
+        "SELECT * FROM downloads WHERE completed_at IS NULL ORDER BY torrent_id, file_index",
+    )
+    .fetch_all(db)
+    .await
+}
+
+/// Завершённые загрузки (для проверки наличия файлов при старте).
+pub async fn list_completed(db: impl PgExecutor<'_>) -> sqlx::Result<Vec<Download>> {
+    sqlx::query_as(
+        "SELECT * FROM downloads WHERE completed_at IS NOT NULL ORDER BY torrent_id, file_index",
+    )
+    .fetch_all(db)
+    .await
+}
+
+pub async fn update_progress(
+    db: impl PgExecutor<'_>,
+    torrent_id: i64,
+    file_index: i32,
+    bytes_done: i64,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "UPDATE downloads SET bytes_done = $3 WHERE torrent_id = $1 AND file_index = $2 AND completed_at IS NULL",
+    )
+    .bind(torrent_id)
+    .bind(file_index)
+    .bind(bytes_done)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Файл пропал с диска: загрузка снова считается незавершённой.
+pub async fn reset_completed(
+    db: impl PgExecutor<'_>,
+    torrent_id: i64,
+    file_index: i32,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "UPDATE downloads SET completed_at = NULL, bytes_done = 0 WHERE torrent_id = $1 AND file_index = $2",
+    )
+    .bind(torrent_id)
+    .bind(file_index)
+    .execute(db)
+    .await?;
+    Ok(())
+}

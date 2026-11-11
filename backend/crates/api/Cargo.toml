@@ -14,6 +14,7 @@ nimbus-torrent.workspace = true
 utoipa.workspace = true
 uuid.workspace = true
 futures.workspace = true
+tokio-util = { workspace = true, features = ["io"] }
 chrono.workspace = true
 tokio.workspace = true
 axum.workspace = true
@@ -31,6 +32,8 @@ dotenvy.workspace = true
 http-body-util = "0.1"
 wiremock.workspace = true
 tokio-tungstenite = "0.26"
+rand = "0.9"
+async-trait.workspace = true
 
 [[bin]]
 name = "nimbus"

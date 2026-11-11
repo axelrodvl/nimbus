@@ -67,3 +67,37 @@ pub async fn set_primary(
     tx.commit().await?;
     Ok(src)
 }
+
+/// Треки, у которых primary-источник — файл `(torrent_id, file_index)`, в статусе `status`.
+pub async fn tracks_with_primary(
+    db: impl PgExecutor<'_>,
+    torrent_id: i64,
+    file_index: i32,
+    status: nimbus_core::model::TrackStatus,
+) -> sqlx::Result<Vec<nimbus_core::model::Track>> {
+    sqlx::query_as(
+        "SELECT t.* FROM track_sources ts JOIN tracks t ON t.id = ts.track_id
+         WHERE ts.torrent_id = $1 AND ts.file_index = $2 AND ts.is_primary AND t.status = $3
+         ORDER BY t.id",
+    )
+    .bind(torrent_id)
+    .bind(file_index)
+    .bind(status)
+    .fetch_all(db)
+    .await
+}
+
+/// Треки с primary на этот файл в любом статусе (для событий прогресса).
+pub async fn track_ids_with_primary(
+    db: impl PgExecutor<'_>,
+    torrent_id: i64,
+    file_index: i32,
+) -> sqlx::Result<Vec<i64>> {
+    sqlx::query_scalar(
+        "SELECT track_id FROM track_sources WHERE torrent_id = $1 AND file_index = $2 AND is_primary ORDER BY track_id",
+    )
+    .bind(torrent_id)
+    .bind(file_index)
+    .fetch_all(db)
+    .await
+}

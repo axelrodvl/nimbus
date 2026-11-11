@@ -2287,6 +2287,7 @@ name = "nimbus-api"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "chrono",
  "dotenvy",
@@ -2299,11 +2300,13 @@ dependencies = [
  "nimbus-torrent",
  "nimbus-trackers",
  "nimbus-worker",
+ "rand 0.9.5",
  "serde",
  "serde_json",
  "sqlx",
  "tokio",
  "tokio-tungstenite 0.26.2",
+ "tokio-util",
  "tower",
  "tower-http",
  "tracing",

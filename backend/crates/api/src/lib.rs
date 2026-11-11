@@ -6,6 +6,7 @@ pub mod openapi;
 pub mod routes;
 pub mod search;
 pub mod state;
+pub mod stream;
 pub mod ws;
 
 use axum::http::{header, HeaderValue, Method};

@@ -23,6 +23,7 @@ use crate::{library, routes, search};
         library::get_artist,
         library::get_album,
         library::get_track,
+        crate::stream::stream_track,
     ),
     components(schemas(
         routes::HealthResponse,
