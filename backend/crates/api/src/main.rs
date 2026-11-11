@@ -38,16 +38,17 @@ async fn main() -> anyhow::Result<()> {
 
     let bind = config.bind;
     let events = EventBus::new();
+    let mb = MbClient::new(&config.mb_user_agent, Some(db.clone()))
+        .context("cannot create MusicBrainz client")?;
     let workers = WorkerPool::spawn(
         JobCtx {
             db: db.clone(),
             events: events.clone(),
+            mb: mb.clone(),
         },
         default_handlers(),
         WorkerConfig::default(),
     );
-    let mb = MbClient::new(&config.mb_user_agent, Some(db.clone()))
-        .context("cannot create MusicBrainz client")?;
     let state = AppState::new(db, Arc::new(config), events, mb);
     let app = build_router(state);
 

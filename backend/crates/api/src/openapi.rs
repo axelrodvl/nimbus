@@ -1,6 +1,6 @@
 use utoipa::OpenApi;
 
-use crate::{routes, search};
+use crate::{library, routes, search};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -8,7 +8,20 @@ use crate::{routes, search};
         title = "Nimbus API",
         description = "Бэкенд веб-плеера Nimbus: метаданные MusicBrainz, музыка из торрентов."
     ),
-    paths(routes::health, routes::debug_jobs, routes::ws_doc, search::search),
+    paths(
+        routes::health,
+        routes::debug_jobs,
+        routes::ws_doc,
+        search::search,
+        library::add_to_library,
+        library::remove_from_library,
+        library::list_artists,
+        library::list_albums,
+        library::list_tracks,
+        library::get_artist,
+        library::get_album,
+        library::get_track,
+    ),
     components(schemas(
         routes::HealthResponse,
         crate::error::ErrorResponse,
@@ -17,11 +30,25 @@ use crate::{routes, search};
         search::ArtistResult,
         search::AlbumResult,
         search::TrackResult,
+        library::StatusCounts,
+        library::ArtistDto,
+        library::AlbumDto,
+        library::TrackDto,
+        library::ArtistPage,
+        library::AlbumPage,
+        library::TrackPage,
+        library::ArtistDetailDto,
+        library::AlbumDetailDto,
+        library::LibraryKind,
+        library::AddToLibraryRequest,
+        library::AddStatus,
+        library::AddToLibraryResponse,
         nimbus_core::model::TrackStatus,
     )),
     tags(
         (name = "system", description = "Служебные эндпоинты"),
         (name = "search", description = "Поиск в MusicBrainz"),
+        (name = "library", description = "Библиотека: добавление, списки, страницы артиста и альбома"),
     )
 )]
 pub struct ApiDoc;

@@ -10,3 +10,4 @@ pub mod mb_cache;
 pub mod torrents;
 pub mod track_sources;
 pub mod tracks;
+pub mod views;

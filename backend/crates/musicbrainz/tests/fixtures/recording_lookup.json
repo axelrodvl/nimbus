@@ -1,0 +1,31 @@
+{
+  "id": "f0000000-0000-4000-8000-000000000002",
+  "title": "Paranoid Android",
+  "length": 387000,
+  "artist-credit": [
+    {
+      "name": "Radiohead",
+      "joinphrase": "",
+      "artist": {
+        "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+        "name": "Radiohead",
+        "sort-name": "Radiohead",
+        "disambiguation": ""
+      }
+    }
+  ],
+  "releases": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000002",
+      "status": "Official",
+      "date": "2008-01-01",
+      "title": "OK Computer",
+      "release-group": {
+        "id": "b1392450-e666-3926-a536-22c65f834433",
+        "title": "OK Computer",
+        "primary-type": "Album",
+        "secondary-types": []
+      }
+    }
+  ]
+}

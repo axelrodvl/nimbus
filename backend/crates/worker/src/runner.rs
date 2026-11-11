@@ -6,17 +6,20 @@ use chrono::Utc;
 use nimbus_core::events::EventBus;
 use nimbus_core::jobs::Job;
 use nimbus_db::repo::jobs::{self, JobRow};
+use nimbus_musicbrainz::MbClient;
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-/// Контекст, доступный обработчикам (следующие шаги добавят сюда mb, trackers, torrent).
+/// Контекст, доступный обработчикам (следующие шаги добавят сюда trackers, torrent).
 #[derive(Clone)]
 pub struct JobCtx {
     pub db: PgPool,
     pub events: EventBus,
+    /// Клиент MusicBrainz с интерактивным приоритетом; фоновым задачам нужен `mb.background()`.
+    pub mb: MbClient,
 }
 
 #[derive(Debug, thiserror::Error)]

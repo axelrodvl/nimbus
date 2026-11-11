@@ -542,3 +542,20 @@ async fn real_tracklist_and_release_groups_parse() {
 fn path_regex_release() -> wiremock::matchers::PathRegexMatcher {
     wiremock::matchers::path_regex(r"^/ws/2/release/[0-9a-f-]{36}$")
 }
+
+#[tokio::test]
+async fn recording_lookup_picks_album_release_group() {
+    let server = MockServer::start().await;
+    let rec = "f0000000-0000-4000-8000-000000000002";
+    Mock::given(path(format!("/ws/2/recording/{rec}")))
+        .and(query_param("inc", "artist-credits releases release-groups"))
+        .respond_with(json("recording_lookup"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let hit = client(&server).recording(uuid(rec)).await.unwrap();
+    assert_eq!(hit.title, "Paranoid Android");
+    assert_eq!(hit.artist_mbid, uuid(RADIOHEAD));
+    assert_eq!(hit.duration_ms, Some(387_000));
+    assert_eq!(hit.release_group_mbid, Some(uuid(OK_COMPUTER)));
+}

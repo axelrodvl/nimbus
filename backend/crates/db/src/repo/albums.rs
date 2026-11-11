@@ -84,3 +84,31 @@ pub async fn library_ids_by_rg_mbid(
         .fetch_all(db)
         .await
 }
+
+/// Помечает все альбомы артиста; возвращает число изменённых строк.
+pub async fn set_in_library_for_artist(
+    db: impl PgExecutor<'_>,
+    artist_id: i64,
+    value: bool,
+) -> sqlx::Result<u64> {
+    Ok(sqlx::query(
+        "UPDATE albums SET in_library = $2,
+            added_at = CASE WHEN $2 THEN COALESCE(added_at, now()) ELSE added_at END
+         WHERE artist_id = $1 AND in_library IS DISTINCT FROM $2",
+    )
+    .bind(artist_id)
+    .bind(value)
+    .execute(db)
+    .await?
+    .rows_affected())
+}
+
+pub async fn get_by_rg_mbid(
+    db: impl PgExecutor<'_>,
+    rg_mbid: uuid::Uuid,
+) -> sqlx::Result<Option<Album>> {
+    sqlx::query_as("SELECT * FROM albums WHERE mbid_release_group = $1")
+        .bind(rg_mbid)
+        .fetch_optional(db)
+        .await
+}

@@ -6,21 +6,34 @@ use serde_json::Value;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "payload", rename_all = "snake_case")]
 pub enum Job {
-    DiscoverAlbum { album_id: i64 },
-    DiscoverArtist { artist_id: i64 },
-    VerifyTorrent { torrent_id: i64, album_id: i64 },
+    DiscoverAlbum {
+        album_id: i64,
+    },
+    DiscoverArtist {
+        artist_id: i64,
+    },
+    /// Импорт дискографии артиста, добавленного в библиотеку (метаданные альбомов и треков из MB).
+    ImportArtist {
+        artist_id: i64,
+    },
+    VerifyTorrent {
+        torrent_id: i64,
+        album_id: i64,
+    },
     // шаг 22 добавит: PrefetchTrack { track_id: i64 }, EvictCache
 }
 
 impl Job {
     pub const DISCOVER_ALBUM: &'static str = "discover_album";
     pub const DISCOVER_ARTIST: &'static str = "discover_artist";
+    pub const IMPORT_ARTIST: &'static str = "import_artist";
     pub const VERIFY_TORRENT: &'static str = "verify_torrent";
 
     pub fn kind(&self) -> &'static str {
         match self {
             Job::DiscoverAlbum { .. } => Self::DISCOVER_ALBUM,
             Job::DiscoverArtist { .. } => Self::DISCOVER_ARTIST,
+            Job::ImportArtist { .. } => Self::IMPORT_ARTIST,
             Job::VerifyTorrent { .. } => Self::VERIFY_TORRENT,
         }
     }
@@ -30,6 +43,7 @@ impl Job {
         Some(match self {
             Job::DiscoverAlbum { album_id } => format!("discover_album:{album_id}"),
             Job::DiscoverArtist { artist_id } => format!("discover_artist:{artist_id}"),
+            Job::ImportArtist { artist_id } => format!("import_artist:{artist_id}"),
             Job::VerifyTorrent {
                 torrent_id,
                 album_id,
@@ -71,6 +85,16 @@ mod tests {
             Job::DiscoverAlbum { album_id: 42 }.dedup_key().as_deref(),
             Some("discover_album:42")
         );
+    }
+
+    #[test]
+    fn import_artist_job() {
+        let j = Job::ImportArtist { artist_id: 3 };
+        assert_eq!(j.dedup_key().as_deref(), Some("import_artist:3"));
+        let (kind, payload) = j.to_parts();
+        assert_eq!(kind, "import_artist");
+        assert_eq!(payload, serde_json::json!({"artist_id": 3}));
+        assert_eq!(Job::from_parts(kind, payload).unwrap(), j);
     }
 
     #[test]

@@ -1,0 +1,13 @@
+[package]
+name = "nimbus-library"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nimbus-core.workspace = true
+nimbus-db.workspace = true
+nimbus-musicbrainz.workspace = true
+sqlx.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

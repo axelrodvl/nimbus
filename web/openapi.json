@@ -6,6 +6,88 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/albums/{id}": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "operationId": "get_album",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlbumDetailDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/artists/{id}": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "operationId": "get_artist",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtistDetailDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/debug/jobs": {
       "get": {
         "tags": [
@@ -58,6 +140,310 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/library": {
+      "post": {
+        "tags": [
+          "library"
+        ],
+        "operationId": "add_to_library",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddToLibraryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Уже в библиотеке",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddToLibraryResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Альбом или трек добавлен",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddToLibraryResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Артист добавлен, дискография импортируется в фоне",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddToLibraryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Некорректный запрос",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "MBID не найден в MusicBrainz (mb_not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Запись не входит в треклист альбома (recording_not_in_release)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "MusicBrainz недоступен (mb_unavailable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/library/albums": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "operationId": "list_albums",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Курсор из `next_cursor` предыдущей страницы.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1..200, по умолчанию 50 (для треков — 100).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlbumPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/library/artists": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "operationId": "list_artists",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Курсор из `next_cursor` предыдущей страницы.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1..200, по умолчанию 50 (для треков — 100).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtistPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/library/tracks": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "operationId": "list_tracks",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Фильтр по статусу: adding, found, not_found, ready.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/library/{type}/{id}": {
+      "delete": {
+        "tags": [
+          "library"
+        ],
+        "operationId": "remove_from_library",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "path",
+            "description": "artist, album или track",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "id в нашей БД",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Убрано из библиотеки (метаданные сохранены)"
+          },
+          "400": {
+            "description": "Неверный type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Не найдено",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -126,6 +512,47 @@
         }
       }
     },
+    "/api/tracks/{id}": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "operationId": "get_track",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/ws": {
       "get": {
         "tags": [
@@ -143,6 +570,167 @@
   },
   "components": {
     "schemas": {
+      "AddStatus": {
+        "type": "string",
+        "enum": [
+          "added",
+          "importing",
+          "exists"
+        ]
+      },
+      "AddToLibraryRequest": {
+        "type": "object",
+        "required": [
+          "type",
+          "mbid"
+        ],
+        "properties": {
+          "album_mbid": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Для `track`: MBID release group альбома (иначе определяется по MusicBrainz)."
+          },
+          "mbid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "type": {
+            "$ref": "#/components/schemas/LibraryKind",
+            "description": "`artist`, `album` (MBID release group) или `track` (MBID recording)."
+          }
+        }
+      },
+      "AddToLibraryResponse": {
+        "type": "object",
+        "required": [
+          "type",
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AddStatus"
+          },
+          "type": {
+            "$ref": "#/components/schemas/LibraryKind"
+          }
+        }
+      },
+      "AlbumDetailDto": {
+        "type": "object",
+        "required": [
+          "album",
+          "artist",
+          "tracks"
+        ],
+        "properties": {
+          "album": {
+            "$ref": "#/components/schemas/AlbumDto"
+          },
+          "artist": {
+            "$ref": "#/components/schemas/ArtistDto"
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrackDto"
+            },
+            "description": "Все треки альбома с флагом `in_library`."
+          }
+        }
+      },
+      "AlbumDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "mbid",
+          "title",
+          "artist_id",
+          "artist_name",
+          "in_library",
+          "track_count",
+          "status_counts"
+        ],
+        "properties": {
+          "artist_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "artist_name": {
+            "type": "string"
+          },
+          "cover_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "in_library": {
+            "type": "boolean",
+            "description": "Альбом добавлен целиком."
+          },
+          "mbid": {
+            "type": "string",
+            "format": "uuid",
+            "description": "MBID release group."
+          },
+          "primary_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status_counts": {
+            "$ref": "#/components/schemas/StatusCounts"
+          },
+          "title": {
+            "type": "string"
+          },
+          "track_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Все треки альбома (не только добавленные в библиотеку)."
+          },
+          "year": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "AlbumPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlbumDto"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "AlbumResult": {
         "type": "object",
         "required": [
@@ -202,6 +790,88 @@
               "null"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "ArtistDetailDto": {
+        "type": "object",
+        "required": [
+          "artist",
+          "albums"
+        ],
+        "properties": {
+          "albums": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlbumDto"
+            },
+            "description": "Альбомы, в которых хоть что-то в библиотеке."
+          },
+          "artist": {
+            "$ref": "#/components/schemas/ArtistDto"
+          }
+        }
+      },
+      "ArtistDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "mbid",
+          "name",
+          "in_library",
+          "album_count",
+          "track_count"
+        ],
+        "properties": {
+          "album_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Альбомы артиста, в которых хоть что-то в библиотеке."
+          },
+          "disambiguation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "in_library": {
+            "type": "boolean"
+          },
+          "mbid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "track_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Треки артиста в библиотеке."
+          }
+        }
+      },
+      "ArtistPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtistDto"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -293,6 +963,14 @@
           }
         }
       },
+      "LibraryKind": {
+        "type": "string",
+        "enum": [
+          "artist",
+          "album",
+          "track"
+        ]
+      },
       "SearchResponse": {
         "type": "object",
         "required": [
@@ -330,6 +1008,129 @@
             "items": {
               "$ref": "#/components/schemas/TrackResult"
             }
+          }
+        }
+      },
+      "StatusCounts": {
+        "type": "object",
+        "required": [
+          "adding",
+          "found",
+          "not_found",
+          "ready"
+        ],
+        "properties": {
+          "adding": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "found": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "not_found": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "ready": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "TrackDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "mbid_recording",
+          "title",
+          "album_id",
+          "album_title",
+          "artist_id",
+          "artist_name",
+          "disc_no",
+          "position",
+          "status",
+          "in_library"
+        ],
+        "properties": {
+          "album_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "album_title": {
+            "type": "string"
+          },
+          "artist_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "artist_name": {
+            "type": "string"
+          },
+          "cover_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "disc_no": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "duration_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "in_library": {
+            "type": "boolean"
+          },
+          "mbid_recording": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "position": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TrackStatus"
+          },
+          "status_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "TrackPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrackDto"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -428,6 +1229,10 @@
     {
       "name": "search",
       "description": "Поиск в MusicBrainz"
+    },
+    {
+      "name": "library",
+      "description": "Библиотека: добавление, списки, страницы артиста и альбома"
     }
   ]
 }

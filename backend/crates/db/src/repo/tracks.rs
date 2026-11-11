@@ -132,3 +132,40 @@ pub async fn library_info_by_recording(
     .fetch_all(db)
     .await
 }
+
+/// Помечает все треки альбома; возвращает число изменённых строк.
+pub async fn set_in_library_for_album(
+    db: impl PgExecutor<'_>,
+    album_id: i64,
+    value: bool,
+) -> sqlx::Result<u64> {
+    Ok(sqlx::query(
+        "UPDATE tracks SET in_library = $2,
+            added_at = CASE WHEN $2 THEN COALESCE(added_at, now()) ELSE added_at END
+         WHERE album_id = $1 AND in_library IS DISTINCT FROM $2",
+    )
+    .bind(album_id)
+    .bind(value)
+    .execute(db)
+    .await?
+    .rows_affected())
+}
+
+/// Помечает все треки артиста (и треки его альбомов); возвращает число изменённых строк.
+pub async fn set_in_library_for_artist(
+    db: impl PgExecutor<'_>,
+    artist_id: i64,
+    value: bool,
+) -> sqlx::Result<u64> {
+    Ok(sqlx::query(
+        "UPDATE tracks SET in_library = $2,
+            added_at = CASE WHEN $2 THEN COALESCE(added_at, now()) ELSE added_at END
+         WHERE (artist_id = $1 OR album_id IN (SELECT id FROM albums WHERE artist_id = $1))
+           AND in_library IS DISTINCT FROM $2",
+    )
+    .bind(artist_id)
+    .bind(value)
+    .execute(db)
+    .await?
+    .rows_affected())
+}

@@ -4,6 +4,38 @@
  */
 
 export interface paths {
+    "/api/albums/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_album"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/artists/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_artist"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/debug/jobs": {
         parameters: {
             query?: never;
@@ -36,6 +68,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["add_to_library"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/albums": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_albums"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/artists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_artists"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/tracks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_tracks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/{type}/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["remove_from_library"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/search": {
         parameters: {
             query?: never;
@@ -44,6 +156,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["search"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tracks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_track"];
         put?: never;
         post?: never;
         delete?: never;
@@ -73,6 +201,60 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {string} */
+        AddStatus: "added" | "importing" | "exists";
+        AddToLibraryRequest: {
+            /**
+             * Format: uuid
+             * @description Для `track`: MBID release group альбома (иначе определяется по MusicBrainz).
+             */
+            album_mbid?: string | null;
+            /** Format: uuid */
+            mbid: string;
+            /** @description `artist`, `album` (MBID release group) или `track` (MBID recording). */
+            type: components["schemas"]["LibraryKind"];
+        };
+        AddToLibraryResponse: {
+            /** Format: int64 */
+            id: number;
+            status: components["schemas"]["AddStatus"];
+            type: components["schemas"]["LibraryKind"];
+        };
+        AlbumDetailDto: {
+            album: components["schemas"]["AlbumDto"];
+            artist: components["schemas"]["ArtistDto"];
+            /** @description Все треки альбома с флагом `in_library`. */
+            tracks: components["schemas"]["TrackDto"][];
+        };
+        AlbumDto: {
+            /** Format: int64 */
+            artist_id: number;
+            artist_name: string;
+            cover_url?: string | null;
+            /** Format: int64 */
+            id: number;
+            /** @description Альбом добавлен целиком. */
+            in_library: boolean;
+            /**
+             * Format: uuid
+             * @description MBID release group.
+             */
+            mbid: string;
+            primary_type?: string | null;
+            status_counts: components["schemas"]["StatusCounts"];
+            title: string;
+            /**
+             * Format: int64
+             * @description Все треки альбома (не только добавленные в библиотеку).
+             */
+            track_count: number;
+            /** Format: int32 */
+            year?: number | null;
+        };
+        AlbumPage: {
+            items: components["schemas"]["AlbumDto"][];
+            next_cursor?: string | null;
+        };
         AlbumResult: {
             /** Format: uuid */
             artist_mbid: string;
@@ -89,6 +271,34 @@ export interface components {
             title: string;
             /** Format: int32 */
             year?: number | null;
+        };
+        ArtistDetailDto: {
+            /** @description Альбомы, в которых хоть что-то в библиотеке. */
+            albums: components["schemas"]["AlbumDto"][];
+            artist: components["schemas"]["ArtistDto"];
+        };
+        ArtistDto: {
+            /**
+             * Format: int64
+             * @description Альбомы артиста, в которых хоть что-то в библиотеке.
+             */
+            album_count: number;
+            disambiguation?: string | null;
+            /** Format: int64 */
+            id: number;
+            in_library: boolean;
+            /** Format: uuid */
+            mbid: string;
+            name: string;
+            /**
+             * Format: int64
+             * @description Треки артиста в библиотеке.
+             */
+            track_count: number;
+        };
+        ArtistPage: {
+            items: components["schemas"]["ArtistDto"][];
+            next_cursor?: string | null;
         };
         ArtistResult: {
             country?: string | null;
@@ -117,6 +327,8 @@ export interface components {
             status: string;
             version: string;
         };
+        /** @enum {string} */
+        LibraryKind: "artist" | "album" | "track";
         SearchResponse: {
             albums: components["schemas"]["AlbumResult"][];
             artists: components["schemas"]["ArtistResult"][];
@@ -124,6 +336,43 @@ export interface components {
             errors: string[];
             query: string;
             tracks: components["schemas"]["TrackResult"][];
+        };
+        StatusCounts: {
+            /** Format: int64 */
+            adding: number;
+            /** Format: int64 */
+            found: number;
+            /** Format: int64 */
+            not_found: number;
+            /** Format: int64 */
+            ready: number;
+        };
+        TrackDto: {
+            /** Format: int64 */
+            album_id: number;
+            album_title: string;
+            /** Format: int64 */
+            artist_id: number;
+            artist_name: string;
+            cover_url?: string | null;
+            /** Format: int32 */
+            disc_no: number;
+            /** Format: int32 */
+            duration_ms?: number | null;
+            /** Format: int64 */
+            id: number;
+            in_library: boolean;
+            /** Format: uuid */
+            mbid_recording: string;
+            /** Format: int32 */
+            position: number;
+            status: components["schemas"]["TrackStatus"];
+            status_reason?: string | null;
+            title: string;
+        };
+        TrackPage: {
+            items: components["schemas"]["TrackDto"][];
+            next_cursor?: string | null;
         };
         TrackResult: {
             /** Format: uuid */
@@ -158,6 +407,64 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_album: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlbumDetailDto"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_artist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtistDetailDto"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     debug_jobs: {
         parameters: {
             query?: {
@@ -201,6 +508,221 @@ export interface operations {
             };
         };
     };
+    add_to_library: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddToLibraryRequest"];
+            };
+        };
+        responses: {
+            /** @description Уже в библиотеке */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddToLibraryResponse"];
+                };
+            };
+            /** @description Альбом или трек добавлен */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddToLibraryResponse"];
+                };
+            };
+            /** @description Артист добавлен, дискография импортируется в фоне */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddToLibraryResponse"];
+                };
+            };
+            /** @description Некорректный запрос */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description MBID не найден в MusicBrainz (mb_not_found) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Запись не входит в треклист альбома (recording_not_in_release) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description MusicBrainz недоступен (mb_unavailable) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_albums: {
+        parameters: {
+            query?: {
+                /** @description Курсор из `next_cursor` предыдущей страницы. */
+                cursor?: string;
+                /** @description 1..200, по умолчанию 50 (для треков — 100). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlbumPage"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_artists: {
+        parameters: {
+            query?: {
+                /** @description Курсор из `next_cursor` предыдущей страницы. */
+                cursor?: string;
+                /** @description 1..200, по умолчанию 50 (для треков — 100). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtistPage"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_tracks: {
+        parameters: {
+            query?: {
+                /** @description Фильтр по статусу: adding, found, not_found, ready. */
+                status?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackPage"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    remove_from_library: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description artist, album или track */
+                type: string;
+                /** @description id в нашей БД */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Убрано из библиотеки (метаданные сохранены) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Неверный type */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Не найдено */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     search: {
         parameters: {
             query?: {
@@ -228,6 +750,35 @@ export interface operations {
             };
             /** @description Некорректный запрос (bad_query, bad_types, bad_limit) */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_track: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackDto"];
+                };
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

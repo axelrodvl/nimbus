@@ -235,6 +235,18 @@ impl MbClient {
         r.into_hit(None)
     }
 
+    /// Запись по MBID (с релизами и их release group'ами — для выбора «альбома» записи).
+    pub async fn recording(&self, mbid: Uuid) -> Result<RecordingHit> {
+        let r: RawRecording = self
+            .get_typed(
+                &format!("recording/{mbid}"),
+                &[("inc", "artist-credits releases release-groups")],
+                LOOKUP_TTL,
+            )
+            .await?;
+        r.into_hit()
+    }
+
     /// Все release group'ы артиста указанных типов (`album`, `ep`, ...), с пагинацией по 100.
     pub async fn artist_release_groups(
         &self,

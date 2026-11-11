@@ -1,5 +1,7 @@
 pub mod auth;
 pub mod error;
+pub mod extract;
+pub mod library;
 pub mod openapi;
 pub mod routes;
 pub mod search;

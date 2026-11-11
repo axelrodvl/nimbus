@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use nimbus_core::events::EventBus;
 use nimbus_core::Config;
+use nimbus_library::LibraryService;
 use nimbus_musicbrainz::MbClient;
 use sqlx::PgPool;
 
@@ -12,6 +13,7 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub events: EventBus,
     pub mb: MbClient,
+    pub library: LibraryService,
     /// Общий таймаут эндпоинта поиска.
     pub search_timeout: Duration,
 }
@@ -19,6 +21,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(db: PgPool, config: Arc<Config>, events: EventBus, mb: MbClient) -> Self {
         Self {
+            library: LibraryService::new(db.clone(), mb.clone(), events.clone()),
             db,
             config,
             events,

@@ -1229,6 +1229,7 @@ dependencies = [
  "http-body-util",
  "nimbus-core",
  "nimbus-db",
+ "nimbus-library",
  "nimbus-musicbrainz",
  "nimbus-worker",
  "serde",
@@ -1274,6 +1275,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "nimbus-library"
+version = "0.1.0"
+dependencies = [
+ "nimbus-core",
+ "nimbus-db",
+ "nimbus-musicbrainz",
+ "sqlx",
+ "thiserror",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "nimbus-matcher"
 version = "0.1.0"
 
@@ -1311,6 +1325,8 @@ dependencies = [
  "chrono",
  "nimbus-core",
  "nimbus-db",
+ "nimbus-library",
+ "nimbus-musicbrainz",
  "sqlx",
  "thiserror",
  "tokio",

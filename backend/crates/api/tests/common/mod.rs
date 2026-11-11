@@ -64,3 +64,38 @@ pub async fn get_json(app: Router, uri: &str) -> (u16, serde_json::Value) {
 pub fn router(state: AppState) -> Router {
     build_router(state)
 }
+
+pub async fn request_json(
+    app: Router,
+    method: &str,
+    uri: &str,
+    body: Option<serde_json::Value>,
+) -> (u16, serde_json::Value) {
+    let mut req = Request::builder().method(method).uri(uri);
+    let body = match body {
+        Some(b) => {
+            req = req.header("content-type", "application/json");
+            Body::from(b.to_string())
+        }
+        None => Body::empty(),
+    };
+    let res = app.oneshot(req.body(body).unwrap()).await.unwrap();
+    let status = res.status().as_u16();
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+    )
+}
+
+pub async fn post_json(
+    app: Router,
+    uri: &str,
+    body: serde_json::Value,
+) -> (u16, serde_json::Value) {
+    request_json(app, "POST", uri, Some(body)).await
+}
+
+pub async fn delete(app: Router, uri: &str) -> (u16, serde_json::Value) {
+    request_json(app, "DELETE", uri, None).await
+}

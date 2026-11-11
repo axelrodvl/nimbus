@@ -1,0 +1,42 @@
+{
+  "id": "c0000000-0000-4000-8000-0000000000e1",
+  "title": "Airbag EP",
+  "status": "Official",
+  "date": "1998-01-01",
+  "media": [
+    {
+      "position": 1,
+      "format": "Digital Media",
+      "title": "",
+      "track-count": 2,
+      "tracks": [
+        {
+          "id": "e1000000-0000-4000-8000-000000000001",
+          "number": "1",
+          "position": 1,
+          "title": "Airbag",
+          "length": 284000,
+          "recording": {
+            "id": "f1000000-0000-4000-8000-000000000001",
+            "title": "Airbag",
+            "length": 284000,
+            "video": false
+          }
+        },
+        {
+          "id": "e1000000-0000-4000-8000-000000000002",
+          "number": "2",
+          "position": 2,
+          "title": "Polyethylene",
+          "length": 252000,
+          "recording": {
+            "id": "f1000000-0000-4000-8000-000000000002",
+            "title": "Polyethylene",
+            "length": 252000,
+            "video": false
+          }
+        }
+      ]
+    }
+  ]
+}

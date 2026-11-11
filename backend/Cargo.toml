@@ -31,4 +31,5 @@ nimbus-core = { path = "crates/core" }
 nimbus-db = { path = "crates/db" }
 nimbus-worker = { path = "crates/worker" }
 nimbus-musicbrainz = { path = "crates/musicbrainz" }
+nimbus-library = { path = "crates/library" }
 tokio-util = "0.7"

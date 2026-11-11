@@ -1,6 +1,6 @@
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
-use axum::routing::get;
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use nimbus_db::repo::jobs;
 use serde::{Deserialize, Serialize};
@@ -9,6 +9,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::auth::authorize;
 use crate::error::ApiError;
+use crate::library;
 use crate::openapi::openapi;
 use crate::search::search;
 use crate::state::AppState;
@@ -19,6 +20,14 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
         .route("/health", get(health))
         .route("/openapi.json", get(openapi_json))
         .route("/search", get(search))
+        .route("/library", post(library::add_to_library))
+        .route("/library/{type}/{id}", delete(library::remove_from_library))
+        .route("/library/artists", get(library::list_artists))
+        .route("/library/albums", get(library::list_albums))
+        .route("/library/tracks", get(library::list_tracks))
+        .route("/artists/{id}", get(library::get_artist))
+        .route("/albums/{id}", get(library::get_album))
+        .route("/tracks/{id}", get(library::get_track))
         .route("/ws", get(ws_handler));
     if cfg!(debug_assertions) || state.config.debug {
         r = r.route("/debug/jobs", get(debug_jobs));

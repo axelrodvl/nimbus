@@ -24,6 +24,8 @@ fn ctx(pool: &PgPool) -> JobCtx {
     JobCtx {
         db: pool.clone(),
         events: EventBus::new(),
+        mb: nimbus_musicbrainz::MbClient::new("NimbusTest/0.1 ( https://example.org )", None)
+            .unwrap(),
     }
 }
 
