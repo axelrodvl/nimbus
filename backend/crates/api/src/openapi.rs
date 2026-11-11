@@ -11,6 +11,7 @@ use crate::{library, routes, search};
     paths(
         routes::health,
         routes::debug_jobs,
+        routes::debug_torrent_metadata,
         routes::ws_doc,
         search::search,
         library::add_to_library,
@@ -24,6 +25,7 @@ use crate::{library, routes, search};
     ),
     components(schemas(
         routes::HealthResponse,
+        routes::DebugMetadataRequest,
         crate::error::ErrorResponse,
         crate::error::ErrorBody,
         search::SearchResponse,

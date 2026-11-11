@@ -4,3 +4,12 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+nimbus-core.workspace = true
+librqbit = { version = "9.1.0", default-features = false, features = ["rust-tls"] }
+tokio.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+rand = "0.9"

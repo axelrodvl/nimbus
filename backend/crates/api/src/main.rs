@@ -5,6 +5,7 @@ use nimbus_api::{build_router, AppState};
 use nimbus_core::events::EventBus;
 use nimbus_core::Config;
 use nimbus_musicbrainz::MbClient;
+use nimbus_torrent::{EngineConfig, TorrentEngine};
 use nimbus_trackers::ProviderRegistry;
 use nimbus_worker::handlers::default_handlers;
 use nimbus_worker::{JobCtx, WorkerConfig, WorkerPool};
@@ -41,6 +42,11 @@ async fn main() -> anyhow::Result<()> {
     let events = EventBus::new();
     let mb = MbClient::new(&config.mb_user_agent, Some(db.clone()))
         .context("cannot create MusicBrainz client")?;
+    let engine = Arc::new(
+        TorrentEngine::new(EngineConfig::new(&config.data_dir, config.seeding))
+            .await
+            .context("cannot start torrent engine")?,
+    );
     let workers = WorkerPool::spawn(
         JobCtx::new(
             db.clone(),
@@ -50,11 +56,12 @@ async fn main() -> anyhow::Result<()> {
                 ProviderRegistry::from_config(&config)
                     .context("cannot create torrent providers")?,
             ),
-        ),
+        )
+        .with_engine(engine.clone()),
         default_handlers(),
         WorkerConfig::default(),
     );
-    let state = AppState::new(db, Arc::new(config), events, mb);
+    let state = AppState::new(db, Arc::new(config), events, mb).with_engine(engine.clone());
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind(bind)
@@ -65,6 +72,7 @@ async fn main() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     workers.shutdown().await;
+    engine.shutdown().await;
     tracing::info!("shutdown complete");
     Ok(())
 }

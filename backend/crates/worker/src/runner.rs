@@ -7,6 +7,7 @@ use nimbus_core::events::EventBus;
 use nimbus_core::jobs::Job;
 use nimbus_db::repo::jobs::{self, JobRow};
 use nimbus_musicbrainz::MbClient;
+use nimbus_torrent::TorrentEngine;
 use nimbus_trackers::ProviderRegistry;
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
@@ -23,6 +24,8 @@ pub struct JobCtx {
     pub mb: MbClient,
     /// Провайдеры торрентов (TPB, Torznab, RuTracker).
     pub providers: Arc<ProviderRegistry>,
+    /// Торрент-движок; в тестах без торрентов может отсутствовать (`ctx.engine()` вернёт `Fatal`).
+    pub engine: Option<Arc<TorrentEngine>>,
     /// Номер текущей попытки (с 1) и лимит попыток задачи; выставляются раннером перед вызовом.
     pub attempt: i32,
     pub max_attempts: i32,
@@ -40,9 +43,21 @@ impl JobCtx {
             events,
             mb,
             providers,
+            engine: None,
             attempt: 1,
             max_attempts: 1,
         }
+    }
+
+    pub fn with_engine(mut self, engine: Arc<TorrentEngine>) -> Self {
+        self.engine = Some(engine);
+        self
+    }
+
+    pub fn engine(&self) -> Result<&Arc<TorrentEngine>, JobError> {
+        self.engine
+            .as_ref()
+            .ok_or_else(|| JobError::Fatal("torrent engine is not configured".into()))
     }
 
     /// Последняя ли это попытка (после неё задача получит статус `failed`).

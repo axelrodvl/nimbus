@@ -127,6 +127,56 @@
         }
       }
     },
+    "/api/debug/torrent/metadata": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "debug_torrent_metadata",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DebugMetadataRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Список файлов торрента без скачивания (только debug / NIMBUS_DEBUG=true)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Некорректный magnet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Метаданные не получены вовремя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "tags": [
@@ -914,6 +964,17 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "DebugMetadataRequest": {
+        "type": "object",
+        "required": [
+          "magnet"
+        ],
+        "properties": {
+          "magnet": {
+            "type": "string"
           }
         }
       },

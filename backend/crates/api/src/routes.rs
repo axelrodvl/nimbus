@@ -30,7 +30,9 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
         .route("/tracks/{id}", get(library::get_track))
         .route("/ws", get(ws_handler));
     if cfg!(debug_assertions) || state.config.debug {
-        r = r.route("/debug/jobs", get(debug_jobs));
+        r = r
+            .route("/debug/jobs", get(debug_jobs))
+            .route("/debug/torrent/metadata", post(debug_torrent_metadata));
     }
     r
 }
@@ -98,4 +100,58 @@ pub async fn debug_jobs(
     )
     .await?;
     Ok(Json(json!({ "jobs": rows })))
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct DebugMetadataRequest {
+    pub magnet: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/debug/torrent/metadata",
+    tag = "system",
+    request_body = DebugMetadataRequest,
+    responses(
+        (status = 200, description = "Список файлов торрента без скачивания (только debug / NIMBUS_DEBUG=true)", body = Object),
+        (status = 400, description = "Некорректный magnet", body = crate::error::ErrorResponse),
+        (status = 504, description = "Метаданные не получены вовремя", body = crate::error::ErrorResponse),
+    )
+)]
+pub async fn debug_torrent_metadata(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<DebugMetadataRequest>,
+) -> Result<Json<Value>, ApiError> {
+    use axum::http::StatusCode;
+    use nimbus_torrent::EngineError;
+
+    authorize(&state, &headers)?;
+    let engine = state.engine.as_ref().ok_or_else(|| {
+        ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "engine_unavailable",
+            "torrent engine is not running",
+        )
+    })?;
+    let meta = engine
+        .fetch_metadata(&req.magnet)
+        .await
+        .map_err(|e| match e {
+            EngineError::InvalidMagnet(m) => ApiError::bad_request("invalid_magnet", m),
+            EngineError::MetadataTimeout => ApiError::new(
+                StatusCode::GATEWAY_TIMEOUT,
+                "metadata_timeout",
+                "torrent metadata was not received in time",
+            ),
+            other => ApiError::new(StatusCode::BAD_GATEWAY, "torrent_error", other.to_string()),
+        })?;
+    Ok(Json(json!({
+        "info_hash": meta.info_hash,
+        "name": meta.name,
+        "piece_length": meta.piece_length,
+        "files": meta.files.iter().map(|f| json!({
+            "index": f.index, "path": f.path, "size": f.size,
+        })).collect::<Vec<_>>(),
+    })))
 }
