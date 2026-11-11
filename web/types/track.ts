@@ -6,6 +6,9 @@ export type Track = {
   title: string;
   artist: string;
   album: string | null;
+  /** Для ссылок из плеера на страницы альбома и артиста. */
+  albumId?: number;
+  artistId?: number;
   durationMs: number | null;
   coverUrl: string | null;
   status: TrackStatus;

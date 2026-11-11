@@ -14,7 +14,10 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         // Если нужная версия Chromium не установлена, можно указать готовый бинарник.
-        launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined },
+        launchOptions: {
+          args: ['--autoplay-policy=no-user-gesture-required'],
+          executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined,
+        },
       },
     },
   ],

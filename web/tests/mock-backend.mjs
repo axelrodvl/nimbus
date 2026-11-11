@@ -3,6 +3,32 @@
 import { createServer } from 'node:http';
 
 const PORT = Number(process.env.MOCK_BACKEND_PORT ?? 4010);
+
+// Аудио для стрима: 5 секунд синуса 440 Гц (WAV, 8 кГц, 16 бит, моно), генерируется при старте.
+const WAV = (() => {
+  const rate = 8000;
+  const seconds = 5;
+  const samples = rate * seconds;
+  const buf = Buffer.alloc(44 + samples * 2);
+  buf.write('RIFF', 0);
+  buf.writeUInt32LE(36 + samples * 2, 4);
+  buf.write('WAVEfmt ', 8);
+  buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20);
+  buf.writeUInt16LE(1, 22);
+  buf.writeUInt32LE(rate, 24);
+  buf.writeUInt32LE(rate * 2, 28);
+  buf.writeUInt16LE(2, 32);
+  buf.writeUInt16LE(16, 34);
+  buf.write('data', 36);
+  buf.writeUInt32LE(samples * 2, 40);
+  for (let i = 0; i < samples; i++)
+    buf.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 440 * i) / rate) * 8000), 44 + i * 2);
+  return buf;
+})();
+
+// Треки, которые стрим отдаёт с ошибкой (как настоящий бэкенд).
+const STREAM_ERRORS = { 1034: [415, 'transcode_required'] };
 const RH = 'a74b1b7f-71a5-4011-9441-d0b5e4122711';
 const PABLO = 'aaaaaaaa-0000-4000-8000-000000000102';
 
@@ -56,6 +82,17 @@ function seed() {
     { id: 1021, in_library: true, status: 'found', title: 'Creep' },
     { id: 1022, in_library: false, title: 'Anyone Can Play Guitar' },
   ]);
+  // Альбом для тестов плеера: сам вне библиотеки, но его треки в библиотеке (как «Pablo Honey»).
+  addAlbum(
+    { id: 103, in_library: false, mbid: 'aaaaaaaa-0000-4000-8000-000000000103', title: 'Player Test', year: 2001 },
+    [
+      { duration_ms: 5000, id: 1031, in_library: true, status: 'found', title: 'Song One' },
+      { duration_ms: 5000, id: 1034, in_library: true, status: 'found', title: 'Broken Format' },
+      { duration_ms: 5000, id: 1032, in_library: true, status: 'found', title: 'Song Two' },
+      { duration_ms: 5000, id: 1033, in_library: true, status: 'ready', title: 'Song Three' },
+      { duration_ms: 5000, id: 1035, in_library: true, status: 'adding', title: 'Not Yet' },
+    ],
+  );
   addAlbum({ id: 100, mbid: 'aaaaaaaa-0000-4000-8000-000000000100', title: 'The Bends' }, [
     { id: 1001, title: 'Planet Telex' },
     { id: 1002, status: 'found', title: 'High and Dry' },
@@ -138,6 +175,7 @@ function send(res, status, body) {
   res.writeHead(status, {
     'access-control-allow-headers': 'content-type, authorization, range',
     'access-control-allow-origin': '*',
+    'access-control-expose-headers': 'content-range, accept-ranges, content-length',
     'content-type': 'application/json',
   });
   res.end(body === undefined ? undefined : JSON.stringify(body));
@@ -165,6 +203,38 @@ createServer(async (req, res) => {
     return send(res, 200, { ok: true });
   }
   if (p === '/api/health') return send(res, 200, { db: true, status: 'ok', version: 'mock' });
+
+  let sm;
+  if ((req.method === 'GET' || req.method === 'HEAD') && (sm = p.match(/^\/api\/tracks\/(\d+)\/stream$/))) {
+    const id = Number(sm[1]);
+    const t = tracks.get(id);
+    if (STREAM_ERRORS[id]) return err(res, STREAM_ERRORS[id][0], STREAM_ERRORS[id][1], 'stream error');
+    if (!t || !['found', 'ready'].includes(t.status)) return err(res, 409, 'track_not_playable', 'not playable');
+    const size = WAV.length;
+    const headers = {
+      'accept-ranges': 'bytes',
+      'access-control-allow-origin': '*',
+      'cache-control': 'no-store',
+      'content-type': 'audio/wav',
+    };
+    const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+    let start = 0;
+    let end = size - 1;
+    if (range) {
+      if (range[1] === '') start = Math.max(0, size - Number(range[2]));
+      else {
+        start = Number(range[1]);
+        if (range[2] !== '') end = Math.min(end, Number(range[2]));
+      }
+    }
+    const partial = Boolean(range);
+    res.writeHead(partial ? 206 : 200, {
+      ...headers,
+      'content-length': end - start + 1,
+      ...(partial ? { 'content-range': `bytes ${start}-${end}/${size}` } : {}),
+    });
+    return res.end(req.method === 'HEAD' ? undefined : WAV.subarray(start, end + 1));
+  }
 
   if (req.method === 'GET') {
     if (p === '/api/library/artists') return send(res, 200, page(recent(artists), url, 50, artistDto));

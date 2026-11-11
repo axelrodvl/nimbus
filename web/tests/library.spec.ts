@@ -73,10 +73,10 @@ test('страница альбома: статусы треков и досту
   await expect(missing.getByRole('img', { name: 'Трек не найден в раздачах' })).toBeVisible();
   await expect(missing.getByRole('button', { name: /Играть/ })).toBeDisabled();
 
-  // найденный трек можно запустить (звук — шаг 19, пока состояние плеера)
+  // найденный трек можно запустить
   await found.getByRole('button', { name: /Играть/ }).click();
-  await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
-  await expect(page.getByText('High and Dry').first()).toBeVisible();
+  await expect(page.getByTestId('player-play-pause').first()).toHaveAttribute('data-playing', 'true');
+  await expect(page.locator('[data-testid=player-track]:visible').filter({ hasText: 'High and Dry' })).toBeVisible();
 });
 
 test('WS: track.status и job.progress обновляют бейджи без перезагрузки', async ({ page }) => {

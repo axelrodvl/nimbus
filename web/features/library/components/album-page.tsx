@@ -3,6 +3,7 @@ import { Cover } from '@/components/ui/cover';
 import { AlbumProgress } from '@/features/library/components/album-progress';
 import { AlbumTracks } from '@/features/library/components/album-tracks';
 import { albumMeta, plural } from '@/features/library/components/library-cards';
+import { PlayAlbumButton } from '@/features/library/components/play-album-button';
 import { RemoveFromLibraryButton } from '@/features/library/components/remove-from-library-button';
 import { statusSummary, StatusMiniBar } from '@/features/library/components/status-mini-bar';
 import { AddToLibraryButton } from '@/features/search/components/add-to-library-button';
@@ -41,6 +42,7 @@ export async function AlbumPage({ id }: { id: string }) {
             <AlbumProgress albumId={album.id} />
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            <PlayAlbumButton tracks={tracks} />
             {album.in_library ? (
               <RemoveFromLibraryButton
                 type="album"
