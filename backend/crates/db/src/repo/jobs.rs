@@ -151,3 +151,32 @@ pub async fn list(
     .fetch_all(db)
     .await
 }
+
+/// Откладывает ожидающие `verify_torrent` альбома не раньше чем через `delay`
+/// (резервные источники не должны мешать более важной работе).
+pub async fn defer_queued_verifies(
+    db: impl PgExecutor<'_>,
+    album_id: i64,
+    delay: Duration,
+) -> sqlx::Result<u64> {
+    Ok(sqlx::query(
+        "UPDATE jobs SET run_after = GREATEST(run_after, now() + make_interval(secs => $2)),
+                         updated_at = now()
+         WHERE kind = 'verify_torrent' AND state = 'queued' AND payload->>'album_id' = $1::text",
+    )
+    .bind(album_id)
+    .bind(delay.as_secs_f64())
+    .execute(db)
+    .await?
+    .rows_affected())
+}
+
+/// Есть ли у альбома ожидающая (`queued`) задача `discover_album`.
+pub async fn has_queued_discover(db: impl PgExecutor<'_>, album_id: i64) -> sqlx::Result<bool> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM jobs WHERE state = 'queued' AND dedup_key = $1)",
+    )
+    .bind(format!("discover_album:{album_id}"))
+    .fetch_one(db)
+    .await
+}

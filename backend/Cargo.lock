@@ -2389,6 +2389,7 @@ name = "nimbus-torrent"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "librqbit",
  "nimbus-core",
  "rand 0.9.5",
@@ -2431,6 +2432,7 @@ dependencies = [
  "nimbus-core",
  "nimbus-db",
  "nimbus-library",
+ "nimbus-matcher",
  "nimbus-musicbrainz",
  "nimbus-torrent",
  "nimbus-trackers",

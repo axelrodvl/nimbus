@@ -182,6 +182,8 @@ async fn handlers_complete_jobs_via_notify(pool: PgPool) {
     .unwrap()
     .unwrap();
     wait_state(&pool, a, "done").await;
-    wait_state(&pool, b, "done").await;
+    // Торрента 1 нет: настоящий обработчик verify отвечает `Fatal` (без повторов).
+    let row = wait_state(&pool, b, "failed").await;
+    assert!(row.last_error.unwrap().contains("not found"));
     w.shutdown().await;
 }

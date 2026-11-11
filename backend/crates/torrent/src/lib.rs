@@ -110,6 +110,19 @@ fn internal(e: impl std::fmt::Display) -> EngineError {
     EngineError::Internal(format!("{e:#}"))
 }
 
+/// Источник списка файлов по magnet (реализуется движком и фейком в тестах обработчиков).
+#[async_trait::async_trait]
+pub trait MetadataFetcher: Send + Sync {
+    async fn fetch_metadata(&self, magnet: &str) -> Result<TorrentMeta, EngineError>;
+}
+
+#[async_trait::async_trait]
+impl MetadataFetcher for TorrentEngine {
+    async fn fetch_metadata(&self, magnet: &str) -> Result<TorrentMeta, EngineError> {
+        TorrentEngine::fetch_metadata(self, magnet).await
+    }
+}
+
 pub trait AsyncReadSeek: AsyncRead + AsyncSeek {}
 impl<T: AsyncRead + AsyncSeek> AsyncReadSeek for T {}
 

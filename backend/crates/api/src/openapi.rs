@@ -12,6 +12,7 @@ use crate::{library, routes, search};
         routes::health,
         routes::debug_jobs,
         routes::debug_torrent_metadata,
+        routes::debug_album_torrents,
         routes::ws_doc,
         search::search,
         library::add_to_library,

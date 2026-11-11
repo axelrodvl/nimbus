@@ -4,6 +4,7 @@
 pub mod album_torrents;
 pub mod albums;
 pub mod artists;
+pub mod cue_candidates;
 pub mod downloads;
 pub mod jobs;
 pub mod mb_cache;

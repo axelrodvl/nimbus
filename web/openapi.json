@@ -88,6 +88,38 @@
         }
       }
     },
+    "/api/debug/albums/{id}/torrents": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "debug_album_torrents",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID альбома",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Раздачи альбома: статус метаданных, число файлов и найденных треков (только debug / NIMBUS_DEBUG=true)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/debug/jobs": {
       "get": {
         "tags": [

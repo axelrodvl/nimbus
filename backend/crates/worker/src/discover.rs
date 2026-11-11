@@ -27,6 +27,8 @@ pub const RETRY_AFTER: Duration = Duration::from_secs(10 * 60);
 pub const DISCOGRAPHY_MIN_SCORE: f32 = 0.2;
 /// Небольшой бонус к баллу дискографии при привязке к альбомам.
 pub const DISCOGRAPHY_LINK_BONUS: f32 = 0.05;
+/// Смещение запуска `VerifyTorrent` по рангу раздачи.
+pub const VERIFY_STAGGER: Duration = Duration::from_secs(2);
 /// Пауза между постановкой `DiscoverAlbum` для альбомов артиста.
 pub const ALBUM_JOB_STAGGER: Duration = Duration::from_secs(5);
 /// Сколько вариантов запроса используем для альбома (запросы 1–3 из `build_queries`).
@@ -258,14 +260,17 @@ pub async fn discover_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError>
         return Ok(());
     }
 
-    for t in &linked {
+    // `linked` отсортирован по рангу: лучший проверяется сразу, остальные — со смещением.
+    let now = Utc::now();
+    for (i, t) in linked.iter().enumerate() {
+        let at = now + chrono::Duration::from_std(VERIFY_STAGGER * i as u32).unwrap_or_default();
         jobs::enqueue(
             &ctx.db,
             &Job::VerifyTorrent {
                 torrent_id: t.torrent.id,
                 album_id,
             },
-            None,
+            Some(at),
         )
         .await?;
     }

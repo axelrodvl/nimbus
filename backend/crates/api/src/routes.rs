@@ -1,4 +1,4 @@
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
@@ -32,7 +32,8 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
     if cfg!(debug_assertions) || state.config.debug {
         r = r
             .route("/debug/jobs", get(debug_jobs))
-            .route("/debug/torrent/metadata", post(debug_torrent_metadata));
+            .route("/debug/torrent/metadata", post(debug_torrent_metadata))
+            .route("/debug/albums/{id}/torrents", get(debug_album_torrents));
     }
     r
 }
@@ -154,4 +155,21 @@ pub async fn debug_torrent_metadata(
             "index": f.index, "path": f.path, "size": f.size,
         })).collect::<Vec<_>>(),
     })))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/debug/albums/{id}/torrents",
+    tag = "system",
+    params(("id" = i64, Path, description = "ID альбома")),
+    responses((status = 200, description = "Раздачи альбома: статус метаданных, число файлов и найденных треков (только debug / NIMBUS_DEBUG=true)", body = Object))
+)]
+pub async fn debug_album_torrents(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> Result<Json<Value>, ApiError> {
+    authorize(&state, &headers)?;
+    let rows = nimbus_db::repo::album_torrents::overview(&state.db, id).await?;
+    Ok(Json(json!({ "album_id": id, "torrents": rows })))
 }

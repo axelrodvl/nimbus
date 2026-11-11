@@ -7,7 +7,7 @@ use nimbus_core::events::EventBus;
 use nimbus_core::jobs::Job;
 use nimbus_db::repo::jobs::{self, JobRow};
 use nimbus_musicbrainz::MbClient;
-use nimbus_torrent::TorrentEngine;
+use nimbus_torrent::{MetadataFetcher, TorrentEngine};
 use nimbus_trackers::ProviderRegistry;
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
@@ -26,6 +26,8 @@ pub struct JobCtx {
     pub providers: Arc<ProviderRegistry>,
     /// Торрент-движок; в тестах без торрентов может отсутствовать (`ctx.engine()` вернёт `Fatal`).
     pub engine: Option<Arc<TorrentEngine>>,
+    /// Источник метаданных торрентов (по умолчанию — движок; в тестах — фейк).
+    pub fetcher: Option<Arc<dyn MetadataFetcher>>,
     /// Номер текущей попытки (с 1) и лимит попыток задачи; выставляются раннером перед вызовом.
     pub attempt: i32,
     pub max_attempts: i32,
@@ -44,14 +46,27 @@ impl JobCtx {
             mb,
             providers,
             engine: None,
+            fetcher: None,
             attempt: 1,
             max_attempts: 1,
         }
     }
 
     pub fn with_engine(mut self, engine: Arc<TorrentEngine>) -> Self {
+        self.fetcher = Some(engine.clone());
         self.engine = Some(engine);
         self
+    }
+
+    pub fn with_fetcher(mut self, fetcher: Arc<dyn MetadataFetcher>) -> Self {
+        self.fetcher = Some(fetcher);
+        self
+    }
+
+    pub fn fetcher(&self) -> Result<&Arc<dyn MetadataFetcher>, JobError> {
+        self.fetcher
+            .as_ref()
+            .ok_or_else(|| JobError::Fatal("metadata fetcher is not configured".into()))
     }
 
     pub fn engine(&self) -> Result<&Arc<TorrentEngine>, JobError> {

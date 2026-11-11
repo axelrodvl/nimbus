@@ -60,3 +60,50 @@ pub async fn count_unverified(db: impl PgExecutor<'_>, album_id: i64) -> sqlx::R
         .fetch_one(db)
         .await
 }
+
+/// (всего раздач у альбома, из них проверенных).
+pub async fn progress(db: impl PgExecutor<'_>, album_id: i64) -> sqlx::Result<(i64, i64)> {
+    sqlx::query_as(
+        "SELECT count(*), count(*) FILTER (WHERE verified) FROM album_torrents WHERE album_id = $1",
+    )
+    .bind(album_id)
+    .fetch_one(db)
+    .await
+}
+
+/// Сводка по раздаче альбома (отладка и будущий публичный API источников).
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct TorrentOverview {
+    pub torrent_id: i64,
+    pub title: String,
+    pub source: nimbus_core::model::TorrentSource,
+    pub kind: nimbus_core::model::TorrentKind,
+    pub seeders: Option<i32>,
+    pub meta_status: nimbus_core::model::MetaStatus,
+    pub meta_attempts: i32,
+    pub meta_error: Option<String>,
+    pub rank_score: f32,
+    pub verified: bool,
+    pub files_count: i64,
+    pub matched_tracks: i64,
+}
+
+pub async fn overview(
+    db: impl PgExecutor<'_>,
+    album_id: i64,
+) -> sqlx::Result<Vec<TorrentOverview>> {
+    sqlx::query_as(
+        "SELECT t.id AS torrent_id, t.title, t.source, t.kind, t.seeders, t.meta_status,
+                t.meta_attempts, t.meta_error, at.rank_score, at.verified,
+                (SELECT count(*) FROM torrent_files f WHERE f.torrent_id = t.id) AS files_count,
+                (SELECT count(DISTINCT ts.track_id) FROM track_sources ts
+                   JOIN tracks tr ON tr.id = ts.track_id
+                  WHERE ts.torrent_id = t.id AND tr.album_id = at.album_id) AS matched_tracks
+         FROM album_torrents at JOIN torrents t ON t.id = at.torrent_id
+         WHERE at.album_id = $1
+         ORDER BY at.rank_score DESC, t.id",
+    )
+    .bind(album_id)
+    .fetch_all(db)
+    .await
+}

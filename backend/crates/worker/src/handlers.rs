@@ -1,4 +1,4 @@
-//! Обработчики задач. `verify_torrent` пока заглушка (шаг 17).
+//! Обработчики задач по умолчанию.
 
 use std::sync::Arc;
 
@@ -8,21 +8,8 @@ use nimbus_library::{LibraryError, LibraryService};
 
 use crate::runner::{JobCtx, JobError, JobHandler};
 
-pub struct StubVerify;
-
 /// Импорт дискографии артиста, добавленного в библиотеку (шаг 10).
 pub struct ImportArtistHandler;
-
-#[async_trait]
-impl JobHandler for StubVerify {
-    fn kinds(&self) -> &'static [&'static str] {
-        &[Job::VERIFY_TORRENT]
-    }
-    async fn handle(&self, job: Job, _ctx: &JobCtx) -> Result<(), JobError> {
-        tracing::info!(?job, "stub verify handler");
-        Ok(())
-    }
-}
 
 #[async_trait]
 impl JobHandler for ImportArtistHandler {
@@ -60,7 +47,7 @@ impl JobHandler for ImportArtistHandler {
 pub fn default_handlers() -> Vec<(Arc<dyn JobHandler>, usize)> {
     vec![
         (Arc::new(crate::discover::DiscoverHandler), 2),
-        (Arc::new(StubVerify), 4),
+        (Arc::new(crate::verify::VerifyHandler), 4),
         (Arc::new(ImportArtistHandler), 1),
     ]
 }
