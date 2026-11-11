@@ -21,12 +21,12 @@ fn fast_cfg() -> WorkerConfig {
 }
 
 fn ctx(pool: &PgPool) -> JobCtx {
-    JobCtx {
-        db: pool.clone(),
-        events: EventBus::new(),
-        mb: nimbus_musicbrainz::MbClient::new("NimbusTest/0.1 ( https://example.org )", None)
-            .unwrap(),
-    }
+    JobCtx::new(
+        pool.clone(),
+        EventBus::new(),
+        nimbus_musicbrainz::MbClient::new("NimbusTest/0.1 ( https://example.org )", None).unwrap(),
+        std::sync::Arc::new(nimbus_trackers::ProviderRegistry::new(vec![])),
+    )
 }
 
 /// Падает `fail_times` раз заданным способом, затем успешен.
@@ -145,7 +145,7 @@ async fn fatal_is_not_retried(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
-async fn stub_handlers_complete_jobs_via_notify(pool: PgPool) {
+async fn handlers_complete_jobs_via_notify(pool: PgPool) {
     // poll_interval большой: задача должна подхватиться по NOTIFY
     let cfg = WorkerConfig {
         poll_interval: Duration::from_secs(60),
@@ -153,7 +153,20 @@ async fn stub_handlers_complete_jobs_via_notify(pool: PgPool) {
     };
     let w = WorkerPool::spawn(ctx(&pool), nimbus_worker::handlers::default_handlers(), cfg);
     tokio::time::sleep(Duration::from_millis(300)).await; // дать LISTEN подключиться
-    let a = jobs::enqueue(&pool, &Job::DiscoverArtist { artist_id: 1 }, None)
+                                                          // Реальный обработчик discover требует существующего артиста (без альбомов в библиотеке — no-op).
+    let artist_id = nimbus_db::repo::artists::upsert_by_mbid(
+        &pool,
+        &nimbus_core::model::NewArtist {
+            mbid: uuid::Uuid::new_v4(),
+            name: "Test".into(),
+            sort_name: None,
+            disambiguation: None,
+        },
+    )
+    .await
+    .unwrap()
+    .id;
+    let a = jobs::enqueue(&pool, &Job::DiscoverArtist { artist_id }, None)
         .await
         .unwrap()
         .unwrap();

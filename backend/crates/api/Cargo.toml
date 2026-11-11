@@ -9,6 +9,7 @@ nimbus-db.workspace = true
 nimbus-worker.workspace = true
 nimbus-musicbrainz.workspace = true
 nimbus-library.workspace = true
+nimbus-trackers.workspace = true
 utoipa.workspace = true
 uuid.workspace = true
 futures.workspace = true

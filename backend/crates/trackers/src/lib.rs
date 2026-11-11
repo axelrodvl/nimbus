@@ -3,6 +3,7 @@
 mod limiter;
 pub mod magnet;
 pub mod query;
+pub mod rank;
 pub mod registry;
 pub mod rutracker;
 pub mod torrent_file;

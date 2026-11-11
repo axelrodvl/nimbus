@@ -7,6 +7,7 @@ use nimbus_core::events::EventBus;
 use nimbus_core::jobs::Job;
 use nimbus_db::repo::jobs::{self, JobRow};
 use nimbus_musicbrainz::MbClient;
+use nimbus_trackers::ProviderRegistry;
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
 use tokio::sync::Notify;
@@ -20,6 +21,34 @@ pub struct JobCtx {
     pub events: EventBus,
     /// Клиент MusicBrainz с интерактивным приоритетом; фоновым задачам нужен `mb.background()`.
     pub mb: MbClient,
+    /// Провайдеры торрентов (TPB, Torznab, RuTracker).
+    pub providers: Arc<ProviderRegistry>,
+    /// Номер текущей попытки (с 1) и лимит попыток задачи; выставляются раннером перед вызовом.
+    pub attempt: i32,
+    pub max_attempts: i32,
+}
+
+impl JobCtx {
+    pub fn new(
+        db: PgPool,
+        events: EventBus,
+        mb: MbClient,
+        providers: Arc<ProviderRegistry>,
+    ) -> Self {
+        Self {
+            db,
+            events,
+            mb,
+            providers,
+            attempt: 1,
+            max_attempts: 1,
+        }
+    }
+
+    /// Последняя ли это попытка (после неё задача получит статус `failed`).
+    pub fn is_last_attempt(&self) -> bool {
+        self.attempt >= self.max_attempts
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -264,7 +293,9 @@ async fn process(row: &JobRow, handler: &Arc<dyn JobHandler>, ctx: &JobCtx, cfg:
 
     // Отдельная задача: паника в обработчике не убивает воркер.
     let h = handler.clone();
-    let c = ctx.clone();
+    let mut c = ctx.clone();
+    c.attempt = row.attempts;
+    c.max_attempts = row.max_attempts;
     let result = tokio::spawn(async move { h.handle(job, &c).await }).await;
 
     let outcome = match result {

@@ -1,0 +1,491 @@
+use std::sync::{Arc, Mutex};
+
+use async_trait::async_trait;
+use nimbus_core::events::{Event, EventBus, JobStage};
+use nimbus_core::jobs::Job;
+use nimbus_core::model::*;
+use nimbus_db::repo::{album_torrents, albums, artists, jobs, torrents, tracks};
+use nimbus_trackers::*;
+use nimbus_worker::discover::{discover_album, discover_artist, DiscoverHandler};
+use nimbus_worker::{JobCtx, JobError, JobHandler};
+use sqlx::PgPool;
+use uuid::Uuid;
+
+type SearchFn = dyn Fn(&SearchQuery) -> Result<Vec<TorrentCandidate>, ProviderError> + Send + Sync;
+
+struct Fake {
+    source: TorrentSource,
+    search: Box<SearchFn>,
+    queries: Mutex<Vec<String>>,
+    /// info-hash, который вернёт `resolve` для кандидатов без хеша.
+    resolve_to: Option<&'static str>,
+}
+
+impl Fake {
+    fn new(
+        f: impl Fn(&SearchQuery) -> Result<Vec<TorrentCandidate>, ProviderError> + Send + Sync + 'static,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            source: TorrentSource::Tpb,
+            search: Box::new(f),
+            queries: Mutex::new(vec![]),
+            resolve_to: None,
+        })
+    }
+}
+
+#[async_trait]
+impl TorrentProvider for Fake {
+    fn source(&self) -> TorrentSource {
+        self.source
+    }
+    async fn search(&self, q: &SearchQuery) -> Result<Vec<TorrentCandidate>, ProviderError> {
+        self.queries.lock().unwrap().push(q.text.clone());
+        (self.search)(q)
+    }
+    async fn resolve(&self, mut c: TorrentCandidate) -> Result<TorrentCandidate, ProviderError> {
+        match (self.resolve_to, &c.info_hash) {
+            (Some(h), None) => {
+                c.info_hash = Some(InfoHash::parse(h).unwrap());
+                Ok(c)
+            }
+            (None, None) => Err(ProviderError::Parse("cannot resolve".into())),
+            _ => Ok(c),
+        }
+    }
+}
+
+fn hash(n: u8) -> InfoHash {
+    InfoHash::parse(&format!("{:02x}", n).repeat(20)).unwrap()
+}
+
+fn cand(title: &str, h: Option<u8>, seeders: u32) -> TorrentCandidate {
+    TorrentCandidate {
+        source: TorrentSource::Tpb,
+        source_topic_id: Some(format!("topic-{title}")),
+        title: title.into(),
+        info_hash: h.map(hash),
+        magnet: h.map(|n| format!("magnet:?xt=urn:btih:{}", hash(n))),
+        download_url: None,
+        size_bytes: Some(400 * 1024 * 1024),
+        seeders: Some(seeders),
+        leechers: Some(1),
+        category: None,
+        files_count: None,
+    }
+}
+
+fn ctx(pool: &PgPool, provider: Option<Arc<Fake>>, attempt: i32, max: i32) -> (JobCtx, EventBus) {
+    let events = EventBus::new();
+    let providers = match provider {
+        Some(p) => vec![p as Arc<dyn TorrentProvider>],
+        None => vec![],
+    };
+    let mut c = JobCtx::new(
+        pool.clone(),
+        events.clone(),
+        nimbus_musicbrainz::MbClient::new("NimbusTest/0.1 ( https://example.org )", None).unwrap(),
+        Arc::new(ProviderRegistry::new(providers)),
+    );
+    c.attempt = attempt;
+    c.max_attempts = max;
+    (c, events)
+}
+
+async fn artist(pool: &PgPool, name: &str) -> i64 {
+    artists::upsert_by_mbid(
+        pool,
+        &NewArtist {
+            mbid: Uuid::new_v4(),
+            name: name.into(),
+            sort_name: None,
+            disambiguation: None,
+        },
+    )
+    .await
+    .unwrap()
+    .id
+}
+
+/// Альбом с `n` треками; в библиотеку добавляется, если `in_library`.
+async fn album(
+    pool: &PgPool,
+    artist_id: i64,
+    title: &str,
+    year: i32,
+    n: i32,
+    in_library: bool,
+) -> i64 {
+    let a = albums::upsert_by_rg_mbid(
+        pool,
+        &NewAlbum {
+            mbid_release_group: Uuid::new_v4(),
+            mbid_release: None,
+            artist_id,
+            title: title.into(),
+            primary_type: Some("Album".into()),
+            secondary_types: vec![],
+            year: Some(year),
+            cover_url: None,
+        },
+    )
+    .await
+    .unwrap();
+    for i in 1..=n {
+        tracks::upsert_by_mbid_track(
+            pool,
+            &NewTrack {
+                mbid_recording: Uuid::new_v4(),
+                mbid_track: None,
+                album_id: a.id,
+                artist_id,
+                title: format!("Track {i}"),
+                disc_no: 1,
+                position: i,
+                duration_ms: Some(180_000),
+            },
+        )
+        .await
+        .unwrap();
+    }
+    albums::set_in_library(pool, a.id, in_library)
+        .await
+        .unwrap();
+    tracks::set_in_library_for_album(pool, a.id, in_library)
+        .await
+        .unwrap();
+    a.id
+}
+
+async fn queued(pool: &PgPool, kind: &str) -> Vec<jobs::JobRow> {
+    let mut v: Vec<_> = jobs::list(pool, Some("queued"), 100)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|j| j.kind == kind)
+        .collect();
+    v.sort_by_key(|j| j.id);
+    v
+}
+
+fn drain(rx: &mut tokio::sync::broadcast::Receiver<Event>) -> Vec<Event> {
+    let mut out = vec![];
+    while let Ok(e) = rx.try_recv() {
+        out.push(e);
+    }
+    out
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn album_creates_torrents_links_and_verify_jobs(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 3, true).await;
+
+    let provider = Fake::new(|_q| {
+        Ok(vec![
+            cand("Radiohead - OK Computer (1997) [FLAC]", Some(1), 50),
+            cand("Radiohead - OK Computer (1997) [MP3 320]", Some(2), 20),
+            cand("Radiohead - Discography 1993-2016 [FLAC]", Some(3), 30),
+            cand("Muse - OK Computer [FLAC]", Some(4), 50), // чужой артист
+            cand("Radiohead - OK Computer [FLAC]", Some(5), 0), // мёртвая
+            cand("Radiohead - Kid A [FLAC]", Some(6), 50),  // другой альбом
+        ])
+    });
+    let (ctx, events) = ctx(&pool, Some(provider.clone()), 1, 5);
+    let mut rx = events.subscribe();
+
+    discover_album(&ctx, album_id).await.unwrap();
+
+    // Три запроса (без «только артист»); одни и те же раздачи не дублируются.
+    assert_eq!(provider.queries.lock().unwrap().len(), 3);
+    let linked = album_torrents::list_for_album(&pool, album_id)
+        .await
+        .unwrap();
+    let titles: Vec<&str> = linked.iter().map(|t| t.torrent.title.as_str()).collect();
+    assert_eq!(
+        titles,
+        [
+            "Radiohead - OK Computer (1997) [FLAC]",
+            "Radiohead - OK Computer (1997) [MP3 320]",
+            "Radiohead - Discography 1993-2016 [FLAC]",
+        ]
+    );
+    assert_eq!(linked[0].torrent.kind, TorrentKind::Album);
+    assert_eq!(linked[2].torrent.kind, TorrentKind::Discography);
+    assert!(linked[0].rank_score > linked[1].rank_score);
+    assert_eq!(linked[0].torrent.info_hash, hash(1).as_str());
+    assert!(linked[0].torrent.magnet.starts_with("magnet:?"));
+    assert_eq!(linked[0].torrent.seeders, Some(50));
+
+    // verify-задачи на каждую раздачу, треки остаются в `adding`.
+    let verify = queued(&pool, "verify_torrent").await;
+    assert_eq!(verify.len(), 3);
+    for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
+        assert_eq!(t.status, TrackStatus::Adding);
+    }
+
+    let progress: Vec<(JobStage, u32, u32)> = drain(&mut rx)
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::JobProgress {
+                album_id: a,
+                stage,
+                done,
+                total,
+            } if a == album_id => Some((stage, done, total)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(progress.first(), Some(&(JobStage::Searching, 0, 3)));
+    assert_eq!(progress.last(), Some(&(JobStage::Searching, 3, 3)));
+
+    // Повторный запуск идемпотентен.
+    discover_album(&ctx, album_id).await.unwrap();
+    assert_eq!(
+        album_torrents::list_for_album(&pool, album_id)
+            .await
+            .unwrap()
+            .len(),
+        3
+    );
+    assert_eq!(queued(&pool, "verify_torrent").await.len(), 3);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn album_resolves_candidates_without_hash_and_skips_unresolvable(pool: PgPool) {
+    let artist_id = artist(&pool, "Кино").await;
+    let album_id = album(&pool, artist_id, "Группа крови", 1988, 2, true).await;
+
+    let mut p = Fake::new(|_| {
+        Ok(vec![
+            cand("Кино - Группа крови (1988) [FLAC]", None, 10),
+            cand("Кино - Группа крови (1988) [MP3 320]", Some(9), 10),
+        ])
+    });
+    Arc::get_mut(&mut p).unwrap().resolve_to = Some("abababababababababababababababababababab");
+    let (c, _) = ctx(&pool, Some(p), 1, 5);
+    discover_album(&c, album_id).await.unwrap();
+    let linked = album_torrents::list_for_album(&pool, album_id)
+        .await
+        .unwrap();
+    assert_eq!(linked.len(), 2);
+    assert!(linked
+        .iter()
+        .any(|t| t.torrent.info_hash == "ab".repeat(20)));
+    // Magnet построен из hash, если провайдер его не дал.
+    let resolved = linked
+        .iter()
+        .find(|t| t.torrent.info_hash == "ab".repeat(20))
+        .unwrap();
+    assert!(resolved.torrent.magnet.contains("btih:abababab"));
+
+    // Если resolve не удался — кандидат пропущен, остальные сохраняются.
+    let album2 = album(&pool, artist_id, "Звезда по имени Солнце", 1989, 2, true).await;
+    let p = Fake::new(|_| {
+        Ok(vec![
+            cand("Кино - Звезда по имени Солнце [FLAC]", None, 10),
+            cand("Кино - Звезда по имени Солнце [MP3 320]", Some(8), 10),
+        ])
+    });
+    let (c, _) = ctx(&pool, Some(p), 1, 5);
+    discover_album(&c, album2).await.unwrap();
+    assert_eq!(
+        album_torrents::list_for_album(&pool, album2)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn zero_candidates_marks_tracks_not_found(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 3, true).await;
+    let other = album(&pool, artist_id, "Kid A", 2000, 2, true).await;
+
+    let provider = Fake::new(|_| Ok(vec![]));
+    let (ctx, events) = ctx(&pool, Some(provider), 1, 5);
+    let mut rx = events.subscribe();
+    discover_album(&ctx, album_id).await.unwrap();
+
+    for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
+        assert_eq!(t.status, TrackStatus::NotFound);
+        assert_eq!(t.status_reason.as_deref(), Some("no_torrents"));
+    }
+    // Чужой альбом не тронут.
+    for t in tracks::list_by_album(&pool, other).await.unwrap() {
+        assert_eq!(t.status, TrackStatus::Adding);
+    }
+    let statuses = drain(&mut rx)
+        .into_iter()
+        .filter(|e| matches!(e, Event::TrackStatus { status: TrackStatus::NotFound, reason: Some(r), .. } if r == "no_torrents"))
+        .count();
+    assert_eq!(statuses, 3);
+    assert!(queued(&pool, "verify_torrent").await.is_empty());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn irrelevant_candidates_count_as_no_torrents(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 1, true).await;
+    let provider = Fake::new(|_| Ok(vec![cand("Muse - Absolution [FLAC]", Some(1), 99)]));
+    let (ctx, _) = ctx(&pool, Some(provider), 1, 5);
+    discover_album(&ctx, album_id).await.unwrap();
+    let t = &tracks::list_by_album(&pool, album_id).await.unwrap()[0];
+    assert_eq!(t.status, TrackStatus::NotFound);
+    assert!(torrents::get(&pool, 1).await.unwrap().is_none());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn provider_errors_retry_then_not_found_on_last_attempt(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    let failing = || Fake::new(|_| Err(ProviderError::Blocked("down".into())));
+
+    let (c, _) = ctx(&pool, Some(failing()), 1, 5);
+    match discover_album(&c, album_id).await {
+        Err(JobError::Retry { after, .. }) => assert_eq!(after.as_secs(), 600),
+        other => panic!("expected Retry, got {other:?}"),
+    }
+    for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
+        assert_eq!(t.status, TrackStatus::Adding);
+    }
+
+    let (c, _) = ctx(&pool, Some(failing()), 5, 5);
+    discover_album(&c, album_id).await.unwrap();
+    for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
+        assert_eq!(
+            (t.status, t.status_reason.as_deref()),
+            (TrackStatus::NotFound, Some("no_torrents"))
+        );
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn nothing_to_search_does_not_touch_providers(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let not_in_lib = album(&pool, artist_id, "OK Computer", 1997, 2, false).await;
+    let done = album(&pool, artist_id, "Kid A", 2000, 2, true).await;
+    for t in tracks::list_by_album(&pool, done).await.unwrap() {
+        tracks::set_status(&pool, t.id, TrackStatus::Ready, None)
+            .await
+            .unwrap();
+    }
+    let provider = Fake::new(|_| Ok(vec![]));
+    let (c, _) = ctx(&pool, Some(provider.clone()), 1, 5);
+    discover_album(&c, not_in_lib).await.unwrap();
+    discover_album(&c, done).await.unwrap();
+    assert!(provider.queries.lock().unwrap().is_empty());
+    assert!(matches!(
+        discover_album(&c, 9999).await,
+        Err(JobError::Fatal(_))
+    ));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn artist_links_discography_to_all_library_albums(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let a1 = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    let a2 = album(&pool, artist_id, "Kid A", 2000, 2, true).await;
+    let outside = album(&pool, artist_id, "Pablo Honey", 1993, 2, false).await;
+
+    let provider = Fake::new(|_| {
+        Ok(vec![
+            cand("Radiohead - Discography 1993-2016 (MP3 320)", Some(1), 40),
+            cand("Radiohead - OK Computer (1997) [FLAC]", Some(2), 60), // не дискография
+            cand("Karaoke - Radiohead hits", Some(3), 60),
+            cand("Muse - Discography 1999-2015", Some(4), 60),
+        ])
+    });
+    let (c, _) = ctx(&pool, Some(provider.clone()), 1, 5);
+    discover_artist(&c, artist_id).await.unwrap();
+
+    assert_eq!(
+        *provider.queries.lock().unwrap(),
+        [
+            "Radiohead discography",
+            "Radiohead дискография",
+            "Radiohead"
+        ]
+    );
+    for album_id in [a1, a2] {
+        let linked = album_torrents::list_for_album(&pool, album_id)
+            .await
+            .unwrap();
+        assert_eq!(linked.len(), 1, "album {album_id}");
+        assert_eq!(linked[0].torrent.kind, TorrentKind::Discography);
+        assert_eq!(
+            linked[0].torrent.title,
+            "Radiohead - Discography 1993-2016 (MP3 320)"
+        );
+    }
+    assert!(album_torrents::list_for_album(&pool, outside)
+        .await
+        .unwrap()
+        .is_empty());
+
+    // DiscoverAlbum поставлен для каждого альбома библиотеки с нарастающей задержкой.
+    let jobs_q = queued(&pool, "discover_album").await;
+    assert_eq!(jobs_q.len(), 2);
+    let delta = jobs_q[1].run_after - jobs_q[0].run_after;
+    assert!(
+        delta.num_seconds() >= 4 && delta.num_seconds() <= 6,
+        "{delta}"
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn album_uses_prelinked_discography_even_without_new_candidates(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    let t = torrents::upsert_by_info_hash(
+        &pool,
+        &NewTorrent {
+            info_hash: hash(7),
+            magnet: "magnet:?xt=urn:btih:x".into(),
+            source: TorrentSource::Tpb,
+            source_topic_id: None,
+            title: "Radiohead - Discography".into(),
+            size_bytes: None,
+            seeders: Some(10),
+            leechers: None,
+            kind: TorrentKind::Discography,
+        },
+    )
+    .await
+    .unwrap();
+    album_torrents::link(&pool, album_id, t.id, "q", 0.4)
+        .await
+        .unwrap();
+
+    let (c, _) = ctx(&pool, Some(Fake::new(|_| Ok(vec![]))), 1, 5);
+    discover_album(&c, album_id).await.unwrap();
+    for tr in tracks::list_by_album(&pool, album_id).await.unwrap() {
+        assert_eq!(tr.status, TrackStatus::Adding);
+    }
+    let verify = queued(&pool, "verify_torrent").await;
+    assert_eq!(verify.len(), 1);
+    assert_eq!(verify[0].payload["torrent_id"], t.id);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn handler_dispatches_jobs(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 1, true).await;
+    let provider = Fake::new(|_| Ok(vec![cand("Radiohead - OK Computer [FLAC]", Some(1), 5)]));
+    let (c, _) = ctx(&pool, Some(provider), 1, 5);
+    DiscoverHandler
+        .handle(Job::DiscoverAlbum { album_id }, &c)
+        .await
+        .unwrap();
+    assert_eq!(queued(&pool, "verify_torrent").await.len(), 1);
+    DiscoverHandler
+        .handle(Job::DiscoverArtist { artist_id }, &c)
+        .await
+        .unwrap();
+    assert!(DiscoverHandler
+        .handle(Job::ImportArtist { artist_id }, &c)
+        .await
+        .is_err());
+}

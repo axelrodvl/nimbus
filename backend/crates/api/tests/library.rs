@@ -10,6 +10,7 @@ use nimbus_worker::handlers::ImportArtistHandler;
 use nimbus_worker::{JobCtx, JobHandler};
 use serde_json::json;
 use sqlx::PgPool;
+use std::sync::Arc;
 use uuid::Uuid;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -370,11 +371,12 @@ async fn post_artist_is_accepted_and_import_job_adds_discography(pool: PgPool) {
 
     // выполняем задачу вручную
     let mut rx = state.events.subscribe();
-    let ctx = JobCtx {
-        db: pool.clone(),
-        events: state.events.clone(),
-        mb: mb_client(&server),
-    };
+    let ctx = JobCtx::new(
+        pool.clone(),
+        state.events.clone(),
+        mb_client(&server),
+        Arc::new(nimbus_trackers::ProviderRegistry::new(vec![])),
+    );
     ImportArtistHandler.handle(job, &ctx).await.unwrap();
 
     let titles: Vec<String> = albums::list_by_artist(&pool, artist_id)

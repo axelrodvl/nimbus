@@ -1,5 +1,6 @@
 //! Исполнители фоновых задач.
 
+pub mod discover;
 pub mod handlers;
 pub mod runner;
 

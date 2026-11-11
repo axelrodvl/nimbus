@@ -5,6 +5,7 @@ use nimbus_api::{build_router, AppState};
 use nimbus_core::events::EventBus;
 use nimbus_core::Config;
 use nimbus_musicbrainz::MbClient;
+use nimbus_trackers::ProviderRegistry;
 use nimbus_worker::handlers::default_handlers;
 use nimbus_worker::{JobCtx, WorkerConfig, WorkerPool};
 use tracing_subscriber::EnvFilter;
@@ -41,11 +42,15 @@ async fn main() -> anyhow::Result<()> {
     let mb = MbClient::new(&config.mb_user_agent, Some(db.clone()))
         .context("cannot create MusicBrainz client")?;
     let workers = WorkerPool::spawn(
-        JobCtx {
-            db: db.clone(),
-            events: events.clone(),
-            mb: mb.clone(),
-        },
+        JobCtx::new(
+            db.clone(),
+            events.clone(),
+            mb.clone(),
+            Arc::new(
+                ProviderRegistry::from_config(&config)
+                    .context("cannot create torrent providers")?,
+            ),
+        ),
         default_handlers(),
         WorkerConfig::default(),
     );

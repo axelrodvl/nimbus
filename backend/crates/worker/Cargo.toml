@@ -17,6 +17,7 @@ chrono.workspace = true
 uuid.workspace = true
 nimbus-library.workspace = true
 nimbus-musicbrainz.workspace = true
+nimbus-trackers.workspace = true
 
 [dev-dependencies]
 sqlx.workspace = true
