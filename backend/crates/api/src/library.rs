@@ -106,6 +106,15 @@ pub struct TrackDto {
     pub in_library: bool,
     /// Primary-источник трека сомнительный: его стоит проверить или подтвердить.
     pub needs_confirmation: bool,
+    /// Как играть: `direct` — файл отдаётся с Range, `transcode` — перекодируется на лету (без Range, перемотка через `?t=`).
+    pub playback: PlaybackMode,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PlaybackMode {
+    Direct,
+    Transcode,
 }
 
 impl From<ArtistView> for ArtistDto {
@@ -163,6 +172,11 @@ impl From<TrackView> for TrackDto {
             status_reason: t.status_reason,
             in_library: t.in_library,
             needs_confirmation: t.needs_confirmation,
+            playback: if t.transcode {
+                PlaybackMode::Transcode
+            } else {
+                PlaybackMode::Direct
+            },
         }
     }
 }

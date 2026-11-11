@@ -105,13 +105,12 @@ test('сохранение: круговой обход и защита от м�
 });
 
 test('ошибки бэкенда и форматирование загрузки', async () => {
-  expect(describeBackendError('transcode_required').message).toContain('не поддерживается');
+  expect(describeBackendError('ffmpeg_missing').message).toContain('ffmpeg');
   expect(describeBackendError('wat').message).toBe('Не удалось воспроизвести трек');
 
   const fakeFetch = (status: number) => (async () => ({ ok: status < 400, status }) as Response) as typeof fetch;
-  expect((await probeStreamError('u', fakeFetch(415))).code).toBe('transcode_required');
+  expect((await probeStreamError('u', fakeFetch(503))).code).toBe('ffmpeg_missing');
   expect((await probeStreamError('u', fakeFetch(409))).code).toBe('track_not_playable');
-  expect((await probeStreamError('u', fakeFetch(501))).code).toBe('cue_not_supported');
   // HEAD проходит — значит, не удалось прочитать данные раздачи
   expect((await probeStreamError('u', fakeFetch(200))).code).toBe('no_peers');
   expect((await probeStreamError('u', (async () => Promise.reject(new Error('x'))) as typeof fetch)).code).toBe(

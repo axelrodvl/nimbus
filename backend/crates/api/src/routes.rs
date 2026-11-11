@@ -31,6 +31,10 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
         .route("/tracks/{id}", get(library::get_track))
         .route("/tracks/{id}/stream", get(crate::stream::stream_track))
         .route(
+            "/internal/raw/{torrent_id}/{file_index}",
+            get(crate::stream::raw_file),
+        )
+        .route(
             "/albums/{id}/torrents",
             get(sources::album_torrents_list).post(sources::add_magnet),
         )

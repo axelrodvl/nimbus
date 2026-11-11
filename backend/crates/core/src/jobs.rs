@@ -20,6 +20,12 @@ pub enum Job {
         torrent_id: i64,
         album_id: i64,
     },
+    /// Разбор CUE-файла раздачи «образ + cue» (шаг 21).
+    ProcessCue {
+        torrent_id: i64,
+        album_id: i64,
+        cue_file_index: i32,
+    },
     // шаг 22 добавит: PrefetchTrack { track_id: i64 }, EvictCache
 }
 
@@ -28,6 +34,7 @@ impl Job {
     pub const DISCOVER_ARTIST: &'static str = "discover_artist";
     pub const IMPORT_ARTIST: &'static str = "import_artist";
     pub const VERIFY_TORRENT: &'static str = "verify_torrent";
+    pub const PROCESS_CUE: &'static str = "process_cue";
 
     pub fn kind(&self) -> &'static str {
         match self {
@@ -35,6 +42,7 @@ impl Job {
             Job::DiscoverArtist { .. } => Self::DISCOVER_ARTIST,
             Job::ImportArtist { .. } => Self::IMPORT_ARTIST,
             Job::VerifyTorrent { .. } => Self::VERIFY_TORRENT,
+            Job::ProcessCue { .. } => Self::PROCESS_CUE,
         }
     }
 
@@ -48,6 +56,11 @@ impl Job {
                 torrent_id,
                 album_id,
             } => format!("verify_torrent:{torrent_id}:{album_id}"),
+            Job::ProcessCue {
+                torrent_id,
+                album_id,
+                cue_file_index,
+            } => format!("process_cue:{torrent_id}:{album_id}:{cue_file_index}"),
         })
     }
 

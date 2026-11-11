@@ -281,10 +281,11 @@ export function parseStored(raw: string | null): StoredPlayer | null {
 // ------------------------------------------------------------------ ошибки бэкенда
 
 export const BACKEND_ERROR_TEXT: Record<string, string> = {
-  cue_not_supported: 'Раздача — образ с CUE, такие пока не поддерживаются',
+  ffmpeg_missing: 'На сервере не установлен ffmpeg: образы CUE и форматы APE/WV/DSD не играют',
   no_peers: 'Нет пиров: не удалось получить данные раздачи',
   track_not_playable: 'Трек ещё не найден — слушать пока нельзя',
-  transcode_required: 'Формат этого файла пока не поддерживается плеером',
+  transcode_failed: 'Не удалось перекодировать файл',
+  transcoder_busy: 'Сервер занят перекодированием, попробуйте через минуту',
 };
 
 export function describeBackendError(code: string | undefined): PlayerError {
@@ -303,8 +304,7 @@ export async function probeStreamError(url: string, doFetch: typeof fetch = fetc
     // У HEAD нет тела — код берём из статуса.
     const byStatus: Record<number, string> = {
       409: 'track_not_playable',
-      415: 'transcode_required',
-      501: 'cue_not_supported',
+      503: 'ffmpeg_missing',
       504: 'no_peers',
     };
     return describeBackendError(byStatus[res.status]);

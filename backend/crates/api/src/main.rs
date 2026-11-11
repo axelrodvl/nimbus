@@ -61,7 +61,14 @@ async fn main() -> anyhow::Result<()> {
         default_handlers(),
         WorkerConfig::default(),
     );
-    let state = AppState::new(db, Arc::new(config), events, mb).with_engine(engine.clone());
+    let ffmpeg = std::env::var("NIMBUS_FFMPEG").unwrap_or_else(|_| "ffmpeg".into());
+    let transcoder = nimbus_api::transcode::Transcoder::new(ffmpeg)
+        .with_raw_base(format!("http://127.0.0.1:{}", bind.port()))
+        .probe()
+        .await;
+    let state = AppState::new(db, Arc::new(config), events, mb)
+        .with_engine(engine.clone())
+        .with_transcoder(transcoder);
     match nimbus_api::stream::reconcile_downloads(&state).await {
         Ok(0) => {}
         Ok(n) => tracing::warn!(count = n, "reset downloads whose files are missing"),
@@ -74,9 +81,12 @@ async fn main() -> anyhow::Result<()> {
         .await
         .with_context(|| format!("cannot bind {bind}"))?;
     tracing::info!(%bind, "nimbus listening");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
     watcher.abort();
     workers.shutdown().await;
     engine.shutdown().await;

@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useReducer, useRef } from 'react';
+import { createContext, useCallback, useContext, useEffect, useReducer, useRef } from 'react';
 import { toast } from 'sonner';
 import { useLiveEvent } from '@/hooks/use-live-events';
 import { publicBackendUrl } from '@/lib/env';
@@ -59,7 +59,10 @@ export type PlayerContextValue = PlayerState & {
 
 const PlayerContext = createContext<PlayerContextValue | null>(null);
 
-export const streamUrl = (trackId: number) => `${publicBackendUrl}/api/tracks/${trackId}/stream`;
+export const streamUrl = (trackId: number, startSeconds = 0) =>
+  `${publicBackendUrl}/api/tracks/${trackId}/stream${startSeconds > 0 ? `?t=${startSeconds.toFixed(3)}` : ''}`;
+
+const isTranscoded = (t: Track | null | undefined) => t?.playback === 'transcode';
 
 const ERROR_ADVANCE_MS = 2000;
 const TICK_THROTTLE_MS = 250;
@@ -93,6 +96,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const loadedIdRef = useRef<number | null>(null);
   /** Позиция, к которой перейти после `loadedmetadata`. */
   const pendingSeekRef = useRef(0);
+  /** Для перекодируемых треков (без Range): с какой секунды трека начался текущий поток. */
+  const offsetRef = useRef(0);
+  const positionOf = (audio: HTMLAudioElement) => offsetRef.current + audio.currentTime;
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastTickRef = useRef(0);
   const lastPositionStateRef = useRef(0);
@@ -103,6 +109,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     latest.current = { state, trackStatus };
   });
 
+  const positionNow = useCallback(
+    () => (audioRef.current ? offsetRef.current + audioRef.current.currentTime : latest.current.state.position),
+    [],
+  );
+
   const canPlay = (t: Track) => canPlayStatus(latest.current.trackStatus.get(t.id)?.status ?? t.status);
   const canPlayNow = (t: Track) => canPlayStatus(trackStatus.get(t.id)?.status ?? t.status);
 
@@ -111,8 +122,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (!audio) return;
     clearTimeout(errorTimerRef.current);
     loadedIdRef.current = track.id;
-    pendingSeekRef.current = startAt;
-    audio.src = streamUrl(track.id);
+    // Перекодируемый поток нельзя перематывать через `currentTime`: начинаем с нужной секунды новым запросом.
+    offsetRef.current = isTranscoded(track) ? startAt : 0;
+    pendingSeekRef.current = isTranscoded(track) ? 0 : startAt;
+    audio.src = streamUrl(track.id, offsetRef.current);
     if (autoplay) {
       audio.play().catch((e: unknown) => {
         // AbortError — загрузку заменили другим треком; NotAllowedError — политика автозапуска.
@@ -141,6 +154,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       audio.load();
       loadedIdRef.current = null;
       pendingSeekRef.current = 0;
+      offsetRef.current = 0;
       dispatch({ type: 'CANCEL' });
     },
     cycleRepeat() {
@@ -158,17 +172,23 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     },
     onEnded() {
       const audio = audioRef.current;
+      const restart = () => {
+        const track = currentTrack(latest.current.state);
+        if (track && isTranscoded(track)) loadAndPlay(track, 0);
+        else if (audio) {
+          audio.currentTime = 0;
+          void audio.play();
+        }
+      };
       const { queue, index, repeat } = latest.current.state;
       if (!audio) return;
       if (repeat === 'one') {
-        audio.currentTime = 0;
-        void audio.play();
+        restart();
         return;
       }
       const j = nextPlayableIndex(queue, index, canPlay, repeat === 'all');
       if (j === index) {
-        audio.currentTime = 0;
-        void audio.play();
+        restart();
       } else if (j >= 0) playIndex(j);
       else dispatch({ type: 'STOP' });
     },
@@ -217,7 +237,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       const { queue, index, repeat } = latest.current.state;
       if (!audio) return;
       const j = prevPlayableIndex(queue, index, canPlay, repeat === 'all');
-      if (audio.currentTime > PREVIOUS_RESTART_THRESHOLD_S || j < 0) actions.seekTo(0);
+      if (positionOf(audio) > PREVIOUS_RESTART_THRESHOLD_S || j < 0) actions.seekTo(0);
       else playIndex(j);
     },
     removeFromQueue(index: number) {
@@ -239,7 +259,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       const audio = audioRef.current;
       const { duration } = latest.current.state;
       const t = Math.max(0, duration > 0 ? Math.min(duration, seconds) : seconds);
-      if (audio && loadedIdRef.current !== null) audio.currentTime = t;
+      const track = currentTrack(latest.current.state);
+      if (audio && loadedIdRef.current !== null && track && isTranscoded(track)) {
+        // Новый запрос `?t=` вместо `currentTime`; играем, если играли.
+        loadAndPlay(track, t, latest.current.state.isPlaying);
+      } else if (audio && loadedIdRef.current !== null) audio.currentTime = t;
       else pendingSeekRef.current = t;
       dispatch({ position: t, type: 'TICK' });
     },
@@ -278,10 +302,13 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       const now = performance.now();
       if (!force && now - lastTickRef.current < TICK_THROTTLE_MS) return;
       lastTickRef.current = now;
+      const track = currentTrack(latest.current.state);
+      const transcoded = isTranscoded(track);
       dispatch({
-        buffered: toRanges(audio.buffered),
-        duration: audio.duration,
-        position: audio.currentTime,
+        // У перекодируемого потока нет Range: буфера и длительности элемента нет, берём длительность трека.
+        buffered: transcoded ? [] : toRanges(audio.buffered),
+        duration: transcoded ? (track?.durationMs ?? 0) / 1000 : audio.duration,
+        position: positionOf(audio),
         type: 'TICK',
       });
     };
@@ -361,7 +388,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     function persist() {
       const { state: s } = latest.current;
       if (s.queue.length === 0 && s.volume === initialState.volume) return;
-      const pos = audioRef.current && loadedIdRef.current !== null ? audioRef.current.currentTime : s.position;
+      const pos = audioRef.current && loadedIdRef.current !== null ? positionOf(audioRef.current) : s.position;
       try {
         localStorage.setItem(STORAGE_KEY, serializeState(s, pos));
       } catch {
@@ -417,14 +444,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       ['previoustrack', () => actionsRef.current?.previous()],
       ['nexttrack', () => actionsRef.current?.next()],
       ['seekto', d => d.seekTime != null && actionsRef.current?.seekTo(d.seekTime)],
-      [
-        'seekbackward',
-        d => actionsRef.current?.seekTo((audioRef.current?.currentTime ?? 0) - (d.seekOffset ?? SEEK_STEP_S)),
-      ],
-      [
-        'seekforward',
-        d => actionsRef.current?.seekTo((audioRef.current?.currentTime ?? 0) + (d.seekOffset ?? SEEK_STEP_S)),
-      ],
+      ['seekbackward', d => actionsRef.current?.seekTo(positionNow() - (d.seekOffset ?? SEEK_STEP_S))],
+      ['seekforward', d => actionsRef.current?.seekTo(positionNow() + (d.seekOffset ?? SEEK_STEP_S))],
     ];
     for (const [name, h] of handlers) {
       try {
@@ -442,7 +463,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         }
       }
     };
-  }, []);
+  }, [positionNow]);
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
@@ -482,12 +503,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         if (e.shiftKey) {
           if (dir < 0) act.previous();
           else act.next();
-        } else act.seekTo((audioRef.current?.currentTime ?? latest.current.state.position) + dir * SEEK_STEP_S);
+        } else act.seekTo(positionNow() + dir * SEEK_STEP_S);
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [positionNow]);
 
   const { queue, index, duration, position } = state;
   const value: PlayerContextValue = {

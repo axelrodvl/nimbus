@@ -12,6 +12,7 @@ export function toPlayerTrack(t: TrackDto): Track {
     coverUrl: t.cover_url ?? null,
     durationMs: t.duration_ms ?? null,
     id: t.id,
+    playback: t.playback,
     status: t.status,
     title: t.title,
   };

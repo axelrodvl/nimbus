@@ -19,6 +19,8 @@ pub struct AppState {
     pub engine: Option<Arc<TorrentEngine>>,
     /// Источник файлов для стриминга (по умолчанию — движок; в тестах — фейк).
     pub files: Option<Arc<dyn FileProvider>>,
+    /// Перекодирование через ffmpeg (CUE-образы, APE/WV/DSD/AIFF).
+    pub transcoder: crate::transcode::Transcoder,
     /// Сколько ждать первых байт стрима, прежде чем ответить `504 no_peers`.
     pub first_byte_timeout: Duration,
     /// Общий таймаут эндпоинта поиска.
@@ -31,6 +33,7 @@ impl AppState {
             library: LibraryService::new(db.clone(), mb.clone(), events.clone()),
             engine: None,
             files: None,
+            transcoder: crate::transcode::Transcoder::new("ffmpeg"),
             first_byte_timeout: Duration::from_secs(60),
             db,
             config,
@@ -48,6 +51,13 @@ impl AppState {
 
     pub fn with_files(mut self, files: Arc<dyn FileProvider>) -> Self {
         self.files = Some(files);
+        self
+    }
+}
+
+impl AppState {
+    pub fn with_transcoder(mut self, transcoder: crate::transcode::Transcoder) -> Self {
+        self.transcoder = transcoder;
         self
     }
 }

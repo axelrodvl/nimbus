@@ -12,4 +12,6 @@ export type Track = {
   durationMs: number | null;
   coverUrl: string | null;
   status: TrackStatus;
+  /** `transcode` — образ CUE или формат вне браузера: поток без Range, перемотка через `?t=`. */
+  playback?: 'direct' | 'transcode';
 };

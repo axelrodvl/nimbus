@@ -6,7 +6,7 @@ use std::path::Path as FsPath;
 use std::time::{Duration, Instant};
 
 use axum::body::{Body, Bytes};
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::Response;
 use nimbus_core::events::Event;
@@ -87,21 +87,15 @@ pub fn parse_range(header: Option<&str>, size: u64) -> RangeSpec {
 
 // ---------------------------------------------------------- Content-Type
 
-/// `Ok(mime)` для форматов, которые играет браузер; `Err` — нужно перекодирование (шаг 21).
-pub fn content_type(ext: &str) -> Result<&'static str, ApiError> {
-    Ok(match ext {
+/// MIME для форматов, которые играет браузер; `None` — нужно перекодирование (`transcode`).
+pub fn direct_mime(ext: &str) -> Option<&'static str> {
+    Some(match ext {
         "flac" => "audio/flac",
         "mp3" => "audio/mpeg",
         "m4a" | "aac" | "alac" => "audio/mp4",
         "ogg" | "opus" => "audio/ogg",
         "wav" => "audio/wav",
-        _ => {
-            return Err(ApiError::new(
-                StatusCode::UNSUPPORTED_MEDIA_TYPE,
-                "transcode_required",
-                format!("format .{ext} needs transcoding, which is not available yet"),
-            ))
-        }
+        _ => return None,
     })
 }
 
@@ -111,19 +105,25 @@ fn err(status: StatusCode, code: &str, msg: impl Into<String>) -> ApiError {
 
 // ------------------------------------------------------------- обработчик
 
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct StreamQuery {
+    /// Только для перекодируемых треков: начать с этой секунды (перемотка).
+    pub t: Option<f64>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/tracks/{id}/stream",
     tag = "library",
-    params(("id" = i64, Path, description = "ID трека")),
+    params(("id" = i64, Path, description = "ID трека"), StreamQuery),
     responses(
-        (status = 200, description = "Аудио целиком (`audio/*`)"),
-        (status = 206, description = "Часть аудио по заголовку Range"),
+        (status = 200, description = "Аудио целиком (`audio/*`); для перекодируемых треков — `audio/flac` без Range (`X-Nimbus-Transcode: 1`, `X-Nimbus-Duration-Ms`)"),
+        (status = 206, description = "Часть аудио по заголовку Range (только прямая отдача)"),
         (status = 404, description = "Нет такого трека", body = crate::error::ErrorResponse),
         (status = 409, description = "Трек не `found`/`ready` (`track_not_playable`)", body = crate::error::ErrorResponse),
-        (status = 415, description = "Формат требует перекодирования (`transcode_required`)", body = crate::error::ErrorResponse),
         (status = 416, description = "Диапазон вне файла", body = crate::error::ErrorResponse),
-        (status = 501, description = "CUE-образ (`cue_not_supported`)", body = crate::error::ErrorResponse),
+        (status = 503, description = "Нет ffmpeg (`ffmpeg_missing`) или слишком много перекодирований (`transcoder_busy`)", body = crate::error::ErrorResponse),
         (status = 504, description = "Нет пиров: данные не пришли вовремя (`no_peers`)", body = crate::error::ErrorResponse),
     )
 )]
@@ -132,6 +132,7 @@ pub async fn stream_track(
     method: Method,
     headers: HeaderMap,
     Path(id): Path<i64>,
+    Query(q): Query<StreamQuery>,
 ) -> Result<Response, ApiError> {
     authorize(&state, &headers)?;
     let track = tracks::get(&state.db, id)
@@ -150,13 +151,6 @@ pub async fn stream_track(
             format!("track is {}, no playable source", track.status.as_str()),
         ));
     };
-    if source.cue_start_ms.is_some() {
-        return Err(err(
-            StatusCode::NOT_IMPLEMENTED,
-            "cue_not_supported",
-            "CUE images are not supported yet",
-        ));
-    }
 
     let torrent = torrents::get(&state.db, source.torrent_id)
         .await?
@@ -175,9 +169,86 @@ pub async fn stream_track(
                 .map(|(_, e)| e.to_ascii_lowercase())
         })
         .unwrap_or_default();
-    let mime = content_type(&ext)?;
     let size = file.size_bytes.max(0) as u64;
 
+    match direct_mime(&ext) {
+        Some(mime) if source.cue_start_ms.is_none() => {
+            serve_file(
+                &state, &method, &headers, &torrent, &source, track.id, size, mime,
+            )
+            .await
+        }
+        _ => {
+            crate::transcode::transcode_response(
+                &state, &method, &track, &source, &torrent, size, q.t,
+            )
+            .await
+        }
+    }
+}
+
+/// Только для `ffmpeg` с этого же хоста: сырой файл раздачи с поддержкой Range.
+pub async fn raw_file(
+    State(state): State<AppState>,
+    method: Method,
+    headers: HeaderMap,
+    Path((torrent_id, file_index)): Path<(i64, i32)>,
+    req: axum::extract::Request,
+) -> Result<Response, ApiError> {
+    if let Some(ci) = req
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+    {
+        if !ci.0.ip().is_loopback() {
+            return Err(err(StatusCode::FORBIDDEN, "forbidden", "loopback only"));
+        }
+    }
+    let torrent = torrents::get(&state.db, torrent_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("torrent not found"))?;
+    let file = torrents::files(&state.db, torrent_id)
+        .await?
+        .into_iter()
+        .find(|f| f.file_index == file_index)
+        .ok_or_else(|| ApiError::not_found("file not found"))?;
+    // Источник нужен только как носитель (torrent, file_index); отказоустойчивость по трекам не применяется.
+    let source = TrackSource {
+        id: 0,
+        track_id: 0,
+        torrent_id,
+        file_index,
+        match_score: 1.0,
+        is_primary: false,
+        needs_confirmation: false,
+        cue_start_ms: None,
+        cue_end_ms: None,
+        created_at: chrono::Utc::now(),
+    };
+    serve_file(
+        &state,
+        &method,
+        &headers,
+        &torrent,
+        &source,
+        0,
+        file.size_bytes.max(0) as u64,
+        "application/octet-stream",
+    )
+    .await
+}
+
+/// Отдача файла раздачи с Range (с диска или из движка).
+#[allow(clippy::too_many_arguments)]
+async fn serve_file(
+    state: &AppState,
+    method: &Method,
+    headers: &HeaderMap,
+    torrent: &nimbus_core::model::Torrent,
+    source: &TrackSource,
+    track_id: i64,
+    size: u64,
+    mime: &'static str,
+) -> Result<Response, ApiError> {
     let range = parse_range(
         headers.get(header::RANGE).and_then(|v| v.to_str().ok()),
         size,
@@ -214,10 +285,27 @@ pub async fn stream_track(
             .map_err(|_| ApiError::internal());
     }
 
-    let reader = open_reader(&state, &torrent.magnet, &source, size).await?;
+    let reader = open_reader(state, &torrent.magnet, source, size).await?;
     downloads::touch_played(&state.db, source.torrent_id, source.file_index).await?;
-    let body = body_from(&state, &track, &source, reader, start, len).await?;
+    let body = body_from(state, track_id, source, reader, start, len).await?;
     builder.body(body).map_err(|_| ApiError::internal())
+}
+
+/// Путь к файлу на диске, если загрузка завершена и файл на месте нужного размера.
+pub(crate) async fn completed_local_path(
+    state: &AppState,
+    source: &TrackSource,
+    size: u64,
+) -> Result<Option<String>, ApiError> {
+    let existing = downloads::get(&state.db, source.torrent_id, source.file_index).await?;
+    if let Some(d) = existing.filter(|d| d.completed_at.is_some()) {
+        if let Ok(meta) = tokio::fs::metadata(&d.local_path).await {
+            if meta.len() == size {
+                return Ok(Some(d.local_path));
+            }
+        }
+    }
+    Ok(None)
 }
 
 type Reader = Box<dyn AsyncReadSeek + Send + Unpin>;
@@ -278,7 +366,7 @@ async fn open_reader(
     })
 }
 
-fn map_engine_error(e: EngineError) -> ApiError {
+pub(crate) fn map_engine_error(e: EngineError) -> ApiError {
     match e {
         EngineError::MetadataTimeout => err(
             StatusCode::GATEWAY_TIMEOUT,
@@ -318,7 +406,7 @@ async fn failover(state: &AppState, current: &TrackSource) {
 /// Позиционирует поток, ждёт первые байты (с таймаутом) и строит тело ответа.
 async fn body_from(
     state: &AppState,
-    track: &nimbus_core::model::Track,
+    track_id: i64,
     source: &TrackSource,
     mut reader: Reader,
     start: u64,
@@ -338,7 +426,7 @@ async fn body_from(
     let (limited, buf) = match tokio::time::timeout(state.first_byte_timeout, first).await {
         Ok(Ok(v)) => v,
         Ok(Err(e)) => {
-            tracing::warn!(track_id = track.id, error = %e, "stream read failed");
+            tracing::warn!(track_id, error = %e, "stream read failed");
             return Err(err(StatusCode::BAD_GATEWAY, "stream_error", e.to_string()));
         }
         Err(_) => {
@@ -547,17 +635,14 @@ mod tests {
     }
 
     #[test]
-    fn content_types() {
-        assert_eq!(content_type("flac").unwrap(), "audio/flac");
-        assert_eq!(content_type("mp3").unwrap(), "audio/mpeg");
-        assert_eq!(content_type("m4a").unwrap(), "audio/mp4");
-        assert_eq!(content_type("opus").unwrap(), "audio/ogg");
-        assert_eq!(content_type("wav").unwrap(), "audio/wav");
+    fn direct_mimes() {
+        assert_eq!(direct_mime("flac"), Some("audio/flac"));
+        assert_eq!(direct_mime("mp3"), Some("audio/mpeg"));
+        assert_eq!(direct_mime("m4a"), Some("audio/mp4"));
+        assert_eq!(direct_mime("opus"), Some("audio/ogg"));
+        assert_eq!(direct_mime("wav"), Some("audio/wav"));
         for e in ["ape", "wv", "dsf", "dff", "aiff", ""] {
-            assert_eq!(
-                content_type(e).unwrap_err().status,
-                StatusCode::UNSUPPORTED_MEDIA_TYPE
-            );
+            assert_eq!(direct_mime(e), None, "{e}");
         }
     }
 }

@@ -48,6 +48,7 @@ pub fn default_handlers() -> Vec<(Arc<dyn JobHandler>, usize)> {
     vec![
         (Arc::new(crate::discover::DiscoverHandler), 2),
         (Arc::new(crate::verify::VerifyHandler), 4),
+        (Arc::new(crate::cue::ProcessCueHandler), 2),
         (Arc::new(ImportArtistHandler), 1),
     ]
 }

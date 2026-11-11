@@ -43,3 +43,45 @@ pub async fn list_for_album(
     .fetch_all(db)
     .await
 }
+
+pub async fn get(
+    db: impl PgExecutor<'_>,
+    torrent_id: i64,
+    album_id: i64,
+    cue_file_index: i32,
+) -> sqlx::Result<Option<CueCandidateRow>> {
+    sqlx::query_as(
+        "SELECT * FROM cue_candidates WHERE torrent_id = $1 AND album_id = $2 AND cue_file_index = $3",
+    )
+    .bind(torrent_id)
+    .bind(album_id)
+    .bind(cue_file_index)
+    .fetch_optional(db)
+    .await
+}
+
+pub async fn mark_processed(
+    db: impl PgExecutor<'_>,
+    torrent_id: i64,
+    album_id: i64,
+    cue_file_index: i32,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "UPDATE cue_candidates SET processed = TRUE
+         WHERE torrent_id = $1 AND album_id = $2 AND cue_file_index = $3",
+    )
+    .bind(torrent_id)
+    .bind(album_id)
+    .bind(cue_file_index)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Сколько CUE-образов альбома ещё не разобрано (финализация альбома ждёт их).
+pub async fn count_pending(db: impl PgExecutor<'_>, album_id: i64) -> sqlx::Result<i64> {
+    sqlx::query_scalar("SELECT count(*) FROM cue_candidates WHERE album_id = $1 AND NOT processed")
+        .bind(album_id)
+        .fetch_one(db)
+        .await
+}

@@ -8,6 +8,7 @@ pub mod search;
 pub mod sources;
 pub mod state;
 pub mod stream;
+pub mod transcode;
 pub mod ws;
 
 use axum::http::{header, HeaderValue, Method};
@@ -40,6 +41,8 @@ fn cors_layer(origin: &str) -> CorsLayer {
             header::CONTENT_RANGE,
             header::ACCEPT_RANGES,
             header::CONTENT_LENGTH,
+            header::HeaderName::from_static(transcode::H_TRANSCODE),
+            header::HeaderName::from_static(transcode::H_DURATION),
         ]);
     match HeaderValue::from_str(origin) {
         Ok(v) => layer.allow_origin(v),

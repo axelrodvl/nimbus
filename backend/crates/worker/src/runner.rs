@@ -28,6 +28,8 @@ pub struct JobCtx {
     pub engine: Option<Arc<TorrentEngine>>,
     /// Источник метаданных торрентов (по умолчанию — движок; в тестах — фейк).
     pub fetcher: Option<Arc<dyn MetadataFetcher>>,
+    /// Доступ к файлам торрентов (CUE-файлы; по умолчанию — движок, в тестах — фейк).
+    pub files: Option<Arc<dyn nimbus_torrent::FileProvider>>,
     /// Номер текущей попытки (с 1) и лимит попыток задачи; выставляются раннером перед вызовом.
     pub attempt: i32,
     pub max_attempts: i32,
@@ -47,6 +49,7 @@ impl JobCtx {
             providers,
             engine: None,
             fetcher: None,
+            files: None,
             attempt: 1,
             max_attempts: 1,
         }
@@ -54,6 +57,7 @@ impl JobCtx {
 
     pub fn with_engine(mut self, engine: Arc<TorrentEngine>) -> Self {
         self.fetcher = Some(engine.clone());
+        self.files = Some(engine.clone());
         self.engine = Some(engine);
         self
     }
@@ -61,6 +65,17 @@ impl JobCtx {
     pub fn with_fetcher(mut self, fetcher: Arc<dyn MetadataFetcher>) -> Self {
         self.fetcher = Some(fetcher);
         self
+    }
+
+    pub fn with_files(mut self, files: Arc<dyn nimbus_torrent::FileProvider>) -> Self {
+        self.files = Some(files);
+        self
+    }
+
+    pub fn files(&self) -> Result<&Arc<dyn nimbus_torrent::FileProvider>, JobError> {
+        self.files
+            .as_ref()
+            .ok_or_else(|| JobError::Fatal("file provider is not configured".into()))
     }
 
     pub fn fetcher(&self) -> Result<&Arc<dyn MetadataFetcher>, JobError> {

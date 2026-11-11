@@ -27,8 +27,18 @@ const WAV = (() => {
   return buf;
 })();
 
+// WAV с начала `startSec` (для перекодируемых треков: поток без Range, перемотка через `?t=`).
+function wavFrom(startSec) {
+  const skip = Math.min(Math.floor(startSec * 8000), 8000 * 5) * 2;
+  const data = WAV.subarray(44 + skip);
+  const head = Buffer.from(WAV.subarray(0, 44));
+  head.writeUInt32LE(36 + data.length, 4);
+  head.writeUInt32LE(data.length, 40);
+  return Buffer.concat([head, data]);
+}
+
 // Треки, которые стрим отдаёт с ошибкой (как настоящий бэкенд).
-const STREAM_ERRORS = { 1034: [415, 'transcode_required'] };
+const STREAM_ERRORS = { 1034: [503, 'ffmpeg_missing'] };
 const RH = 'a74b1b7f-71a5-4011-9441-d0b5e4122711';
 const PABLO = 'aaaaaaaa-0000-4000-8000-000000000102';
 
@@ -96,17 +106,25 @@ function seed() {
       { duration_ms: 5000, id: 1035, in_library: true, status: 'adding', title: 'Not Yet' },
     ],
   );
+  // Альбом для перекодируемого воспроизведения (CUE-образ / APE): поток без Range, перемотка через `?t=`.
+  addAlbum(
+    { id: 105, in_library: false, mbid: 'aaaaaaaa-0000-4000-8000-000000000105', title: 'Transcode Test', year: 2003 },
+    [{ duration_ms: 5000, id: 1051, in_library: true, playback: 'transcode', status: 'found', title: 'Image Track' }],
+  );
   addAlbum({ id: 100, mbid: 'aaaaaaaa-0000-4000-8000-000000000100', title: 'The Bends' }, [
     { id: 1001, title: 'Planet Telex' },
     { id: 1002, status: 'found', title: 'High and Dry' },
     { id: 1003, status: 'not_found', status_reason: 'no_match', title: 'Fake Plastic Trees' },
   ]);
   // Альбом для тестов источников (сам вне библиотеки, треки в библиотеке).
-  addAlbum({ id: 104, in_library: false, mbid: 'aaaaaaaa-0000-4000-8000-000000000104', title: 'Sources Test', year: 2002 }, [
-    { id: 1041, in_library: true, status: 'found', title: 'Doubtful Song' },
-    { id: 1042, in_library: true, status: 'not_found', status_reason: 'no_match', title: 'Missing Song' },
-    { id: 1043, in_library: true, status: 'not_found', status_reason: 'no_match', title: 'Retry Song' },
-  ]);
+  addAlbum(
+    { id: 104, in_library: false, mbid: 'aaaaaaaa-0000-4000-8000-000000000104', title: 'Sources Test', year: 2002 },
+    [
+      { id: 1041, in_library: true, status: 'found', title: 'Doubtful Song' },
+      { id: 1042, in_library: true, status: 'not_found', status_reason: 'no_match', title: 'Missing Song' },
+      { id: 1043, in_library: true, status: 'not_found', status_reason: 'no_match', title: 'Retry Song' },
+    ],
+  );
   torrents.clear();
   trackSources = [];
   requestLog = [];
@@ -130,8 +148,24 @@ function seed() {
     title: 'Sources Test [FLAC]',
   });
   trackSources.push(
-    { file_index: 0, id: 1, is_primary: true, match_score: 0.55, needs_confirmation: true, torrent_id: 900, track_id: 1041 },
-    { file_index: 1, id: 2, is_primary: false, match_score: 0.5, needs_confirmation: false, torrent_id: 900, track_id: 1041 },
+    {
+      file_index: 0,
+      id: 1,
+      is_primary: true,
+      match_score: 0.55,
+      needs_confirmation: true,
+      torrent_id: 900,
+      track_id: 1041,
+    },
+    {
+      file_index: 1,
+      id: 2,
+      is_primary: false,
+      match_score: 0.5,
+      needs_confirmation: false,
+      torrent_id: 900,
+      track_id: 1041,
+    },
   );
 }
 seed();
@@ -212,6 +246,7 @@ function trackDto(t) {
     in_library: t.in_library,
     mbid_recording: t.mbid_recording,
     needs_confirmation: primaryOf(t.id)?.needs_confirmation ?? false,
+    playback: t.playback ?? 'direct',
     position: t.position,
     status: t.status,
     status_reason: t.status_reason,
@@ -268,6 +303,21 @@ createServer(async (req, res) => {
     const t = tracks.get(id);
     if (STREAM_ERRORS[id]) return err(res, STREAM_ERRORS[id][0], STREAM_ERRORS[id][1], 'stream error');
     if (!t || !['found', 'ready'].includes(t.status)) return err(res, 409, 'track_not_playable', 'not playable');
+    if (t.playback === 'transcode') {
+      const start = Number(url.searchParams.get('t') ?? 0);
+      if (req.method === 'GET') requestLog.push({ method: 'GET', path: p, query: url.search });
+      const body = wavFrom(start);
+      res.writeHead(200, {
+        'accept-ranges': 'none',
+        'access-control-allow-origin': '*',
+        'cache-control': 'no-store',
+        'content-length': body.length,
+        'content-type': 'audio/wav',
+        'x-nimbus-duration-ms': '5000',
+        'x-nimbus-transcode': '1',
+      });
+      return res.end(req.method === 'HEAD' ? undefined : body);
+    }
     const size = WAV.length;
     const headers = {
       'accept-ranges': 'bytes',
@@ -329,7 +379,9 @@ createServer(async (req, res) => {
       );
     }
     if (req.method === 'GET' && (m = p.match(/^\/api\/tracks\/(\d+)\/sources$/))) {
-      const list = trackSources.filter(s => s.track_id === Number(m[1])).sort((a, b) => Number(b.is_primary) - Number(a.is_primary));
+      const list = trackSources
+        .filter(s => s.track_id === Number(m[1]))
+        .sort((a, b) => Number(b.is_primary) - Number(a.is_primary));
       return send(res, 200, list.map(sourceDto));
     }
     if (req.method === 'PUT' && (m = p.match(/^\/api\/tracks\/(\d+)\/source$/))) {
@@ -341,9 +393,19 @@ createServer(async (req, res) => {
       let src;
       if (body?.source_id) src = trackSources.find(x => x.id === body.source_id && x.track_id === id);
       else if (body?.torrent_id !== undefined && body?.file_index !== undefined) {
-        src = trackSources.find(x => x.track_id === id && x.torrent_id === body.torrent_id && x.file_index === body.file_index);
+        src = trackSources.find(
+          x => x.track_id === id && x.torrent_id === body.torrent_id && x.file_index === body.file_index,
+        );
         if (!src) {
-          src = { file_index: body.file_index, id: 100 + trackSources.length, is_primary: false, match_score: 1, needs_confirmation: false, torrent_id: body.torrent_id, track_id: id };
+          src = {
+            file_index: body.file_index,
+            id: 100 + trackSources.length,
+            is_primary: false,
+            match_score: 1,
+            needs_confirmation: false,
+            torrent_id: body.torrent_id,
+            track_id: id,
+          };
           trackSources.push(src);
         }
       } else return err(res, 400, 'bad_source', 'bad body');
@@ -369,15 +431,30 @@ createServer(async (req, res) => {
     }
     if (req.method === 'POST' && (m = p.match(/^\/api\/albums\/(\d+)\/retry$/))) {
       requestLog.push({ method: 'POST', path: p });
-      albumTracks(Number(m[1])).filter(t => t.status === 'not_found').forEach(t => (t.status = 'adding'));
+      albumTracks(Number(m[1]))
+        .filter(t => t.status === 'not_found')
+        .forEach(t => (t.status = 'adding'));
       return send(res, 202, { queued: true, tracks_reset: 1 });
     }
     if (req.method === 'POST' && (m = p.match(/^\/api\/albums\/(\d+)\/torrents$/))) {
       const body = await readJson(req);
       requestLog.push({ body, method: 'POST', path: p });
-      if (!/^magnet:\?xt=urn:btih:[0-9a-f]{40}/i.test(body?.magnet ?? '')) return err(res, 400, 'invalid_magnet', 'not a valid magnet link');
+      if (!/^magnet:\?xt=urn:btih:[0-9a-f]{40}/i.test(body?.magnet ?? ''))
+        return err(res, 400, 'invalid_magnet', 'not a valid magnet link');
       const id = 901 + torrents.size;
-      torrents.set(id, { album_id: Number(m[1]), files: [], id, info_hash: body.magnet.slice(20, 60), kind: 'unknown', leechers: null, meta_status: 'pending', seeders: null, size_bytes: null, source: 'manual', title: 'Свой magnet' });
+      torrents.set(id, {
+        album_id: Number(m[1]),
+        files: [],
+        id,
+        info_hash: body.magnet.slice(20, 60),
+        kind: 'unknown',
+        leechers: null,
+        meta_status: 'pending',
+        seeders: null,
+        size_bytes: null,
+        source: 'manual',
+        title: 'Свой magnet',
+      });
       return send(res, 202, { queued: true, torrent: torrentDto(torrents.get(id)) });
     }
   }

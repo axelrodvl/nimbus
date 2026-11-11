@@ -217,6 +217,16 @@ pub async fn verify_torrent(ctx: &JobCtx, torrent_id: i64, album_id: i64) -> Res
                 c.image_file_index as i32,
             )
             .await?;
+            jobs::enqueue(
+                &ctx.db,
+                &Job::ProcessCue {
+                    torrent_id,
+                    album_id,
+                    cue_file_index: c.cue_file_index as i32,
+                },
+                None,
+            )
+            .await?;
         }
         tracing::info!(
             torrent_id,
@@ -255,13 +265,14 @@ async fn publish_progress(ctx: &JobCtx, album_id: i64) -> Result<(), JobError> {
 
 /// Если все раздачи альбома проверены, оставшиеся `adding` → `not_found`.
 /// Транзакция с блокировкой строки альбома: параллельные verify не конфликтуют.
-async fn finalize_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError> {
+pub(crate) async fn finalize_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError> {
     let mut tx = ctx.db.begin().await?;
     sqlx::query("SELECT id FROM albums WHERE id = $1 FOR UPDATE")
         .bind(album_id)
         .fetch_optional(&mut *tx)
         .await?;
     if album_torrents::count_unverified(&mut *tx, album_id).await? > 0
+        || cue_candidates::count_pending(&mut *tx, album_id).await? > 0
         || jobs::has_queued_discover(&mut *tx, album_id).await?
     {
         tx.commit().await?;

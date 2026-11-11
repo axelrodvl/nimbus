@@ -1054,14 +1054,24 @@
               "type": "integer",
               "format": "int64"
             }
+          },
+          {
+            "name": "t",
+            "in": "query",
+            "description": "Только для перекодируемых треков: начать с этой секунды (перемотка).",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Аудио целиком (`audio/*`)"
+            "description": "Аудио целиком (`audio/*`); для перекодируемых треков — `audio/flac` без Range (`X-Nimbus-Transcode: 1`, `X-Nimbus-Duration-Ms`)"
           },
           "206": {
-            "description": "Часть аудио по заголовку Range"
+            "description": "Часть аудио по заголовку Range (только прямая отдача)"
           },
           "404": {
             "description": "Нет такого трека",
@@ -1083,16 +1093,6 @@
               }
             }
           },
-          "415": {
-            "description": "Формат требует перекодирования (`transcode_required`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
           "416": {
             "description": "Диапазон вне файла",
             "content": {
@@ -1103,8 +1103,8 @@
               }
             }
           },
-          "501": {
-            "description": "CUE-образ (`cue_not_supported`)",
+          "503": {
+            "description": "Нет ffmpeg (`ffmpeg_missing`) или слишком много перекодирований (`transcoder_busy`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1623,6 +1623,13 @@
           "error"
         ]
       },
+      "PlaybackMode": {
+        "type": "string",
+        "enum": [
+          "direct",
+          "transcode"
+        ]
+      },
       "RetryResponse": {
         "type": "object",
         "required": [
@@ -1855,7 +1862,8 @@
           "position",
           "status",
           "in_library",
-          "needs_confirmation"
+          "needs_confirmation",
+          "playback"
         ],
         "properties": {
           "album_id": {
@@ -1903,6 +1911,10 @@
           "needs_confirmation": {
             "type": "boolean",
             "description": "Primary-источник трека сомнительный: его стоит проверить или подтвердить."
+          },
+          "playback": {
+            "$ref": "#/components/schemas/PlaybackMode",
+            "description": "Как играть: `direct` — файл отдаётся с Range, `transcode` — перекодируется на лету (без Range, перемотка через `?t=`)."
           },
           "position": {
             "type": "integer",

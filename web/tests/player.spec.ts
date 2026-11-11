@@ -1,7 +1,7 @@
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 
 // Мок бэкенда (tests/mock-backend.mjs) отдаёт 5-секундный WAV с поддержкой Range.
-// Альбом 103: Song One → Broken Format (415) → Song Two → Song Three (ready) → Not Yet (adding).
+// Альбом 103: Song One → Broken Format (503 ffmpeg_missing) → Song Two → Song Three (ready) → Not Yet (adding).
 
 const playPause = (page: Page) => page.locator('[data-testid=player-play-pause]:visible');
 const status = (page: Page) => page.locator('[data-testid=player-status]:visible');
@@ -95,11 +95,11 @@ test('пауза/продолжить, следующий/предыдущий �
   await expect(title(page).getByRole('link', { name: 'Radiohead' })).toHaveAttribute('href', '/artist/1');
 });
 
-test('конец трека → следующий; 415 → тост и автопереход дальше', async ({ page }) => {
+test('конец трека → следующий; 503 → тост и автопереход дальше', async ({ page }) => {
   await playAlbum(page);
   await seekAudio(page, 4.6);
-  // Song One закончился → Broken Format → 415: сообщение в плеере (на 2 с) и тост
-  await expect(status(page)).toContainText('Формат этого файла пока не поддерживается');
+  // Song One закончился → Broken Format → 503: сообщение в плеере (на 2 с) и тост
+  await expect(status(page)).toContainText('не установлен ffmpeg');
   await expect(page.locator('[data-sonner-toast]').filter({ hasText: 'Broken Format' })).toBeVisible();
   // через ~2 с переход к Song Two, и он играет
   await expect(title(page)).toContainText('Song Two', { timeout: 8000 });
@@ -310,4 +310,27 @@ test('live-статус: трек, ставший неиграбельным, п
   await live.send({ album_id: 103, reason: 'no_match', status: 'not_found', track_id: 1032, type: 'track.status' });
   await page.getByRole('button', { name: 'Следующий' }).first().click();
   await expect(title(page)).toContainText('Song Three');
+});
+
+const MOCK = `http://localhost:${process.env.MOCK_BACKEND_PORT ?? 4010}`;
+
+test('перекодируемый трек: перемотка меняет src на ?t=, позиция = смещение + currentTime', async ({ page }) => {
+  await page.goto('/album/105');
+  await expect(page.getByRole('heading', { name: 'Transcode Test' })).toBeVisible();
+  await page.getByTestId('play-album').first().click();
+  await expect.poll(async () => (await state(page)).paused).toBe(false);
+  // Первый запрос — без `?t=`
+  expect((await state(page)).src).toMatch(/\/api\/tracks\/1051\/stream$/);
+  // Длительность берётся из трека (5 с), а не из потока
+  await expect(page.getByTestId('player-seek')).toHaveAttribute('max', '5');
+
+  await page.getByTestId('player-seek').fill('3');
+  await expect.poll(async () => (await state(page)).src).toContain('/api/tracks/1051/stream?t=3');
+  await expect.poll(async () => (await state(page)).paused).toBe(false);
+  // Показываемое время ≥ 3 с, хотя `currentTime` нового потока начинается с нуля
+  await expect(page.getByTestId('player-elapsed')).toHaveText(/0:0[3-5]/);
+  expect((await state(page)).currentTime).toBeLessThan(2.5);
+
+  const log = (await (await page.request.get(`${MOCK}/__log`)).json()) as Array<{ path: string; query?: string }>;
+  expect(log.some(r => r.path === '/api/tracks/1051/stream' && r.query === '?t=3.000')).toBe(true);
 });

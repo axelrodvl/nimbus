@@ -23,3 +23,5 @@ nimbus-torrent.workspace = true
 
 [dev-dependencies]
 sqlx.workspace = true
+encoding_rs = "0.8.44"
+serde_json.workspace = true

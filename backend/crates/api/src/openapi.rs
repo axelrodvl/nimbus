@@ -46,6 +46,7 @@ use crate::{library, routes, search, sources};
         library::ArtistDto,
         library::AlbumDto,
         library::TrackDto,
+        library::PlaybackMode,
         library::ArtistPage,
         library::AlbumPage,
         library::TrackPage,

@@ -13,6 +13,7 @@ use axum::http::{Request, StatusCode};
 use common::{router, state};
 use http_body_util::BodyExt;
 use nimbus_api::stream::Watcher;
+use nimbus_api::transcode::Transcoder;
 use nimbus_api::AppState;
 use nimbus_core::events::Event;
 use nimbus_core::model::*;
@@ -400,7 +401,7 @@ async fn head_does_not_touch_the_engine(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
-async fn not_playable_unsupported_and_cue(pool: PgPool) {
+async fn not_playable_and_unknown_track(pool: PgPool) {
     // adding → 409
     let f = fixture(pool.clone(), "flac", TrackStatus::Adding).await;
     let fake = Fake::new(f.path.clone(), Mode::Normal);
@@ -422,8 +423,68 @@ async fn not_playable_unsupported_and_cue(pool: PgPool) {
     );
     assert_eq!(fake.ensure_calls.load(Ordering::SeqCst), 0);
 
-    // ape → 415
-    let f2 = fixture(pool.clone(), "ape", TrackStatus::Found).await;
+    let _ = std::fs::remove_file(&f.path);
+}
+
+/// Фальшивый `ffmpeg`: пишет аргументы и pid в файлы рядом, печатает несколько байт и зависает.
+fn fake_ffmpeg(dir: &std::path::Path, hang: bool) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    let script = dir.join("ffmpeg");
+    let tail = if hang { "exec sleep 30" } else { "" };
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; exit 0; fi\n\
+             echo \"$@\" > \"{d}/args\"\necho $$ > \"{d}/pid\"\nprintf 'fLaC-fake-output'\n{tail}\n",
+            d = dir.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    script.to_string_lossy().into_owned()
+}
+
+fn temp_dir() -> std::path::PathBuf {
+    let d = std::env::temp_dir().join(format!("nimbus-ffmpeg-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+async fn complete_download(f: &Fixture) {
+    downloads::upsert(
+        &f.pool,
+        &NewDownload {
+            torrent_id: f.torrent_id,
+            file_index: 0,
+            local_path: f.path.to_string_lossy().into_owned(),
+            bytes_total: SIZE as i64,
+            bytes_done: SIZE as i64,
+        },
+    )
+    .await
+    .unwrap();
+    downloads::mark_completed(&f.pool, f.torrent_id, 0)
+        .await
+        .unwrap();
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn transcode_is_unavailable_without_ffmpeg(pool: PgPool) {
+    // ape и CUE-образ больше не дают 415/501: без ffmpeg — 503 `ffmpeg_missing`.
+    let f = fixture(pool.clone(), "ape", TrackStatus::Found).await;
+    let fake = Fake::new(f.path.clone(), Mode::Normal);
+    let st = app(&f, &fake); // ffmpeg по умолчанию «не найден»
+    let uri = format!("/api/tracks/{}/stream", f.track_id);
+    let r = call(&st, "GET", &uri, None).await;
+    assert_eq!(r.status, 503);
+    assert!(String::from_utf8_lossy(&r.body).contains("ffmpeg_missing"));
+
+    let f2 = fixture(pool.clone(), "flac", TrackStatus::Found).await;
+    sqlx::query("UPDATE track_sources SET cue_start_ms = 1000 WHERE track_id = $1")
+        .bind(f2.track_id)
+        .execute(&pool)
+        .await
+        .unwrap();
     let r = call(
         &st,
         "GET",
@@ -431,28 +492,239 @@ async fn not_playable_unsupported_and_cue(pool: PgPool) {
         None,
     )
     .await;
-    assert_eq!(r.status, 415);
-    assert!(String::from_utf8_lossy(&r.body).contains("transcode_required"));
+    assert_eq!(r.status, 503);
+    for p in [&f.path, &f2.path] {
+        let _ = std::fs::remove_file(p);
+    }
+}
 
-    // CUE → 501
-    let f3 = fixture(pool.clone(), "flac", TrackStatus::Found).await;
-    sqlx::query("UPDATE track_sources SET cue_start_ms = 1000 WHERE track_id = $1")
-        .bind(f3.track_id)
-        .execute(&pool)
-        .await
-        .unwrap();
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn transcode_streams_cue_segment_from_disk(pool: PgPool) {
+    let f = fixture(pool.clone(), "flac", TrackStatus::Ready).await;
+    complete_download(&f).await;
+    sqlx::query(
+        "UPDATE track_sources SET cue_start_ms = 10000, cue_end_ms = 20000 WHERE track_id = $1",
+    )
+    .bind(f.track_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let dir = temp_dir();
+    let ffmpeg = fake_ffmpeg(&dir, false);
+    let fake = Fake::new(f.path.clone(), Mode::Normal);
+    let st = state(pool.clone())
+        .with_files(fake.clone())
+        .with_transcoder(Transcoder::new(ffmpeg).with_available(true));
+    let uri = format!("/api/tracks/{}/stream", f.track_id);
+
+    let r = call(&st, "GET", &uri, None).await;
+    assert_eq!(r.status, 200);
+    assert_eq!(h(&r, "content-type"), "audio/flac");
+    assert_eq!(h(&r, "accept-ranges"), "none");
+    assert_eq!(h(&r, "x-nimbus-transcode"), "1");
+    assert_eq!(h(&r, "x-nimbus-duration-ms"), "10000");
+    assert_eq!(r.body, b"fLaC-fake-output");
+    let args = std::fs::read_to_string(dir.join("args")).unwrap();
+    assert!(args.contains("-ss 10.000 -i "), "{args}");
+    assert!(
+        args.contains(&f.path.to_string_lossy().into_owned()),
+        "{args}"
+    );
+    assert!(args.contains("-t 10.000"), "{args}");
+    // Диск: движок не трогали.
+    assert_eq!(fake.ensure_calls.load(Ordering::SeqCst), 0);
+
+    // Перемотка: `?t=4` сдвигает начало и сокращает длительность.
+    let r = call(&st, "GET", &format!("{uri}?t=4"), None).await;
+    assert_eq!(r.status, 200);
+    let args = std::fs::read_to_string(dir.join("args")).unwrap();
+    assert!(args.contains("-ss 14.000 -i "), "{args}");
+    assert!(args.contains("-t 6.000"), "{args}");
+
+    // HEAD: заголовки без запуска ffmpeg.
+    let _ = std::fs::remove_file(dir.join("args"));
+    let r = call(&st, "HEAD", &uri, None).await;
+    assert_eq!((r.status.as_u16(), h(&r, "x-nimbus-transcode")), (200, "1"));
+    assert!(!dir.join("args").exists());
+    let _ = std::fs::remove_file(&f.path);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn transcode_non_browser_format_has_no_segment(pool: PgPool) {
+    let f = fixture(pool.clone(), "wv", TrackStatus::Ready).await;
+    complete_download(&f).await;
+    let dir = temp_dir();
+    let st = state(pool.clone())
+        .with_files(Fake::new(f.path.clone(), Mode::Normal))
+        .with_transcoder(Transcoder::new(fake_ffmpeg(&dir, false)).with_available(true));
     let r = call(
         &st,
         "GET",
-        &format!("/api/tracks/{}/stream", f3.track_id),
+        &format!("/api/tracks/{}/stream?t=2.5", f.track_id),
         None,
     )
     .await;
-    assert_eq!(r.status, 501);
-    assert!(String::from_utf8_lossy(&r.body).contains("cue_not_supported"));
-    for p in [&f.path, &f2.path, &f3.path] {
-        let _ = std::fs::remove_file(p);
+    assert_eq!(r.status, 200);
+    let args = std::fs::read_to_string(dir.join("args")).unwrap();
+    assert!(args.contains("-ss 2.500 -i "), "{args}");
+    assert!(!args.contains(" -t "), "{args}");
+    let _ = std::fs::remove_file(&f.path);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn dropping_the_response_kills_ffmpeg(pool: PgPool) {
+    let f = fixture(pool.clone(), "wv", TrackStatus::Ready).await;
+    complete_download(&f).await;
+    let dir = temp_dir();
+    let st = state(pool.clone())
+        .with_files(Fake::new(f.path.clone(), Mode::Normal))
+        .with_transcoder(Transcoder::new(fake_ffmpeg(&dir, true)).with_available(true));
+    let res = router(st.clone())
+        .oneshot(
+            Request::get(format!("/api/tracks/{}/stream", f.track_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let pid: u32 = std::fs::read_to_string(dir.join("pid"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert!(std::path::Path::new(&format!("/proc/{pid}")).exists());
+    drop(res); // клиент закрыл соединение
+    let gone = async {
+        while std::path::Path::new(&format!("/proc/{pid}")).exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(5), gone)
+        .await
+        .expect("ffmpeg should be killed when the client disconnects");
+    let _ = std::fs::remove_file(&f.path);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn transcoder_limits_concurrency(pool: PgPool) {
+    let f = fixture(pool.clone(), "wv", TrackStatus::Ready).await;
+    complete_download(&f).await;
+    let dir = temp_dir();
+    let tc = Transcoder::new(fake_ffmpeg(&dir, true)).with_available(true);
+    let st = state(pool.clone())
+        .with_files(Fake::new(f.path.clone(), Mode::Normal))
+        .with_transcoder(tc.clone());
+    let uri = format!("/api/tracks/{}/stream", f.track_id);
+    let mut held = vec![];
+    for _ in 0..4 {
+        let res = router(st.clone())
+            .oneshot(Request::get(&uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 200);
+        held.push(res);
     }
+    let r = call(&st, "GET", &uri, None).await;
+    assert_eq!(r.status, 503);
+    assert!(String::from_utf8_lossy(&r.body).contains("transcoder_busy"));
+    drop(held);
+    let _ = std::fs::remove_file(&f.path);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Настоящий ffmpeg (пропускается, если его нет): образ 30 с + CUE на 3 трека по 10 с.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn real_ffmpeg_cue_segments_have_expected_duration(pool: PgPool) {
+    let have = |bin: &str| {
+        std::process::Command::new(bin)
+            .arg("-version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    };
+    if !have("ffmpeg") || !have("ffprobe") {
+        eprintln!("SKIPPED: ffmpeg/ffprobe not installed");
+        return;
+    }
+    let f = fixture(pool.clone(), "flac", TrackStatus::Ready).await;
+    let image = std::env::temp_dir().join(format!("nimbus-image-{}.flac", Uuid::new_v4()));
+    let ok = std::process::Command::new("ffmpeg")
+        .args([
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=d=30",
+            "-c:a",
+            "flac",
+        ])
+        .arg(&image)
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok);
+    let size = std::fs::metadata(&image).unwrap().len() as i64;
+    sqlx::query("UPDATE torrent_files SET size_bytes = $2 WHERE torrent_id = $1")
+        .bind(f.torrent_id)
+        .bind(size)
+        .execute(&pool)
+        .await
+        .unwrap();
+    downloads::upsert(
+        &pool,
+        &NewDownload {
+            torrent_id: f.torrent_id,
+            file_index: 0,
+            local_path: image.to_string_lossy().into_owned(),
+            bytes_total: size,
+            bytes_done: size,
+        },
+    )
+    .await
+    .unwrap();
+    downloads::mark_completed(&pool, f.torrent_id, 0)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE track_sources SET cue_start_ms = 10000, cue_end_ms = 20000 WHERE track_id = $1",
+    )
+    .bind(f.track_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let st = state(pool.clone())
+        .with_files(Fake::new(f.path.clone(), Mode::Normal))
+        .with_transcoder(Transcoder::new("ffmpeg").with_available(true));
+    let probe = |bytes: &[u8]| -> f64 {
+        let p = std::env::temp_dir().join(format!("nimbus-out-{}.flac", Uuid::new_v4()));
+        std::fs::write(&p, bytes).unwrap();
+        let out = std::process::Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "csv=p=0",
+            ])
+            .arg(&p)
+            .output()
+            .unwrap();
+        let _ = std::fs::remove_file(&p);
+        String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()
+    };
+    let uri = format!("/api/tracks/{}/stream", f.track_id);
+    let full = probe(&call(&st, "GET", &uri, None).await.body);
+    assert!((full - 10.0).abs() < 0.5, "duration {full}");
+    let half = probe(&call(&st, "GET", &format!("{uri}?t=5"), None).await.body);
+    assert!((half - 5.0).abs() < 0.5, "duration {half}");
+    let _ = std::fs::remove_file(&image);
+    let _ = std::fs::remove_file(&f.path);
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
@@ -626,6 +898,36 @@ async fn reconcile_resets_missing_completed_files(pool: PgPool) {
     assert_eq!(
         nimbus_api::stream::reconcile_downloads(&st).await.unwrap(),
         0
+    );
+    let _ = std::fs::remove_file(&f.path);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn internal_raw_serves_ranges_for_ffmpeg(pool: PgPool) {
+    let f = fixture(pool.clone(), "ape", TrackStatus::Found).await;
+    let fake = Fake::new(f.path.clone(), Mode::Normal);
+    let st = app(&f, &fake);
+    let uri = format!("/api/internal/raw/{}/0", f.torrent_id);
+    let r = call(&st, "GET", &uri, Some("bytes=100-199")).await;
+    assert_eq!(r.status, 206);
+    assert_eq!(h(&r, "content-range"), format!("bytes 100-199/{SIZE}"));
+    assert_eq!(r.body, &f.content[100..200]);
+    assert_eq!(
+        call(&st, "GET", "/api/internal/raw/999999/0", None)
+            .await
+            .status,
+        404
+    );
+    assert_eq!(
+        call(
+            &st,
+            "GET",
+            &format!("/api/internal/raw/{}/9", f.torrent_id),
+            None
+        )
+        .await
+        .status,
+        404
     );
     let _ = std::fs::remove_file(&f.path);
 }

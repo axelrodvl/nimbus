@@ -61,6 +61,8 @@ pub struct TrackView {
     pub added_at: Option<DateTime<Utc>>,
     /// Primary-источник трека требует подтверждения.
     pub needs_confirmation: bool,
+    /// Primary-источник нужно перекодировать (CUE-образ или формат, который не играет браузер).
+    pub transcode: bool,
 }
 
 const ARTIST_SELECT: &str = "
@@ -90,7 +92,12 @@ const TRACK_SELECT: &str = "
            ar.name AS artist_name, t.disc_no, t.position, t.duration_ms, al.cover_url,
            t.status, t.status_reason, t.in_library, t.added_at,
            EXISTS (SELECT 1 FROM track_sources ts
-                    WHERE ts.track_id = t.id AND ts.is_primary AND ts.needs_confirmation) AS needs_confirmation
+                    WHERE ts.track_id = t.id AND ts.is_primary AND ts.needs_confirmation) AS needs_confirmation,
+           COALESCE((SELECT ts.cue_start_ms IS NOT NULL
+                            OR lower(COALESCE(f.ext, '')) NOT IN ('flac','mp3','m4a','aac','alac','ogg','opus','wav')
+                       FROM track_sources ts
+                       JOIN torrent_files f ON f.torrent_id = ts.torrent_id AND f.file_index = ts.file_index
+                      WHERE ts.track_id = t.id AND ts.is_primary), FALSE) AS transcode
     FROM tracks t
     JOIN albums al ON al.id = t.album_id
     JOIN artists ar ON ar.id = t.artist_id";

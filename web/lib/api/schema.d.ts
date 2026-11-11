@@ -514,6 +514,8 @@ export interface components {
         LibraryKind: "artist" | "album" | "track";
         /** @enum {string} */
         MetaStatus: "pending" | "fetching" | "ok" | "timeout" | "dead" | "error";
+        /** @enum {string} */
+        PlaybackMode: "direct" | "transcode";
         RetryResponse: {
             /** @description Была ли поставлена новая задача (`false` — такая уже в очереди). */
             queued: boolean;
@@ -603,6 +605,8 @@ export interface components {
             mbid_recording: string;
             /** @description Primary-источник трека сомнительный: его стоит проверить или подтвердить. */
             needs_confirmation: boolean;
+            /** @description Как играть: `direct` — файл отдаётся с Range, `transcode` — перекодируется на лету (без Range, перемотка через `?t=`). */
+            playback: components["schemas"]["PlaybackMode"];
             /** Format: int32 */
             position: number;
             status: components["schemas"]["TrackStatus"];
@@ -1398,7 +1402,10 @@ export interface operations {
     };
     stream_track: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Только для перекодируемых треков: начать с этой секунды (перемотка). */
+                t?: number;
+            };
             header?: never;
             path: {
                 /** @description ID трека */
@@ -1408,14 +1415,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Аудио целиком (`audio/*`) */
+            /** @description Аудио целиком (`audio/*`); для перекодируемых треков — `audio/flac` без Range (`X-Nimbus-Transcode: 1`, `X-Nimbus-Duration-Ms`) */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Часть аудио по заголовку Range */
+            /** @description Часть аудио по заголовку Range (только прямая отдача) */
             206: {
                 headers: {
                     [name: string]: unknown;
@@ -1440,15 +1447,6 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Формат требует перекодирования (`transcode_required`) */
-            415: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
             /** @description Диапазон вне файла */
             416: {
                 headers: {
@@ -1458,8 +1456,8 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description CUE-образ (`cue_not_supported`) */
-            501: {
+            /** @description Нет ffmpeg (`ffmpeg_missing`) или слишком много перекодирований (`transcoder_busy`) */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

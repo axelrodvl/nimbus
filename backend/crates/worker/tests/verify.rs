@@ -500,12 +500,14 @@ async fn cue_image_is_recorded_and_tracks_end_up_not_found(pool: PgPool) {
         (a, 1, 0)
     );
     assert!(!rows[0].processed);
-    for (st, reason) in statuses(&pool, s.album_id).await {
-        assert_eq!(
-            (st, reason.as_deref()),
-            (TrackStatus::NotFound, Some("no_match"))
-        );
+    // Финализация альбома ждёт разбора CUE (шаг 21): треки пока `adding`, задача `process_cue` в очереди.
+    for (st, _) in statuses(&pool, s.album_id).await {
+        assert_eq!(st, TrackStatus::Adding);
     }
+    let queued = jobs::list(&pool, Some("queued"), 10).await.unwrap();
+    assert!(queued.iter().any(|j| j.kind == "process_cue"
+        && j.payload
+            == serde_json::json!({"torrent_id": a, "album_id": s.album_id, "cue_file_index": 1})));
     // Повтор не дублирует строку.
     verify_torrent(&ctx, a, s.album_id).await.unwrap();
     assert_eq!(
