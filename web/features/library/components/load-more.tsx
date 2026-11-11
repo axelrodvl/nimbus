@@ -6,6 +6,7 @@ import { ArtistCard, LibraryAlbumCard } from '@/features/library/components/libr
 import { LibraryTrackRow } from '@/features/library/components/library-track-row';
 import type { TrackDto } from '@/features/library/to-player-track';
 import { usePagedLoader } from '@/hooks/use-paged-loader';
+import { useT } from '@/providers/i18n-provider';
 
 function MoreButton({
   hasMore,
@@ -18,6 +19,7 @@ function MoreButton({
   error: string | null;
   onClick: () => void;
 }) {
+  const t = useT();
   if (!hasMore) return null;
   return (
     <li className="col-span-full flex list-none flex-col items-center gap-2 py-4">
@@ -29,7 +31,7 @@ function MoreButton({
         className="border-divider hover:bg-card dark:border-divider-dark dark:hover:bg-card-dark inline-flex items-center gap-2 rounded-full border px-5 py-2 text-sm font-semibold disabled:opacity-60"
       >
         {pending ? <Spinner className="h-4 w-4" /> : null}
-        Показать ещё
+        {t('load.more')}
       </button>
     </li>
   );

@@ -5,20 +5,21 @@ import { ArtistCard, LibraryAlbumCard } from '@/features/library/components/libr
 import { LibraryTrackRow } from '@/features/library/components/library-track-row';
 import { MoreAlbums, MoreArtists, MoreTracks } from '@/features/library/components/load-more';
 import { getLibraryAlbums, getLibraryArtists, getLibraryTracks } from '@/lib/data/library';
+import { getT, type TFn } from '@/lib/i18n/server';
 import { cn } from '@/lib/utils';
 
 export const TABS = [
-  { id: 'artists', label: 'Артисты' },
-  { id: 'albums', label: 'Альбомы' },
-  { id: 'tracks', label: 'Треки' },
+  { id: 'artists', label: 'group.artists' },
+  { id: 'albums', label: 'group.albums' },
+  { id: 'tracks', label: 'group.tracks' },
 ] as const;
 export type TabId = (typeof TABS)[number]['id'];
 
 export const STATUS_FILTERS = [
-  { id: 'all', label: 'Все', statuses: '' },
-  { id: 'playable', label: 'Готовы к прослушиванию', statuses: 'found,ready' },
-  { id: 'adding', label: 'Ищем', statuses: 'adding' },
-  { id: 'not_found', label: 'Не найдены', statuses: 'not_found' },
+  { id: 'all', label: 'filter.all', statuses: '' },
+  { id: 'playable', label: 'filter.playable', statuses: 'found,ready' },
+  { id: 'adding', label: 'filter.adding', statuses: 'adding' },
+  { id: 'not_found', label: 'filter.notFound', statuses: 'not_found' },
 ] as const;
 export type StatusFilterId = (typeof STATUS_FILTERS)[number]['id'];
 
@@ -34,26 +35,26 @@ const pill = 'rounded-full px-4 py-1.5 text-sm font-medium transition-colors';
 const pillActive = 'bg-black text-white dark:bg-white dark:text-black';
 const pillIdle = 'bg-card text-muted hover:text-black dark:bg-card-dark dark:hover:text-white';
 
-export function LibraryTabs({ active }: { active: TabId }) {
+export function LibraryTabs({ active, t }: { active: TabId; t: TFn }) {
   return (
-    <nav aria-label="Разделы библиотеки" className="mb-6 flex gap-2">
-      {TABS.map(t => (
+    <nav aria-label={t('library.tabs')} className="mb-6 flex gap-2">
+      {TABS.map(tab => (
         <Link
-          key={t.id}
-          href={`/library?tab=${t.id}`}
-          aria-current={t.id === active ? 'page' : undefined}
-          className={cn(pill, t.id === active ? pillActive : pillIdle)}
+          key={tab.id}
+          href={`/library?tab=${tab.id}`}
+          aria-current={tab.id === active ? 'page' : undefined}
+          className={cn(pill, tab.id === active ? pillActive : pillIdle)}
         >
-          {t.label}
+          {t(tab.label)}
         </Link>
       ))}
     </nav>
   );
 }
 
-function StatusChips({ active }: { active: StatusFilterId }) {
+function StatusChips({ active, t }: { active: StatusFilterId; t: TFn }) {
   return (
-    <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Фильтр по статусу">
+    <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label={t('library.filter')}>
       {STATUS_FILTERS.map(s => (
         <Link
           key={s.id}
@@ -61,7 +62,7 @@ function StatusChips({ active }: { active: StatusFilterId }) {
           aria-current={s.id === active ? 'true' : undefined}
           className={cn(pill, 'text-xs', s.id === active ? pillActive : pillIdle)}
         >
-          {s.label}
+          {t(s.label)}
         </Link>
       ))}
     </div>
@@ -69,9 +70,10 @@ function StatusChips({ active }: { active: StatusFilterId }) {
 }
 
 export async function LibraryContent({ tab, status }: { tab: TabId; status: StatusFilterId }) {
+  const t = await getT();
   return (
     <>
-      <LibraryTabs active={tab} />
+      <LibraryTabs active={tab} t={t} />
       {tab === 'artists' ? <ArtistsTab /> : tab === 'albums' ? <AlbumsTab /> : <TracksTab status={status} />}
     </>
   );
@@ -108,16 +110,17 @@ async function AlbumsTab() {
 }
 
 async function TracksTab({ status }: { status: StatusFilterId }) {
+  const t = await getT();
   const statuses = STATUS_FILTERS.find(s => s.id === status)!.statuses;
   const page = await getLibraryTracks(statuses);
   return (
     <>
-      <StatusChips active={status} />
+      <StatusChips active={status} t={t} />
       {page.items.length === 0 ? (
         status === 'all' ? (
           <EmptyLibrary />
         ) : (
-          <EmptyState title="Нет треков с таким статусом" />
+          <EmptyState title={t('library.noTracksStatus')} />
         )
       ) : (
         <ul data-testid="library-tracks" className="flex flex-col gap-0.5">

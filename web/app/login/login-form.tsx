@@ -3,13 +3,15 @@
 import { useActionState } from 'react';
 import { login, type LoginState } from '@/app/actions/auth';
 import { Button } from '@/components/ui/button';
+import { useT } from '@/providers/i18n-provider';
 
 export function LoginForm() {
+  const t = useT();
   const [state, action, pending] = useActionState<LoginState, FormData>(login, null);
   return (
     <form action={action} className="flex w-full max-w-sm flex-col gap-4">
       <label className="flex flex-col gap-2 text-sm font-medium">
-        Токен доступа
+        {t('login.token')}
         <input
           autoComplete="current-password"
           autoFocus
@@ -24,7 +26,7 @@ export function LoginForm() {
         </p>
       )}
       <Button disabled={pending} type="submit">
-        Войти
+        {t('login.submit')}
       </Button>
     </form>
   );

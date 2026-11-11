@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { removeFromLibrary } from '@/app/actions/library';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useT } from '@/providers/i18n-provider';
 import type { Route } from 'next';
 
 type Props = {
@@ -17,6 +18,7 @@ type Props = {
 };
 
 export function RemoveFromLibraryButton({ type, id, title, redirectTo }: Props) {
+  const t = useT();
   const router = useRouter();
   const store = Ariakit.useDialogStore();
 
@@ -26,7 +28,7 @@ export function RemoveFromLibraryButton({ type, id, title, redirectTo }: Props) 
       toast.error(result.message);
       return false;
     }
-    toast.success('Удалено из библиотеки');
+    toast.success(t('toast.removed'));
     router.push(redirectTo);
     return true;
   }
@@ -39,13 +41,13 @@ export function RemoveFromLibraryButton({ type, id, title, redirectTo }: Props) 
         className="border-divider hover:bg-card dark:border-divider-dark dark:hover:bg-card-dark inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold"
       >
         <Trash2 className="h-4 w-4" aria-hidden />
-        Удалить из библиотеки
+        {t('remove.button')}
       </button>
       <ConfirmDialog
         store={store}
-        title="Удалить из библиотеки?"
-        description={`«${title}» исчезнет из библиотеки. Найденные источники сохранятся.`}
-        confirmLabel="Удалить"
+        title={t('remove.title')}
+        description={t('remove.description', { title })}
+        confirmLabel={t('remove.confirm')}
         confirmAction={confirm}
       />
     </>

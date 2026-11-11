@@ -1,21 +1,25 @@
-import { LibraryAlbumCard, plural } from '@/features/library/components/library-cards';
+import { LibraryAlbumCard } from '@/features/library/components/library-cards';
 import { RemoveFromLibraryButton } from '@/features/library/components/remove-from-library-button';
 import { ArtistAvatar } from '@/features/search/components/artist-avatar';
 import { getArtist } from '@/lib/data/library';
+import { getT } from '@/lib/i18n/server';
 
 export async function ArtistPage({ id }: { id: string }) {
+  const t = await getT();
   const { artist, albums } = await getArtist(id);
   return (
     <>
       <header className="mb-8 flex flex-col items-center gap-6 sm:flex-row">
         <ArtistAvatar mbid={artist.mbid} name={artist.name} className="h-40 w-40 text-5xl" />
         <div className="flex min-w-0 flex-col items-center gap-3 sm:items-start">
-          <span className="text-muted text-xs font-medium tracking-wide uppercase">Артист</span>
+          <span className="text-muted text-xs font-medium tracking-wide uppercase">{t('kind.artist')}</span>
           <h1 className="text-4xl font-bold tracking-tight">{artist.name}</h1>
           {artist.disambiguation ? <p className="text-muted text-sm">{artist.disambiguation}</p> : null}
           <p className="text-muted text-sm" data-testid="artist-counts">
-            {artist.album_count} {plural(artist.album_count, 'альбом', 'альбома', 'альбомов')} · {artist.track_count}{' '}
-            {plural(artist.track_count, 'трек', 'трека', 'треков')} в библиотеке
+            {t('artist.counts', {
+              albums: t('count.albums', { count: artist.album_count }),
+              tracks: t('count.tracks', { count: artist.track_count }),
+            })}
           </p>
           {artist.in_library ? (
             <RemoveFromLibraryButton
@@ -27,10 +31,10 @@ export async function ArtistPage({ id }: { id: string }) {
           ) : null}
         </div>
       </header>
-      <h2 className="mb-4">Альбомы</h2>
+      <h2 className="mb-4">{t('artist.albums')}</h2>
       {albums.length === 0 ? (
         <p className="text-muted text-sm">
-          {artist.in_library ? 'Дискография импортируется…' : 'Нет альбомов в библиотеке.'}
+          {artist.in_library ? t('artist.importing') : t('artist.noAlbums')}
         </p>
       ) : (
         <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">

@@ -1,3 +1,5 @@
+'use client';
+
 import { Disc3 } from 'lucide-react';
 import Link from 'next/link';
 import { Cover } from '@/components/ui/cover';
@@ -9,6 +11,7 @@ import { ArtistAvatar } from '@/features/search/components/artist-avatar';
 import type { SearchStatus, SearchResponse } from '@/hooks/use-search';
 import type { Schemas } from '@/lib/api/client';
 import { cn, formatDuration } from '@/lib/utils';
+import { useT } from '@/providers/i18n-provider';
 import type { Route } from 'next';
 
 type Artist = Schemas['ArtistResult'];
@@ -33,13 +36,14 @@ type Props = {
 };
 
 export function SearchResults({ status, data, stale, error, query, onRetry }: Props) {
+  const t = useT();
   if (status === 'idle') {
-    return <EmptyState title="Что хотите послушать?" body="Введите имя артиста, название альбома или трека." />;
+    return <EmptyState title={t('search.prompt.title')} body={t('search.prompt.body')} />;
   }
   if (!data) {
     if (status === 'error') {
       return (
-        <ErrorState title="Поиск не удался" body={error}>
+        <ErrorState title={t('search.failed')} body={error}>
           <RetryButton onRetry={onRetry} />
         </ErrorState>
       );
@@ -55,23 +59,23 @@ export function SearchResults({ status, data, stale, error, query, onRetry }: Pr
       data-testid="search-results"
     >
       {status === 'error' ? (
-        <ErrorState compact title="Не удалось обновить результаты" body={error}>
+        <ErrorState compact title={t('search.updateFailed')} body={error}>
           <RetryButton onRetry={onRetry} />
         </ErrorState>
       ) : null}
       {data.errors.length > 0 ? (
-        <ErrorState compact title="Часть результатов недоступна" body={data.errors.join('; ')}>
+        <ErrorState compact title={t('search.partial')} body={data.errors.join('; ')}>
           <RetryButton onRetry={onRetry} />
         </ErrorState>
       ) : null}
       {total === 0 && data.errors.length === 0 ? (
-        <EmptyState title="Ничего не найдено" body={`По запросу «${data.query || query}» ничего нет.`} />
+        <EmptyState title={t('search.none')} body={t('search.noneBody', { query: data.query || query })} />
       ) : null}
       <BestResult artist={data.artists[0]} tracks={data.tracks.slice(0, 4)} />
       {data.artists.length > 0 ? (
         <section aria-labelledby="search-artists">
           <h2 id="search-artists" className="mb-4">
-            Артисты
+            {t('group.artists')}
           </h2>
           <ul className="flex gap-5 overflow-x-auto pb-2">
             {data.artists.map(a => (
@@ -85,7 +89,7 @@ export function SearchResults({ status, data, stale, error, query, onRetry }: Pr
       {data.albums.length > 0 ? (
         <section aria-labelledby="search-albums">
           <h2 id="search-albums" className="mb-4">
-            Альбомы
+            {t('group.albums')}
           </h2>
           <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {data.albums.map(a => (
@@ -99,7 +103,7 @@ export function SearchResults({ status, data, stale, error, query, onRetry }: Pr
       {data.tracks.length > 0 ? (
         <section aria-labelledby="search-tracks">
           <h2 id="search-tracks" className="mb-4">
-            Треки
+            {t('group.tracks')}
           </h2>
           <ul className="flex flex-col gap-0.5">
             {data.tracks.map(t => (
@@ -115,31 +119,34 @@ export function SearchResults({ status, data, stale, error, query, onRetry }: Pr
 }
 
 function RetryButton({ onRetry }: { onRetry: () => void }) {
+  const t = useT();
   return (
     <button
       type="button"
       onClick={onRetry}
       className="border-divider hover:bg-card dark:border-divider-dark dark:hover:bg-card-dark rounded-full border px-3 py-1.5 text-xs font-semibold"
     >
-      Повторить
+      {t('common.retry')}
     </button>
   );
 }
 
 function BestResult({ artist, tracks }: { artist: Artist | undefined; tracks: Track[] }) {
+  const t = useT();
   if (!artist || tracks.length === 0) return null;
   return (
     <section aria-labelledby="search-best" className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
       <div>
         <h2 id="search-best" className="mb-4">
-          Лучший результат
+          {t('search.best')}
         </h2>
         <div className="bg-card/60 dark:bg-card-dark/60 flex flex-col gap-4 rounded-lg p-5">
           <ArtistAvatar mbid={artist.mbid} name={artist.name} className="h-24 w-24 text-3xl" />
           <div className="min-w-0">
             <p className="truncate text-2xl font-bold tracking-tight">{artist.name}</p>
             <p className="text-muted truncate text-sm">
-              Артист{artist.disambiguation ? ` · ${artist.disambiguation}` : ''}
+              {t('kind.artist')}
+              {artist.disambiguation ? ` · ${artist.disambiguation}` : ''}
               {artist.country ? ` · ${artist.country}` : ''}
             </p>
           </div>
@@ -148,7 +155,7 @@ function BestResult({ artist, tracks }: { artist: Artist | undefined; tracks: Tr
               <>
                 <InLibraryBadge />
                 <Link href={artistHref(artist.library_id)} className="text-accent text-sm font-medium hover:underline">
-                  Открыть
+                  {t('search.open')}
                 </Link>
               </>
             ) : (
@@ -158,7 +165,7 @@ function BestResult({ artist, tracks }: { artist: Artist | undefined; tracks: Tr
         </div>
       </div>
       <div>
-        <h2 className="mb-4">Подходящие треки</h2>
+        <h2 className="mb-4">{t('search.bestTracks')}</h2>
         <ul className="flex flex-col gap-0.5">
           {tracks.map(t => (
             <li key={t.mbid}>

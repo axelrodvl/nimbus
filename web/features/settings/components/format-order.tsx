@@ -3,9 +3,12 @@
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import { useState } from 'react';
 import { FORMAT_LABELS } from '@/features/settings/types';
+import { useT } from '@/providers/i18n-provider';
 
 // Порядок форматов стрелками; значения уходят в форму скрытыми полями `format_prefs`.
 export function FormatOrder({ initial }: { initial: string[] }) {
+  const t = useT();
+  const label = (f: string) => (f === 'mp3_other' ? t('format.mp3_other') : (FORMAT_LABELS[f] ?? f));
   const [order, setOrder] = useState(initial);
   const move = (i: number, d: -1 | 1) =>
     setOrder(prev => {
@@ -21,10 +24,10 @@ export function FormatOrder({ initial }: { initial: string[] }) {
         <li key={f} className="bg-card dark:bg-card-dark flex items-center gap-2 rounded px-3 py-1.5 text-sm">
           <input type="hidden" name="format_prefs" value={f} />
           <span className="text-muted w-4 font-mono text-xs">{i + 1}</span>
-          <span className="flex-1">{FORMAT_LABELS[f] ?? f}</span>
+          <span className="flex-1">{label(f)}</span>
           <button
             type="button"
-            aria-label={`Выше: ${FORMAT_LABELS[f] ?? f}`}
+            aria-label={t('settings.moveUp', { name: label(f) })}
             disabled={i === 0}
             onClick={() => move(i, -1)}
             className="disabled:opacity-30"
@@ -33,7 +36,7 @@ export function FormatOrder({ initial }: { initial: string[] }) {
           </button>
           <button
             type="button"
-            aria-label={`Ниже: ${FORMAT_LABELS[f] ?? f}`}
+            aria-label={t('settings.moveDown', { name: label(f) })}
             disabled={i === order.length - 1}
             onClick={() => move(i, 1)}
             className="disabled:opacity-30"

@@ -21,12 +21,12 @@ export type Settings = {
 
 export type Storage = { used_bytes: number; limit_bytes: number; files: number; torrents_active: number };
 
+// Названия форматов; `mp3_other` переводится (ключ `format.mp3_other`).
 export const FORMAT_LABELS: Record<string, string> = {
   aac: 'AAC',
   alac: 'ALAC',
   ape_wv: 'APE / WavPack',
   flac: 'FLAC',
   mp3_320: 'MP3 320',
-  mp3_other: 'MP3 (прочее)',
   mp3_v0: 'MP3 V0',
 };

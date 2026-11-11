@@ -3,8 +3,10 @@
 import { useState, useTransition } from 'react';
 import { testProvider } from '@/app/actions/settings';
 import { Button } from '@/components/ui/button';
+import { useT } from '@/providers/i18n-provider';
 
 export function ProviderTest({ provider, label }: { provider: 'tpb' | 'rutracker' | 'torznab'; label: string }) {
+  const t = useT();
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
   const [pending, start] = useTransition();
   return (
@@ -13,7 +15,7 @@ export function ProviderTest({ provider, label }: { provider: 'tpb' | 'rutracker
         variant="secondary"
         size="sm"
         disabled={pending}
-        aria-label={`Проверить ${label}`}
+        aria-label={t('settings.testLabel', { name: label })}
         onClick={() =>
           start(async () => {
             const r = await testProvider(provider);
@@ -21,7 +23,7 @@ export function ProviderTest({ provider, label }: { provider: 'tpb' | 'rutracker
           })
         }
       >
-        {pending ? 'Проверяем…' : 'Проверить'}
+        {pending ? t('settings.testing') : t('settings.test')}
       </Button>
       {result ? (
         <span

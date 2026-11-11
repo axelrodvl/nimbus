@@ -4,6 +4,7 @@ import { Monitor, Moon, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useSyncExternalStore } from 'react';
 import { cn } from '@/lib/utils';
+import { useT } from '@/providers/i18n-provider';
 
 type Props = { variant?: 'pill' | 'inline' };
 
@@ -19,6 +20,7 @@ function useIsMounted() {
 export function ThemeToggle({ variant = 'pill' }: Props) {
   const { theme, setTheme } = useTheme();
   const mounted = useIsMounted();
+  const t = useT();
   const active = mounted ? theme : undefined;
 
   const wrapperClass =
@@ -28,13 +30,13 @@ export function ThemeToggle({ variant = 'pill' }: Props) {
 
   return (
     <div style={{ viewTransitionName: 'theme-toggle' }} className={wrapperClass}>
-      <ToggleButton active={active === 'light'} label="Light mode" onClick={() => setTheme('light')}>
+      <ToggleButton active={active === 'light'} label={t('theme.light')} onClick={() => setTheme('light')}>
         <Sun className="size-4" />
       </ToggleButton>
-      <ToggleButton active={active === 'dark'} label="Dark mode" onClick={() => setTheme('dark')}>
+      <ToggleButton active={active === 'dark'} label={t('theme.dark')} onClick={() => setTheme('dark')}>
         <Moon className="size-4" />
       </ToggleButton>
-      <ToggleButton active={active === 'system'} label="System theme" onClick={() => setTheme('system')}>
+      <ToggleButton active={active === 'system'} label={t('theme.system')} onClick={() => setTheme('system')}>
         <Monitor className="size-4" />
       </ToggleButton>
     </div>

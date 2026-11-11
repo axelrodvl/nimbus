@@ -1,9 +1,12 @@
 // Модульные тесты чистой логики плеера (без браузера).
 import { expect, test } from '@playwright/test';
+import { en } from '../lib/i18n/messages/en';
+import { translate } from '../lib/i18n/translate';
 import {
   applyShuffle,
   describeBackendError,
   describeDownload,
+  playerErrorText,
   initialState,
   nextPlayableIndex,
   parseStored,
@@ -14,6 +17,8 @@ import {
   shuffleAround,
   type PlayerState,
 } from '../providers/player/engine';
+
+const t = ((key: string, params?: Record<string, string | number>) => translate(en, 'en', key, params)) as never;
 
 const track = (id: number, status: 'found' | 'adding' | 'ready' | 'not_found' = 'found') => ({
   album: 'A',
@@ -78,8 +83,8 @@ test('редьюсер: загрузка, тики, очередь', () => {
 
   s = playerReducer(s, { type: 'STOP' });
   expect(s).toMatchObject({ isPlaying: false, position: 0, status: 'paused' });
-  s = playerReducer(s, { error: { code: 'x', message: 'm' }, status: 'error', type: 'STATUS' });
-  expect(s.error?.message).toBe('m');
+  s = playerReducer(s, { error: { code: 'x' }, status: 'error', type: 'STATUS' });
+  expect(s.error?.code).toBe('x');
   s = playerReducer(s, { status: 'playing', type: 'STATUS' });
   expect(s.error).toBeUndefined();
   s = playerReducer(s, { type: 'VOLUME', volume: 250 });
@@ -105,8 +110,8 @@ test('сохранение: круговой обход и защита от м�
 });
 
 test('ошибки бэкенда и форматирование загрузки', async () => {
-  expect(describeBackendError('ffmpeg_missing').message).toContain('ffmpeg');
-  expect(describeBackendError('wat').message).toBe('Не удалось воспроизвести трек');
+  expect(playerErrorText(t, describeBackendError('ffmpeg_missing').code)).toContain('ffmpeg');
+  expect(playerErrorText(t, describeBackendError('wat').code)).toBe('Could not play the track');
 
   const fakeFetch = (status: number) => (async () => ({ ok: status < 400, status }) as Response) as typeof fetch;
   expect((await probeStreamError('u', fakeFetch(503))).code).toBe('ffmpeg_missing');
@@ -117,13 +122,13 @@ test('ошибки бэкенда и форматирование загрузк
     'network',
   );
 
-  expect(describeDownload({ bytes_done: 34, bytes_total: 100, down_speed_bps: 1.2 * 1024 * 1024, peers: 12 })).toBe(
-    'Загрузка из торрента: 34% · 12 пиров · 1.2 МБ/с',
+  expect(describeDownload({ bytes_done: 34, bytes_total: 100, down_speed_bps: 1.2 * 1024 * 1024, peers: 12 }, t)).toBe(
+    'Downloading from the torrent: 34% · 12 peers · 1.2 MB/s',
   );
-  expect(describeDownload({ bytes_done: 0, bytes_total: 0, down_speed_bps: 500, peers: 1 })).toBe(
-    'Загрузка из торрента: 0% · 1 пир · 500 Б/с',
+  expect(describeDownload({ bytes_done: 0, bytes_total: 0, down_speed_bps: 500, peers: 1 }, t)).toBe(
+    'Downloading from the torrent: 0% · 1 peer · 500 B/s',
   );
-  expect(describeDownload({ bytes_done: 1, bytes_total: 2, down_speed_bps: 2048, peers: 3 })).toContain(
-    '3 пира · 2 КБ/с',
+  expect(describeDownload({ bytes_done: 1, bytes_total: 2, down_speed_bps: 2048, peers: 3 }, t)).toContain(
+    '3 peers · 2 KB/s',
   );
 });

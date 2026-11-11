@@ -20,11 +20,13 @@ import { useState } from 'react';
 import { QueuePanel } from '@/components/queue-panel';
 import { Cover } from '@/components/ui/cover';
 import { cn, formatDuration } from '@/lib/utils';
+import { useT } from '@/providers/i18n-provider';
 import { useTrackStatus } from '@/providers/live-library-provider';
-import { describeDownload } from '@/providers/player/engine';
+import { describeDownload, playerErrorText } from '@/providers/player/engine';
 import { usePlayer } from '@/providers/player-provider';
 
 export function NowPlayingBar() {
+  const t = useT();
   const player = usePlayer();
   const { track, isPlaying, position, duration, buffered, volume, muted, hasNext, status, shuffle, repeat } = player;
   const [queueOpen, setQueueOpen] = useState(false);
@@ -39,7 +41,7 @@ export function NowPlayingBar() {
   const transport = (
     <div className="flex items-center gap-4">
       <ToggleButton
-        label="Перемешать"
+        label={t('player.shuffle')}
         active={shuffle}
         onClick={player.toggleShuffle}
         className="hidden sm:inline-flex"
@@ -56,7 +58,7 @@ export function NowPlayingBar() {
       />
       <SkipButton direction="forward" onClick={player.next} disabled={!track || !hasNext} />
       <ToggleButton
-        label={repeat === 'off' ? 'Повтор: выкл.' : repeat === 'all' ? 'Повтор: очередь' : 'Повтор: трек'}
+        label={repeat === 'off' ? t('player.repeat.off') : repeat === 'all' ? t('player.repeat.all') : t('player.repeat.one')}
         active={repeat !== 'off'}
         onClick={player.cycleRepeat}
         className="hidden sm:inline-flex"
@@ -91,7 +93,7 @@ export function NowPlayingBar() {
               <button
                 type="button"
                 onClick={() => setQueueOpen(o => !o)}
-                aria-label="Очередь"
+                aria-label={t('player.queue')}
                 className="text-muted p-1 hover:text-black dark:hover:text-white"
               >
                 <ListMusic className="h-4 w-4" />
@@ -100,7 +102,7 @@ export function NowPlayingBar() {
           </div>
           <div className="mt-2 flex items-center gap-2">
             <span className="text-muted w-8 text-right text-[10px]">{formatDuration(elapsed)}</span>
-            <SliderBar value={position} max={duration} buffered={buffered} onChange={player.seekTo} label="Перемотка" />
+            <SliderBar value={position} max={duration} buffered={buffered} onChange={player.seekTo} label={t('player.seek')} />
             <span className="text-muted w-8 text-[10px]">{formatDuration(total)}</span>
           </div>
           <StatusLine className="mt-1" />
@@ -116,18 +118,18 @@ export function NowPlayingBar() {
             <div className="hidden items-center gap-3 lg:flex">
               <Cover src={track?.coverUrl} alt={track?.title ?? ''} size="sm" className="!h-14 !w-14 !rounded-sm" />
               <TrackInfo
-                title={track?.title ?? 'Ничего не играет'}
+                title={track?.title ?? t('player.nothing')}
                 artist={track?.artist}
                 artistId={track?.artistId}
                 albumTitle={track?.album}
                 albumId={track?.albumId}
-                placeholder={track ? undefined : 'Выберите трек, чтобы начать'}
+                placeholder={track ? undefined : t('player.pickTrack')}
               />
             </div>
             <div className="flex items-center gap-3 lg:hidden">
               <Cover src={track?.coverUrl} alt={track?.title ?? ''} size="sm" className="!h-10 !w-10 !rounded-sm" />
               <TrackInfo
-                title={track?.title ?? 'Ничего не играет'}
+                title={track?.title ?? t('player.nothing')}
                 artist={track?.artist}
                 artistId={track?.artistId}
                 albumId={track?.albumId}
@@ -145,7 +147,7 @@ export function NowPlayingBar() {
                 max={duration}
                 buffered={buffered}
                 onChange={player.seekTo}
-                label="Перемотка"
+                label={t('player.seek')}
                 disabled={!track}
                 testId="player-seek"
               />
@@ -155,7 +157,7 @@ export function NowPlayingBar() {
           </div>
           <div className="hidden items-center justify-end gap-2 lg:flex">
             <ToggleButton
-              label="Очередь"
+              label={t('player.queue')}
               active={queueOpen}
               onClick={() => setQueueOpen(o => !o)}
               testId="player-queue"
@@ -166,7 +168,7 @@ export function NowPlayingBar() {
               type="button"
               onClick={player.toggleMute}
               className="text-muted transition-colors hover:text-black dark:hover:text-white"
-              aria-label={effectiveVolume === 0 ? 'Включить звук' : 'Выключить звук'}
+              aria-label={effectiveVolume === 0 ? t('player.unmute') : t('player.mute')}
             >
               <VolumeIcon className="h-3.5 w-3.5" />
             </button>
@@ -175,7 +177,7 @@ export function NowPlayingBar() {
               max={100}
               onChange={player.setVolume}
               className="w-20"
-              label="Громкость"
+              label={t('player.volume')}
             />
           </div>
         </div>
@@ -186,14 +188,15 @@ export function NowPlayingBar() {
 
 // Состояние под прогресс-баром: подключение к раздаче, загрузка, ошибка.
 function StatusLine({ className }: { className?: string }) {
+  const t = useT();
   const { track, status, error, download, peersHint, cancel } = useStatusInfo();
   if (!track) return null;
   const connecting = status === 'loading' || status === 'buffering';
   let text: string | null = null;
-  if (status === 'error' && error) text = error.message;
+  if (status === 'error' && error) text = playerErrorText(t, error.code);
   else if (connecting && (!download || download.bytes_done === 0)) {
-    text = peersHint > 0 ? `Подключаемся к раздаче… (пиров: ${peersHint})` : 'Подключаемся к раздаче…';
-  } else if (download && download.bytes_done < download.bytes_total) text = describeDownload(download);
+    text = peersHint > 0 ? t('player.connectingPeers', { peers: peersHint }) : t('player.connecting');
+  } else if (download && download.bytes_done < download.bytes_total) text = describeDownload(download, t);
   if (!text) return null;
   return (
     <div
@@ -209,7 +212,7 @@ function StatusLine({ className }: { className?: string }) {
         <button
           type="button"
           onClick={cancel}
-          aria-label="Отменить"
+          aria-label={t('player.cancel')}
           className="inline-flex items-center hover:text-black dark:hover:text-white"
         >
           <X className="h-3 w-3" />
@@ -332,6 +335,7 @@ function SkipButton({
   onClick: () => void;
   disabled?: boolean;
 }) {
+  const t = useT();
   const Icon = direction === 'back' ? SkipBack : SkipForward;
   return (
     <button
@@ -339,7 +343,7 @@ function SkipButton({
       onClick={onClick}
       disabled={disabled}
       className="text-muted p-1 transition-colors hover:text-black disabled:opacity-40 dark:hover:text-white"
-      aria-label={direction === 'back' ? 'Предыдущий' : 'Следующий'}
+      aria-label={direction === 'back' ? t('player.previous') : t('player.next')}
     >
       <Icon className="h-4 w-4" />
     </button>
@@ -357,6 +361,7 @@ function PlayPauseButton({
   onClick: () => void;
   disabled?: boolean;
 }) {
+  const t = useT();
   return (
     <button
       type="button"
@@ -365,7 +370,7 @@ function PlayPauseButton({
       data-testid="player-play-pause"
       data-playing={isPlaying || undefined}
       className="flex h-8 w-8 items-center justify-center rounded-full bg-black text-white transition-transform hover:scale-105 disabled:opacity-40 dark:bg-white dark:text-black"
-      aria-label={isPlaying ? 'Пауза' : 'Играть'}
+      aria-label={isPlaying ? t('player.pause') : t('player.play')}
     >
       {loading ? (
         <Loader2 className="h-4 w-4 animate-spin" />

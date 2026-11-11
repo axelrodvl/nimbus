@@ -5,6 +5,7 @@ import { useOptimistic, useState, useTransition } from 'react';
 import { Spinner } from '@/components/ui/spinner';
 import { addToLibraryWithToast } from '@/features/search/add-to-library';
 import { cn } from '@/lib/utils';
+import { useT } from '@/providers/i18n-provider';
 
 type Props = {
   type: 'artist' | 'album' | 'track';
@@ -18,6 +19,7 @@ type Props = {
 };
 
 export function AddToLibraryButton({ type, mbid, albumMbid, label: text, className, tabIndex }: Props) {
+  const t = useT();
   const [added, setAdded] = useState(false);
   const [optimisticAdded, setOptimisticAdded] = useOptimistic(added);
   const [pending, startTransition] = useTransition();
@@ -29,12 +31,12 @@ export function AddToLibraryButton({ type, mbid, albumMbid, label: text, classNa
     startTransition(async () => {
       setOptimisticAdded(true);
       const input = type === 'track' ? { album_mbid: albumMbid ?? null, mbid, type } : ({ mbid, type } as const);
-      const ok = await addToLibraryWithToast(input);
+      const ok = await addToLibraryWithToast(input, t);
       if (ok) setAdded(true);
     });
   }
 
-  const label = optimisticAdded ? 'Добавлено в библиотеку' : (text ?? 'Добавить в библиотеку');
+  const label = optimisticAdded ? t('add.added') : (text ?? t('add.toLibrary'));
   return (
     <button
       type="button"
@@ -58,20 +60,21 @@ export function AddToLibraryButton({ type, mbid, albumMbid, label: text, classNa
       ) : (
         <Plus className="h-4 w-4" />
       )}
-      {text ? <span className="px-0.5 text-sm font-semibold">{optimisticAdded ? 'Добавлено' : text}</span> : null}
+      {text ? <span className="px-0.5 text-sm font-semibold">{optimisticAdded ? t('add.addedShort') : text}</span> : null}
     </button>
   );
 }
 
 // Метка для элементов, которые уже в библиотеке.
 export function InLibraryBadge({ className }: { className?: string }) {
+  const t = useT();
   return (
     <span
-      title="В библиотеке"
+      title={t('add.inLibrary')}
       className={cn('text-accent inline-flex shrink-0 items-center gap-1 text-xs font-medium', className)}
     >
       <Check className="h-4 w-4" aria-hidden />
-      <span className="sr-only sm:not-sr-only">В библиотеке</span>
+      <span className="sr-only sm:not-sr-only">{t('add.inLibrary')}</span>
     </span>
   );
 }

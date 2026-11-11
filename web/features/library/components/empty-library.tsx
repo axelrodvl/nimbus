@@ -1,13 +1,14 @@
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { FastLink } from '@/components/ui/fast-link';
+import { getT } from '@/lib/i18n/server';
 
-// Данные библиотеки появятся в шаге 11; пока всегда пусто.
-export function EmptyLibrary() {
+export async function EmptyLibrary() {
+  const t = await getT();
   return (
-    <EmptyState title="Библиотека пуста" body="Найдите музыку через поиск и добавьте её в библиотеку.">
+    <EmptyState title={t('library.empty.title')} body={t('library.empty.body')}>
       <FastLink href="/search">
-        <Button variant="secondary">Перейти к поиску</Button>
+        <Button variant="secondary">{t('library.empty.cta')}</Button>
       </FastLink>
     </EmptyState>
   );

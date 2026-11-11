@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { saveSettings, type ActionResult, type SettingsPatch } from '@/app/actions/settings';
 import { Button } from '@/components/ui/button';
 import type { Settings } from '@/features/settings/types';
+import { useT } from '@/providers/i18n-provider';
 
 type State = ActionResult<{ settings: Settings }> | null;
 
@@ -20,12 +21,13 @@ export function SectionForm({
   children: ReactNode;
   build: (fd: FormData) => SettingsPatch;
 }) {
+  const t = useT();
   const [state, action, pending] = useActionState<State, FormData>(async (_prev, fd) => saveSettings(build(fd)), null);
   useEffect(() => {
     if (!state) return;
-    if (state.ok) toast.success(`«${title}»: сохранено`);
+    if (state.ok) toast.success(t('settings.saved', { title }));
     else toast.error(state.message);
-  }, [state, title]);
+  }, [state, title, t]);
   return (
     <section data-testid={`settings-${id}`} aria-labelledby={`s-${id}`} className="mb-10 max-w-2xl">
       <h2 id={`s-${id}`} className="mb-4 text-xl font-semibold">
@@ -35,7 +37,7 @@ export function SectionForm({
         {children}
         <div>
           <Button type="submit" disabled={pending}>
-            Сохранить
+            {t('settings.save')}
           </Button>
         </div>
       </form>

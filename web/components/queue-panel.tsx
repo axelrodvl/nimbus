@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { useEffect } from 'react';
 import { Cover } from '@/components/ui/cover';
 import { cn, formatDuration } from '@/lib/utils';
+import { useT } from '@/providers/i18n-provider';
 import { useTrackStatus } from '@/providers/live-library-provider';
 import { canPlayStatus } from '@/providers/player/engine';
 import { usePlayer } from '@/providers/player-provider';
@@ -11,6 +12,7 @@ import type { Track } from '@/types/track';
 
 // Выезжающая справа панель очереди: текущий трек и «Далее».
 export function QueuePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT();
   const { queue, queueIndex, playIndex, removeFromQueue } = usePlayer();
 
   useEffect(() => {
@@ -26,7 +28,7 @@ export function QueuePanel({ open, onClose }: { open: boolean; onClose: () => vo
   return (
     <aside
       data-testid="queue-panel"
-      aria-label="Очередь"
+      aria-label={t('player.queue')}
       aria-hidden={!open}
       inert={!open}
       className={cn(
@@ -35,11 +37,11 @@ export function QueuePanel({ open, onClose }: { open: boolean; onClose: () => vo
       )}
     >
       <header className="border-divider dark:border-divider-dark flex items-center justify-between border-b px-4 py-3">
-        <h2 className="text-sm font-semibold">Очередь</h2>
+        <h2 className="text-sm font-semibold">{t('player.queue')}</h2>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Закрыть очередь"
+          aria-label={t('queue.closeLabel')}
           className="text-muted p-1 hover:text-black dark:hover:text-white"
         >
           <X className="h-4 w-4" />
@@ -48,11 +50,11 @@ export function QueuePanel({ open, onClose }: { open: boolean; onClose: () => vo
       <div className="flex-1 overflow-y-auto px-2 py-3">
         {current ? (
           <>
-            <p className="text-muted px-2 pb-1 text-xs font-medium tracking-wide uppercase">Сейчас играет</p>
+            <p className="text-muted px-2 pb-1 text-xs font-medium tracking-wide uppercase">{t('queue.nowPlaying')}</p>
             <QueueRow track={current} current onPlay={() => playIndex(queueIndex)} />
-            <p className="text-muted px-2 pt-4 pb-1 text-xs font-medium tracking-wide uppercase">Далее</p>
+            <p className="text-muted px-2 pt-4 pb-1 text-xs font-medium tracking-wide uppercase">{t('queue.next')}</p>
             {upcoming.length === 0 ? (
-              <p className="text-muted px-2 py-2 text-xs">Больше треков в очереди нет</p>
+              <p className="text-muted px-2 py-2 text-xs">{t('queue.noMore')}</p>
             ) : (
               upcoming.map(({ i, t }) => (
                 <QueueRow
@@ -65,7 +67,7 @@ export function QueuePanel({ open, onClose }: { open: boolean; onClose: () => vo
             )}
           </>
         ) : (
-          <p className="text-muted px-2 py-2 text-sm">Очередь пуста</p>
+          <p className="text-muted px-2 py-2 text-sm">{t('queue.empty')}</p>
         )}
       </div>
     </aside>
@@ -83,6 +85,7 @@ function QueueRow({
   onPlay: () => void;
   onRemove?: () => void;
 }) {
+  const t = useT();
   const live = useTrackStatus(track.id, track.status, null);
   const playable = canPlayStatus(live.status);
   return (
@@ -114,7 +117,7 @@ function QueueRow({
         <button
           type="button"
           onClick={onRemove}
-          aria-label={`Убрать из очереди: ${track.title}`}
+          aria-label={t('queue.remove', { title: track.title })}
           className="text-muted p-1 opacity-0 group-hover/q:opacity-100 hover:text-black focus:opacity-100 dark:hover:text-white"
         >
           <X className="h-3.5 w-3.5" />

@@ -2,16 +2,17 @@
 
 import { useConnectionState } from '@/hooks/use-live-events';
 import { cn } from '@/lib/utils';
-
-const labels = {
-  closed: 'Нет соединения с бэкендом',
-  connecting: 'Подключение к бэкенду…',
-  open: 'Соединение с бэкендом установлено',
-} as const;
+import { useT } from '@/providers/i18n-provider';
 
 // Серая точка — нет соединения, зелёная — WebSocket подключён.
 export function ConnectionIndicator({ showLabel = false }: { showLabel?: boolean }) {
   const state = useConnectionState();
+  const t = useT();
+  const labels = {
+    closed: t('conn.closed'),
+    connecting: t('conn.connecting'),
+    open: t('conn.open'),
+  } as const;
   return (
     <span className="text-muted inline-flex items-center gap-2 text-xs" title={labels[state]} data-state={state}>
       <span
@@ -23,7 +24,7 @@ export function ConnectionIndicator({ showLabel = false }: { showLabel?: boolean
           state === 'connecting' && 'animate-pulse',
         )}
       />
-      {showLabel ? <span>{state === 'open' ? 'Online' : 'Offline'}</span> : null}
+      {showLabel ? <span>{state === 'open' ? t('conn.online') : t('conn.offline')}</span> : null}
     </span>
   );
 }

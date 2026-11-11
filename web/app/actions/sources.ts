@@ -1,22 +1,12 @@
 'use server';
 
 import { updateTag } from 'next/cache';
+import { actionFailure } from '@/lib/api/action-errors';
 import { api } from '@/lib/api/client';
 import type { Schemas } from '@/lib/api/client';
-import { ApiError, unwrap } from '@/lib/api/errors';
+import { unwrap } from '@/lib/api/errors';
 
 export type ActionResult<T = object> = ({ ok: true } & T) | { ok: false; code: string; message: string };
-
-const MESSAGES: Record<string, string> = {
-  backend_unavailable: 'Бэкенд недоступен, попробуйте позже',
-  invalid_magnet: 'Это не magnet-ссылка',
-  track_ready: 'Трек уже скачан',
-};
-
-function failure(e: unknown): { ok: false; code: string; message: string } {
-  if (e instanceof ApiError) return { code: e.code, message: MESSAGES[e.code] ?? e.message, ok: false };
-  return { code: 'backend_unavailable', message: MESSAGES.backend_unavailable, ok: false };
-}
 
 function invalidate(albumId: number, trackId?: number) {
   updateTag('library');
@@ -35,7 +25,7 @@ export async function loadTrackSources(
       sources: unwrap(await api.GET('/api/tracks/{id}/sources', { params: { path: { id: trackId } } })),
     };
   } catch (e) {
-    return failure(e);
+    return actionFailure(e);
   }
 }
 
@@ -48,7 +38,7 @@ export async function loadAlbumTorrents(
       torrents: unwrap(await api.GET('/api/albums/{id}/torrents', { params: { path: { id: albumId } } })),
     };
   } catch (e) {
-    return failure(e);
+    return actionFailure(e);
   }
 }
 
@@ -61,7 +51,7 @@ export async function loadTorrentFiles(
       ok: true,
     };
   } catch (e) {
-    return failure(e);
+    return actionFailure(e);
   }
 }
 
@@ -75,7 +65,7 @@ export async function setTrackSource(trackId: number, albumId: number, choice: S
     invalidate(albumId, trackId);
     return { ok: true };
   } catch (e) {
-    return failure(e);
+    return actionFailure(e);
   }
 }
 
@@ -89,7 +79,7 @@ export async function confirmTrackSource(trackId: number, albumId: number, sourc
     invalidate(albumId, trackId);
     return { ok: true };
   } catch (e) {
-    return failure(e);
+    return actionFailure(e);
   }
 }
 
@@ -99,7 +89,7 @@ export async function retryTrack(trackId: number, albumId: number): Promise<Acti
     invalidate(albumId, trackId);
     return { ok: true };
   } catch (e) {
-    return failure(e);
+    return actionFailure(e);
   }
 }
 
@@ -109,7 +99,7 @@ export async function retryAlbum(albumId: number): Promise<ActionResult> {
     invalidate(albumId);
     return { ok: true };
   } catch (e) {
-    return failure(e);
+    return actionFailure(e);
   }
 }
 
@@ -119,6 +109,6 @@ export async function addMagnet(albumId: number, magnet: string): Promise<Action
     invalidate(albumId);
     return { ok: true };
   } catch (e) {
-    return failure(e);
+    return actionFailure(e);
   }
 }

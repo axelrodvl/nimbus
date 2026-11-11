@@ -1,12 +1,13 @@
 // Чистая логика плеера (без DOM и React): состояние, редьюсер, очередь, shuffle, сохранение, ошибки.
 // Побочные эффекты (HTMLAudioElement, Media Session, localStorage) живут в `providers/player-provider.tsx`.
 import type { TrackStatus } from '@/lib/api/events';
+import type { TFn } from '@/providers/i18n-provider';
 import type { Track } from '@/types/track';
 
 export type PlayerStatus = 'idle' | 'loading' | 'buffering' | 'playing' | 'paused' | 'error';
 export type RepeatMode = 'off' | 'all' | 'one';
 export type DownloadInfo = { bytes_done: number; bytes_total: number; peers: number; down_speed_bps: number };
-export type PlayerError = { code: string; message: string };
+export type PlayerError = { code: string };
 
 export type PlayerState = {
   queue: Track[];
@@ -280,17 +281,18 @@ export function parseStored(raw: string | null): StoredPlayer | null {
 
 // ------------------------------------------------------------------ ошибки бэкенда
 
-export const BACKEND_ERROR_TEXT: Record<string, string> = {
-  ffmpeg_missing: 'На сервере не установлен ffmpeg: образы CUE и форматы APE/WV/DSD не играют',
-  no_peers: 'Нет пиров: не удалось получить данные раздачи',
-  track_not_playable: 'Трек ещё не найден — слушать пока нельзя',
-  transcode_failed: 'Не удалось перекодировать файл',
-  transcoder_busy: 'Сервер занят перекодированием, попробуйте через минуту',
-};
+const KNOWN_ERRORS = ['ffmpeg_missing', 'no_peers', 'track_not_playable', 'transcode_failed', 'transcoder_busy'] as const;
 
+/** Код ошибки бэкенда; неизвестные коды показываются как общая ошибка воспроизведения. */
 export function describeBackendError(code: string | undefined): PlayerError {
-  const key = code ?? 'unknown';
-  return { code: key, message: BACKEND_ERROR_TEXT[key] ?? 'Не удалось воспроизвести трек' };
+  return { code: code ?? 'unknown' };
+}
+
+/** Текст ошибки плеера на языке интерфейса. */
+export function playerErrorText(t: TFn, code: string): string {
+  if ((KNOWN_ERRORS as readonly string[]).includes(code)) return t(`player.error.${code as (typeof KNOWN_ERRORS)[number]}`);
+  if (code === 'network') return t('player.error.network');
+  return t('player.error.default');
 }
 
 /**
@@ -309,28 +311,26 @@ export async function probeStreamError(url: string, doFetch: typeof fetch = fetc
     };
     return describeBackendError(byStatus[res.status]);
   } catch {
-    return { code: 'network', message: 'Нет связи с сервером' };
+    return { code: 'network' };
   }
 }
 
 // ------------------------------------------------------------------ форматирование
 
-export function formatSpeed(bps: number): string {
-  if (bps >= 1024 * 1024) return `${(bps / 1024 / 1024).toFixed(1)} МБ/с`;
-  if (bps >= 1024) return `${Math.round(bps / 1024)} КБ/с`;
-  return `${bps} Б/с`;
+export function formatSpeed(bps: number, t: TFn): string {
+  if (bps >= 1024 * 1024) return t('speed.MB', { n: (bps / 1024 / 1024).toFixed(1) });
+  if (bps >= 1024) return t('speed.KB', { n: Math.round(bps / 1024) });
+  return t('speed.B', { n: bps });
 }
 
-/** «Загрузка из торрента: 34% · 12 пиров · 1.2 МБ/с». */
-export function describeDownload(d: DownloadInfo): string {
+/** «Загрузка из торрента: 34% · 12 пиров · 1.2 МБ/с» (на языке интерфейса). */
+export function describeDownload(d: DownloadInfo, t: TFn): string {
   const pct = d.bytes_total > 0 ? Math.min(100, Math.floor((d.bytes_done / d.bytes_total) * 100)) : 0;
-  const peers =
-    d.peers % 10 === 1 && d.peers % 100 !== 11
-      ? 'пир'
-      : [2, 3, 4].includes(d.peers % 10) && ![12, 13, 14].includes(d.peers % 100)
-        ? 'пира'
-        : 'пиров';
-  return `Загрузка из торрента: ${pct}% · ${d.peers} ${peers} · ${formatSpeed(d.down_speed_bps)}`;
+  return t('player.download', {
+    pct,
+    peers: t('count.peers', { count: d.peers }),
+    speed: formatSpeed(d.down_speed_bps, t),
+  });
 }
 
 export function toRanges(r: { length: number; start(i: number): number; end(i: number): number }): [number, number][] {

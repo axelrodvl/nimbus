@@ -194,7 +194,7 @@ test('перемотка ползунком и горячие клавиши', a
 test('пробел в поле ввода не управляет плеером', async ({ page }) => {
   await playAlbum(page);
   // Клиентская навигация (без перезагрузки), чтобы воспроизведение не прервалось
-  await page.getByRole('link', { name: 'Search' }).first().click();
+  await page.getByRole('link', { name: 'Поиск' }).first().click();
   await expect(page).toHaveURL(/\/search$/);
   const input = page.getByRole('searchbox').or(page.getByRole('textbox')).first();
   await input.click();

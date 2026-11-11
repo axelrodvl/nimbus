@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useId, useState } from 'react';
 import { SearchResults } from '@/features/search/components/search-results';
 import { useSearch } from '@/hooks/use-search';
+import { useT } from '@/providers/i18n-provider';
 import type { Route } from 'next';
 
 export function searchHref(query: string) {
@@ -13,6 +14,7 @@ export function searchHref(query: string) {
 
 // Поле ввода синхронизируется с `?q=` через router.replace (без перезагрузки и прокрутки).
 export function SearchView() {
+  const t = useT();
   const router = useRouter();
   const params = useSearchParams();
   const inputId = useId();
@@ -25,7 +27,7 @@ export function SearchView() {
         role="search"
         onSubmit={e => e.preventDefault()}
         className="relative mb-8 flex items-center"
-        aria-label="Поиск по MusicBrainz"
+        aria-label={t('search.formLabel')}
       >
         <SearchIcon className="text-gray pointer-events-none absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2" />
         <input
@@ -35,8 +37,8 @@ export function SearchView() {
           value={value}
           autoComplete="off"
           autoFocus
-          aria-label="Поиск артистов, альбомов и треков"
-          placeholder="Что хотите послушать?"
+          aria-label={t('palette.inputLabel')}
+          placeholder={t('search.prompt.title')}
           maxLength={200}
           onChange={e => {
             setValue(e.target.value);

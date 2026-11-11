@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api/client';
 import type { Schemas } from '@/lib/api/client';
 import { unwrap } from '@/lib/api/errors';
+import { useT } from '@/providers/i18n-provider';
 
 export type SearchResponse = Schemas['SearchResponse'];
 export type SearchStatus = 'idle' | 'loading' | 'success' | 'error';
@@ -46,6 +47,7 @@ export type UseSearch = {
 };
 
 export function useSearch(query: string, { limit = DEFAULT_LIMIT, debounceMs = DEFAULT_DEBOUNCE_MS }: Options = {}) {
+  const t = useT();
   const trimmed = query.trim();
   const key = cacheKey(trimmed, limit);
 
@@ -78,13 +80,13 @@ export function useSearch(query: string, { limit = DEFAULT_LIMIT, debounceMs = D
         if (controller.signal.aborted) return;
         setView(prev => ({
           data: prev?.data,
-          error: e instanceof Error ? e.message : 'Не удалось выполнить поиск',
+          error: e instanceof Error ? e.message : t('search.error'),
           key: k,
           status: 'error',
         }));
       });
     return () => controller.abort();
-  }, [debounced, limit, attempt]);
+  }, [debounced, limit, attempt, t]);
 
   function retry() {
     setView(undefined);

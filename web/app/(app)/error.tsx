@@ -2,16 +2,15 @@
 
 import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/ui/error-state';
+import { useT } from '@/providers/i18n-provider';
 
 // Бэкенд недоступен или вернул ошибку: аккуратное сообщение вместо падения страницы.
 export default function AppError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  const t = useT();
   return (
-    <ErrorState
-      body="Не удалось получить данные. Проверьте, что бэкенд запущен (just backend), и попробуйте ещё раз."
-      title="Что-то пошло не так"
-    >
+    <ErrorState body={t('error.page.body')} title={t('error.page.title')}>
       <Button onClick={reset} size="sm" variant="secondary">
-        Повторить
+        {t('common.retry')}
       </Button>
     </ErrorState>
   );

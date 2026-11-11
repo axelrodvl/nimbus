@@ -5,6 +5,7 @@ import { ProviderTest } from '@/features/settings/components/provider-test';
 import { Check, Field, SectionForm, TextInput } from '@/features/settings/components/section-form';
 import { SECRET_MASK, type Settings, type Storage } from '@/features/settings/types';
 import { formatSize } from '@/features/sources/format';
+import { useT } from '@/providers/i18n-provider';
 
 const str = (fd: FormData, k: string) => String(fd.get(k) ?? '');
 /** Пустая строка → null (сброс необязательного поля). */
@@ -12,14 +13,16 @@ const nz = (fd: FormData, k: string) => str(fd, k).trim() || null;
 const num = (fd: FormData, k: string) => Number(str(fd, k));
 
 function Secret({ name, label, set }: { name: string; label: string; set: boolean }) {
+  const t = useT();
   return (
-    <Field label={label} hint={set ? 'Сохранён. Оставьте пустым, чтобы не менять.' : undefined}>
+    <Field label={label} hint={set ? t('settings.secretSet') : undefined}>
       <TextInput name={name} type="password" autoComplete="off" placeholder={set ? SECRET_MASK : ''} defaultValue="" />
     </Field>
   );
 }
 
 export function SettingsView({ settings: s, storage }: { settings: Settings; storage: Storage | null }) {
+  const t = useT();
   const tz = s.providers.torznab;
   const rt = s.providers.rutracker;
   const usedPct =
@@ -28,7 +31,7 @@ export function SettingsView({ settings: s, storage }: { settings: Settings; sto
     <>
       <SectionForm
         id="providers"
-        title="Источники"
+        title={t('settings.providers')}
         build={fd => ({
           providers: {
             rutracker: {
@@ -56,17 +59,17 @@ export function SettingsView({ settings: s, storage }: { settings: Settings; sto
               placeholder="http://localhost:9117/api/v2.0/indexers/all/results/torznab"
             />
           </Field>
-          <Secret name="tz_key" label="API-ключ" set={Boolean(tz?.api_key)} />
+          <Secret name="tz_key" label={t('settings.apiKey')} set={Boolean(tz?.api_key)} />
           <ProviderTest provider="torznab" label="Torznab" />
         </fieldset>
         <fieldset className="flex flex-col gap-3">
           <legend className="mb-1 text-sm font-semibold">RuTracker</legend>
-          <Field label="Логин">
+          <Field label={t('settings.login')}>
             <TextInput name="rt_username" defaultValue={rt?.username ?? ''} autoComplete="off" />
           </Field>
-          <Secret name="rt_password" label="Пароль" set={Boolean(rt?.password)} />
-          <Secret name="rt_cookie" label="Cookie (bb_session=…)" set={Boolean(rt?.cookie)} />
-          <Field label="Прокси" hint="Например socks5://127.0.0.1:1080">
+          <Secret name="rt_password" label={t('settings.password')} set={Boolean(rt?.password)} />
+          <Secret name="rt_cookie" label={t('settings.cookie')} set={Boolean(rt?.cookie)} />
+          <Field label={t('settings.proxy')} hint={t('settings.proxyHint')}>
             <TextInput name="rt_proxy" defaultValue={rt?.proxy ?? ''} />
           </Field>
           <ProviderTest provider="rutracker" label="RuTracker" />
@@ -75,7 +78,7 @@ export function SettingsView({ settings: s, storage }: { settings: Settings; sto
 
       <SectionForm
         id="search"
-        title="Поиск и сопоставление"
+        title={t('settings.search')}
         build={fd => ({
           matching: { accept: num(fd, 'accept'), confirm: num(fd, 'confirm') },
           search: {
@@ -88,21 +91,21 @@ export function SettingsView({ settings: s, storage }: { settings: Settings; sto
           },
         })}
       >
-        <Field label="Сколько раздач проверять на альбом">
+        <Field label={t('settings.maxCandidates')}>
           <TextInput name="max_candidates" type="number" min={1} max={30} defaultValue={s.search.max_candidates} />
         </Field>
         <div className="flex flex-col gap-1">
-          <span className="text-sm font-medium">Порядок предпочтения форматов</span>
+          <span className="text-sm font-medium">{t('settings.formatOrder')}</span>
           <FormatOrder initial={s.search.format_prefs} />
         </div>
-        <Field label="Пропускать типы релизов" hint="Через запятую: Compilation, Live, Remix, DJ-mix, Demo">
+        <Field label={t('settings.skipTypes')} hint={t('settings.skipTypesHint')}>
           <TextInput name="skip_types" defaultValue={s.search.skip_secondary_types.join(', ')} />
         </Field>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Порог уверенного совпадения" hint="0…1">
+          <Field label={t('settings.accept')} hint="0…1">
             <TextInput name="accept" type="number" step="0.01" min={0} max={1} defaultValue={s.matching.accept} />
           </Field>
-          <Field label="Порог «проверьте»" hint="0…1, не больше уверенного">
+          <Field label={t('settings.confirm')} hint={t('settings.confirmHint')}>
             <TextInput name="confirm" type="number" step="0.01" min={0} max={1} defaultValue={s.matching.confirm} />
           </Field>
         </div>
@@ -110,7 +113,7 @@ export function SettingsView({ settings: s, storage }: { settings: Settings; sto
 
       <SectionForm
         id="playback"
-        title="Воспроизведение"
+        title={t('settings.playback')}
         build={fd => ({
           playback: {
             prefetch_next: fd.get('prefetch_next') === 'on',
@@ -121,32 +124,32 @@ export function SettingsView({ settings: s, storage }: { settings: Settings; sto
       >
         <Check
           name="prefetch_next"
-          label="Заранее загружать следующий трек очереди"
+          label={t('settings.prefetch')}
           defaultChecked={s.playback.prefetch_next}
         />
         <Check
           name="transcode_alac"
-          label="Перекодировать ALAC (пока не применяется)"
+          label={t('settings.transcodeAlac')}
           defaultChecked={s.playback.transcode_alac}
         />
         <Field
-          label="Кодек для lossy-источников при перекодировании"
-          hint="Пока не применяется: перекодирование всегда в FLAC."
+          label={t('settings.codec')}
+          hint={t('settings.codecHint')}
         >
           <select
             name="codec"
             defaultValue={s.playback.transcode_lossy_codec}
             className="border-divider dark:border-divider-dark rounded-lg border bg-transparent px-3 py-2 text-sm"
           >
-            <option value="opus">Opus</option>
-            <option value="mp3">MP3</option>
+            <option value="opus">{t('settings.codec.opus')}</option>
+            <option value="mp3">{t('settings.codec.mp3')}</option>
           </select>
         </Field>
       </SectionForm>
 
       <SectionForm
         id="storage"
-        title="Хранилище"
+        title={t('settings.storage')}
         build={fd => ({
           storage: {
             cache_limit_gb: num(fd, 'cache_limit_gb'),
@@ -161,22 +164,26 @@ export function SettingsView({ settings: s, storage }: { settings: Settings; sto
               <div className="bg-accent h-full" style={{ width: `${usedPct}%` }} />
             </div>
             <span className="text-muted text-xs">
-              Занято {formatSize(storage.used_bytes)} из {formatSize(storage.limit_bytes)} · файлов: {storage.files}
+              {t('settings.storageUsage', {
+                files: storage.files,
+                limit: formatSize(storage.limit_bytes, t),
+                used: formatSize(storage.used_bytes, t),
+              })}
             </span>
           </div>
         ) : (
-          <p className="text-muted text-xs">Данные о хранилище недоступны.</p>
+          <p className="text-muted text-xs">{t('settings.storageUnavailable')}</p>
         )}
-        <Field label="Лимит кэша, ГБ" hint="Давно не игравшие файлы удаляются, когда кэш больше лимита.">
+        <Field label={t('settings.cacheLimit')} hint={t('settings.cacheLimitHint')}>
           <TextInput name="cache_limit_gb" type="number" min={1} defaultValue={s.storage.cache_limit_gb} />
         </Field>
-        <Check name="seeding" label="Раздавать скачанное (seeding)" defaultChecked={s.storage.seeding} />
+        <Check name="seeding" label={t('settings.seeding')} defaultChecked={s.storage.seeding} />
         <p className="text-muted -mt-2 text-xs">
-          Раздача означает распространение файлов; для RuTracker повышает рейтинг.
+          {t('settings.seedingNote')}
         </p>
         <Field
-          label="Остановить раздачу при рейтинге"
-          hint="Пусто — раздавать без ограничения. Пока хранится, но движок его не применяет."
+          label={t('settings.seedRatio')}
+          hint={t('settings.seedRatioHint')}
         >
           <TextInput name="seed_ratio" type="number" step="0.1" min={0.1} defaultValue={s.storage.seed_ratio ?? ''} />
         </Field>

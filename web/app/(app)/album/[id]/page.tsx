@@ -3,11 +3,12 @@ import { PageWrapper } from '@/components/ui/page-layout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlbumPage } from '@/features/library/components/album-page';
 import { TrackListSkeleton } from '@/features/track/components/track-row';
+import { getT } from '@/lib/i18n/server';
 import type { Metadata } from 'next';
 
-export const metadata: Metadata = {
-  title: 'Album',
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: (await getT())('meta.album') };
+}
 
 export default function AlbumRoute({ params }: PageProps<'/album/[id]'>) {
   return (

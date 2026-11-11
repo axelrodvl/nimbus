@@ -3,11 +3,12 @@ import { PageWrapper } from '@/components/ui/page-layout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArtistPage } from '@/features/library/components/artist-page';
 import { AlbumGridSkeleton } from '@/features/library/components/library-cards';
+import { getT } from '@/lib/i18n/server';
 import type { Metadata } from 'next';
 
-export const metadata: Metadata = {
-  title: 'Artist',
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: (await getT())('meta.artist') };
+}
 
 export default function ArtistRoute({ params }: PageProps<'/artist/[id]'>) {
   return (

@@ -14,6 +14,7 @@ import { albumHref, albumSubtitle, artistHref } from '@/features/search/componen
 import { searchHref } from '@/features/search/components/search-view';
 import { useSearch } from '@/hooks/use-search';
 import { cn, formatDuration } from '@/lib/utils';
+import { useT, type TFn } from '@/providers/i18n-provider';
 import type { Route } from 'next';
 
 const MAX_ARTISTS = 3;
@@ -42,6 +43,7 @@ export function useCommandPalette() {
 
 // Глобальный слушатель ⌘K / Ctrl+K и сама палитра.
 export function CommandPaletteProvider({ children }: { children: React.ReactNode }) {
+  const t = useT();
   const store = Ariakit.useDialogStore();
   const isOpen = Ariakit.useStoreState(store, 'open');
 
@@ -62,7 +64,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
       <Ariakit.Dialog
         store={store}
         unmountOnHide
-        aria-label="Поиск"
+        aria-label={t('palette.label')}
         backdrop={<div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />}
         className="border-divider dark:border-divider-dark fixed top-[12vh] left-1/2 z-50 flex max-h-[70vh] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl outline-none dark:bg-[#181818]"
       >
@@ -72,7 +74,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
   );
 }
 
-function buildItems(data: ReturnType<typeof useSearch>['data']): Item[] {
+function buildItems(data: ReturnType<typeof useSearch>['data'], t: TFn): Item[] {
   if (!data) return [];
   return [
     ...data.artists.slice(0, MAX_ARTISTS).map<Item>(a => ({
@@ -81,7 +83,7 @@ function buildItems(data: ReturnType<typeof useSearch>['data']): Item[] {
       id: `artist-${a.mbid}`,
       kind: 'artist',
       libraryHref: a.library_id != null ? artistHref(a.library_id) : null,
-      subtitle: ['Артист', a.disambiguation, a.country].filter(Boolean).join(' · '),
+      subtitle: [t('kind.artist'), a.disambiguation, a.country].filter(Boolean).join(' · '),
       title: a.name,
     })),
     ...data.albums.slice(0, MAX_ALBUMS).map<Item>(a => ({
@@ -98,32 +100,33 @@ function buildItems(data: ReturnType<typeof useSearch>['data']): Item[] {
       id: `album-${a.mbid}`,
       kind: 'album',
       libraryHref: a.library_id != null ? albumHref(a.library_id) : null,
-      subtitle: `Альбом · ${albumSubtitle(a)}`,
+      subtitle: `${t('kind.album')} · ${albumSubtitle(a)}`,
       title: a.title,
     })),
-    ...data.tracks.slice(0, MAX_TRACKS).map<Item>(t => ({
-      add: { album_mbid: t.album_mbid, mbid: t.mbid, type: 'track' },
-      icon: <Cover src={t.cover_url} alt={t.album_title ?? t.title} size="sm" className="!h-9 !w-9" />,
-      id: `track-${t.mbid}`,
+    ...data.tracks.slice(0, MAX_TRACKS).map<Item>(tr => ({
+      add: { album_mbid: tr.album_mbid, mbid: tr.mbid, type: 'track' },
+      icon: <Cover src={tr.cover_url} alt={tr.album_title ?? tr.title} size="sm" className="!h-9 !w-9" />,
+      id: `track-${tr.mbid}`,
       kind: 'track',
       libraryHref: null,
-      meta: t.duration_ms ? formatDuration(Math.floor(t.duration_ms / 1000)) : undefined,
-      subtitle: ['Трек', t.artist_name, t.album_title].filter(Boolean).join(' · '),
-      title: t.title,
+      meta: tr.duration_ms ? formatDuration(Math.floor(tr.duration_ms / 1000)) : undefined,
+      subtitle: [t('kind.track'), tr.artist_name, tr.album_title].filter(Boolean).join(' · '),
+      title: tr.title,
     })),
   ];
 }
 
 const groupIcon = { album: Disc3, artist: Mic2, track: Music2 } as const;
-const groupTitle = { album: 'Альбомы', artist: 'Артисты', track: 'Треки' } as const;
+const groupTitleKey = { album: 'group.albums', artist: 'group.artists', track: 'group.tracks' } as const;
 
 function PaletteBody({ onClose }: { onClose: () => void }) {
+  const t = useT();
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [rawActive, setActive] = useState(0);
   const listId = useId();
   const search = useSearch(query);
-  const items = buildItems(search.data);
+  const items = buildItems(search.data, t);
   const active = Math.min(rawActive, Math.max(items.length - 1, 0));
   const trimmed = query.trim();
 
@@ -142,7 +145,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const item = items[active];
-      if (e.shiftKey && item) void addToLibraryWithToast(item.add);
+      if (e.shiftKey && item) void addToLibraryWithToast(item.add, t);
       else openItem(item);
     }
   }
@@ -156,10 +159,10 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
       }}
       className="text-accent shrink-0 text-sm font-medium whitespace-nowrap hover:underline"
     >
-      Показать все результаты
+      {t('palette.showAll')}
     </button>
   ) : (
-    <span className="text-muted text-xs">Начните вводить запрос</span>
+    <span className="text-muted text-xs">{t('palette.startTyping')}</span>
   );
 
   return (
@@ -172,7 +175,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
           aria-controls={listId}
           aria-activedescendant={items[active] ? `${listId}-${items[active].id}` : undefined}
           aria-autocomplete="list"
-          aria-label="Поиск артистов, альбомов и треков"
+          aria-label={t('palette.inputLabel')}
           autoComplete="off"
           autoFocus
           maxLength={200}
@@ -182,7 +185,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
             setActive(0);
           }}
           onKeyDown={onKeyDown}
-          placeholder="Поиск артистов, альбомов и треков…"
+          placeholder={t('palette.placeholder')}
           className="!border-0 !bg-transparent !px-0 !py-1 !ring-0"
         />
         {search.status === 'loading' ? <Spinner className="text-gray h-4 w-4 shrink-0" /> : null}
@@ -191,15 +194,15 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {search.status === 'error' && !search.data ? (
           <p className="text-muted px-3 py-6 text-center text-sm" role="alert">
-            Поиск не удался{search.error ? `: ${search.error}` : ''}
+            {search.error ? t('palette.failed', { error: search.error }) : t('palette.failedPlain')}
           </p>
         ) : search.status === 'success' && items.length === 0 ? (
-          <p className="text-muted px-3 py-6 text-center text-sm">Ничего не найдено</p>
+          <p className="text-muted px-3 py-6 text-center text-sm">{t('palette.empty')}</p>
         ) : (
           <ul
             id={listId}
             role="listbox"
-            aria-label="Результаты поиска"
+            aria-label={t('palette.results')}
             className={cn('flex flex-col', search.stale && 'opacity-50')}
           >
             {items.map((item, i) => {
@@ -210,7 +213,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
                   {firstOfKind ? (
                     <div className="text-muted flex items-center gap-1.5 px-3 pt-2 pb-1 text-xs font-medium">
                       <Icon className="h-3.5 w-3.5" aria-hidden />
-                      {groupTitle[item.kind]}
+                      {t(groupTitleKey[item.kind])}
                     </div>
                   ) : null}
                   <div
@@ -252,16 +255,16 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         {showAll}
         <span className="hidden gap-3 whitespace-nowrap sm:flex">
           <span>
-            <kbd className="font-mono">↑↓</kbd> выбор
+            <kbd className="font-mono">↑↓</kbd> {t('palette.hint.select')}
           </span>
           <span>
-            <kbd className="font-mono">Enter</kbd> открыть
+            <kbd className="font-mono">Enter</kbd> {t('palette.hint.open')}
           </span>
           <span>
-            <kbd className="font-mono">Shift+Enter</kbd> добавить
+            <kbd className="font-mono">Shift+Enter</kbd> {t('palette.hint.add')}
           </span>
           <span>
-            <kbd className="font-mono">Esc</kbd> закрыть
+            <kbd className="font-mono">Esc</kbd> {t('palette.hint.close')}
           </span>
         </span>
       </div>

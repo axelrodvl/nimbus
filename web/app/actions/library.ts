@@ -1,8 +1,9 @@
 'use server';
 
 import { updateTag } from 'next/cache';
+import { actionFailure } from '@/lib/api/action-errors';
 import { api } from '@/lib/api/client';
-import { ApiError, unwrap, unwrapEmpty } from '@/lib/api/errors';
+import { unwrap, unwrapEmpty } from '@/lib/api/errors';
 
 export type AddToLibraryInput =
   | { type: 'artist'; mbid: string }
@@ -14,18 +15,6 @@ export type LibraryType = 'artist' | 'album' | 'track';
 export type ActionResult<T = object> = ({ ok: true } & T) | { ok: false; code: string; message: string };
 
 export type AddResult = ActionResult<{ type: LibraryType; id: number; status: 'added' | 'importing' | 'exists' }>;
-
-const MESSAGES: Record<string, string> = {
-  backend_unavailable: 'Бэкенд недоступен, попробуйте позже',
-  mb_not_found: 'Не найдено в MusicBrainz',
-  mb_unavailable: 'MusicBrainz недоступен, попробуйте позже',
-  recording_not_in_release: 'Этого трека нет в треклисте альбома',
-};
-
-function failure(e: unknown): { ok: false; code: string; message: string } {
-  if (e instanceof ApiError) return { code: e.code, message: MESSAGES[e.code] ?? e.message, ok: false };
-  return { code: 'backend_unavailable', message: MESSAGES.backend_unavailable, ok: false };
-}
 
 const TAG_PATTERN = /^(library|(artist|album|track):\d+)$/;
 
@@ -47,7 +36,7 @@ export async function addToLibrary(input: AddToLibraryInput): Promise<AddResult>
     if (data.type === 'artist' || data.type === 'album') updateTag(`${data.type}:${data.id}`);
     return { id: data.id, ok: true, status: data.status, type: data.type };
   } catch (e) {
-    return failure(e);
+    return actionFailure(e);
   }
 }
 
@@ -58,11 +47,11 @@ export async function removeFromLibrary(type: LibraryType, id: number): Promise<
     updateTag(`${type}:${id}`);
     return { ok: true };
   } catch (e) {
-    return failure(e);
+    return actionFailure(e);
   }
 }
 
-// Страницы для кнопок «Показать ещё» (без кэша: курсоры уникальны).
+// Страницы для кнопок «Показать ещё» / "Show more" (без кэша: курсоры уникальны).
 export async function loadMoreArtists(cursor: string) {
   return unwrap(await api.GET('/api/library/artists', { params: { query: { cursor, limit: 50 } } }));
 }

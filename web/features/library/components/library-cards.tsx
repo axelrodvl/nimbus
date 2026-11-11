@@ -1,27 +1,20 @@
+'use client';
+
 import Link from 'next/link';
 import { Cover } from '@/components/ui/cover';
 import { Skeleton } from '@/components/ui/skeleton';
+import { albumMeta } from '@/features/library/album-meta';
 import { StatusMiniBar } from '@/features/library/components/status-mini-bar';
 import { ArtistAvatar } from '@/features/search/components/artist-avatar';
 import type { Schemas } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
+import { useT } from '@/providers/i18n-provider';
 
 type Artist = Schemas['ArtistDto'];
 type Album = Schemas['AlbumDto'];
 
-export function albumMeta(a: Album) {
-  return [a.artist_name, a.year ? String(a.year) : null, a.primary_type].filter(Boolean).join(' · ');
-}
-
-export function plural(n: number, one: string, few: string, many: string) {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return one;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
-  return many;
-}
-
 export function ArtistCard({ artist }: { artist: Artist }) {
+  const t = useT();
   return (
     <Link
       href={`/artist/${artist.id}`}
@@ -31,8 +24,7 @@ export function ArtistCard({ artist }: { artist: Artist }) {
       <div className="flex min-w-0 flex-col items-center text-center">
         <span className="line-clamp-2 text-sm font-semibold">{artist.name}</span>
         <span className="text-muted text-xs">
-          {artist.album_count} {plural(artist.album_count, 'альбом', 'альбома', 'альбомов')} · {artist.track_count}{' '}
-          {plural(artist.track_count, 'трек', 'трека', 'треков')}
+          {t('count.albums', { count: artist.album_count })} · {t('count.tracks', { count: artist.track_count })}
         </span>
       </div>
     </Link>
@@ -40,6 +32,7 @@ export function ArtistCard({ artist }: { artist: Artist }) {
 }
 
 export function LibraryAlbumCard({ album, priority }: { album: Album; priority?: boolean }) {
+  const t = useT();
   return (
     <Link
       href={`/album/${album.id}`}
@@ -58,7 +51,7 @@ export function LibraryAlbumCard({ album, priority }: { album: Album; priority?:
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="line-clamp-2 text-sm font-semibold">{album.title}</span>
         <span className="text-muted line-clamp-2 text-xs">{albumMeta(album)}</span>
-        {!album.in_library ? <span className="text-muted text-xs italic">Добавлены отдельные треки</span> : null}
+        {!album.in_library ? <span className="text-muted text-xs italic">{t('album.onlySingles')}</span> : null}
       </div>
       <StatusMiniBar counts={album.status_counts} total={album.track_count} />
     </Link>

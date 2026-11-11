@@ -1,15 +1,11 @@
 'use server';
 
 import type { Settings } from '@/features/settings/types';
+import { actionFailure } from '@/lib/api/action-errors';
 import { api } from '@/lib/api/client';
-import { ApiError, unwrap } from '@/lib/api/errors';
+import { unwrap } from '@/lib/api/errors';
 
 export type ActionResult<T = object> = ({ ok: true } & T) | { ok: false; code: string; message: string };
-
-function failure(e: unknown): { ok: false; code: string; message: string } {
-  if (e instanceof ApiError) return { code: e.code, message: e.message, ok: false };
-  return { code: 'backend_unavailable', message: 'Бэкенд недоступен, попробуйте позже', ok: false };
-}
 
 /** Частичный объект настроек (merge на бэкенде). */
 export type SettingsPatch = {
@@ -21,7 +17,7 @@ export async function saveSettings(patch: SettingsPatch): Promise<ActionResult<{
     const settings = unwrap(await api.PUT('/api/settings', { body: patch as never })) as unknown as Settings;
     return { ok: true, settings };
   } catch (e) {
-    return failure(e);
+    return actionFailure(e);
   }
 }
 
@@ -32,7 +28,7 @@ export async function testProvider(
     const r = unwrap(await api.POST('/api/settings/providers/test', { body: { provider } }));
     return { message: r.message, ok: true, sampleCount: r.sample_count, success: r.ok };
   } catch (e) {
-    return failure(e);
+    return actionFailure(e);
   }
 }
 

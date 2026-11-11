@@ -7,8 +7,10 @@ import { TorrentTable } from '@/features/sources/components/torrent-table';
 import { api } from '@/lib/api/client';
 import { unwrap } from '@/lib/api/errors';
 import { getAlbum } from '@/lib/data/library';
+import { getT } from '@/lib/i18n/server';
 
 export async function SourcesPage({ id }: { id: string }) {
+  const t = await getT();
   const { album, tracks } = await getAlbum(id);
   await connection();
   // Альбом уже найден (`getAlbum` вернул бы 404), так что любая ошибка здесь — настоящая, а не «нет такого альбома».
@@ -22,7 +24,7 @@ export async function SourcesPage({ id }: { id: string }) {
       >
         <ArrowLeft className="h-4 w-4" aria-hidden /> {album.title}
       </Link>
-      <h1 className="mb-6 text-3xl font-bold tracking-tight">Источники</h1>
+      <h1 className="mb-6 text-3xl font-bold tracking-tight">{t('sources.title')}</h1>
       <div className="mb-6 flex flex-col gap-3">
         <div>
           <RetryAlbumButton albumId={album.id} />

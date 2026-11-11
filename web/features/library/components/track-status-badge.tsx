@@ -3,13 +3,8 @@
 import { CheckCircle2, CircleDot, CircleSlash, Loader2 } from 'lucide-react';
 import type { TrackStatus } from '@/lib/api/events';
 import { cn } from '@/lib/utils';
+import { useT, type TFn } from '@/providers/i18n-provider';
 import { useAlbumProgress, useTrackStatus } from '@/providers/live-library-provider';
-
-const NOT_FOUND_TEXT: Record<string, string> = {
-  dead_torrents: 'Нет сидов',
-  no_match: 'Трек не найден в раздачах',
-  no_torrents: 'Раздачи не найдены',
-};
 
 type Props = {
   trackId: number;
@@ -20,6 +15,7 @@ type Props = {
 };
 
 export function describeStatus(
+  t: TFn,
   status: TrackStatus,
   reason: string | null,
   progress?: { stage: 'searching' | 'verifying'; done: number; total: number },
@@ -27,23 +23,27 @@ export function describeStatus(
   switch (status) {
     case 'adding':
       if (progress?.stage === 'verifying' && progress.total > 0) {
-        return `Проверяем раздачи ${progress.done}/${progress.total}`;
+        return t('status.label.verifying', { done: progress.done, total: progress.total });
       }
-      return 'Ищем раздачи…';
+      return t('status.label.adding');
     case 'found':
-      return 'Найдено, можно слушать';
+      return t('status.label.found');
     case 'not_found':
-      return (reason && NOT_FOUND_TEXT[reason]) || 'Не найдено';
+      if (reason === 'dead_torrents') return t('status.reason.dead_torrents');
+      if (reason === 'no_match') return t('status.reason.no_match');
+      if (reason === 'no_torrents') return t('status.reason.no_torrents');
+      return t('status.label.notFound');
     case 'ready':
-      return 'Скачано';
+      return t('status.label.ready');
   }
 }
 
 // Статус трека: иконка + tooltip. Live-обновления (`track.status`) подменяют серверное значение.
 export function TrackStatusBadge({ trackId, albumId, status, reason, className }: Props) {
+  const t = useT();
   const live = useTrackStatus(trackId, status, reason);
   const progress = useAlbumProgress(albumId);
-  const label = describeStatus(live.status, live.reason, live.status === 'adding' ? progress : undefined);
+  const label = describeStatus(t, live.status, live.reason, live.status === 'adding' ? progress : undefined);
 
   return (
     <span

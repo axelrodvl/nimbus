@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { loadPrefetchEnabled, prefetchTrack } from '@/app/actions/settings';
 import { useLiveEvent } from '@/hooks/use-live-events';
 import { publicBackendUrl } from '@/lib/env';
+import { useT } from '@/providers/i18n-provider';
 import { useLiveLibrary } from '@/providers/live-library-provider';
 import {
   applyShuffle,
@@ -16,6 +17,7 @@ import {
   playerReducer,
   PREVIOUS_RESTART_THRESHOLD_S,
   prevPlayableIndex,
+  playerErrorText,
   probeStreamError,
   serializeState,
   shuffleAround,
@@ -93,6 +95,7 @@ function activatesOnSpace(t: EventTarget | null) {
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(playerReducer, initialState);
   const { trackStatus } = useLiveLibrary();
+  const t = useT();
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   /** Трек, который сейчас загружен в элемент (после отмены/восстановления — null). */
@@ -105,11 +108,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastTickRef = useRef(0);
   const lastPositionStateRef = useRef(0);
-  const latest = useRef({ state, trackStatus });
+  const latest = useRef({ state, t, trackStatus });
   const actionsRef = useRef<Actions | null>(null);
 
   useEffect(() => {
-    latest.current = { state, trackStatus };
+    latest.current = { state, t, trackStatus };
   });
 
   const positionNow = useCallback(
@@ -204,7 +207,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         if (loadedIdRef.current !== track.id) return;
         dispatch({ error: err, status: 'error', type: 'STATUS' });
         dispatch({ type: 'PLAYING', value: false });
-        toast.error(`${track.title}: ${err.message}`);
+        toast.error(`${track.title}: ${playerErrorText(latest.current.t, err.code)}`);
         // Через 2 с — к следующему играбельному треку (без зацикливания).
         errorTimerRef.current = setTimeout(() => {
           const s = latest.current.state;

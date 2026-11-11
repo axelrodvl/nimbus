@@ -10,6 +10,7 @@ import type { TrackDto } from '@/features/library/to-player-track';
 import { AddToLibraryButton } from '@/features/search/components/add-to-library-button';
 import { TrackMenu } from '@/features/sources/components/track-menu';
 import { cn, formatDuration } from '@/lib/utils';
+import { useT } from '@/providers/i18n-provider';
 import { useTrackStatus } from '@/providers/live-library-provider';
 import { usePlayer } from '@/providers/player-provider';
 
@@ -26,6 +27,7 @@ type Props = {
 
 // Строка трека библиотеки: статус, воспроизведение (только `found`/`ready`), «+» для треков вне библиотеки.
 export function LibraryTrackRow({ track, queue, showAlbum = true, index, albumMbid }: Props) {
+  const t = useT();
   const player = usePlayer();
   const live = useTrackStatus(track.id, track.status, track.status_reason ?? null);
   const playable = isPlayable(live.status);
@@ -57,7 +59,7 @@ export function LibraryTrackRow({ track, queue, showAlbum = true, index, albumMb
         type="button"
         onClick={toggle}
         disabled={!playable}
-        aria-label={isThisPlaying ? `Пауза: ${track.title}` : `Играть: ${track.title}`}
+        aria-label={isThisPlaying ? t('row.pause', { title: track.title }) : t('row.play', { title: track.title })}
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-black enabled:hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-30 dark:text-white dark:enabled:hover:bg-white/10"
       >
         {isThisPlaying ? (
@@ -94,8 +96,8 @@ export function LibraryTrackRow({ track, queue, showAlbum = true, index, albumMb
       ) : null}
       {track.in_library && track.needs_confirmation ? (
         <span
-          title="Источник трека сомнительный: проверьте"
-          aria-label="Проверьте источник"
+          title={t('row.checkSourceTitle')}
+          aria-label={t('row.checkSource')}
           role="img"
           data-testid="needs-confirmation"
         >

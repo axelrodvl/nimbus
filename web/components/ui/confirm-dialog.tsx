@@ -3,6 +3,7 @@
 import * as Ariakit from '@ariakit/react';
 import { startTransition, useState } from 'react';
 import { Spinner } from '@/components/ui/spinner';
+import { useT } from '@/providers/i18n-provider';
 
 type Variant = 'danger' | 'primary';
 
@@ -24,10 +25,11 @@ export function ConfirmDialog({
   store,
   title,
   description,
-  confirmLabel = 'Confirm',
+  confirmLabel,
   variant = 'danger',
   confirmAction,
 }: Props) {
+  const t = useT();
   const [isPending, setIsPending] = useState(false);
 
   async function handleConfirm() {
@@ -66,7 +68,7 @@ export function ConfirmDialog({
           className="border-divider hover:bg-card dark:border-divider-dark dark:hover:bg-card-dark inline-flex items-center justify-center rounded-full border bg-white px-5 py-2 text-sm font-semibold text-black transition-colors disabled:cursor-not-allowed disabled:opacity-50 dark:bg-black dark:text-white"
           disabled={isPending}
         >
-          Cancel
+          {t('common.cancel')}
         </Ariakit.DialogDismiss>
         <button
           type="button"
@@ -75,7 +77,7 @@ export function ConfirmDialog({
           onClick={handleConfirm}
         >
           {isPending && <Spinner className="h-4 w-4" />}
-          {confirmLabel}
+          {confirmLabel ?? t('common.confirm')}
         </button>
       </div>
     </Ariakit.Dialog>

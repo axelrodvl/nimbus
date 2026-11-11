@@ -13,11 +13,15 @@ export default defineConfig({
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
+        
         // Если нужная версия Chromium не установлена, можно указать готовый бинарник.
-        launchOptions: {
+launchOptions: {
           args: ['--autoplay-policy=no-user-gesture-required'],
           executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined,
         },
+        
+        // Тесты написаны под русский интерфейс: язык берётся из Accept-Language.
+locale: 'ru-RU',
       },
     },
   ],
