@@ -1,5 +1,6 @@
 //! Пул соединений, миграции и (с шага 04) репозитории.
 
+pub mod helpers;
 pub mod repo;
 
 use sqlx::postgres::PgPoolOptions;

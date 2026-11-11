@@ -4,6 +4,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use nimbus_api::{build_router, AppState};
+use nimbus_core::events::EventBus;
 use nimbus_core::Config;
 use sqlx::PgPool;
 use tower::ServiceExt;
@@ -21,6 +22,7 @@ async fn health_ok(pool: PgPool) {
     let app = build_router(AppState {
         db: pool,
         config: Arc::new(test_config()),
+        events: EventBus::new(),
     });
     let res = app
         .oneshot(Request::get("/api/health").body(Body::empty()).unwrap())
@@ -39,6 +41,7 @@ async fn cors_header_for_configured_origin(pool: PgPool) {
     let app = build_router(AppState {
         db: pool,
         config: Arc::new(test_config()),
+        events: EventBus::new(),
     });
     let res = app
         .oneshot(

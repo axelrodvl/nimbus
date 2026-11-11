@@ -44,7 +44,7 @@
 | 02 | [x] | [Импорт next-beats и инвентаризация](docs/plan/02-import-next-beats.md) | 01 |
 | 03 | [x] | [Каркас Rust-бэкенда](docs/plan/03-backend-skeleton.md) | 01 |
 | 04 | [x] | [Схема БД, доменные модели, репозитории](docs/plan/04-db-schema.md) | 03 |
-| 05 | [ ] | [Очередь задач, шина событий, WebSocket](docs/plan/05-jobs-events-ws.md) | 04 |
+| 05 | [x] | [Очередь задач, шина событий, WebSocket](docs/plan/05-jobs-events-ws.md) | 04 |
 | 06 | [ ] | [Клиент MusicBrainz](docs/plan/06-musicbrainz-client.md) | 04 |
 | 07 | [ ] | [API поиска + OpenAPI](docs/plan/07-search-api-openapi.md) | 06 |
 | 08 | [ ] | [Фронтенд: отвязка от Prisma и синтеза, API-клиент](docs/plan/08-web-data-layer.md) | 02, 07 |
@@ -172,6 +172,11 @@ Web — порт `3000`, backend — `8080`, Postgres — `5432`.
 - Отклонения: ...
 - Важно для следующих шагов: ...
 -->
+
+### 2026-11-11 — шаг 05
+- Сделано: `core::jobs::Job` (+ `to_parts/from_parts`, `dedup_key`), `core::events::{Event, EventBus, JobStage, Entity}`; `db::repo::jobs` (`enqueue` с `pg_notify` в одном операторе, `claim`, `complete`, `fail`, `requeue_stale`, `purge_done`, `list`), `db::helpers::set_track_status_and_publish`; `worker::{JobHandler, JobError, JobCtx, WorkerConfig, WorkerPool}` (LISTEN/NOTIFY + опрос раз в 5 с, backoff `30с·2^(n-1)` до 30 мин, паника изолирована через `tokio::spawn`, graceful shutdown 10 с, обслуживание очереди раз в минуту) и заглушки handler'ов (`discover_*` ×2, `verify_torrent` ×4); `api`: `GET /api/ws` (ping 25 с, таймаут 60 с, `{"type":"resync"}` при Lagged), `GET /api/debug/jobs?state=&limit=`, гард `auth::authorize` (пока пропускает всех), `AppState.events`. Тесты: 5 (очередь) + 5 (раннер) + 3 (WS/debug) + unit'ы; весь workspace и `backend-check` зелёные. Вручную: задача, вставленная в БД, подхвачена воркером и завершена, shutdown корректный.
+- Отклонения: в `JobError` добавлен третий вариант `Unexpected(String)` (backoff по умолчанию; `From<anyhow::Error>` и `From<sqlx::Error>`). `WorkerPool::spawn(ctx, Vec<(Arc<dyn JobHandler>, concurrency)>, WorkerConfig)` — параллелизм задаётся парой с обработчиком, а не по виду задачи. `/api/debug/jobs` включается при `debug_assertions` или `NIMBUS_DEBUG=true` (новое поле `Config.debug`, переменная в `.env.example`). `websocat` в окружении нет — WS проверен интеграционным тестом на `tokio-tungstenite`.
+- Важно для следующих шагов: чтобы добавить реальный handler, замените заглушку в `worker::handlers::default_handlers()` (шаги 14, 17) и расширьте `JobCtx`. Новые виды задач — вариант в `core::jobs::Job` + константа `kind`. `AppState` теперь требует `events` (тесты создают его вручную). Для публикации статуса трека используйте `nimbus_db::helpers::set_track_status_and_publish`. Тестовый шаблон для раннера — `crates/worker/tests/runner.rs`.
 
 ### 2026-11-11 — шаг 04
 - Сделано: миграция `0002_schema.sql` (artists, albums, tracks, torrents, torrent_files, album_torrents, track_sources, downloads, jobs, mb_cache — ровно по плану); `core::model` (enum'ы `TrackStatus/NotFoundReason/TorrentKind/MetaStatus/TorrentSource` как TEXT с ручными `Type/Encode/Decode`, `InfoHash` с hex/base32/`from_magnet`, строки таблиц с `FromRow`, структуры `New*`, `TrackFilter`, `RankedTorrent`); репозитории `db::repo::{artists, albums, tracks, torrents, album_torrents, track_sources, downloads, mb_cache}`. Тесты: 5 unit в core, 10 интеграционных в `crates/db/tests/repos.rs`. `just db-reset && just backend` — миграции применяются (11 таблиц), health ok; `backend-check` чисто.

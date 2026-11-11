@@ -5,6 +5,7 @@ pub mod album_torrents;
 pub mod albums;
 pub mod artists;
 pub mod downloads;
+pub mod jobs;
 pub mod mb_cache;
 pub mod torrents;
 pub mod track_sources;

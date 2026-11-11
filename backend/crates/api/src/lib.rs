@@ -1,6 +1,8 @@
+pub mod auth;
 pub mod error;
 pub mod routes;
 pub mod state;
+pub mod ws;
 
 use axum::http::{header, HeaderValue, Method};
 use axum::Router;
@@ -12,7 +14,7 @@ pub use state::AppState;
 /// Полный роутер приложения.
 pub fn build_router(state: AppState) -> Router {
     Router::new()
-        .nest("/api", routes::api_routes())
+        .nest("/api", routes::api_routes(&state))
         .layer(cors_layer(&state.config.cors_origin))
         .layer(TraceLayer::new_for_http())
         .with_state(state)

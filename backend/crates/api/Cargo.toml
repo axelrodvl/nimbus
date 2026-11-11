@@ -6,6 +6,9 @@ edition.workspace = true
 [dependencies]
 nimbus-core.workspace = true
 nimbus-db.workspace = true
+nimbus-worker.workspace = true
+futures.workspace = true
+chrono.workspace = true
 tokio.workspace = true
 axum.workspace = true
 tower.workspace = true
@@ -20,6 +23,7 @@ dotenvy.workspace = true
 
 [dev-dependencies]
 http-body-util = "0.1"
+tokio-tungstenite = "0.26"
 
 [[bin]]
 name = "nimbus"

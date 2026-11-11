@@ -4,3 +4,17 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+nimbus-core.workspace = true
+nimbus-db.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+sqlx.workspace = true

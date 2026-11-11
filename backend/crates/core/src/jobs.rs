@@ -1,0 +1,80 @@
+//! Типы фоновых задач.
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "payload", rename_all = "snake_case")]
+pub enum Job {
+    DiscoverAlbum { album_id: i64 },
+    DiscoverArtist { artist_id: i64 },
+    VerifyTorrent { torrent_id: i64, album_id: i64 },
+    // шаг 22 добавит: PrefetchTrack { track_id: i64 }, EvictCache
+}
+
+impl Job {
+    pub const DISCOVER_ALBUM: &'static str = "discover_album";
+    pub const DISCOVER_ARTIST: &'static str = "discover_artist";
+    pub const VERIFY_TORRENT: &'static str = "verify_torrent";
+
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Job::DiscoverAlbum { .. } => Self::DISCOVER_ALBUM,
+            Job::DiscoverArtist { .. } => Self::DISCOVER_ARTIST,
+            Job::VerifyTorrent { .. } => Self::VERIFY_TORRENT,
+        }
+    }
+
+    /// Ключ дедупликации: пока задача с таким ключом активна (queued/running), дубликат не ставится.
+    pub fn dedup_key(&self) -> Option<String> {
+        Some(match self {
+            Job::DiscoverAlbum { album_id } => format!("discover_album:{album_id}"),
+            Job::DiscoverArtist { artist_id } => format!("discover_artist:{artist_id}"),
+            Job::VerifyTorrent {
+                torrent_id,
+                album_id,
+            } => format!("verify_torrent:{torrent_id}:{album_id}"),
+        })
+    }
+
+    /// Пара (`jobs.kind`, `jobs.payload`).
+    pub fn to_parts(&self) -> (&'static str, Value) {
+        let mut v = serde_json::to_value(self).expect("Job serializes");
+        let payload = v.get_mut("payload").map(Value::take).unwrap_or(Value::Null);
+        (self.kind(), payload)
+    }
+
+    pub fn from_parts(kind: &str, payload: Value) -> Result<Self, serde_json::Error> {
+        serde_json::from_value(serde_json::json!({ "kind": kind, "payload": payload }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parts_roundtrip() {
+        let j = Job::VerifyTorrent {
+            torrent_id: 7,
+            album_id: 42,
+        };
+        let (kind, payload) = j.to_parts();
+        assert_eq!(kind, "verify_torrent");
+        assert_eq!(
+            payload,
+            serde_json::json!({"torrent_id": 7, "album_id": 42})
+        );
+        assert_eq!(Job::from_parts(kind, payload).unwrap(), j);
+        assert_eq!(j.dedup_key().as_deref(), Some("verify_torrent:7:42"));
+        assert_eq!(
+            Job::DiscoverAlbum { album_id: 42 }.dedup_key().as_deref(),
+            Some("discover_album:42")
+        );
+    }
+
+    #[test]
+    fn unknown_kind_is_error() {
+        assert!(Job::from_parts("nope", serde_json::json!({})).is_err());
+    }
+}

@@ -31,6 +31,8 @@ pub struct Config {
     pub cache_limit_gb: u64,
     pub seeding: bool,
     pub api_token: Option<String>,
+    /// NIMBUS_DEBUG: включает отладочные эндпоинты в release-сборке.
+    pub debug: bool,
 }
 
 impl Config {
@@ -104,6 +106,7 @@ impl Config {
             cache_limit_gb,
             seeding: parse_bool("NIMBUS_SEEDING", false)?,
             api_token: opt("NIMBUS_API_TOKEN"),
+            debug: parse_bool("NIMBUS_DEBUG", false)?,
         })
     }
 }
@@ -124,6 +127,7 @@ mod tests {
         assert_eq!(c.cors_origin, "http://localhost:3000");
         assert!(c.tpb_enabled);
         assert!(!c.seeding);
+        assert!(!c.debug);
         assert_eq!(c.cache_limit_gb, 50);
         assert!(c.torznab_url.is_none() && c.api_token.is_none());
     }

@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use nimbus_api::{build_router, AppState};
+use nimbus_core::events::EventBus;
 use nimbus_core::Config;
+use nimbus_worker::handlers::default_handlers;
+use nimbus_worker::{JobCtx, WorkerConfig, WorkerPool};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -27,9 +30,19 @@ async fn main() -> anyhow::Result<()> {
     nimbus_db::migrate(&db).await.context("migrations failed")?;
 
     let bind = config.bind;
+    let events = EventBus::new();
+    let workers = WorkerPool::spawn(
+        JobCtx {
+            db: db.clone(),
+            events: events.clone(),
+        },
+        default_handlers(),
+        WorkerConfig::default(),
+    );
     let state = AppState {
         db,
         config: Arc::new(config),
+        events,
     };
     let app = build_router(state);
 
@@ -40,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
+    workers.shutdown().await;
     tracing::info!("shutdown complete");
     Ok(())
 }
