@@ -1,6 +1,5 @@
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
 import { connection } from 'next/server';
 import { AddMagnetForm } from '@/features/sources/components/add-magnet-form';
 import { RetryAlbumButton } from '@/features/sources/components/retry-album-button';
@@ -12,9 +11,8 @@ import { getAlbum } from '@/lib/data/library';
 export async function SourcesPage({ id }: { id: string }) {
   const { album, tracks } = await getAlbum(id);
   await connection();
-  const res = await api.GET('/api/albums/{id}/torrents', { params: { path: { id: album.id } } });
-  if (res.response.status === 404) notFound();
-  const torrents = unwrap(res);
+  // Альбом уже найден (`getAlbum` вернул бы 404), так что любая ошибка здесь — настоящая, а не «нет такого альбома».
+  const torrents = unwrap(await api.GET('/api/albums/{id}/torrents', { params: { path: { id: album.id } } }));
   const trackTitles = Object.fromEntries(tracks.map(t => [t.id, t.title]));
   return (
     <>
