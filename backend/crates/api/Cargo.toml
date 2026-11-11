@@ -3,6 +3,10 @@ name = "nimbus-api"
 version.workspace = true
 edition.workspace = true
 
+[features]
+# NIMBUS_FAKE_EXTERNAL: фейковые MusicBrainz/Torznab и локальный сидер (только для e2e).
+test-fakes = ["nimbus-torrent/test-fakes"]
+
 [dependencies]
 nimbus-core.workspace = true
 nimbus-db.workspace = true
@@ -27,6 +31,7 @@ anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 dotenvy.workspace = true
+subtle = "2"
 
 [dev-dependencies]
 http-body-util = "0.1"

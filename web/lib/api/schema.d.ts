@@ -68,6 +68,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/debug/albums/{id}/torrents": {
         parameters: {
             query?: never;
@@ -561,6 +593,14 @@ export interface components {
         DebugMetadataRequest: {
             magnet: string;
         };
+        EngineHealth: {
+            /** Format: int64 */
+            down_bps: number;
+            /** Format: int64 */
+            torrents: number;
+            /** Format: int64 */
+            up_bps: number;
+        };
         ErrorBody: {
             code: string;
             message: string;
@@ -571,11 +611,27 @@ export interface components {
         };
         HealthResponse: {
             db: boolean;
+            engine?: null | components["schemas"]["EngineHealth"];
+            jobs: components["schemas"]["JobsHealth"];
             status: string;
             version: string;
         };
+        JobsHealth: {
+            /**
+             * Format: int64
+             * @description Задачи в состоянии `failed`, обновлённые за последние 24 часа.
+             */
+            failed_24h: number;
+            /** Format: int64 */
+            queued: number;
+            /** Format: int64 */
+            running: number;
+        };
         /** @enum {string} */
         LibraryKind: "artist" | "album" | "track";
+        LoginRequest: {
+            token: string;
+        };
         /** @enum {string} */
         MetaStatus: "pending" | "fetching" | "ok" | "timeout" | "dead" | "error";
         /** @enum {string} */
@@ -919,6 +975,55 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
+            };
+        };
+    };
+    login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Токен верный; cookie `nimbus_token` установлена (или авторизация выключена) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Неверный токен */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cookie `nimbus_token` удалена */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

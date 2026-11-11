@@ -235,6 +235,52 @@
         }
       }
     },
+    "/api/auth/login": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Токен верный; cookie `nimbus_token` установлена (или авторизация выключена)"
+          },
+          "401": {
+            "description": "Неверный токен",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "logout",
+        "responses": {
+          "204": {
+            "description": "Cookie `nimbus_token` удалена"
+          }
+        }
+      }
+    },
     "/api/debug/albums/{id}/torrents": {
       "get": {
         "tags": [
@@ -1719,6 +1765,31 @@
           }
         }
       },
+      "EngineHealth": {
+        "type": "object",
+        "required": [
+          "torrents",
+          "down_bps",
+          "up_bps"
+        ],
+        "properties": {
+          "down_bps": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "torrents": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "up_bps": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "ErrorBody": {
         "type": "object",
         "required": [
@@ -1751,17 +1822,55 @@
         "required": [
           "status",
           "db",
-          "version"
+          "version",
+          "jobs"
         ],
         "properties": {
           "db": {
             "type": "boolean"
+          },
+          "engine": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EngineHealth",
+                "description": "Торрент-движок (`null`, если не запущен)."
+              }
+            ]
+          },
+          "jobs": {
+            "$ref": "#/components/schemas/JobsHealth"
           },
           "status": {
             "type": "string"
           },
           "version": {
             "type": "string"
+          }
+        }
+      },
+      "JobsHealth": {
+        "type": "object",
+        "required": [
+          "queued",
+          "running",
+          "failed_24h"
+        ],
+        "properties": {
+          "failed_24h": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Задачи в состоянии `failed`, обновлённые за последние 24 часа."
+          },
+          "queued": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "running": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -1772,6 +1881,17 @@
           "album",
           "track"
         ]
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
       },
       "MetaStatus": {
         "type": "string",

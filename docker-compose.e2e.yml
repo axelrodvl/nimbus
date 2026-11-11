@@ -1,0 +1,22 @@
+# Override для `just e2e`: фейковые внешние сервисы, токен, изолированные тома и порты.
+services:
+  db:
+    ports: !reset []
+  backend:
+    build:
+      args:
+        CARGO_FEATURES: test-fakes
+    environment:
+      NIMBUS_FAKE_EXTERNAL: "true"
+      NIMBUS_API_TOKEN: e2e-token
+    volumes: !override
+      - e2e-data:/data
+    ports: !reset []
+  web:
+    environment:
+      NIMBUS_API_TOKEN: e2e-token
+  caddy:
+    ports: !override
+      - "8010:80"
+volumes:
+  e2e-data:

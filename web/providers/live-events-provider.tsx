@@ -17,8 +17,10 @@ const LiveEventsContext = createContext<LiveEventsContextValue | null>(null);
 const MIN_DELAY_MS = 1000;
 const MAX_DELAY_MS = 30_000;
 
-export function wsUrl(base: string = publicBackendUrl) {
-  return `${base.replace(/^http/, 'ws')}/api/ws`;
+// Пустой base — тот же origin: URL строится от `location`.
+export function wsUrl(base: string = publicBackendUrl, loc: Pick<Location, 'protocol' | 'host'> = location) {
+  const origin = base || `${loc.protocol}//${loc.host}`;
+  return `${origin.replace(/^http/, 'ws')}/api/ws`;
 }
 
 // Одно WebSocket-соединение на вкладку, автопереподключение с задержкой 1 с → 30 с.

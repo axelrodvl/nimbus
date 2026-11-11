@@ -57,6 +57,8 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
         )
         .route("/storage", get(crate::settings::get_storage))
         .route("/tracks/{id}/prefetch", post(crate::stream::prefetch_track))
+        .route("/auth/login", post(crate::auth::login))
+        .route("/auth/logout", post(crate::auth::logout))
         .route("/ws", get(ws_handler));
     if cfg!(debug_assertions) || state.config.debug {
         r = r
@@ -72,6 +74,24 @@ pub struct HealthResponse {
     pub status: String,
     pub db: bool,
     pub version: String,
+    /// Торрент-движок (`null`, если не запущен).
+    pub engine: Option<EngineHealth>,
+    pub jobs: JobsHealth,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct EngineHealth {
+    pub torrents: u64,
+    pub down_bps: u64,
+    pub up_bps: u64,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct JobsHealth {
+    pub queued: i64,
+    pub running: i64,
+    /// Задачи в состоянии `failed`, обновлённые за последние 24 часа.
+    pub failed_24h: i64,
 }
 
 #[utoipa::path(
@@ -82,10 +102,32 @@ pub struct HealthResponse {
 )]
 pub async fn health(State(state): State<AppState>) -> Result<Json<HealthResponse>, ApiError> {
     sqlx::query("SELECT 1").execute(&state.db).await?;
+    let (queued, running, failed_24h): (i64, i64, i64) = sqlx::query_as(
+        "SELECT
+            COUNT(*) FILTER (WHERE state = 'queued'),
+            COUNT(*) FILTER (WHERE state = 'running'),
+            COUNT(*) FILTER (WHERE state = 'failed' AND updated_at > now() - interval '24 hours')
+         FROM jobs",
+    )
+    .fetch_one(&state.db)
+    .await?;
     Ok(Json(HealthResponse {
         status: "ok".into(),
         db: true,
         version: env!("CARGO_PKG_VERSION").into(),
+        engine: state.engine.as_ref().map(|e| {
+            let s = e.stats();
+            EngineHealth {
+                torrents: s.torrents,
+                down_bps: s.down_bps,
+                up_bps: s.up_bps,
+            }
+        }),
+        jobs: JobsHealth {
+            queued,
+            running,
+            failed_24h,
+        },
     }))
 }
 

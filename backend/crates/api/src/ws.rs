@@ -3,25 +3,31 @@
 use std::time::{Duration, Instant};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::HeaderMap;
 use axum::response::Response;
 use futures::SinkExt;
 use tokio::sync::broadcast::error::RecvError;
 
-use crate::auth::authorize;
+use crate::auth::authorize_with_query;
 use crate::error::ApiError;
 use crate::state::AppState;
 
 const PING_EVERY: Duration = Duration::from_secs(25);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(60);
 
+#[derive(serde::Deserialize)]
+pub struct WsQuery {
+    token: Option<String>,
+}
+
 pub async fn ws_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Query(q): Query<WsQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<Response, ApiError> {
-    authorize(&state, &headers)?;
+    authorize_with_query(&state, &headers, q.token.as_deref())?;
     Ok(ws.on_upgrade(move |socket| serve(socket, state)))
 }
 

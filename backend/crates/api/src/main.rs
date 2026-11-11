@@ -22,14 +22,26 @@ async fn main() -> anyhow::Result<()> {
     // В dev подхватываем .env из корня репозитория (ищется вверх по каталогам).
     let _ = dotenvy::dotenv();
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info,nimbus=debug,nimbus_api=debug,sqlx=warn")),
-        )
-        .init();
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,nimbus=debug,nimbus_api=debug,sqlx=warn"));
+    if std::env::var("NIMBUS_LOG_FORMAT").is_ok_and(|v| v.eq_ignore_ascii_case("json")) {
+        tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(filter)
+            .init();
+    } else {
+        tracing_subscriber::fmt().with_env_filter(filter).init();
+    }
 
-    let config = Config::from_env().context("invalid configuration")?;
+    #[allow(unused_mut)]
+    let mut config = Config::from_env().context("invalid configuration")?;
+    if config.api_token.is_none() && !config.bind.ip().is_loopback() {
+        tracing::warn!(
+            bind = %config.bind,
+            "NIMBUS_API_TOKEN is not set and the API listens on a non-loopback address: \
+             anyone who can reach it has full access"
+        );
+    }
     std::fs::create_dir_all(&config.data_dir)
         .with_context(|| format!("cannot create data dir {}", config.data_dir.display()))?;
 
@@ -40,7 +52,33 @@ async fn main() -> anyhow::Result<()> {
 
     let bind = config.bind;
     let events = EventBus::new();
-    let mb = MbClient::new(&config.mb_user_agent, Some(db.clone()))
+
+    // Фейковые внешние сервисы (только e2e): подменяют MB, провайдеры и пиров.
+    let fake_requested = std::env::var("NIMBUS_FAKE_EXTERNAL")
+        .is_ok_and(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"));
+    #[cfg(not(feature = "test-fakes"))]
+    if fake_requested {
+        anyhow::bail!("NIMBUS_FAKE_EXTERNAL requires a build with `--features test-fakes`");
+    }
+    #[cfg(feature = "test-fakes")]
+    let fakes = if fake_requested {
+        let f = nimbus_api::fakes::start(&config.data_dir).await?;
+        config.tpb_enabled = false;
+        config.torznab_url = Some(f.torznab_url.clone());
+        config.torznab_api_key = None;
+        Some(f)
+    } else {
+        None
+    };
+
+    #[allow(unused_mut)]
+    let mut mb_cfg = nimbus_musicbrainz::MbConfig::new(&config.mb_user_agent);
+    #[cfg(feature = "test-fakes")]
+    if let Some(f) = &fakes {
+        mb_cfg.base = f.mb_base.parse().context("fake MB url")?;
+        mb_cfg.min_interval = std::time::Duration::from_millis(5);
+    }
+    let mb = MbClient::with_config(mb_cfg, Some(db.clone()))
         .context("cannot create MusicBrainz client")?;
     // Настройки из БД поверх env-дефолтов.
     let settings = nimbus_db::settings::SettingsStore::load(
@@ -50,8 +88,17 @@ async fn main() -> anyhow::Result<()> {
     .await
     .context("cannot load settings")?;
     let initial = settings.get();
+    #[allow(unused_mut)]
+    let mut engine_cfg = EngineConfig::new(&config.data_dir, initial.storage.seeding);
+    #[cfg(feature = "test-fakes")]
+    if let Some(f) = &fakes {
+        engine_cfg.localhost_only = true;
+        engine_cfg.dht = false;
+        engine_cfg.persistence = false;
+        engine_cfg.initial_peers = vec![f.peer];
+    }
     let engine = Arc::new(
-        TorrentEngine::new(EngineConfig::new(&config.data_dir, initial.storage.seeding))
+        TorrentEngine::new(engine_cfg)
             .await
             .context("cannot start torrent engine")?,
     );

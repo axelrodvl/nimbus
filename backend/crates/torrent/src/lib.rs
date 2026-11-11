@@ -1,5 +1,8 @@
 //! Обёртка над librqbit — единственное место, которое знает про торрент-движок.
 
+#[cfg(feature = "test-fakes")]
+pub mod fake_swarm;
+
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -164,6 +167,13 @@ impl FileProvider for TorrentEngine {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EngineStats {
+    pub torrents: u64,
+    pub down_bps: u64,
+    pub up_bps: u64,
+}
+
 pub trait AsyncReadSeek: AsyncRead + AsyncSeek {}
 impl<T: AsyncRead + AsyncSeek> AsyncReadSeek for T {}
 
@@ -292,6 +302,24 @@ impl TorrentEngine {
             }
         }
         tracing::info!(seeding = on, "seeding policy changed");
+    }
+
+    /// Сводка по движку: число торрентов и суммарные скорости (байт/с).
+    pub fn stats(&self) -> EngineStats {
+        let handles: Vec<ManagedTorrentHandle> = self
+            .session
+            .with_torrents(|it| it.map(|(_, h)| h.clone()).collect());
+        let mut out = EngineStats {
+            torrents: handles.len() as u64,
+            ..EngineStats::default()
+        };
+        for h in handles {
+            if let Some(live) = h.stats().live.as_ref() {
+                out.down_bps += live.download_speed.as_bytes();
+                out.up_bps += live.upload_speed.as_bytes();
+            }
+        }
+        out
     }
 
     pub fn listen_addr(&self) -> Option<SocketAddr> {

@@ -1,6 +1,8 @@
 pub mod auth;
 pub mod error;
 pub mod extract;
+#[cfg(feature = "test-fakes")]
+pub mod fakes;
 pub mod library;
 pub mod openapi;
 pub mod routes;
@@ -37,6 +39,7 @@ fn cors_layer(origin: &str) -> CorsLayer {
             Method::DELETE,
             Method::OPTIONS,
         ])
+        .allow_credentials(true)
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::RANGE])
         .expose_headers([
             header::CONTENT_RANGE,

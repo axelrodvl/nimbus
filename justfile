@@ -41,6 +41,30 @@ web-build:
 web-check:
     cd web && pnpm lint && pnpm exec tsc --noEmit
 
+openapi-check:
+    cd backend && cargo run -q -p nimbus-api --bin nimbus -- --print-openapi | diff -q - ../web/openapi.json || (echo 'web/openapi.json устарел: выполните just web-gen-api' && exit 1)
+
+up:
+    docker compose up -d --build
+
+down:
+    docker compose down
+
+logs:
+    docker compose logs -f --tail=100
+
+# e2e против полного стека (фейковые внешние сервисы), порт 8010.
+e2e:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    c="docker compose -p nimbus-e2e -f docker-compose.yml -f docker-compose.e2e.yml"
+    $c up -d --build --wait || { $c logs --tail=80; $c down -v; exit 1; }
+    (cd web && PLAYWRIGHT_BASE_URL=http://localhost:8010 E2E_TOKEN=e2e-token pnpm exec playwright test --config playwright.e2e.config.ts --trace off)
+    status=$?
+    [ $status -ne 0 ] && $c logs --tail=80 backend
+    $c down -v
+    exit $status
+
 test: backend-test
 
 check: backend-check web-check

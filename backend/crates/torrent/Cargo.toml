@@ -3,6 +3,10 @@ name = "nimbus-torrent"
 version.workspace = true
 edition.workspace = true
 
+[features]
+# Локальный сидер для e2e (не для боевой сборки).
+test-fakes = []
+
 [dependencies]
 nimbus-core.workspace = true
 librqbit = { version = "9.1.0", default-features = false, features = ["rust-tls"] }

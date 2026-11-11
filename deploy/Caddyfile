@@ -1,0 +1,11 @@
+:80 {
+	# API, WebSocket и аудиострим — без буферизации (важно для Range/стрима).
+	handle /api/* {
+		reverse_proxy backend:8080 {
+			flush_interval -1
+		}
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}

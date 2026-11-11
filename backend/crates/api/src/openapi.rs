@@ -14,6 +14,8 @@ use crate::{library, routes, search, sources};
         routes::debug_torrent_metadata,
         routes::debug_album_torrents,
         routes::ws_doc,
+        crate::auth::login,
+        crate::auth::logout,
         search::search,
         library::add_to_library,
         library::remove_from_library,
@@ -40,6 +42,9 @@ use crate::{library, routes, search, sources};
     ),
     components(schemas(
         routes::HealthResponse,
+        routes::EngineHealth,
+        routes::JobsHealth,
+        crate::auth::LoginRequest,
         routes::DebugMetadataRequest,
         crate::error::ErrorResponse,
         crate::error::ErrorBody,
