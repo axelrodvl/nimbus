@@ -47,6 +47,16 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
             post(sources::confirm_source),
         )
         .route("/tracks/{id}/retry", post(sources::retry_track))
+        .route(
+            "/settings",
+            get(crate::settings::get_settings).put(crate::settings::put_settings),
+        )
+        .route(
+            "/settings/providers/test",
+            post(crate::settings::test_provider),
+        )
+        .route("/storage", get(crate::settings::get_storage))
+        .route("/tracks/{id}/prefetch", post(crate::stream::prefetch_track))
         .route("/ws", get(ws_handler));
     if cfg!(debug_assertions) || state.config.debug {
         r = r

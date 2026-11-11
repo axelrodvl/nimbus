@@ -157,7 +157,14 @@ pub async fn verify_torrent(ctx: &JobCtx, torrent_id: i64, album_id: i64) -> Res
                 total_discs,
                 tracks: &inputs,
             },
-            &MatchConfig::default(),
+            &{
+                let m = &ctx.settings.get().matching;
+                MatchConfig {
+                    accept: m.accept,
+                    confirm: m.confirm,
+                    ..MatchConfig::default()
+                }
+            },
         );
 
         for m in &outcome.matches {

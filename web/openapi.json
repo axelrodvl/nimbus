@@ -741,6 +741,125 @@
         }
       }
     },
+    "/api/settings": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "get_settings",
+        "responses": {
+          "200": {
+            "description": "Текущие настройки; заданные секреты заменены на «••••»",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "put_settings",
+        "requestBody": {
+          "description": "Частичный объект настроек (merge). Пустой секрет или «••••» не меняет сохранённое значение; `null` сбрасывает необязательное поле.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Сохранённые настройки (секреты замаскированы)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Некорректные значения (`invalid_settings`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/providers/test": {
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "test_provider",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Результат пробного поиска «Radiohead» (ok=false — провайдер не ответил или отклонил логин)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderTestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Провайдер не настроен (`not_configured`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/storage": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "get_storage",
+        "responses": {
+          "200": {
+            "description": "Занятое место кэша и лимит",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/torrents/{id}/files": {
       "get": {
         "tags": [
@@ -816,6 +935,48 @@
           },
           "404": {
             "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tracks/{id}/prefetch": {
+      "post": {
+        "tags": [
+          "library"
+        ],
+        "operationId": "prefetch_track",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID трека",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Предзагрузка начала файла запущена в фоне",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrefetchResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Нет такого трека",
             "content": {
               "application/json": {
                 "schema": {
@@ -1630,6 +1791,57 @@
           "transcode"
         ]
       },
+      "PrefetchResponse": {
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "description": "`started` — предзагрузка запущена, `ready` — файл уже на диске, `skipped` — нечего грузить."
+          }
+        }
+      },
+      "ProviderName": {
+        "type": "string",
+        "enum": [
+          "tpb",
+          "rutracker",
+          "torznab"
+        ]
+      },
+      "ProviderTestRequest": {
+        "type": "object",
+        "required": [
+          "provider"
+        ],
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/ProviderName"
+          }
+        }
+      },
+      "ProviderTestResponse": {
+        "type": "object",
+        "required": [
+          "ok",
+          "message",
+          "sample_count"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "sample_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "RetryResponse": {
         "type": "object",
         "required": [
@@ -1740,6 +1952,37 @@
           "ready": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "StorageDto": {
+        "type": "object",
+        "required": [
+          "used_bytes",
+          "limit_bytes",
+          "files",
+          "torrents_active"
+        ],
+        "properties": {
+          "files": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Файлов в кэше (на диске)."
+          },
+          "limit_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "torrents_active": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Торрентов с незавершёнными загрузками."
+          },
+          "used_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -2095,6 +2338,10 @@
     {
       "name": "sources",
       "description": "Источники: раздачи, файлы, ручной выбор, retry"
+    },
+    {
+      "name": "settings",
+      "description": "Настройки, проверка провайдеров, хранилище"
     },
     {
       "name": "library",

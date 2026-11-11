@@ -30,6 +30,10 @@ pub struct JobCtx {
     pub fetcher: Option<Arc<dyn MetadataFetcher>>,
     /// Доступ к файлам торрентов (CUE-файлы; по умолчанию — движок, в тестах — фейк).
     pub files: Option<Arc<dyn nimbus_torrent::FileProvider>>,
+    /// Настройки приложения (редактируются из UI).
+    pub settings: nimbus_db::settings::SettingsStore,
+    /// Активные стримы и недавний prefetch: эти файлы вытеснение кэша не трогает.
+    pub activity: nimbus_core::activity::Activity,
     /// Номер текущей попытки (с 1) и лимит попыток задачи; выставляются раннером перед вызовом.
     pub attempt: i32,
     pub max_attempts: i32,
@@ -43,6 +47,11 @@ impl JobCtx {
         providers: Arc<ProviderRegistry>,
     ) -> Self {
         Self {
+            settings: nimbus_db::settings::SettingsStore::new(
+                db.clone(),
+                nimbus_core::Settings::default(),
+            ),
+            activity: nimbus_core::activity::Activity::default(),
             db,
             events,
             mb,
@@ -64,6 +73,16 @@ impl JobCtx {
 
     pub fn with_fetcher(mut self, fetcher: Arc<dyn MetadataFetcher>) -> Self {
         self.fetcher = Some(fetcher);
+        self
+    }
+
+    pub fn with_settings(mut self, settings: nimbus_db::settings::SettingsStore) -> Self {
+        self.settings = settings;
+        self
+    }
+
+    pub fn with_activity(mut self, activity: nimbus_core::activity::Activity) -> Self {
+        self.activity = activity;
         self
     }
 
@@ -139,6 +158,8 @@ pub struct WorkerConfig {
     pub maintenance_interval: Duration,
     pub done_retention: Duration,
     pub shutdown_timeout: Duration,
+    /// Как часто ставить задачу вытеснения кэша (`None` — не ставить).
+    pub evict_interval: Option<Duration>,
 }
 
 impl Default for WorkerConfig {
@@ -151,6 +172,7 @@ impl Default for WorkerConfig {
             maintenance_interval: Duration::from_secs(60),
             done_retention: Duration::from_secs(7 * 24 * 3600),
             shutdown_timeout: Duration::from_secs(10),
+            evict_interval: Some(Duration::from_secs(10 * 60)),
         }
     }
 }
@@ -279,6 +301,7 @@ async fn sleep_or_cancel(d: Duration, token: &CancellationToken) -> bool {
 
 async fn maintenance_loop(db: PgPool, cfg: Arc<WorkerConfig>, token: CancellationToken) {
     let mut last_purge = std::time::Instant::now() - Duration::from_secs(24 * 3600);
+    let mut last_evict = std::time::Instant::now();
     loop {
         match jobs::requeue_stale(&db, cfg.stale_after).await {
             Ok(0) => {}
@@ -289,6 +312,15 @@ async fn maintenance_loop(db: PgPool, cfg: Arc<WorkerConfig>, token: Cancellatio
             last_purge = std::time::Instant::now();
             if let Err(e) = jobs::purge_done(&db, cfg.done_retention).await {
                 tracing::error!(error = %e, "purge_done failed");
+            }
+        }
+        if cfg
+            .evict_interval
+            .is_some_and(|i| last_evict.elapsed() >= i)
+        {
+            last_evict = std::time::Instant::now();
+            if let Err(e) = jobs::enqueue(&db, &Job::EvictCache, None).await {
+                tracing::error!(error = %e, "cannot enqueue cache eviction");
             }
         }
         if sleep_or_cancel(cfg.maintenance_interval, &token).await {

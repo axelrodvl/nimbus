@@ -228,6 +228,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_settings"];
+        put: operations["put_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/providers/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["test_provider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/storage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_storage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/torrents/{id}/files": {
         parameters: {
             query?: never;
@@ -254,6 +302,22 @@ export interface paths {
         get: operations["get_track"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tracks/{id}/prefetch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["prefetch_track"];
         delete?: never;
         options?: never;
         head?: never;
@@ -516,6 +580,20 @@ export interface components {
         MetaStatus: "pending" | "fetching" | "ok" | "timeout" | "dead" | "error";
         /** @enum {string} */
         PlaybackMode: "direct" | "transcode";
+        PrefetchResponse: {
+            /** @description `started` — предзагрузка запущена, `ready` — файл уже на диске, `skipped` — нечего грузить. */
+            state: string;
+        };
+        /** @enum {string} */
+        ProviderName: "tpb" | "rutracker" | "torznab";
+        ProviderTestRequest: {
+            provider: components["schemas"]["ProviderName"];
+        };
+        ProviderTestResponse: {
+            message: string;
+            ok: boolean;
+            sample_count: number;
+        };
         RetryResponse: {
             /** @description Была ли поставлена новая задача (`false` — такая уже в очереди). */
             queued: boolean;
@@ -556,6 +634,22 @@ export interface components {
             not_found: number;
             /** Format: int64 */
             ready: number;
+        };
+        StorageDto: {
+            /**
+             * Format: int64
+             * @description Файлов в кэше (на диске).
+             */
+            files: number;
+            /** Format: int64 */
+            limit_bytes: number;
+            /**
+             * Format: int64
+             * @description Торрентов с незавершёнными загрузками.
+             */
+            torrents_active: number;
+            /** Format: int64 */
+            used_bytes: number;
         };
         TorrentDto: {
             /** Format: int64 */
@@ -1187,6 +1281,113 @@ export interface operations {
             };
         };
     };
+    get_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Текущие настройки; заданные секреты заменены на «••••» */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    put_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Частичный объект настроек (merge). Пустой секрет или «••••» не меняет сохранённое значение; `null` сбрасывает необязательное поле. */
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Сохранённые настройки (секреты замаскированы) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Некорректные значения (`invalid_settings`) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    test_provider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderTestRequest"];
+            };
+        };
+        responses: {
+            /** @description Результат пробного поиска «Radiohead» (ok=false — провайдер не ответил или отклонил логин) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderTestResponse"];
+                };
+            };
+            /** @description Провайдер не настроен (`not_configured`) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_storage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Занятое место кэша и лимит */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageDto"];
+                };
+            };
+        };
+    };
     torrent_files: {
         parameters: {
             query?: never;
@@ -1238,6 +1439,38 @@ export interface operations {
                     "application/json": components["schemas"]["TrackDto"];
                 };
             };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    prefetch_track: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID трека */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Предзагрузка начала файла запущена в фоне */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrefetchResponse"];
+                };
+            };
+            /** @description Нет такого трека */
             404: {
                 headers: {
                     [name: string]: unknown;

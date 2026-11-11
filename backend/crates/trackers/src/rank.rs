@@ -63,7 +63,36 @@ impl Default for FormatPrefs {
     }
 }
 
+impl AudioFormat {
+    pub fn from_key(key: &str) -> Option<Self> {
+        use AudioFormat::*;
+        Some(match key {
+            "flac" => Flac,
+            "alac" => Alac,
+            "mp3_320" => Mp3_320,
+            "mp3_v0" => Mp3V0,
+            "aac" => Aac,
+            "ape_wv" => ApeWv,
+            "mp3_other" => Mp3Other,
+            _ => return None,
+        })
+    }
+}
+
 impl FormatPrefs {
+    /// Порядок из настроек (`search.format_prefs`); неизвестные ключи пропускаются.
+    pub fn from_keys(keys: &[String]) -> Self {
+        let order: Vec<AudioFormat> = keys
+            .iter()
+            .filter_map(|k| AudioFormat::from_key(k))
+            .collect();
+        if order.is_empty() {
+            Self::default()
+        } else {
+            Self { order }
+        }
+    }
+
     fn bonus(&self, f: AudioFormat) -> f32 {
         match self.order.iter().position(|x| *x == f) {
             Some(i) => weights::FORMAT * (1.0 - i as f32 / self.order.len() as f32),

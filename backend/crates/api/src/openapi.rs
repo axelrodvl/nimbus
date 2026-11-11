@@ -32,6 +32,11 @@ use crate::{library, routes, search, sources};
         sources::retry_track,
         sources::retry_album,
         sources::add_magnet,
+        crate::settings::get_settings,
+        crate::settings::put_settings,
+        crate::settings::test_provider,
+        crate::settings::get_storage,
+        crate::stream::prefetch_track,
     ),
     components(schemas(
         routes::HealthResponse,
@@ -68,11 +73,17 @@ use crate::{library, routes, search, sources};
         sources::AddMagnetRequest,
         sources::AddMagnetResponse,
         sources::RetryResponse,
+        crate::settings::ProviderName,
+        crate::settings::ProviderTestRequest,
+        crate::settings::ProviderTestResponse,
+        crate::settings::StorageDto,
+        crate::stream::PrefetchResponse,
     )),
     tags(
         (name = "system", description = "Служебные эндпоинты"),
         (name = "search", description = "Поиск в MusicBrainz"),
         (name = "sources", description = "Источники: раздачи, файлы, ручной выбор, retry"),
+        (name = "settings", description = "Настройки, проверка провайдеров, хранилище"),
         (name = "library", description = "Библиотека: добавление, списки, страницы артиста и альбома"),
     )
 )]

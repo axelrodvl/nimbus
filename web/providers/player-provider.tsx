@@ -1,7 +1,8 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useReducer, useRef } from 'react';
+import { createContext, useCallback, useContext, useEffect, useReducer, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { loadPrefetchEnabled, prefetchTrack } from '@/app/actions/settings';
 import { useLiveEvent } from '@/hooks/use-live-events';
 import { publicBackendUrl } from '@/lib/env';
 import { useLiveLibrary } from '@/providers/live-library-provider';
@@ -65,6 +66,8 @@ export const streamUrl = (trackId: number, startSeconds = 0) =>
 const isTranscoded = (t: Track | null | undefined) => t?.playback === 'transcode';
 
 const ERROR_ADVANCE_MS = 2000;
+/** За сколько секунд до конца трека предзагружаем следующий. */
+const PREFETCH_BEFORE_END_S = 30;
 const TICK_THROTTLE_MS = 250;
 const PERSIST_INTERVAL_MS = 2000;
 const SEEK_STEP_S = 5;
@@ -416,6 +419,24 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       },
       type: 'DOWNLOAD',
     });
+  });
+
+  // --- prefetch следующего трека: за 30 с до конца (или сразу, если включено `prefetch_next`)
+  const [prefetchNext, setPrefetchNext] = useState(true);
+  const prefetchedRef = useRef<number | null>(null);
+  useEffect(() => {
+    void loadPrefetchEnabled().then(setPrefetchNext);
+  }, []);
+  useEffect(() => {
+    const { queue: q, index: i, repeat, duration: d, position: p, isPlaying } = state;
+    if (!isPlaying || !(d > 0) || (!prefetchNext && d - p > PREFETCH_BEFORE_END_S)) return;
+    const j = nextPlayableIndex(q, i, canPlayNow, repeat === 'all');
+    const next = j >= 0 && j !== i ? q[j] : undefined;
+    // Только `found`: у `ready` файл уже на диске.
+    if (!next || (trackStatus.get(next.id)?.status ?? next.status) !== 'found') return;
+    if (prefetchedRef.current === next.id) return;
+    prefetchedRef.current = next.id;
+    void prefetchTrack(next.id);
   });
 
   // --- Media Session

@@ -370,10 +370,7 @@ fn registry_is_built_from_config() {
     let sources = |env: &_| -> Vec<TorrentSource> {
         ProviderRegistry::from_config(&Config::from_map(env).unwrap())
             .unwrap()
-            .providers
-            .iter()
-            .map(|p| p.source())
-            .collect()
+            .sources()
     };
     assert_eq!(sources(&env), [TorrentSource::Tpb]);
     env.insert(
@@ -726,10 +723,7 @@ mod rutracker {
             env.extend(extra.iter().copied());
             ProviderRegistry::from_config(&Config::from_map(&env).unwrap())
                 .unwrap()
-                .providers
-                .iter()
-                .map(|p| p.source())
-                .collect()
+                .sources()
         };
         assert!(src(&[]).is_empty());
         assert!(src(&[("NIMBUS_RUTRACKER_USERNAME", "u")]).is_empty());

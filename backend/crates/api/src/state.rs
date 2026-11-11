@@ -19,6 +19,12 @@ pub struct AppState {
     pub engine: Option<Arc<TorrentEngine>>,
     /// Источник файлов для стриминга (по умолчанию — движок; в тестах — фейк).
     pub files: Option<Arc<dyn FileProvider>>,
+    /// Настройки приложения (редактируются из UI).
+    pub settings: nimbus_db::settings::SettingsStore,
+    /// Реестр провайдеров торрентов (пересобирается при изменении настроек).
+    pub providers: Arc<nimbus_trackers::ProviderRegistry>,
+    /// Активные стримы и недавний prefetch (вытеснение кэша их не трогает).
+    pub activity: nimbus_core::activity::Activity,
     /// Перекодирование через ffmpeg (CUE-образы, APE/WV/DSD/AIFF).
     pub transcoder: crate::transcode::Transcoder,
     /// Сколько ждать первых байт стрима, прежде чем ответить `504 no_peers`.
@@ -30,6 +36,12 @@ pub struct AppState {
 impl AppState {
     pub fn new(db: PgPool, config: Arc<Config>, events: EventBus, mb: MbClient) -> Self {
         Self {
+            settings: nimbus_db::settings::SettingsStore::new(
+                db.clone(),
+                nimbus_core::Settings::from_config(&config),
+            ),
+            providers: Arc::new(nimbus_trackers::ProviderRegistry::new(vec![])),
+            activity: nimbus_core::activity::Activity::default(),
             library: LibraryService::new(db.clone(), mb.clone(), events.clone()),
             engine: None,
             files: None,
@@ -58,6 +70,23 @@ impl AppState {
 impl AppState {
     pub fn with_transcoder(mut self, transcoder: crate::transcode::Transcoder) -> Self {
         self.transcoder = transcoder;
+        self
+    }
+}
+
+impl AppState {
+    pub fn with_settings(mut self, settings: nimbus_db::settings::SettingsStore) -> Self {
+        self.settings = settings;
+        self
+    }
+
+    pub fn with_providers(mut self, providers: Arc<nimbus_trackers::ProviderRegistry>) -> Self {
+        self.providers = providers;
+        self
+    }
+
+    pub fn with_activity(mut self, activity: nimbus_core::activity::Activity) -> Self {
+        self.activity = activity;
         self
     }
 }

@@ -285,9 +285,16 @@ async fn serve_file(
             .map_err(|_| ApiError::internal());
     }
 
+    let guard = state
+        .activity
+        .begin_stream(source.torrent_id, source.file_index);
     let reader = open_reader(state, &torrent.magnet, source, size).await?;
     downloads::touch_played(&state.db, source.torrent_id, source.file_index).await?;
     let body = body_from(state, track_id, source, reader, start, len).await?;
+    let body = Body::from_stream(Guarded {
+        inner: body.into_data_stream(),
+        _guard: guard,
+    });
     builder.body(body).map_err(|_| ApiError::internal())
 }
 
@@ -450,6 +457,172 @@ async fn body_from(
     Ok(Body::from_stream(futures::StreamExt::chain(head, rest)))
 }
 
+/// Тело ответа, которое держит запись об активном стриме (вытеснение кэша не трогает такой файл).
+struct Guarded<S> {
+    inner: S,
+    _guard: nimbus_core::activity::StreamGuard,
+}
+
+impl<S: futures::Stream + Unpin> futures::Stream for Guarded<S> {
+    type Item = S::Item;
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        std::pin::Pin::new(&mut self.inner).poll_next(cx)
+    }
+}
+
+/// Регистрирует файл в движке и строку `downloads` (если её ещё нет); возвращает handle торрента.
+pub(crate) async fn register_download(
+    state: &AppState,
+    magnet: &str,
+    source: &TrackSource,
+    size: u64,
+) -> Result<nimbus_torrent::TorrentHandleId, ApiError> {
+    let files = state.files.as_ref().ok_or_else(|| {
+        err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "engine_unavailable",
+            "torrent engine is not running",
+        )
+    })?;
+    let idx = source.file_index as usize;
+    let handle = files
+        .ensure_file(magnet, idx)
+        .await
+        .map_err(map_engine_error)?;
+    if downloads::get(&state.db, source.torrent_id, source.file_index)
+        .await?
+        .is_none()
+    {
+        if let Some(path) = files.file_path(&handle, idx) {
+            downloads::upsert(
+                &state.db,
+                &NewDownload {
+                    torrent_id: source.torrent_id,
+                    file_index: source.file_index,
+                    local_path: path.to_string_lossy().into_owned(),
+                    bytes_total: size as i64,
+                    bytes_done: 0,
+                },
+            )
+            .await?;
+        }
+    }
+    Ok(handle)
+}
+
+/// Сколько байт читаем при prefetch: ~10 % файла, но не больше 2 МБ.
+pub const PREFETCH_MAX_BYTES: u64 = 2 * 1024 * 1024;
+
+pub fn prefetch_len(size: u64) -> u64 {
+    (size / 10).clamp(1, PREFETCH_MAX_BYTES).min(size.max(1))
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct PrefetchResponse {
+    /// `started` — предзагрузка запущена, `ready` — файл уже на диске, `skipped` — нечего грузить.
+    pub state: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/tracks/{id}/prefetch",
+    tag = "library",
+    params(("id" = i64, Path, description = "ID трека")),
+    responses(
+        (status = 202, description = "Предзагрузка начала файла запущена в фоне", body = PrefetchResponse),
+        (status = 404, description = "Нет такого трека", body = crate::error::ErrorResponse),
+    )
+)]
+pub async fn prefetch_track(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> Result<(StatusCode, axum::Json<PrefetchResponse>), ApiError> {
+    authorize(&state, &headers)?;
+    let track = tracks::get(&state.db, id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("track not found"))?;
+    let respond = |s: &str| {
+        (
+            StatusCode::ACCEPTED,
+            axum::Json(PrefetchResponse { state: s.into() }),
+        )
+    };
+    let source = if track.status == TrackStatus::Found {
+        track_sources::primary_for_track(&state.db, id).await?
+    } else {
+        None
+    };
+    let Some(source) = source else {
+        return Ok(respond("skipped"));
+    };
+    let torrent = torrents::get(&state.db, source.torrent_id)
+        .await?
+        .ok_or_else(ApiError::internal)?;
+    let size = torrents::files(&state.db, source.torrent_id)
+        .await?
+        .into_iter()
+        .find(|f| f.file_index == source.file_index)
+        .map(|f| f.size_bytes.max(0) as u64)
+        .ok_or_else(ApiError::internal)?;
+    if completed_local_path(&state, &source, size).await?.is_some() {
+        return Ok(respond("ready"));
+    }
+    state
+        .activity
+        .mark_prefetched(source.torrent_id, source.file_index);
+    let bg = state.clone();
+    tokio::spawn(async move {
+        if let Err(e) = prefetch_head(&bg, &torrent.magnet, &source, size).await {
+            tracing::debug!(track_id = source.track_id, error = ?e.message, "prefetch failed");
+        }
+    });
+    Ok(respond("started"))
+}
+
+/// Регистрирует файл в движке и читает его начало; файл продолжает докачиваться в фоне.
+async fn prefetch_head(
+    state: &AppState,
+    magnet: &str,
+    source: &TrackSource,
+    size: u64,
+) -> Result<(), ApiError> {
+    let handle = register_download(state, magnet, source, size).await?;
+    let files = state.files.as_ref().ok_or_else(ApiError::internal)?;
+    let mut reader = files
+        .open_stream(&handle, source.file_index as usize)
+        .await
+        .map_err(map_engine_error)?;
+    let want = prefetch_len(size) as usize;
+    let read = async {
+        let mut buf = vec![0u8; CHUNK.min(want.max(1))];
+        let mut total = 0usize;
+        while total < want {
+            let n = reader.read(&mut buf).await?;
+            if n == 0 {
+                break;
+            }
+            total += n;
+        }
+        Ok::<_, std::io::Error>(total)
+    };
+    match tokio::time::timeout(state.first_byte_timeout, read).await {
+        Ok(Ok(n)) => tracing::debug!(bytes = n, "prefetched"),
+        Ok(Err(e)) => return Err(err(StatusCode::BAD_GATEWAY, "stream_error", e.to_string())),
+        Err(_) => {
+            return Err(err(
+                StatusCode::GATEWAY_TIMEOUT,
+                "no_peers",
+                "prefetch timed out",
+            ))
+        }
+    }
+    Ok(())
+}
+
 // ------------------------------------------------------- наблюдатель
 
 /// Состояние наблюдателя между тиками.
@@ -529,6 +702,13 @@ impl Watcher {
                     )
                     .await?;
                 }
+                // После завершения файла проверяем, не превышен ли лимит кэша.
+                nimbus_db::repo::jobs::enqueue(
+                    &state.db,
+                    &nimbus_core::jobs::Job::EvictCache,
+                    None,
+                )
+                .await?;
                 self.last_bytes.remove(&key);
                 self.last_db_write.remove(&key);
                 tracing::info!(

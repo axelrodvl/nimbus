@@ -21,7 +21,8 @@ impl JobHandler for ImportArtistHandler {
             return Err(JobError::Fatal("unexpected job kind".into()));
         };
         let service = LibraryService::new(ctx.db.clone(), ctx.mb.background(), ctx.events.clone());
-        match service.import_artist(artist_id).await {
+        let skip = ctx.settings.get().search.skip_secondary_types.clone();
+        match service.import_artist_skipping(artist_id, &skip).await {
             Ok(summary) => {
                 tracing::info!(
                     artist_id,
@@ -43,12 +44,13 @@ impl JobHandler for ImportArtistHandler {
     }
 }
 
-/// Обработчики по умолчанию с параллелизмом: discover_* — 2, verify_torrent — 4, import_artist — 1.
+/// Обработчики по умолчанию с параллелизмом: discover_* — 2, verify_torrent — 4, import_artist — 1, process_cue — 2, evict_cache — 1.
 pub fn default_handlers() -> Vec<(Arc<dyn JobHandler>, usize)> {
     vec![
         (Arc::new(crate::discover::DiscoverHandler), 2),
         (Arc::new(crate::verify::VerifyHandler), 4),
         (Arc::new(crate::cue::ProcessCueHandler), 2),
+        (Arc::new(crate::cache::EvictHandler), 1),
         (Arc::new(ImportArtistHandler), 1),
     ]
 }

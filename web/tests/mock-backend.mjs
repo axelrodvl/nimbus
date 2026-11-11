@@ -49,6 +49,43 @@ const tracks = new Map();
 const torrents = new Map();
 let trackSources = [];
 let requestLog = [];
+const MASK = '••••';
+const defaultSettings = () => ({
+  matching: { accept: 0.8, confirm: 0.65 },
+  playback: { prefetch_next: true, transcode_alac: false, transcode_lossy_codec: 'opus' },
+  providers: {
+    rutracker: { cookie: null, music_forums_regex: null, password: 'secret-pw', proxy: null, username: 'bob' },
+    torznab: null,
+    tpb_enabled: true,
+  },
+  search: {
+    format_prefs: ['flac', 'alac', 'mp3_320', 'mp3_v0', 'aac', 'ape_wv', 'mp3_other'],
+    max_candidates: 8,
+    skip_secondary_types: ['Compilation', 'Live', 'Remix', 'DJ-mix', 'Demo'],
+  },
+  storage: { cache_limit_gb: 50, seed_ratio: null, seeding: false },
+});
+let settings = defaultSettings();
+function maskedSettings() {
+  const v = structuredClone(settings);
+  const r = v.providers.rutracker;
+  if (r?.password) r.password = MASK;
+  if (r?.cookie) r.cookie = MASK;
+  if (v.providers.torznab?.api_key) v.providers.torznab.api_key = MASK;
+  return v;
+}
+// Слияние как на бэкенде: объекты рекурсивно, пустой секрет и маска не меняют значение.
+function mergeSettings(target, patch, path = []) {
+  const secret = ['providers.torznab.api_key', 'providers.rutracker.password', 'providers.rutracker.cookie'];
+  for (const [k, v] of Object.entries(patch)) {
+    const p = [...path, k].join('.');
+    if (secret.includes(p) && (v === '' || v === MASK)) continue;
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      if (!target[k] || typeof target[k] !== 'object') target[k] = {};
+      mergeSettings(target[k], v, [...path, k]);
+    } else target[k] = v;
+  }
+}
 
 function addArtist(a) {
   artists.set(a.id, { disambiguation: null, in_library: true, ...a });
@@ -128,6 +165,7 @@ function seed() {
   torrents.clear();
   trackSources = [];
   requestLog = [];
+  settings = defaultSettings();
   const files = ['01 Doubtful Song.flac', '02 Other Take.flac', '03 Missing Song.flac'].map((name, i) => ({
     ext: 'flac',
     file_index: i,
@@ -345,6 +383,35 @@ createServer(async (req, res) => {
   }
 
   if (p === '/__log') return send(res, 200, requestLog);
+
+  if (p === '/api/settings' && req.method === 'GET') return send(res, 200, maskedSettings());
+  if (p === '/api/settings' && req.method === 'PUT') {
+    const body = await readJson(req);
+    requestLog.push({ body, method: 'PUT', path: p });
+    if (body?.storage?.cache_limit_gb === 0)
+      return err(res, 400, 'invalid_settings', 'cache_limit_gb must be at least 1');
+    mergeSettings(settings, body ?? {});
+    return send(res, 200, maskedSettings());
+  }
+  if (p === '/api/storage') {
+    return send(res, 200, {
+      files: 12,
+      limit_bytes: settings.storage.cache_limit_gb * 1024 ** 3,
+      torrents_active: 1,
+      used_bytes: 3 * 1024 ** 3,
+    });
+  }
+  if (p === '/api/settings/providers/test' && req.method === 'POST') {
+    const body = await readJson(req);
+    requestLog.push({ body, method: 'POST', path: p });
+    if (body?.provider === 'torznab' && !settings.providers.torznab)
+      return err(res, 400, 'not_configured', 'provider is not configured');
+    return send(res, 200, { message: 'Найдено раздач: 25', ok: true, sample_count: 25 });
+  }
+  if (req.method === 'POST' && /^\/api\/tracks\/\d+\/prefetch$/.test(p)) {
+    requestLog.push({ method: 'POST', path: p });
+    return send(res, 202, { state: 'started' });
+  }
 
   {
     let m;

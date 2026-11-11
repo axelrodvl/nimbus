@@ -1,4 +1,4 @@
-import { Home, Library, Search } from 'lucide-react';
+import { Home, Library, Search, Settings } from 'lucide-react';
 import { ConnectionIndicator } from '@/components/connection-indicator';
 import { ShortcutHint } from '@/components/shortcut-hint';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
@@ -36,6 +36,10 @@ export function Sidebar() {
           <NavLink href="/library" aria-label="Library" className={sidebarLink}>
             <Library className="h-5 w-5" />
             <span className="hidden truncate lg:inline">Library</span>
+          </NavLink>
+          <NavLink href="/settings" aria-label="Settings" className={sidebarLink}>
+            <Settings className="h-5 w-5" />
+            <span className="hidden truncate lg:inline">Settings</span>
           </NavLink>
         </nav>
       </div>

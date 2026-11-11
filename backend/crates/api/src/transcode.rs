@@ -9,7 +9,7 @@ use axum::body::{Body, Bytes};
 use axum::http::{header, Method, StatusCode};
 use axum::response::Response;
 use futures::Stream;
-use nimbus_core::model::{NewDownload, Torrent, Track, TrackSource};
+use nimbus_core::model::{Torrent, Track, TrackSource};
 use nimbus_db::repo::downloads;
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, ChildStdout, Command};
@@ -113,6 +113,7 @@ struct FfmpegStream {
     inner: ReaderStream<ChildStdout>,
     _child: Child,
     _permit: OwnedSemaphorePermit,
+    _activity: nimbus_core::activity::StreamGuard,
 }
 
 impl Stream for FfmpegStream {
@@ -180,6 +181,9 @@ pub async fn transcode_response(
             "too many concurrent transcodes",
         )
     })?;
+    let activity = state
+        .activity
+        .begin_stream(source.torrent_id, source.file_index);
     let input = resolve_input(state, source, torrent, size).await?;
 
     let mut child = Command::new(&tc.ffmpeg)
@@ -233,6 +237,7 @@ pub async fn transcode_response(
         inner: ReaderStream::with_capacity(stdout, CHUNK),
         _child: child,
         _permit: permit,
+        _activity: activity,
     };
     builder
         .body(Body::from_stream(futures::StreamExt::chain(head, rest)))
@@ -256,36 +261,7 @@ async fn resolve_input(
             "torrent engine is not running",
         )
     })?;
-    let files = state.files.as_ref().ok_or_else(|| {
-        err(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "engine_unavailable",
-            "torrent engine is not running",
-        )
-    })?;
-    let idx = source.file_index as usize;
-    let handle = files
-        .ensure_file(&torrent.magnet, idx)
-        .await
-        .map_err(crate::stream::map_engine_error)?;
-    if downloads::get(&state.db, source.torrent_id, source.file_index)
-        .await?
-        .is_none()
-    {
-        if let Some(path) = files.file_path(&handle, idx) {
-            downloads::upsert(
-                &state.db,
-                &NewDownload {
-                    torrent_id: source.torrent_id,
-                    file_index: source.file_index,
-                    local_path: path.to_string_lossy().into_owned(),
-                    bytes_total: size as i64,
-                    bytes_done: 0,
-                },
-            )
-            .await?;
-        }
-    }
+    crate::stream::register_download(state, &torrent.magnet, source, size).await?;
     Ok(format!(
         "{base}/api/internal/raw/{}/{}",
         source.torrent_id, source.file_index

@@ -112,3 +112,19 @@ pub async fn reset_completed(
     .await?;
     Ok(())
 }
+
+/// Все загрузки (для учёта места и вытеснения кэша).
+pub async fn list_all(db: impl PgExecutor<'_>) -> sqlx::Result<Vec<Download>> {
+    sqlx::query_as("SELECT * FROM downloads ORDER BY torrent_id, file_index")
+        .fetch_all(db)
+        .await
+}
+
+pub async fn delete(db: impl PgExecutor<'_>, torrent_id: i64, file_index: i32) -> sqlx::Result<()> {
+    sqlx::query("DELETE FROM downloads WHERE torrent_id = $1 AND file_index = $2")
+        .bind(torrent_id)
+        .bind(file_index)
+        .execute(db)
+        .await?;
+    Ok(())
+}

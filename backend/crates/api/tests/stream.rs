@@ -931,3 +931,87 @@ async fn internal_raw_serves_ranges_for_ffmpeg(pool: PgPool) {
     );
     let _ = std::fs::remove_file(&f.path);
 }
+
+async fn post(st: &AppState, uri: &str) -> Resp {
+    let res = router(st.clone())
+        .oneshot(Request::post(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = res.status();
+    let headers = res.headers().clone();
+    let body = res.into_body().collect().await.unwrap().to_bytes().to_vec();
+    Resp {
+        status,
+        headers,
+        body,
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn prefetch_registers_file_reads_head_and_protects_it(pool: PgPool) {
+    let f = fixture(pool.clone(), "flac", TrackStatus::Found).await;
+    let fake = Fake::new(f.path.clone(), Mode::Normal);
+    let st = app(&f, &fake);
+    let uri = format!("/api/tracks/{}/prefetch", f.track_id);
+
+    let r = post(&st, &uri).await;
+    assert_eq!(r.status, 202);
+    assert!(String::from_utf8_lossy(&r.body).contains("started"));
+    // Фоновая задача: ensure_file + open_stream, строка downloads создана.
+    let waited = async {
+        while fake.open_calls.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(5), waited)
+        .await
+        .expect("prefetch should open the stream");
+    assert!(fake.ensure_calls.load(Ordering::SeqCst) >= 1);
+    assert!(downloads::get(&pool, f.torrent_id, 0)
+        .await
+        .unwrap()
+        .is_some());
+    assert!(st.activity.is_protected(f.torrent_id, 0));
+
+    // Не `found` — нечего грузить; докачанный — `ready`.
+    let a = fixture(pool.clone(), "flac", TrackStatus::Adding).await;
+    let r = post(&st, &format!("/api/tracks/{}/prefetch", a.track_id)).await;
+    assert!(String::from_utf8_lossy(&r.body).contains("skipped"));
+    assert_eq!(post(&st, "/api/tracks/999999/prefetch").await.status, 404);
+    let done = fixture(pool.clone(), "flac", TrackStatus::Found).await;
+    complete_download(&done).await;
+    let r = post(&st, &format!("/api/tracks/{}/prefetch", done.track_id)).await;
+    assert!(String::from_utf8_lossy(&r.body).contains("ready"));
+    for p in [&f.path, &a.path, &done.path] {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
+#[test]
+fn prefetch_length_is_a_tenth_capped_at_two_megabytes() {
+    use nimbus_api::stream::{prefetch_len, PREFETCH_MAX_BYTES};
+    assert_eq!(prefetch_len(10_000), 1_000);
+    assert_eq!(prefetch_len(100_000_000), PREFETCH_MAX_BYTES);
+    assert_eq!(prefetch_len(5), 1);
+    assert_eq!(prefetch_len(0), 1);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn streaming_marks_the_file_active_until_the_body_is_dropped(pool: PgPool) {
+    let f = fixture(pool.clone(), "flac", TrackStatus::Found).await;
+    let fake = Fake::new(f.path.clone(), Mode::Normal);
+    let st = app(&f, &fake);
+    let res = router(st.clone())
+        .oneshot(
+            Request::get(format!("/api/tracks/{}/stream", f.track_id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    assert!(st.activity.is_protected(f.torrent_id, 0));
+    drop(res);
+    assert!(!st.activity.is_protected(f.torrent_id, 0));
+    let _ = std::fs::remove_file(&f.path);
+}

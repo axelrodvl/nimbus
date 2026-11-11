@@ -19,8 +19,6 @@ use nimbus_trackers::{
 
 use crate::runner::{JobCtx, JobError, JobHandler};
 
-/// Сколько лучших кандидатов сохраняем и проверяем (шаг 22 сделает настройкой).
-pub const TOP_N: usize = 8;
 /// Через сколько повторять поиск, если провайдеры упали и кандидатов нет.
 pub const RETRY_AFTER: Duration = Duration::from_secs(10 * 60);
 /// Минимальный балл дискографии (без учёта альбома).
@@ -80,7 +78,8 @@ async fn search_and_rank(
     accept: impl Fn(&TorrentCandidate) -> bool,
     min_score: f32,
 ) -> SearchOutcome {
-    let prefs = FormatPrefs::default();
+    let settings = ctx.settings.get();
+    let prefs = FormatPrefs::from_keys(&settings.search.format_prefs);
     let total = queries.len() as u32;
     let mut best: HashMap<String, Scored> = HashMap::new();
     let mut provider_errors = 0;
@@ -135,7 +134,7 @@ async fn search_and_rank(
             .total_cmp(&a.score)
             .then_with(|| a.cand.title.cmp(&b.cand.title))
     });
-    ranked.truncate(TOP_N);
+    ranked.truncate(settings.search.max_candidates as usize);
     SearchOutcome {
         ranked,
         provider_errors,

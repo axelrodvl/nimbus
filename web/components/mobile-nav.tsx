@@ -1,4 +1,4 @@
-import { Home, Library, Search } from 'lucide-react';
+import { Home, Library, Search, Settings } from 'lucide-react';
 import { NavLink } from './ui/nav-link';
 
 const mobileTab =
@@ -23,6 +23,10 @@ export function MobileTabBar() {
         <NavLink href="/library" aria-label="Library" className={mobileTab}>
           <Library className="h-5 w-5" />
           <span>Library</span>
+        </NavLink>
+        <NavLink href="/settings" aria-label="Settings" className={mobileTab}>
+          <Settings className="h-5 w-5" />
+          <span>Settings</span>
         </NavLink>
       </nav>
     </div>

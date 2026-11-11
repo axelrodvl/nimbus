@@ -11,7 +11,7 @@ use crate::error::LibraryError;
 type Result<T, E = LibraryError> = std::result::Result<T, E>;
 
 /// Release group'ы с этими secondary types не импортируются при добавлении артиста
-/// (позже станет настройкой).
+/// (по умолчанию; настраивается: `search.skip_secondary_types`).
 pub const EXCLUDED_SECONDARY_TYPES: &[&str] = &["Compilation", "Live", "Remix", "DJ-mix", "Demo"];
 
 const COVER_SIZE: u16 = 500;
@@ -288,6 +288,19 @@ impl LibraryService {
     /// Группы без релизов в MB пропускаются; сетевые ошибки возвращаются (задача повторится,
     /// импорт идемпотентен).
     pub async fn import_artist(&self, artist_id: i64) -> Result<ImportSummary> {
+        let skip: Vec<String> = EXCLUDED_SECONDARY_TYPES
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        self.import_artist_skipping(artist_id, &skip).await
+    }
+
+    /// То же, но со своим списком пропускаемых secondary types.
+    pub async fn import_artist_skipping(
+        &self,
+        artist_id: i64,
+        skip_secondary_types: &[String],
+    ) -> Result<ImportSummary> {
         let artist = artists::get(&self.db, artist_id)
             .await?
             .ok_or(LibraryError::NotFound("artist"))?;
@@ -301,7 +314,7 @@ impl LibraryService {
             let excluded = group
                 .secondary_types
                 .iter()
-                .any(|t| EXCLUDED_SECONDARY_TYPES.contains(&t.as_str()));
+                .any(|t| skip_secondary_types.iter().any(|s| s == t));
             // Совместные релизы, где первым указан другой артист, не добавляем: иначе в библиотеку
             // попал бы и он.
             if excluded || group.artist_mbid != artist.mbid {

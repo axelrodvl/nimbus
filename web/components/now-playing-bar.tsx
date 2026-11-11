@@ -26,8 +26,7 @@ import { usePlayer } from '@/providers/player-provider';
 
 export function NowPlayingBar() {
   const player = usePlayer();
-  const { track, isPlaying, position, duration, buffered, volume, muted,  hasNext, status, shuffle, repeat } =
-    player;
+  const { track, isPlaying, position, duration, buffered, volume, muted, hasNext, status, shuffle, repeat } = player;
   const [queueOpen, setQueueOpen] = useState(false);
 
   const effectiveVolume = muted ? 0 : volume;

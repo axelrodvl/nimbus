@@ -2,6 +2,7 @@
 
 pub mod helpers;
 pub mod repo;
+pub mod settings;
 
 use sqlx::postgres::PgPoolOptions;
 pub use sqlx::PgPool;

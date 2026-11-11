@@ -42,22 +42,29 @@ async fn main() -> anyhow::Result<()> {
     let events = EventBus::new();
     let mb = MbClient::new(&config.mb_user_agent, Some(db.clone()))
         .context("cannot create MusicBrainz client")?;
+    // Настройки из БД поверх env-дефолтов.
+    let settings = nimbus_db::settings::SettingsStore::load(
+        db.clone(),
+        nimbus_core::Settings::from_config(&config),
+    )
+    .await
+    .context("cannot load settings")?;
+    let initial = settings.get();
     let engine = Arc::new(
-        TorrentEngine::new(EngineConfig::new(&config.data_dir, config.seeding))
+        TorrentEngine::new(EngineConfig::new(&config.data_dir, initial.storage.seeding))
             .await
             .context("cannot start torrent engine")?,
     );
+    let providers = Arc::new(ProviderRegistry::new(vec![]));
+    providers
+        .reload(&initial.providers)
+        .context("cannot create torrent providers")?;
+    let activity = nimbus_core::activity::Activity::default();
     let workers = WorkerPool::spawn(
-        JobCtx::new(
-            db.clone(),
-            events.clone(),
-            mb.clone(),
-            Arc::new(
-                ProviderRegistry::from_config(&config)
-                    .context("cannot create torrent providers")?,
-            ),
-        )
-        .with_engine(engine.clone()),
+        JobCtx::new(db.clone(), events.clone(), mb.clone(), providers.clone())
+            .with_engine(engine.clone())
+            .with_settings(settings.clone())
+            .with_activity(activity.clone()),
         default_handlers(),
         WorkerConfig::default(),
     );
@@ -68,6 +75,9 @@ async fn main() -> anyhow::Result<()> {
         .await;
     let state = AppState::new(db, Arc::new(config), events, mb)
         .with_engine(engine.clone())
+        .with_settings(settings)
+        .with_providers(providers)
+        .with_activity(activity)
         .with_transcoder(transcoder);
     match nimbus_api::stream::reconcile_downloads(&state).await {
         Ok(0) => {}

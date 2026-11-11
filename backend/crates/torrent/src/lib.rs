@@ -170,6 +170,8 @@ impl<T: AsyncRead + AsyncSeek> AsyncReadSeek for T {}
 pub struct TorrentEngine {
     session: Arc<Session>,
     cfg: EngineConfig,
+    /// Раздавать ли завершённые торренты (меняется из настроек на лету).
+    seeding: std::sync::atomic::AtomicBool,
     metadata_slots: Semaphore,
     /// Выбранные для скачивания файлы по торрентам. Мьютекс сериализует `ensure_file`/`release_file`.
     selected: Arc<Mutex<HashMap<InfoHash, HashSet<usize>>>>,
@@ -237,6 +239,7 @@ impl TorrentEngine {
 
         let engine = Self {
             session,
+            seeding: std::sync::atomic::AtomicBool::new(cfg.seeding),
             cfg,
             metadata_slots: Semaphore::new(METADATA_CONCURRENCY),
             selected: Arc::new(Mutex::new(HashMap::new())),
@@ -259,6 +262,36 @@ impl TorrentEngine {
             tracing::info!(info_hash = %hash, files = files.len(), "restored torrent from session");
             sel.insert(hash, files);
         }
+    }
+
+    pub fn seeding(&self) -> bool {
+        self.seeding.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Включает/выключает раздачу: при включении снимает с паузы завершённые торренты,
+    /// при выключении ставит их на паузу.
+    pub async fn set_seeding(&self, on: bool) {
+        if self.seeding.swap(on, std::sync::atomic::Ordering::Relaxed) == on {
+            return;
+        }
+        let handles: Vec<ManagedTorrentHandle> = self
+            .session
+            .with_torrents(|it| it.map(|(_, h)| h.clone()).collect());
+        let _guard = self.selected.lock().await;
+        for h in handles {
+            let finished = h.stats().finished;
+            let res = if on && h.is_paused() {
+                self.session.unpause(&h).await
+            } else if !on && finished && !h.is_paused() {
+                self.session.pause(&h).await
+            } else {
+                continue;
+            };
+            if let Err(e) = res {
+                tracing::warn!(error = %e, "cannot change seeding state of a torrent");
+            }
+        }
+        tracing::info!(seeding = on, "seeding policy changed");
     }
 
     pub fn listen_addr(&self) -> Option<SocketAddr> {
@@ -377,7 +410,7 @@ impl TorrentEngine {
 
     /// При `seeding = false` ставит торрент на паузу, когда все выбранные файлы скачаны.
     fn spawn_pause_when_done(&self, hash: &InfoHash, h: &ManagedTorrentHandle) {
-        if self.cfg.seeding {
+        if self.seeding() {
             return;
         }
         let (session, h, selected, hash) = (

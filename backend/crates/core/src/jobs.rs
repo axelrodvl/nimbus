@@ -26,7 +26,8 @@ pub enum Job {
         album_id: i64,
         cue_file_index: i32,
     },
-    // шаг 22 добавит: PrefetchTrack { track_id: i64 }, EvictCache
+    /// Вытеснение давно не игравших файлов, когда кэш больше лимита (шаг 22).
+    EvictCache,
 }
 
 impl Job {
@@ -35,6 +36,7 @@ impl Job {
     pub const IMPORT_ARTIST: &'static str = "import_artist";
     pub const VERIFY_TORRENT: &'static str = "verify_torrent";
     pub const PROCESS_CUE: &'static str = "process_cue";
+    pub const EVICT_CACHE: &'static str = "evict_cache";
 
     pub fn kind(&self) -> &'static str {
         match self {
@@ -43,6 +45,7 @@ impl Job {
             Job::ImportArtist { .. } => Self::IMPORT_ARTIST,
             Job::VerifyTorrent { .. } => Self::VERIFY_TORRENT,
             Job::ProcessCue { .. } => Self::PROCESS_CUE,
+            Job::EvictCache => Self::EVICT_CACHE,
         }
     }
 
@@ -61,6 +64,7 @@ impl Job {
                 album_id,
                 cue_file_index,
             } => format!("process_cue:{torrent_id}:{album_id}:{cue_file_index}"),
+            Job::EvictCache => "evict_cache".to_string(),
         })
     }
 
@@ -79,6 +83,14 @@ impl Job {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn evict_cache_roundtrips_without_payload() {
+        let (kind, payload) = Job::EvictCache.to_parts();
+        assert_eq!(kind, "evict_cache");
+        assert_eq!(Job::from_parts(kind, payload).unwrap(), Job::EvictCache);
+        assert_eq!(Job::EvictCache.dedup_key().as_deref(), Some("evict_cache"));
+    }
 
     #[test]
     fn parts_roundtrip() {
