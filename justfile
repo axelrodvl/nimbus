@@ -21,7 +21,13 @@ backend:
     @echo "not yet"
 
 web:
-    @echo "not yet"
+    cd web && pnpm dev
+
+web-build:
+    cd web && pnpm build
+
+web-check:
+    cd web && pnpm lint && pnpm exec tsc --noEmit
 
 test:
     @echo "not yet"

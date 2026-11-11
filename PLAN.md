@@ -41,7 +41,7 @@
 | # | Статус | Шаг | Зависит от |
 |---|---|---|---|
 | 01 | [x] | [Монорепо и инфраструктура](docs/plan/01-monorepo-infra.md) | — |
-| 02 | [ ] | [Импорт next-beats и инвентаризация](docs/plan/02-import-next-beats.md) | 01 |
+| 02 | [x] | [Импорт next-beats и инвентаризация](docs/plan/02-import-next-beats.md) | 01 |
 | 03 | [ ] | [Каркас Rust-бэкенда](docs/plan/03-backend-skeleton.md) | 01 |
 | 04 | [ ] | [Схема БД, доменные модели, репозитории](docs/plan/04-db-schema.md) | 03 |
 | 05 | [ ] | [Очередь задач, шина событий, WebSocket](docs/plan/05-jobs-events-ws.md) | 04 |
@@ -172,6 +172,11 @@ Web — порт `3000`, backend — `8080`, Postgres — `5432`.
 - Отклонения: ...
 - Важно для следующих шагов: ...
 -->
+
+### 2026-11-11 — шаг 02
+- Сделано: исходники next-beats (без `.github/`) в `web/`, LICENSE сохранён, в `web/README.md` добавлена строка о форке; `pnpm install`, `db push` + seed во временной БД `nextbeats_tmp`, `pnpm build`, `pnpm lint`, `tsc --noEmit` — проходят; dev: `/login` 200, остальные страницы 200 с cookie `beats-user=e2e`; `docs/web-inventory.md`; в `justfile` рецепты `web`, `web-build`, `web-check`.
+- Отклонения: скриншоты не снимались (необязательно). Для локального Postgres без TLS в `DATABASE_URL` нужен `?sslmode=disable` (иначе `TlsConnectionError`) — `web/.env.local` (не коммитится) использует порт 5433.
+- Важно для следующих шагов: порт 8080 на этой машине занят чужим контейнером (`alfa-equip-backend`) — для шага 03 при локальном запуске задать другой `NIMBUS_BIND` (и `BACKEND_URL`/`NEXT_PUBLIC_BACKEND_URL`). `next dev` сам создаёт `web/AGENTS.md`/`web/CLAUDE.md` — закоммичены. Next.js — canary, перед правками читать `web/node_modules/next/dist/docs/`. Подробности — `docs/web-inventory.md`.
 
 ### 2026-11-11 — шаг 01
 - Сделано: `git init -b main`, `.gitignore`, `docker-compose.yml` (только db), `.env.example`, `justfile` (db-up/db-down/db-reset/psql + заглушки backend/web/test/check), `README.md`, каталоги `backend/`, `web/` (.gitkeep), `data/`.
