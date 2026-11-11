@@ -1,0 +1,88 @@
+{
+ "name": "11_foreign_album",
+ "album": {
+  "artist": "Radiohead",
+  "title": "OK Computer",
+  "year": 1997,
+  "discs": 1,
+  "tracks": [
+   {
+    "disc": 1,
+    "title": "Airbag"
+   },
+   {
+    "disc": 1,
+    "title": "Paranoid Android"
+   },
+   {
+    "disc": 1,
+    "title": "Subterranean Homesick Alien"
+   },
+   {
+    "disc": 1,
+    "title": "Exit Music (For a Film)"
+   },
+   {
+    "disc": 1,
+    "title": "Let Down"
+   },
+   {
+    "disc": 1,
+    "title": "Karma Police"
+   },
+   {
+    "disc": 1,
+    "title": "Fitter Happier"
+   },
+   {
+    "disc": 1,
+    "title": "Electioneering"
+   },
+   {
+    "disc": 1,
+    "title": "Climbing Up the Walls"
+   },
+   {
+    "disc": 1,
+    "title": "No Surprises"
+   },
+   {
+    "disc": 1,
+    "title": "Lucky"
+   },
+   {
+    "disc": 1,
+    "title": "The Tourist"
+   }
+  ]
+ },
+ "files": [
+  "Radiohead - Kid A/01 - Everything in Its Right Place.flac",
+  "Radiohead - Kid A/02 - Kid A.flac",
+  "Radiohead - Kid A/03 - The National Anthem.flac",
+  "Radiohead - Kid A/04 - How to Disappear Completely.flac",
+  "Radiohead - Kid A/05 - Treefingers.flac",
+  "Radiohead - Kid A/06 - Optimistic.flac",
+  "Radiohead - Kid A/07 - In Limbo.flac",
+  "Radiohead - Kid A/08 - Idioteque.flac",
+  "Radiohead - Kid A/09 - Morning Bell.flac",
+  "Radiohead - Kid A/10 - Motion Picture Soundtrack.flac"
+ ],
+ "expect": {
+  "matches": {},
+  "unmatched": [
+   "Airbag",
+   "Paranoid Android",
+   "Subterranean Homesick Alien",
+   "Exit Music (For a Film)",
+   "Let Down",
+   "Karma Police",
+   "Fitter Happier",
+   "Electioneering",
+   "Climbing Up the Walls",
+   "No Surprises",
+   "Lucky",
+   "The Tourist"
+  ]
+ }
+}

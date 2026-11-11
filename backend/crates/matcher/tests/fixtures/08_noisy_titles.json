@@ -1,0 +1,53 @@
+{
+ "name": "08_noisy_titles",
+ "album": {
+  "artist": "Artist",
+  "title": "Noisy",
+  "year": 2001,
+  "discs": 1,
+  "tracks": [
+   {
+    "disc": 1,
+    "title": "Don't Stop (Remastered 2009)"
+   },
+   {
+    "disc": 1,
+    "title": "Rock & Roll"
+   },
+   {
+    "disc": 1,
+    "title": "Heroes"
+   },
+   {
+    "disc": 1,
+    "title": "Song With Guest (feat. Someone)"
+   },
+   {
+    "disc": 1,
+    "title": "Déjà Vu"
+   },
+   {
+    "disc": 1,
+    "title": "Ёлки-палки"
+   }
+  ]
+ },
+ "files": [
+  "Artist - Noisy (2001)/01 - Dont Stop.flac",
+  "Artist - Noisy (2001)/02 - Rock and Roll.flac",
+  "Artist - Noisy (2001)/03 - “Heroes”.flac",
+  "Artist - Noisy (2001)/04 - Song With Guest feat. Someone Else.flac",
+  "Artist - Noisy (2001)/05 - Deja Vu.flac",
+  "Artist - Noisy (2001)/06 - Елки палки.flac"
+ ],
+ "expect": {
+  "matches": {
+   "Don't Stop (Remastered 2009)": "Artist - Noisy (2001)/01 - Dont Stop.flac",
+   "Rock & Roll": "Artist - Noisy (2001)/02 - Rock and Roll.flac",
+   "Heroes": "Artist - Noisy (2001)/03 - “Heroes”.flac",
+   "Song With Guest (feat. Someone)": "Artist - Noisy (2001)/04 - Song With Guest feat. Someone Else.flac",
+   "Déjà Vu": "Artist - Noisy (2001)/05 - Deja Vu.flac",
+   "Ёлки-палки": "Artist - Noisy (2001)/06 - Елки палки.flac"
+  }
+ }
+}

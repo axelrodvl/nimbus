@@ -1,0 +1,65 @@
+{
+ "name": "05b_multidisc_prefix",
+ "album": {
+  "artist": "Artist",
+  "title": "Double Album",
+  "year": 1979,
+  "discs": 2,
+  "tracks": [
+   {
+    "disc": 1,
+    "title": "Alpha One"
+   },
+   {
+    "disc": 1,
+    "title": "Bravo Two"
+   },
+   {
+    "disc": 1,
+    "title": "Charlie Three"
+   },
+   {
+    "disc": 1,
+    "title": "Delta Four"
+   },
+   {
+    "disc": 2,
+    "title": "Echo Five"
+   },
+   {
+    "disc": 2,
+    "title": "Foxtrot Six"
+   },
+   {
+    "disc": 2,
+    "title": "Golf Seven"
+   },
+   {
+    "disc": 2,
+    "title": "Hotel Eight"
+   }
+  ]
+ },
+ "files": [
+  "Artist - Double Album (1979) [FLAC]/1-01 Alpha One.flac",
+  "Artist - Double Album (1979) [FLAC]/1-02 Bravo Two.flac",
+  "Artist - Double Album (1979) [FLAC]/1-03 Charlie Three.flac",
+  "Artist - Double Album (1979) [FLAC]/1-04 Delta Four.flac",
+  "Artist - Double Album (1979) [FLAC]/2-01 Echo Five.flac",
+  "Artist - Double Album (1979) [FLAC]/2-02 Foxtrot Six.flac",
+  "Artist - Double Album (1979) [FLAC]/2-03 Golf Seven.flac",
+  "Artist - Double Album (1979) [FLAC]/2-04 Hotel Eight.flac"
+ ],
+ "expect": {
+  "matches": {
+   "Alpha One": "Artist - Double Album (1979) [FLAC]/1-01 Alpha One.flac",
+   "Bravo Two": "Artist - Double Album (1979) [FLAC]/1-02 Bravo Two.flac",
+   "Charlie Three": "Artist - Double Album (1979) [FLAC]/1-03 Charlie Three.flac",
+   "Delta Four": "Artist - Double Album (1979) [FLAC]/1-04 Delta Four.flac",
+   "Echo Five": "Artist - Double Album (1979) [FLAC]/2-01 Echo Five.flac",
+   "Foxtrot Six": "Artist - Double Album (1979) [FLAC]/2-02 Foxtrot Six.flac",
+   "Golf Seven": "Artist - Double Album (1979) [FLAC]/2-03 Golf Seven.flac",
+   "Hotel Eight": "Artist - Double Album (1979) [FLAC]/2-04 Hotel Eight.flac"
+  }
+ }
+}

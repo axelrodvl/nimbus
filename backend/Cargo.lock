@@ -2357,6 +2357,15 @@ dependencies = [
 [[package]]
 name = "nimbus-matcher"
 version = "0.1.0"
+dependencies = [
+ "deunicode",
+ "encoding_rs",
+ "regex",
+ "serde",
+ "serde_json",
+ "strsim",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "nimbus-musicbrainz"

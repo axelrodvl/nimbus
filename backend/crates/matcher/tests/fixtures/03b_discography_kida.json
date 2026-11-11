@@ -1,0 +1,104 @@
+{
+ "name": "03b_discography_kida",
+ "album": {
+  "artist": "Radiohead",
+  "title": "Kid A",
+  "year": 2000,
+  "discs": 1,
+  "tracks": [
+   {
+    "disc": 1,
+    "title": "Everything in Its Right Place"
+   },
+   {
+    "disc": 1,
+    "title": "Kid A"
+   },
+   {
+    "disc": 1,
+    "title": "The National Anthem"
+   },
+   {
+    "disc": 1,
+    "title": "How to Disappear Completely"
+   },
+   {
+    "disc": 1,
+    "title": "Treefingers"
+   },
+   {
+    "disc": 1,
+    "title": "Optimistic"
+   },
+   {
+    "disc": 1,
+    "title": "In Limbo"
+   },
+   {
+    "disc": 1,
+    "title": "Idioteque"
+   },
+   {
+    "disc": 1,
+    "title": "Morning Bell"
+   },
+   {
+    "disc": 1,
+    "title": "Motion Picture Soundtrack"
+   }
+  ]
+ },
+ "files": [
+  "Radiohead - Discography/1993 - Pablo Honey/01 - You.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/02 - Creep.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/03 - How Do You.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/04 - Stop Whispering.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/05 - Thinking About You.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/06 - Anyone Can Play Guitar.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/07 - Ripcord.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/08 - Vegetable.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/09 - Prove Yourself.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/10 - I Can't.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/11 - Lurgee.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/12 - Blow Out.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/cover.jpg",
+  "Radiohead - Discography/1997 - OK Computer/01 - Airbag.flac",
+  "Radiohead - Discography/1997 - OK Computer/02 - Paranoid Android.flac",
+  "Radiohead - Discography/1997 - OK Computer/03 - Subterranean Homesick Alien.flac",
+  "Radiohead - Discography/1997 - OK Computer/04 - Exit Music (For a Film).flac",
+  "Radiohead - Discography/1997 - OK Computer/05 - Let Down.flac",
+  "Radiohead - Discography/1997 - OK Computer/06 - Karma Police.flac",
+  "Radiohead - Discography/1997 - OK Computer/07 - Fitter Happier.flac",
+  "Radiohead - Discography/1997 - OK Computer/08 - Electioneering.flac",
+  "Radiohead - Discography/1997 - OK Computer/09 - Climbing Up the Walls.flac",
+  "Radiohead - Discography/1997 - OK Computer/10 - No Surprises.flac",
+  "Radiohead - Discography/1997 - OK Computer/11 - Lucky.flac",
+  "Radiohead - Discography/1997 - OK Computer/12 - The Tourist.flac",
+  "Radiohead - Discography/1997 - OK Computer/cover.jpg",
+  "Radiohead - Discography/2000 - Kid A/01 - Everything in Its Right Place.flac",
+  "Radiohead - Discography/2000 - Kid A/02 - Kid A.flac",
+  "Radiohead - Discography/2000 - Kid A/03 - The National Anthem.flac",
+  "Radiohead - Discography/2000 - Kid A/04 - How to Disappear Completely.flac",
+  "Radiohead - Discography/2000 - Kid A/05 - Treefingers.flac",
+  "Radiohead - Discography/2000 - Kid A/06 - Optimistic.flac",
+  "Radiohead - Discography/2000 - Kid A/07 - In Limbo.flac",
+  "Radiohead - Discography/2000 - Kid A/08 - Idioteque.flac",
+  "Radiohead - Discography/2000 - Kid A/09 - Morning Bell.flac",
+  "Radiohead - Discography/2000 - Kid A/10 - Motion Picture Soundtrack.flac",
+  "Radiohead - Discography/2000 - Kid A/cover.jpg"
+ ],
+ "expect": {
+  "matches": {
+   "Everything in Its Right Place": "Radiohead - Discography/2000 - Kid A/01 - Everything in Its Right Place.flac",
+   "Kid A": "Radiohead - Discography/2000 - Kid A/02 - Kid A.flac",
+   "The National Anthem": "Radiohead - Discography/2000 - Kid A/03 - The National Anthem.flac",
+   "How to Disappear Completely": "Radiohead - Discography/2000 - Kid A/04 - How to Disappear Completely.flac",
+   "Treefingers": "Radiohead - Discography/2000 - Kid A/05 - Treefingers.flac",
+   "Optimistic": "Radiohead - Discography/2000 - Kid A/06 - Optimistic.flac",
+   "In Limbo": "Radiohead - Discography/2000 - Kid A/07 - In Limbo.flac",
+   "Idioteque": "Radiohead - Discography/2000 - Kid A/08 - Idioteque.flac",
+   "Morning Bell": "Radiohead - Discography/2000 - Kid A/09 - Morning Bell.flac",
+   "Motion Picture Soundtrack": "Radiohead - Discography/2000 - Kid A/10 - Motion Picture Soundtrack.flac"
+  }
+ }
+}

@@ -1,0 +1,114 @@
+{
+ "name": "03_discography_ok",
+ "album": {
+  "artist": "Radiohead",
+  "title": "OK Computer",
+  "year": 1997,
+  "discs": 1,
+  "tracks": [
+   {
+    "disc": 1,
+    "title": "Airbag"
+   },
+   {
+    "disc": 1,
+    "title": "Paranoid Android"
+   },
+   {
+    "disc": 1,
+    "title": "Subterranean Homesick Alien"
+   },
+   {
+    "disc": 1,
+    "title": "Exit Music (For a Film)"
+   },
+   {
+    "disc": 1,
+    "title": "Let Down"
+   },
+   {
+    "disc": 1,
+    "title": "Karma Police"
+   },
+   {
+    "disc": 1,
+    "title": "Fitter Happier"
+   },
+   {
+    "disc": 1,
+    "title": "Electioneering"
+   },
+   {
+    "disc": 1,
+    "title": "Climbing Up the Walls"
+   },
+   {
+    "disc": 1,
+    "title": "No Surprises"
+   },
+   {
+    "disc": 1,
+    "title": "Lucky"
+   },
+   {
+    "disc": 1,
+    "title": "The Tourist"
+   }
+  ]
+ },
+ "files": [
+  "Radiohead - Discography/1993 - Pablo Honey/01 - You.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/02 - Creep.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/03 - How Do You.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/04 - Stop Whispering.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/05 - Thinking About You.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/06 - Anyone Can Play Guitar.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/07 - Ripcord.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/08 - Vegetable.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/09 - Prove Yourself.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/10 - I Can't.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/11 - Lurgee.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/12 - Blow Out.flac",
+  "Radiohead - Discography/1993 - Pablo Honey/cover.jpg",
+  "Radiohead - Discography/1997 - OK Computer/01 - Airbag.flac",
+  "Radiohead - Discography/1997 - OK Computer/02 - Paranoid Android.flac",
+  "Radiohead - Discography/1997 - OK Computer/03 - Subterranean Homesick Alien.flac",
+  "Radiohead - Discography/1997 - OK Computer/04 - Exit Music (For a Film).flac",
+  "Radiohead - Discography/1997 - OK Computer/05 - Let Down.flac",
+  "Radiohead - Discography/1997 - OK Computer/06 - Karma Police.flac",
+  "Radiohead - Discography/1997 - OK Computer/07 - Fitter Happier.flac",
+  "Radiohead - Discography/1997 - OK Computer/08 - Electioneering.flac",
+  "Radiohead - Discography/1997 - OK Computer/09 - Climbing Up the Walls.flac",
+  "Radiohead - Discography/1997 - OK Computer/10 - No Surprises.flac",
+  "Radiohead - Discography/1997 - OK Computer/11 - Lucky.flac",
+  "Radiohead - Discography/1997 - OK Computer/12 - The Tourist.flac",
+  "Radiohead - Discography/1997 - OK Computer/cover.jpg",
+  "Radiohead - Discography/2000 - Kid A/01 - Everything in Its Right Place.flac",
+  "Radiohead - Discography/2000 - Kid A/02 - Kid A.flac",
+  "Radiohead - Discography/2000 - Kid A/03 - The National Anthem.flac",
+  "Radiohead - Discography/2000 - Kid A/04 - How to Disappear Completely.flac",
+  "Radiohead - Discography/2000 - Kid A/05 - Treefingers.flac",
+  "Radiohead - Discography/2000 - Kid A/06 - Optimistic.flac",
+  "Radiohead - Discography/2000 - Kid A/07 - In Limbo.flac",
+  "Radiohead - Discography/2000 - Kid A/08 - Idioteque.flac",
+  "Radiohead - Discography/2000 - Kid A/09 - Morning Bell.flac",
+  "Radiohead - Discography/2000 - Kid A/10 - Motion Picture Soundtrack.flac",
+  "Radiohead - Discography/2000 - Kid A/cover.jpg"
+ ],
+ "expect": {
+  "matches": {
+   "Airbag": "Radiohead - Discography/1997 - OK Computer/01 - Airbag.flac",
+   "Paranoid Android": "Radiohead - Discography/1997 - OK Computer/02 - Paranoid Android.flac",
+   "Subterranean Homesick Alien": "Radiohead - Discography/1997 - OK Computer/03 - Subterranean Homesick Alien.flac",
+   "Exit Music (For a Film)": "Radiohead - Discography/1997 - OK Computer/04 - Exit Music (For a Film).flac",
+   "Let Down": "Radiohead - Discography/1997 - OK Computer/05 - Let Down.flac",
+   "Karma Police": "Radiohead - Discography/1997 - OK Computer/06 - Karma Police.flac",
+   "Fitter Happier": "Radiohead - Discography/1997 - OK Computer/07 - Fitter Happier.flac",
+   "Electioneering": "Radiohead - Discography/1997 - OK Computer/08 - Electioneering.flac",
+   "Climbing Up the Walls": "Radiohead - Discography/1997 - OK Computer/09 - Climbing Up the Walls.flac",
+   "No Surprises": "Radiohead - Discography/1997 - OK Computer/10 - No Surprises.flac",
+   "Lucky": "Radiohead - Discography/1997 - OK Computer/11 - Lucky.flac",
+   "The Tourist": "Radiohead - Discography/1997 - OK Computer/12 - The Tourist.flac"
+  }
+ }
+}

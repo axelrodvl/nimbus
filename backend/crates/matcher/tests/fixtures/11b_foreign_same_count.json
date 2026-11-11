@@ -1,0 +1,90 @@
+{
+ "name": "11b_foreign_same_count",
+ "album": {
+  "artist": "Radiohead",
+  "title": "OK Computer",
+  "year": 1997,
+  "discs": 1,
+  "tracks": [
+   {
+    "disc": 1,
+    "title": "Airbag"
+   },
+   {
+    "disc": 1,
+    "title": "Paranoid Android"
+   },
+   {
+    "disc": 1,
+    "title": "Subterranean Homesick Alien"
+   },
+   {
+    "disc": 1,
+    "title": "Exit Music (For a Film)"
+   },
+   {
+    "disc": 1,
+    "title": "Let Down"
+   },
+   {
+    "disc": 1,
+    "title": "Karma Police"
+   },
+   {
+    "disc": 1,
+    "title": "Fitter Happier"
+   },
+   {
+    "disc": 1,
+    "title": "Electioneering"
+   },
+   {
+    "disc": 1,
+    "title": "Climbing Up the Walls"
+   },
+   {
+    "disc": 1,
+    "title": "No Surprises"
+   },
+   {
+    "disc": 1,
+    "title": "Lucky"
+   },
+   {
+    "disc": 1,
+    "title": "The Tourist"
+   }
+  ]
+ },
+ "files": [
+  "Some Other Band - Different Record (2010)/01 - Zebra Crossing.flac",
+  "Some Other Band - Different Record (2010)/02 - Yellow Submarine Ride.flac",
+  "Some Other Band - Different Record (2010)/03 - Xylophone Dream.flac",
+  "Some Other Band - Different Record (2010)/04 - Whale Song.flac",
+  "Some Other Band - Different Record (2010)/05 - Violet Hour.flac",
+  "Some Other Band - Different Record (2010)/06 - Umbrella Man.flac",
+  "Some Other Band - Different Record (2010)/07 - Tangerine Sky.flac",
+  "Some Other Band - Different Record (2010)/08 - Silent River.flac",
+  "Some Other Band - Different Record (2010)/09 - Rusty Nail.flac",
+  "Some Other Band - Different Record (2010)/10 - Quiet Storm.flac",
+  "Some Other Band - Different Record (2010)/11 - Paper Moon.flac",
+  "Some Other Band - Different Record (2010)/12 - Orange Peel.flac"
+ ],
+ "expect": {
+  "matches": {},
+  "unmatched": [
+   "Airbag",
+   "Paranoid Android",
+   "Subterranean Homesick Alien",
+   "Exit Music (For a Film)",
+   "Let Down",
+   "Karma Police",
+   "Fitter Happier",
+   "Electioneering",
+   "Climbing Up the Walls",
+   "No Surprises",
+   "Lucky",
+   "The Tourist"
+  ]
+ }
+}

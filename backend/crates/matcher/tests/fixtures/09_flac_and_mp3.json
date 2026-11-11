@@ -1,0 +1,101 @@
+{
+ "name": "09_flac_and_mp3",
+ "album": {
+  "artist": "Radiohead",
+  "title": "OK Computer",
+  "year": 1997,
+  "discs": 1,
+  "tracks": [
+   {
+    "disc": 1,
+    "title": "Airbag"
+   },
+   {
+    "disc": 1,
+    "title": "Paranoid Android"
+   },
+   {
+    "disc": 1,
+    "title": "Subterranean Homesick Alien"
+   },
+   {
+    "disc": 1,
+    "title": "Exit Music (For a Film)"
+   },
+   {
+    "disc": 1,
+    "title": "Let Down"
+   },
+   {
+    "disc": 1,
+    "title": "Karma Police"
+   },
+   {
+    "disc": 1,
+    "title": "Fitter Happier"
+   },
+   {
+    "disc": 1,
+    "title": "Electioneering"
+   },
+   {
+    "disc": 1,
+    "title": "Climbing Up the Walls"
+   },
+   {
+    "disc": 1,
+    "title": "No Surprises"
+   },
+   {
+    "disc": 1,
+    "title": "Lucky"
+   },
+   {
+    "disc": 1,
+    "title": "The Tourist"
+   }
+  ]
+ },
+ "files": [
+  "Radiohead - OK Computer (1997)/MP3/01 - Airbag.mp3",
+  "Radiohead - OK Computer (1997)/MP3/02 - Paranoid Android.mp3",
+  "Radiohead - OK Computer (1997)/MP3/03 - Subterranean Homesick Alien.mp3",
+  "Radiohead - OK Computer (1997)/MP3/04 - Exit Music (For a Film).mp3",
+  "Radiohead - OK Computer (1997)/MP3/05 - Let Down.mp3",
+  "Radiohead - OK Computer (1997)/MP3/06 - Karma Police.mp3",
+  "Radiohead - OK Computer (1997)/MP3/07 - Fitter Happier.mp3",
+  "Radiohead - OK Computer (1997)/MP3/08 - Electioneering.mp3",
+  "Radiohead - OK Computer (1997)/MP3/09 - Climbing Up the Walls.mp3",
+  "Radiohead - OK Computer (1997)/MP3/10 - No Surprises.mp3",
+  "Radiohead - OK Computer (1997)/MP3/11 - Lucky.mp3",
+  "Radiohead - OK Computer (1997)/MP3/12 - The Tourist.mp3",
+  "Radiohead - OK Computer (1997)/FLAC/01 - Airbag.flac",
+  "Radiohead - OK Computer (1997)/FLAC/02 - Paranoid Android.flac",
+  "Radiohead - OK Computer (1997)/FLAC/03 - Subterranean Homesick Alien.flac",
+  "Radiohead - OK Computer (1997)/FLAC/04 - Exit Music (For a Film).flac",
+  "Radiohead - OK Computer (1997)/FLAC/05 - Let Down.flac",
+  "Radiohead - OK Computer (1997)/FLAC/06 - Karma Police.flac",
+  "Radiohead - OK Computer (1997)/FLAC/07 - Fitter Happier.flac",
+  "Radiohead - OK Computer (1997)/FLAC/08 - Electioneering.flac",
+  "Radiohead - OK Computer (1997)/FLAC/09 - Climbing Up the Walls.flac",
+  "Radiohead - OK Computer (1997)/FLAC/10 - No Surprises.flac",
+  "Radiohead - OK Computer (1997)/FLAC/11 - Lucky.flac",
+  "Radiohead - OK Computer (1997)/FLAC/12 - The Tourist.flac"
+ ],
+ "expect": {
+  "matches": {
+   "Airbag": "Radiohead - OK Computer (1997)/FLAC/01 - Airbag.flac",
+   "Paranoid Android": "Radiohead - OK Computer (1997)/FLAC/02 - Paranoid Android.flac",
+   "Subterranean Homesick Alien": "Radiohead - OK Computer (1997)/FLAC/03 - Subterranean Homesick Alien.flac",
+   "Exit Music (For a Film)": "Radiohead - OK Computer (1997)/FLAC/04 - Exit Music (For a Film).flac",
+   "Let Down": "Radiohead - OK Computer (1997)/FLAC/05 - Let Down.flac",
+   "Karma Police": "Radiohead - OK Computer (1997)/FLAC/06 - Karma Police.flac",
+   "Fitter Happier": "Radiohead - OK Computer (1997)/FLAC/07 - Fitter Happier.flac",
+   "Electioneering": "Radiohead - OK Computer (1997)/FLAC/08 - Electioneering.flac",
+   "Climbing Up the Walls": "Radiohead - OK Computer (1997)/FLAC/09 - Climbing Up the Walls.flac",
+   "No Surprises": "Radiohead - OK Computer (1997)/FLAC/10 - No Surprises.flac",
+   "Lucky": "Radiohead - OK Computer (1997)/FLAC/11 - Lucky.flac",
+   "The Tourist": "Radiohead - OK Computer (1997)/FLAC/12 - The Tourist.flac"
+  }
+ }
+}
