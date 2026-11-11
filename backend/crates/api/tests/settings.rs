@@ -21,7 +21,7 @@ async fn get_returns_defaults_without_secrets(pool: PgPool) {
     assert_eq!(code, 200);
     assert_eq!(body["providers"]["tpb_enabled"], true);
     assert_eq!(body["storage"]["cache_limit_gb"], 50);
-    assert_eq!(body["matching"]["accept"].as_f64().unwrap() as f32, 0.8);
+    assert_eq!(body["matching"]["accept"].as_f64(), Some(0.8));
     assert!(body["providers"]["torznab"].is_null());
 }
 

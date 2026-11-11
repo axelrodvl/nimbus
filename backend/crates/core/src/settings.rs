@@ -58,9 +58,9 @@ pub struct SearchSettings {
 #[serde(default)]
 pub struct MatchingSettings {
     /// Порог уверенного совпадения файла с треком.
-    pub accept: f32,
+    pub accept: f64,
     /// Порог совпадения «с подтверждением».
-    pub confirm: f32,
+    pub confirm: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -77,7 +77,7 @@ pub struct PlaybackSettings {
 pub struct StorageSettings {
     pub cache_limit_gb: u64,
     pub seeding: bool,
-    pub seed_ratio: Option<f32>,
+    pub seed_ratio: Option<f64>,
 }
 
 pub const FORMAT_KEYS: [&str; 7] = [

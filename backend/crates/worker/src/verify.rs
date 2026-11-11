@@ -160,8 +160,8 @@ pub async fn verify_torrent(ctx: &JobCtx, torrent_id: i64, album_id: i64) -> Res
             &{
                 let m = &ctx.settings.get().matching;
                 MatchConfig {
-                    accept: m.accept,
-                    confirm: m.confirm,
+                    accept: m.accept as f32,
+                    confirm: m.confirm as f32,
                     ..MatchConfig::default()
                 }
             },
