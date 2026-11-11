@@ -107,3 +107,46 @@ pub async fn overview(
     .fetch_all(db)
     .await
 }
+
+/// Раздача альбома со счётчиками (публичный API источников).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AlbumTorrentRow {
+    #[sqlx(flatten)]
+    pub torrent: nimbus_core::model::Torrent,
+    pub rank_score: f32,
+    pub verified: bool,
+    pub files_count: i64,
+    pub matched_tracks: i64,
+}
+
+pub async fn list_with_counts(
+    db: impl PgExecutor<'_>,
+    album_id: i64,
+) -> sqlx::Result<Vec<AlbumTorrentRow>> {
+    sqlx::query_as(
+        "SELECT t.*, at.rank_score, at.verified,
+                (SELECT count(*) FROM torrent_files f WHERE f.torrent_id = t.id) AS files_count,
+                (SELECT count(DISTINCT ts.track_id) FROM track_sources ts
+                   JOIN tracks tr ON tr.id = ts.track_id
+                  WHERE ts.torrent_id = t.id AND tr.album_id = at.album_id) AS matched_tracks
+         FROM album_torrents at JOIN torrents t ON t.id = at.torrent_id
+         WHERE at.album_id = $1
+         ORDER BY at.rank_score DESC, t.id",
+    )
+    .bind(album_id)
+    .fetch_all(db)
+    .await
+}
+
+/// Сбрасывает `verified` у раздач альбома с `meta_status = timeout` (дать шанс ещё раз).
+pub async fn reset_verified_timeouts(db: impl PgExecutor<'_>, album_id: i64) -> sqlx::Result<u64> {
+    Ok(sqlx::query(
+        "UPDATE album_torrents SET verified = FALSE
+         WHERE album_id = $1 AND verified
+           AND torrent_id IN (SELECT id FROM torrents WHERE meta_status = 'timeout')",
+    )
+    .bind(album_id)
+    .execute(db)
+    .await?
+    .rows_affected())
+}

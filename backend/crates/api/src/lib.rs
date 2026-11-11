@@ -5,6 +5,7 @@ pub mod library;
 pub mod openapi;
 pub mod routes;
 pub mod search;
+pub mod sources;
 pub mod state;
 pub mod stream;
 pub mod ws;

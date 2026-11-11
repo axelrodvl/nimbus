@@ -104,6 +104,8 @@ pub struct TrackDto {
     pub status: TrackStatus,
     pub status_reason: Option<String>,
     pub in_library: bool,
+    /// Primary-источник трека сомнительный: его стоит проверить или подтвердить.
+    pub needs_confirmation: bool,
 }
 
 impl From<ArtistView> for ArtistDto {
@@ -160,6 +162,7 @@ impl From<TrackView> for TrackDto {
             status: t.status,
             status_reason: t.status_reason,
             in_library: t.in_library,
+            needs_confirmation: t.needs_confirmation,
         }
     }
 }

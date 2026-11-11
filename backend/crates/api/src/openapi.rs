@@ -1,6 +1,6 @@
 use utoipa::OpenApi;
 
-use crate::{library, routes, search};
+use crate::{library, routes, search, sources};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -24,6 +24,14 @@ use crate::{library, routes, search};
         library::get_album,
         library::get_track,
         crate::stream::stream_track,
+        sources::album_torrents_list,
+        sources::torrent_files,
+        sources::track_sources_list,
+        sources::set_source,
+        sources::confirm_source,
+        sources::retry_track,
+        sources::retry_album,
+        sources::add_magnet,
     ),
     components(schemas(
         routes::HealthResponse,
@@ -48,10 +56,22 @@ use crate::{library, routes, search};
         library::AddStatus,
         library::AddToLibraryResponse,
         nimbus_core::model::TrackStatus,
+        nimbus_core::model::TorrentSource,
+        nimbus_core::model::TorrentKind,
+        nimbus_core::model::MetaStatus,
+        sources::TorrentDto,
+        sources::AlbumTorrentDto,
+        sources::TorrentFileDto,
+        sources::TrackSourceDto,
+        sources::SetSourceRequest,
+        sources::AddMagnetRequest,
+        sources::AddMagnetResponse,
+        sources::RetryResponse,
     )),
     tags(
         (name = "system", description = "Служебные эндпоинты"),
         (name = "search", description = "Поиск в MusicBrainz"),
+        (name = "sources", description = "Источники: раздачи, файлы, ручной выбор, retry"),
         (name = "library", description = "Библиотека: добавление, списки, страницы артиста и альбома"),
     )
 )]

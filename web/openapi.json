@@ -47,6 +47,153 @@
         }
       }
     },
+    "/api/albums/{id}/retry": {
+      "post": {
+        "tags": [
+          "sources"
+        ],
+        "operationId": "retry_album",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID альбома",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Треки `not_found` → `adding`, поиск запущен заново",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Нет такого альбома",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/albums/{id}/torrents": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "operationId": "album_torrents_list",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID альбома",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Раздачи альбома по убыванию ранга",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AlbumTorrentDto"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Нет такого альбома",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sources"
+        ],
+        "operationId": "add_magnet",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID альбома",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddMagnetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Раздача добавлена, проверка поставлена в очередь",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddMagnetResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Некорректный magnet (`invalid_magnet`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Нет такого альбома",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/artists/{id}": {
       "get": {
         "tags": [
@@ -594,6 +741,51 @@
         }
       }
     },
+    "/api/torrents/{id}/files": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "operationId": "torrent_files",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID раздачи",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Файлы раздачи (пусто, пока метаданные не получены)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TorrentFileDto"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Нет такой раздачи",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tracks/{id}": {
       "get": {
         "tags": [
@@ -624,6 +816,217 @@
           },
           "404": {
             "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tracks/{id}/retry": {
+      "post": {
+        "tags": [
+          "sources"
+        ],
+        "operationId": "retry_track",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID трека",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Трек → `adding`, поиск раздач поставлен в очередь",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Нет такого трека",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Трек уже `ready` (`track_ready`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tracks/{id}/source": {
+      "put": {
+        "tags": [
+          "sources"
+        ],
+        "operationId": "set_source",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID трека",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Новый primary-источник",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackSourceDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Нужен либо `source_id`, либо `torrent_id` + `file_index`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Нет трека, источника или файла",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tracks/{id}/sources": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "operationId": "track_sources_list",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID трека",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Источники трека: primary первым, затем по `match_score`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TrackSourceDto"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Нет такого трека",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tracks/{id}/sources/{source_id}/confirm": {
+      "post": {
+        "tags": [
+          "sources"
+        ],
+        "operationId": "confirm_source",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID трека",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "description": "ID источника",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Источник подтверждён",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackSourceDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Нет такого источника у трека",
             "content": {
               "application/json": {
                 "schema": {
@@ -740,6 +1143,32 @@
   },
   "components": {
     "schemas": {
+      "AddMagnetRequest": {
+        "type": "object",
+        "required": [
+          "magnet"
+        ],
+        "properties": {
+          "magnet": {
+            "type": "string"
+          }
+        }
+      },
+      "AddMagnetResponse": {
+        "type": "object",
+        "required": [
+          "torrent",
+          "queued"
+        ],
+        "properties": {
+          "queued": {
+            "type": "boolean"
+          },
+          "torrent": {
+            "$ref": "#/components/schemas/TorrentDto"
+          }
+        }
+      },
       "AddStatus": {
         "type": "string",
         "enum": [
@@ -963,6 +1392,37 @@
           }
         }
       },
+      "AlbumTorrentDto": {
+        "type": "object",
+        "required": [
+          "torrent",
+          "rank_score",
+          "verified",
+          "matched_tracks",
+          "files_count"
+        ],
+        "properties": {
+          "files_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "matched_tracks": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Сколько треков альбома сопоставлено с файлами этой раздачи."
+          },
+          "rank_score": {
+            "type": "number",
+            "format": "float"
+          },
+          "torrent": {
+            "$ref": "#/components/schemas/TorrentDto"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        }
+      },
       "ArtistDetailDto": {
         "type": "object",
         "required": [
@@ -1152,6 +1612,35 @@
           "track"
         ]
       },
+      "MetaStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "fetching",
+          "ok",
+          "timeout",
+          "dead",
+          "error"
+        ]
+      },
+      "RetryResponse": {
+        "type": "object",
+        "required": [
+          "queued",
+          "tracks_reset"
+        ],
+        "properties": {
+          "queued": {
+            "type": "boolean",
+            "description": "Была ли поставлена новая задача (`false` — такая уже в очереди)."
+          },
+          "tracks_reset": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Сколько треков переведено в `adding`."
+          }
+        }
+      },
       "SearchResponse": {
         "type": "object",
         "required": [
@@ -1192,6 +1681,34 @@
           }
         }
       },
+      "SetSourceRequest": {
+        "type": "object",
+        "properties": {
+          "file_index": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "source_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Существующий источник трека."
+          },
+          "torrent_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Либо пара «раздача + файл» (источник создаётся с `match_score = 1.0`)."
+          }
+        }
+      },
       "StatusCounts": {
         "type": "object",
         "required": [
@@ -1219,6 +1736,111 @@
           }
         }
       },
+      "TorrentDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "info_hash",
+          "source",
+          "title",
+          "kind",
+          "meta_status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "info_hash": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TorrentKind"
+          },
+          "leechers": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "meta_status": {
+            "$ref": "#/components/schemas/MetaStatus"
+          },
+          "seeders": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "size_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "source": {
+            "$ref": "#/components/schemas/TorrentSource"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "TorrentFileDto": {
+        "type": "object",
+        "required": [
+          "file_index",
+          "path",
+          "size_bytes"
+        ],
+        "properties": {
+          "ext": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "file_index": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "matched_track_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "path": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "TorrentKind": {
+        "type": "string",
+        "enum": [
+          "album",
+          "discography",
+          "single",
+          "unknown"
+        ]
+      },
+      "TorrentSource": {
+        "type": "string",
+        "enum": [
+          "tpb",
+          "rutracker",
+          "torznab",
+          "manual"
+        ]
+      },
       "TrackDto": {
         "type": "object",
         "required": [
@@ -1232,7 +1854,8 @@
           "disc_no",
           "position",
           "status",
-          "in_library"
+          "in_library",
+          "needs_confirmation"
         ],
         "properties": {
           "album_id": {
@@ -1276,6 +1899,10 @@
           "mbid_recording": {
             "type": "string",
             "format": "uuid"
+          },
+          "needs_confirmation": {
+            "type": "boolean",
+            "description": "Primary-источник трека сомнительный: его стоит проверить или подтвердить."
           },
           "position": {
             "type": "integer",
@@ -1390,6 +2017,49 @@
           }
         }
       },
+      "TrackSourceDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "torrent",
+          "file_index",
+          "path",
+          "size_bytes",
+          "match_score",
+          "is_primary",
+          "needs_confirmation"
+        ],
+        "properties": {
+          "file_index": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "is_primary": {
+            "type": "boolean"
+          },
+          "match_score": {
+            "type": "number",
+            "format": "float"
+          },
+          "needs_confirmation": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "torrent": {
+            "$ref": "#/components/schemas/TorrentDto"
+          }
+        }
+      },
       "TrackStatus": {
         "type": "string",
         "enum": [
@@ -1409,6 +2079,10 @@
     {
       "name": "search",
       "description": "Поиск в MusicBrainz"
+    },
+    {
+      "name": "sources",
+      "description": "Источники: раздачи, файлы, ручной выбор, retry"
     },
     {
       "name": "library",

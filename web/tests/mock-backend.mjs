@@ -36,6 +36,9 @@ let seq = 0;
 const artists = new Map();
 const albums = new Map();
 const tracks = new Map();
+const torrents = new Map();
+let trackSources = [];
+let requestLog = [];
 
 function addArtist(a) {
   artists.set(a.id, { disambiguation: null, in_library: true, ...a });
@@ -98,8 +101,62 @@ function seed() {
     { id: 1002, status: 'found', title: 'High and Dry' },
     { id: 1003, status: 'not_found', status_reason: 'no_match', title: 'Fake Plastic Trees' },
   ]);
+  // Альбом для тестов источников (сам вне библиотеки, треки в библиотеке).
+  addAlbum({ id: 104, in_library: false, mbid: 'aaaaaaaa-0000-4000-8000-000000000104', title: 'Sources Test', year: 2002 }, [
+    { id: 1041, in_library: true, status: 'found', title: 'Doubtful Song' },
+    { id: 1042, in_library: true, status: 'not_found', status_reason: 'no_match', title: 'Missing Song' },
+    { id: 1043, in_library: true, status: 'not_found', status_reason: 'no_match', title: 'Retry Song' },
+  ]);
+  torrents.clear();
+  trackSources = [];
+  requestLog = [];
+  const files = ['01 Doubtful Song.flac', '02 Other Take.flac', '03 Missing Song.flac'].map((name, i) => ({
+    ext: 'flac',
+    file_index: i,
+    path: `Sources Test/${name}`,
+    size_bytes: 30_000_000 + i,
+  }));
+  torrents.set(900, {
+    album_id: 104,
+    files,
+    id: 900,
+    info_hash: 'c12fe1c06bba254a9dc9f519b335aa7c1367a88a',
+    kind: 'album',
+    leechers: 1,
+    meta_status: 'ok',
+    seeders: 12,
+    size_bytes: 90_000_000,
+    source: 'tpb',
+    title: 'Sources Test [FLAC]',
+  });
+  trackSources.push(
+    { file_index: 0, id: 1, is_primary: true, match_score: 0.55, needs_confirmation: true, torrent_id: 900, track_id: 1041 },
+    { file_index: 1, id: 2, is_primary: false, match_score: 0.5, needs_confirmation: false, torrent_id: 900, track_id: 1041 },
+  );
 }
 seed();
+
+const primaryOf = id => trackSources.find(s => s.track_id === id && s.is_primary);
+const torrentDto = t => {
+  const rest = { ...t };
+  delete rest.files;
+  delete rest.album_id;
+  return rest;
+};
+const sourceDto = s => {
+  const t = torrents.get(s.torrent_id);
+  const f = t.files.find(x => x.file_index === s.file_index);
+  return {
+    file_index: s.file_index,
+    id: s.id,
+    is_primary: s.is_primary,
+    match_score: s.match_score,
+    needs_confirmation: s.needs_confirmation,
+    path: f.path,
+    size_bytes: f.size_bytes,
+    torrent: torrentDto(t),
+  };
+};
 
 const artistName = id => artists.get(id)?.name ?? '';
 const albumTracks = id => [...tracks.values()].filter(t => t.album_id === id);
@@ -154,6 +211,7 @@ function trackDto(t) {
     id: t.id,
     in_library: t.in_library,
     mbid_recording: t.mbid_recording,
+    needs_confirmation: primaryOf(t.id)?.needs_confirmation ?? false,
     position: t.position,
     status: t.status,
     status_reason: t.status_reason,
@@ -234,6 +292,94 @@ createServer(async (req, res) => {
       ...(partial ? { 'content-range': `bytes ${start}-${end}/${size}` } : {}),
     });
     return res.end(req.method === 'HEAD' ? undefined : WAV.subarray(start, end + 1));
+  }
+
+  if (p === '/__log') return send(res, 200, requestLog);
+
+  {
+    let m;
+    const albumTorrents = id => [...torrents.values()].filter(t => t.album_id === id);
+    if (req.method === 'GET' && (m = p.match(/^\/api\/albums\/(\d+)\/torrents$/))) {
+      if (!albums.has(Number(m[1]))) return err(res, 404, 'not_found', 'album not found');
+      return send(
+        res,
+        200,
+        albumTorrents(Number(m[1])).map(t => ({
+          files_count: t.files.length,
+          matched_tracks: new Set(trackSources.filter(s => s.torrent_id === t.id).map(s => s.track_id)).size,
+          rank_score: 0.8,
+          torrent: torrentDto(t),
+          verified: true,
+        })),
+      );
+    }
+    if (req.method === 'GET' && (m = p.match(/^\/api\/torrents\/(\d+)\/files$/))) {
+      const t = torrents.get(Number(m[1]));
+      if (!t) return err(res, 404, 'not_found', 'torrent not found');
+      return send(
+        res,
+        200,
+        t.files.map(f => ({
+          ...f,
+          matched_track_id:
+            trackSources
+              .filter(s => s.torrent_id === t.id && s.file_index === f.file_index)
+              .sort((a, b) => Number(b.is_primary) - Number(a.is_primary))[0]?.track_id ?? null,
+        })),
+      );
+    }
+    if (req.method === 'GET' && (m = p.match(/^\/api\/tracks\/(\d+)\/sources$/))) {
+      const list = trackSources.filter(s => s.track_id === Number(m[1])).sort((a, b) => Number(b.is_primary) - Number(a.is_primary));
+      return send(res, 200, list.map(sourceDto));
+    }
+    if (req.method === 'PUT' && (m = p.match(/^\/api\/tracks\/(\d+)\/source$/))) {
+      const id = Number(m[1]);
+      const body = await readJson(req);
+      requestLog.push({ body, method: 'PUT', path: p });
+      const t = tracks.get(id);
+      if (!t) return err(res, 404, 'not_found', 'track not found');
+      let src;
+      if (body?.source_id) src = trackSources.find(x => x.id === body.source_id && x.track_id === id);
+      else if (body?.torrent_id !== undefined && body?.file_index !== undefined) {
+        src = trackSources.find(x => x.track_id === id && x.torrent_id === body.torrent_id && x.file_index === body.file_index);
+        if (!src) {
+          src = { file_index: body.file_index, id: 100 + trackSources.length, is_primary: false, match_score: 1, needs_confirmation: false, torrent_id: body.torrent_id, track_id: id };
+          trackSources.push(src);
+        }
+      } else return err(res, 400, 'bad_source', 'bad body');
+      if (!src) return err(res, 404, 'not_found', 'source not found');
+      trackSources.filter(x => x.track_id === id).forEach(x => (x.is_primary = x === src));
+      t.status = 'found';
+      t.status_reason = null;
+      return send(res, 200, sourceDto(src));
+    }
+    if (req.method === 'POST' && (m = p.match(/^\/api\/tracks\/(\d+)\/sources\/(\d+)\/confirm$/))) {
+      requestLog.push({ method: 'POST', path: p });
+      const src = trackSources.find(x => x.id === Number(m[2]) && x.track_id === Number(m[1]));
+      if (!src) return err(res, 404, 'not_found', 'source not found');
+      src.needs_confirmation = false;
+      return send(res, 200, sourceDto(src));
+    }
+    if (req.method === 'POST' && (m = p.match(/^\/api\/tracks\/(\d+)\/retry$/))) {
+      requestLog.push({ method: 'POST', path: p });
+      const t = tracks.get(Number(m[1]));
+      if (!t) return err(res, 404, 'not_found', 'track not found');
+      t.status = 'adding';
+      return send(res, 202, { queued: true, tracks_reset: 1 });
+    }
+    if (req.method === 'POST' && (m = p.match(/^\/api\/albums\/(\d+)\/retry$/))) {
+      requestLog.push({ method: 'POST', path: p });
+      albumTracks(Number(m[1])).filter(t => t.status === 'not_found').forEach(t => (t.status = 'adding'));
+      return send(res, 202, { queued: true, tracks_reset: 1 });
+    }
+    if (req.method === 'POST' && (m = p.match(/^\/api\/albums\/(\d+)\/torrents$/))) {
+      const body = await readJson(req);
+      requestLog.push({ body, method: 'POST', path: p });
+      if (!/^magnet:\?xt=urn:btih:[0-9a-f]{40}/i.test(body?.magnet ?? '')) return err(res, 400, 'invalid_magnet', 'not a valid magnet link');
+      const id = 901 + torrents.size;
+      torrents.set(id, { album_id: Number(m[1]), files: [], id, info_hash: body.magnet.slice(20, 60), kind: 'unknown', leechers: null, meta_status: 'pending', seeders: null, size_bytes: null, source: 'manual', title: 'Свой magnet' });
+      return send(res, 202, { queued: true, torrent: torrentDto(torrents.get(id)) });
+    }
   }
 
   if (req.method === 'GET') {

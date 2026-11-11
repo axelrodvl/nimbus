@@ -101,3 +101,42 @@ pub async fn track_ids_with_primary(
     .fetch_all(db)
     .await
 }
+
+pub async fn get(db: impl PgExecutor<'_>, id: i64) -> sqlx::Result<Option<TrackSource>> {
+    sqlx::query_as("SELECT * FROM track_sources WHERE id = $1")
+        .bind(id)
+        .fetch_optional(db)
+        .await
+}
+
+pub async fn find_pair(
+    db: impl PgExecutor<'_>,
+    track_id: i64,
+    torrent_id: i64,
+    file_index: i32,
+) -> sqlx::Result<Option<TrackSource>> {
+    sqlx::query_as(
+        "SELECT * FROM track_sources WHERE track_id = $1 AND torrent_id = $2 AND file_index = $3",
+    )
+    .bind(track_id)
+    .bind(torrent_id)
+    .bind(file_index)
+    .fetch_optional(db)
+    .await
+}
+
+/// Снимает `needs_confirmation`; `None`, если источника нет у этого трека.
+pub async fn confirm(
+    db: impl PgExecutor<'_>,
+    track_id: i64,
+    source_id: i64,
+) -> sqlx::Result<Option<TrackSource>> {
+    sqlx::query_as(
+        "UPDATE track_sources SET needs_confirmation = FALSE
+         WHERE id = $1 AND track_id = $2 RETURNING *",
+    )
+    .bind(source_id)
+    .bind(track_id)
+    .fetch_optional(db)
+    .await
+}

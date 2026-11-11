@@ -1,6 +1,6 @@
 'use client';
 
-import { Pause, Play } from 'lucide-react';
+import { AlertTriangle, Pause, Play } from 'lucide-react';
 import Link from 'next/link';
 import { Cover } from '@/components/ui/cover';
 import { Equalizer } from '@/components/ui/equalizer';
@@ -8,6 +8,7 @@ import { isPlayable, TrackStatusBadge } from '@/features/library/components/trac
 import { toPlayerTrack } from '@/features/library/to-player-track';
 import type { TrackDto } from '@/features/library/to-player-track';
 import { AddToLibraryButton } from '@/features/search/components/add-to-library-button';
+import { TrackMenu } from '@/features/sources/components/track-menu';
 import { cn, formatDuration } from '@/lib/utils';
 import { useTrackStatus } from '@/providers/live-library-provider';
 import { usePlayer } from '@/providers/player-provider';
@@ -91,12 +92,30 @@ export function LibraryTrackRow({ track, queue, showAlbum = true, index, albumMb
           {formatDuration(Math.floor(track.duration_ms / 1000))}
         </span>
       ) : null}
+      {track.in_library && track.needs_confirmation ? (
+        <span
+          title="Источник трека сомнительный: проверьте"
+          aria-label="Проверьте источник"
+          role="img"
+          data-testid="needs-confirmation"
+        >
+          <AlertTriangle className="text-warning h-4 w-4" aria-hidden />
+        </span>
+      ) : null}
       {track.in_library ? (
         <TrackStatusBadge
           trackId={track.id}
           albumId={track.album_id}
           status={track.status}
           reason={track.status_reason ?? null}
+        />
+      ) : null}
+      {track.in_library ? (
+        <TrackMenu
+          trackId={track.id}
+          albumId={track.album_id}
+          title={track.title}
+          notFound={live.status === 'not_found'}
         />
       ) : albumMbid ? (
         <AddToLibraryButton type="track" mbid={track.mbid_recording} albumMbid={albumMbid} className="h-7 w-7" />

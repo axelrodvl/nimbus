@@ -91,3 +91,29 @@ pub async fn files(db: impl PgExecutor<'_>, torrent_id: i64) -> sqlx::Result<Vec
         .fetch_all(db)
         .await
 }
+
+/// Файл раздачи и трек, который на него сопоставлен (primary, затем лучший по `match_score`).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct FileWithMatch {
+    pub file_index: i32,
+    pub path: String,
+    pub size_bytes: i64,
+    pub ext: Option<String>,
+    pub matched_track_id: Option<i64>,
+}
+
+pub async fn files_with_match(
+    db: impl PgExecutor<'_>,
+    torrent_id: i64,
+) -> sqlx::Result<Vec<FileWithMatch>> {
+    sqlx::query_as(
+        "SELECT f.file_index, f.path, f.size_bytes, f.ext,
+                (SELECT ts.track_id FROM track_sources ts
+                  WHERE ts.torrent_id = f.torrent_id AND ts.file_index = f.file_index
+                  ORDER BY ts.is_primary DESC, ts.match_score DESC, ts.id LIMIT 1) AS matched_track_id
+         FROM torrent_files f WHERE f.torrent_id = $1 ORDER BY f.file_index",
+    )
+    .bind(torrent_id)
+    .fetch_all(db)
+    .await
+}

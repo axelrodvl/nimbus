@@ -1,3 +1,4 @@
+import { AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { Cover } from '@/components/ui/cover';
 import { AlbumProgress } from '@/features/library/components/album-progress';
@@ -43,6 +44,20 @@ export async function AlbumPage({ id }: { id: string }) {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <PlayAlbumButton tracks={tracks} />
+            <Link
+              href={`/album/${album.id}/sources`}
+              className="border-divider hover:bg-card dark:border-divider-dark dark:hover:bg-card-dark inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold"
+            >
+              Источники
+            </Link>
+            {tracks.some(t => t.in_library && t.needs_confirmation) ? (
+              <span
+                className="text-warning inline-flex items-center gap-1 text-xs"
+                data-testid="album-needs-confirmation"
+              >
+                <AlertTriangle className="h-4 w-4" aria-hidden /> Некоторые источники нужно проверить
+              </span>
+            ) : null}
             {album.in_library ? (
               <RemoveFromLibraryButton
                 type="album"

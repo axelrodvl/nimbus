@@ -20,6 +20,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/albums/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retry_album"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/albums/{id}/torrents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["album_torrents_list"];
+        put?: never;
+        post: operations["add_magnet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/artists/{id}": {
         parameters: {
             query?: never;
@@ -196,6 +228,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/torrents/{id}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["torrent_files"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tracks/{id}": {
         parameters: {
             query?: never;
@@ -206,6 +254,70 @@ export interface paths {
         get: operations["get_track"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tracks/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retry_track"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tracks/{id}/source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set_source"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tracks/{id}/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["track_sources_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tracks/{id}/sources/{source_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["confirm_source"];
         delete?: never;
         options?: never;
         head?: never;
@@ -249,6 +361,13 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AddMagnetRequest: {
+            magnet: string;
+        };
+        AddMagnetResponse: {
+            queued: boolean;
+            torrent: components["schemas"]["TorrentDto"];
+        };
         /** @enum {string} */
         AddStatus: "added" | "importing" | "exists";
         AddToLibraryRequest: {
@@ -320,6 +439,19 @@ export interface components {
             /** Format: int32 */
             year?: number | null;
         };
+        AlbumTorrentDto: {
+            /** Format: int64 */
+            files_count: number;
+            /**
+             * Format: int64
+             * @description Сколько треков альбома сопоставлено с файлами этой раздачи.
+             */
+            matched_tracks: number;
+            /** Format: float */
+            rank_score: number;
+            torrent: components["schemas"]["TorrentDto"];
+            verified: boolean;
+        };
         ArtistDetailDto: {
             /** @description Альбомы, в которых хоть что-то в библиотеке. */
             albums: components["schemas"]["AlbumDto"][];
@@ -380,6 +512,17 @@ export interface components {
         };
         /** @enum {string} */
         LibraryKind: "artist" | "album" | "track";
+        /** @enum {string} */
+        MetaStatus: "pending" | "fetching" | "ok" | "timeout" | "dead" | "error";
+        RetryResponse: {
+            /** @description Была ли поставлена новая задача (`false` — такая уже в очереди). */
+            queued: boolean;
+            /**
+             * Format: int64
+             * @description Сколько треков переведено в `adding`.
+             */
+            tracks_reset: number;
+        };
         SearchResponse: {
             albums: components["schemas"]["AlbumResult"][];
             artists: components["schemas"]["ArtistResult"][];
@@ -387,6 +530,20 @@ export interface components {
             errors: string[];
             query: string;
             tracks: components["schemas"]["TrackResult"][];
+        };
+        SetSourceRequest: {
+            /** Format: int32 */
+            file_index?: number | null;
+            /**
+             * Format: int64
+             * @description Существующий источник трека.
+             */
+            source_id?: number | null;
+            /**
+             * Format: int64
+             * @description Либо пара «раздача + файл» (источник создаётся с `match_score = 1.0`).
+             */
+            torrent_id?: number | null;
         };
         StatusCounts: {
             /** Format: int64 */
@@ -398,6 +555,35 @@ export interface components {
             /** Format: int64 */
             ready: number;
         };
+        TorrentDto: {
+            /** Format: int64 */
+            id: number;
+            info_hash: string;
+            kind: components["schemas"]["TorrentKind"];
+            /** Format: int32 */
+            leechers?: number | null;
+            meta_status: components["schemas"]["MetaStatus"];
+            /** Format: int32 */
+            seeders?: number | null;
+            /** Format: int64 */
+            size_bytes?: number | null;
+            source: components["schemas"]["TorrentSource"];
+            title: string;
+        };
+        TorrentFileDto: {
+            ext?: string | null;
+            /** Format: int32 */
+            file_index: number;
+            /** Format: int64 */
+            matched_track_id?: number | null;
+            path: string;
+            /** Format: int64 */
+            size_bytes: number;
+        };
+        /** @enum {string} */
+        TorrentKind: "album" | "discography" | "single" | "unknown";
+        /** @enum {string} */
+        TorrentSource: "tpb" | "rutracker" | "torznab" | "manual";
         TrackDto: {
             /** Format: int64 */
             album_id: number;
@@ -415,6 +601,8 @@ export interface components {
             in_library: boolean;
             /** Format: uuid */
             mbid_recording: string;
+            /** @description Primary-источник трека сомнительный: его стоит проверить или подтвердить. */
+            needs_confirmation: boolean;
             /** Format: int32 */
             position: number;
             status: components["schemas"]["TrackStatus"];
@@ -443,6 +631,20 @@ export interface components {
             score: number;
             status?: null | components["schemas"]["TrackStatus"];
             title: string;
+        };
+        TrackSourceDto: {
+            /** Format: int32 */
+            file_index: number;
+            /** Format: int64 */
+            id: number;
+            is_primary: boolean;
+            /** Format: float */
+            match_score: number;
+            needs_confirmation: boolean;
+            path: string;
+            /** Format: int64 */
+            size_bytes: number;
+            torrent: components["schemas"]["TorrentDto"];
         };
         /** @enum {string} */
         TrackStatus: "adding" | "found" | "not_found" | "ready";
@@ -474,6 +676,115 @@ export interface operations {
                     "application/json": components["schemas"]["AlbumDetailDto"];
                 };
             };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    retry_album: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID альбома */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Треки `not_found` → `adding`, поиск запущен заново */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetryResponse"];
+                };
+            };
+            /** @description Нет такого альбома */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    album_torrents_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID альбома */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Раздачи альбома по убыванию ранга */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlbumTorrentDto"][];
+                };
+            };
+            /** @description Нет такого альбома */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    add_magnet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID альбома */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddMagnetRequest"];
+            };
+        };
+        responses: {
+            /** @description Раздача добавлена, проверка поставлена в очередь */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddMagnetResponse"];
+                };
+            };
+            /** @description Некорректный magnet (`invalid_magnet`) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Нет такого альбома */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -872,6 +1183,38 @@ export interface operations {
             };
         };
     };
+    torrent_files: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID раздачи */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Файлы раздачи (пусто, пока метаданные не получены) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TorrentFileDto"][];
+                };
+            };
+            /** @description Нет такой раздачи */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_track: {
         parameters: {
             query?: never;
@@ -891,6 +1234,158 @@ export interface operations {
                     "application/json": components["schemas"]["TrackDto"];
                 };
             };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    retry_track: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID трека */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Трек → `adding`, поиск раздач поставлен в очередь */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetryResponse"];
+                };
+            };
+            /** @description Нет такого трека */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Трек уже `ready` (`track_ready`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_source: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID трека */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetSourceRequest"];
+            };
+        };
+        responses: {
+            /** @description Новый primary-источник */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackSourceDto"];
+                };
+            };
+            /** @description Нужен либо `source_id`, либо `torrent_id` + `file_index` */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Нет трека, источника или файла */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    track_sources_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID трека */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Источники трека: primary первым, затем по `match_score` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackSourceDto"][];
+                };
+            };
+            /** @description Нет такого трека */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    confirm_source: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID трека */
+                id: number;
+                /** @description ID источника */
+                source_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Источник подтверждён */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackSourceDto"];
+                };
+            };
+            /** @description Нет такого источника у трека */
             404: {
                 headers: {
                     [name: string]: unknown;

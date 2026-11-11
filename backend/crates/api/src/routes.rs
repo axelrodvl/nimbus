@@ -1,6 +1,6 @@
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use nimbus_db::repo::jobs;
 use serde::{Deserialize, Serialize};
@@ -12,6 +12,7 @@ use crate::error::ApiError;
 use crate::library;
 use crate::openapi::openapi;
 use crate::search::search;
+use crate::sources;
 use crate::state::AppState;
 use crate::ws::ws_handler;
 
@@ -29,6 +30,19 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
         .route("/albums/{id}", get(library::get_album))
         .route("/tracks/{id}", get(library::get_track))
         .route("/tracks/{id}/stream", get(crate::stream::stream_track))
+        .route(
+            "/albums/{id}/torrents",
+            get(sources::album_torrents_list).post(sources::add_magnet),
+        )
+        .route("/albums/{id}/retry", post(sources::retry_album))
+        .route("/torrents/{id}/files", get(sources::torrent_files))
+        .route("/tracks/{id}/sources", get(sources::track_sources_list))
+        .route("/tracks/{id}/source", put(sources::set_source))
+        .route(
+            "/tracks/{id}/sources/{source_id}/confirm",
+            post(sources::confirm_source),
+        )
+        .route("/tracks/{id}/retry", post(sources::retry_track))
         .route("/ws", get(ws_handler));
     if cfg!(debug_assertions) || state.config.debug {
         r = r
