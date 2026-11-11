@@ -18,7 +18,13 @@ psql:
     docker compose exec db psql -U nimbus nimbus
 
 backend:
-    @echo "not yet"
+    cd backend && cargo run -p nimbus-api --bin nimbus
+
+backend-test:
+    cd backend && cargo test --workspace
+
+backend-check:
+    cd backend && cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings
 
 web:
     cd web && pnpm dev
@@ -29,8 +35,6 @@ web-build:
 web-check:
     cd web && pnpm lint && pnpm exec tsc --noEmit
 
-test:
-    @echo "not yet"
+test: backend-test
 
-check:
-    @echo "not yet"
+check: backend-check web-check

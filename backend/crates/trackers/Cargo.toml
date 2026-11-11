@@ -1,0 +1,6 @@
+[package]
+name = "nimbus-trackers"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

@@ -18,7 +18,10 @@
 ```sh
 cp .env.example .env
 just db-up
+just backend   # http://localhost:8080/api/health
 ```
+
+Если порты 5432/8080 заняты, поменяйте `POSTGRES_PORT`, `DATABASE_URL`, `NIMBUS_BIND` в `.env`.
 
 ## Без Docker
 

@@ -42,7 +42,7 @@
 |---|---|---|---|
 | 01 | [x] | [Монорепо и инфраструктура](docs/plan/01-monorepo-infra.md) | — |
 | 02 | [x] | [Импорт next-beats и инвентаризация](docs/plan/02-import-next-beats.md) | 01 |
-| 03 | [ ] | [Каркас Rust-бэкенда](docs/plan/03-backend-skeleton.md) | 01 |
+| 03 | [x] | [Каркас Rust-бэкенда](docs/plan/03-backend-skeleton.md) | 01 |
 | 04 | [ ] | [Схема БД, доменные модели, репозитории](docs/plan/04-db-schema.md) | 03 |
 | 05 | [ ] | [Очередь задач, шина событий, WebSocket](docs/plan/05-jobs-events-ws.md) | 04 |
 | 06 | [ ] | [Клиент MusicBrainz](docs/plan/06-musicbrainz-client.md) | 04 |
@@ -172,6 +172,11 @@ Web — порт `3000`, backend — `8080`, Postgres — `5432`.
 - Отклонения: ...
 - Важно для следующих шагов: ...
 -->
+
+### 2026-11-11 — шаг 03
+- Сделано: Rust-workspace `backend/` (крейты core, db, musicbrainz, trackers, matcher, torrent, worker, api; пакеты называются `nimbus-<имя>`, бинарник `nimbus` в `nimbus-api`), `Config::from_env` (ручной разбор, пустая строка = None), `db::connect/migrate/MIGRATOR` (`migrations/0001_init.sql` = `SELECT 1;`), `AppState`, роутер `/api` с TraceLayer и CORS, `GET /api/health`, `ApiError`, graceful shutdown, Dockerfile, рецепты `justfile` (backend, backend-test, backend-check, test, check). Тесты: 4 unit (конфиг) + 2 интеграционных (`#[sqlx::test]`: health, CORS). `cargo fmt`/`clippy -D warnings` чисто, `docker build backend` собирается, `curl /api/health` → `{"db":true,"status":"ok","version":"0.1.0"}`.
+- Отклонения: установлены Rust (rustup, stable 1.99) и `just` 1.59 (`cargo install`) — в окружении их не было. Значение `NIMBUS_MB_USER_AGENT` в `.env.example` теперь в кавычках (иначе `just`/dotenv не парсят файл). Локальный `.env` использует `NIMBUS_BIND=0.0.0.0:8081` (8080 занят чужим контейнером) и порт БД 5433; в `.env.example` дефолты прежние. Тесты на этой машине: `DATABASE_URL` берётся из `.env` через `just test`.
+- Важно для следующих шагов: `cargo` нужно подключать через `. ~/.cargo/env` (новая оболочка). `.env` нельзя `source`-ить — только через `just`/dotenvy. `#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]` — шаблон для интеграционных тестов с БД. Шаг 04 заменит/дополнит `migrations/0001_init.sql`. Крейты musicbrainz/trackers/matcher/torrent/worker пока пустые (зависимости добавлять по мере надобности).
 
 ### 2026-11-11 — шаг 02
 - Сделано: исходники next-beats (без `.github/`) в `web/`, LICENSE сохранён, в `web/README.md` добавлена строка о форке; `pnpm install`, `db push` + seed во временной БД `nextbeats_tmp`, `pnpm build`, `pnpm lint`, `tsc --noEmit` — проходят; dev: `/login` 200, остальные страницы 200 с cookie `beats-user=e2e`; `docs/web-inventory.md`; в `justfile` рецепты `web`, `web-build`, `web-check`.
