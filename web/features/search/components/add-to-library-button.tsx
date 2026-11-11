@@ -10,12 +10,14 @@ type Props = {
   type: 'artist' | 'album' | 'track';
   mbid: string;
   albumMbid?: string | null;
+  /** Текстовая подпись (кнопка становится «таблеткой»). */
+  label?: string;
   className?: string;
   // Для палитры: кнопка не должна забирать фокус с поля ввода.
   tabIndex?: number;
 };
 
-export function AddToLibraryButton({ type, mbid, albumMbid, className, tabIndex }: Props) {
+export function AddToLibraryButton({ type, mbid, albumMbid, label: text, className, tabIndex }: Props) {
   const [added, setAdded] = useState(false);
   const [optimisticAdded, setOptimisticAdded] = useOptimistic(added);
   const [pending, startTransition] = useTransition();
@@ -32,7 +34,7 @@ export function AddToLibraryButton({ type, mbid, albumMbid, className, tabIndex 
     });
   }
 
-  const label = optimisticAdded ? 'Добавлено в библиотеку' : 'Добавить в библиотеку';
+  const label = optimisticAdded ? 'Добавлено в библиотеку' : (text ?? 'Добавить в библиотеку');
   return (
     <button
       type="button"
@@ -42,7 +44,8 @@ export function AddToLibraryButton({ type, mbid, albumMbid, className, tabIndex 
       title={label}
       disabled={pending}
       className={cn(
-        'border-divider dark:border-divider-dark text-gray inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors',
+        'border-divider dark:border-divider-dark text-gray inline-flex h-8 shrink-0 items-center justify-center rounded-full border transition-colors',
+        text ? 'px-3' : 'w-8',
         'hover:border-black hover:text-black disabled:cursor-wait dark:hover:border-white dark:hover:text-white',
         optimisticAdded && 'border-accent text-accent',
         className,
@@ -55,6 +58,7 @@ export function AddToLibraryButton({ type, mbid, albumMbid, className, tabIndex 
       ) : (
         <Plus className="h-4 w-4" />
       )}
+      {text ? <span className="px-0.5 text-sm font-semibold">{optimisticAdded ? 'Добавлено' : text}</span> : null}
     </button>
   );
 }

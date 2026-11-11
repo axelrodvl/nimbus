@@ -287,6 +287,11 @@ async fn openapi_endpoint_and_cli(pool: PgPool) {
     }
     assert!(v["components"]["schemas"]["SearchResponse"].is_object());
     assert!(v["components"]["schemas"]["TrackStatus"].is_object());
+    // значения enum в спецификации совпадают с теми, что реально идут по сети
+    assert_eq!(
+        v["components"]["schemas"]["TrackStatus"]["enum"],
+        serde_json::json!(["adding", "found", "not_found", "ready"])
+    );
 
     // --print-openapi работает без БД и окружения
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_nimbus"))

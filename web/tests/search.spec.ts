@@ -90,14 +90,15 @@ test('ошибка бэкенда: сообщение и «Повторить»'
   await expect(page.getByRole('button', { name: 'Повторить' })).toBeVisible();
 });
 
-test('кнопка «Добавить» пока показывает toast «Скоро будет»', async ({ page }) => {
+test('кнопка «Добавить» добавляет альбом: toast и галочка', async ({ page }) => {
   await mockSearch(page);
   await page.goto('/search?q=radiohead');
   await page
     .locator('section[aria-labelledby="search-albums"]')
     .getByRole('button', { name: 'Добавить в библиотеку' })
     .click();
-  await expect(page.getByText('Скоро будет')).toBeVisible();
+  // состояние мока общее для тестов: альбом мог быть добавлен ранее
+  await expect(page.getByText(/Добавлено в библиотеку|Уже в библиотеке/).first()).toBeVisible();
 });
 
 test('палитра ⌘K: открытие, стрелки, Enter, Esc', async ({ page }) => {
@@ -160,8 +161,8 @@ test('палитра: «Показать все результаты» и Shift+
   await dialog.getByRole('combobox').fill('radiohead');
   await expect(dialog.getByRole('option').first()).toBeVisible();
 
-  await dialog.getByRole('combobox').press('Shift+Enter');
-  await expect(page.getByText('Скоро будет')).toBeVisible();
+  await dialog.getByRole('combobox').press('Shift+Enter'); // первый — артист: импорт дискографии
+  await expect(page.getByText('Импортируем дискографию…')).toBeVisible();
   await expect(dialog).toBeVisible(); // палитра не закрывается
 
   await dialog.getByRole('button', { name: 'Показать все результаты' }).click();

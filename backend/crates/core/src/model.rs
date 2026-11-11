@@ -15,7 +15,7 @@ pub struct ParseEnumError {
 macro_rules! text_enum {
     ($(#[$meta:meta])* $name:ident { $($variant:ident => $s:literal),+ $(,)? }) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
         pub enum $name {
             $(#[serde(rename = $s)] $variant),+
         }
@@ -23,6 +23,23 @@ macro_rules! text_enum {
         impl $name {
             pub fn as_str(&self) -> &'static str {
                 match self { $(Self::$variant => $s),+ }
+            }
+        }
+
+        // Схема OpenAPI пишется вручную: derive `ToSchema` не видит `serde(rename)` из макроса,
+        // и в спецификацию попадали бы имена вариантов (`Adding`) вместо значений на проводе (`adding`).
+        impl utoipa::PartialSchema for $name {
+            fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+                utoipa::openapi::schema::ObjectBuilder::new()
+                    .schema_type(utoipa::openapi::schema::SchemaType::Type(utoipa::openapi::schema::Type::String))
+                    .enum_values(Some([$($s),+]))
+                    .into()
+            }
+        }
+
+        impl utoipa::ToSchema for $name {
+            fn name() -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed(stringify!($name))
             }
         }
 

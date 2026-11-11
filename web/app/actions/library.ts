@@ -1,12 +1,80 @@
 'use server';
 
+import { updateTag } from 'next/cache';
+import { api } from '@/lib/api/client';
+import { ApiError, unwrap, unwrapEmpty } from '@/lib/api/errors';
+
 export type AddToLibraryInput =
   | { type: 'artist'; mbid: string }
   | { type: 'album'; mbid: string }
   | { type: 'track'; mbid: string; album_mbid?: string | null };
 
-// ЗАГЛУШКА: реальное добавление подключит шаг 11 (после бэкенд-эндпоинта шага 10).
-export async function addToLibrary(input: AddToLibraryInput): Promise<void> {
-  void input;
-  throw new Error('not implemented');
+export type LibraryType = 'artist' | 'album' | 'track';
+
+export type ActionResult<T = object> = ({ ok: true } & T) | { ok: false; code: string; message: string };
+
+export type AddResult = ActionResult<{ type: LibraryType; id: number; status: 'added' | 'importing' | 'exists' }>;
+
+const MESSAGES: Record<string, string> = {
+  backend_unavailable: 'Бэкенд недоступен, попробуйте позже',
+  mb_not_found: 'Не найдено в MusicBrainz',
+  mb_unavailable: 'MusicBrainz недоступен, попробуйте позже',
+  recording_not_in_release: 'Этого трека нет в треклисте альбома',
+};
+
+function failure(e: unknown): { ok: false; code: string; message: string } {
+  if (e instanceof ApiError) return { code: e.code, message: MESSAGES[e.code] ?? e.message, ok: false };
+  return { code: 'backend_unavailable', message: MESSAGES.backend_unavailable, ok: false };
+}
+
+const TAG_PATTERN = /^(library|(artist|album|track):\d+)$/;
+
+// Инвалидирует теги кэша данных библиотеки (вызывается и после мутаций, и из LiveLibrarySync).
+export async function revalidateLibrary(tags: string[]): Promise<void> {
+  for (const tag of new Set(tags)) {
+    if (TAG_PATTERN.test(tag)) updateTag(tag);
+  }
+}
+
+export async function addToLibrary(input: AddToLibraryInput): Promise<AddResult> {
+  try {
+    const body =
+      input.type === 'track'
+        ? { album_mbid: input.album_mbid ?? null, mbid: input.mbid, type: 'track' as const }
+        : { mbid: input.mbid, type: input.type };
+    const data = unwrap(await api.POST('/api/library', { body }));
+    updateTag('library');
+    if (data.type === 'artist' || data.type === 'album') updateTag(`${data.type}:${data.id}`);
+    return { id: data.id, ok: true, status: data.status, type: data.type };
+  } catch (e) {
+    return failure(e);
+  }
+}
+
+export async function removeFromLibrary(type: LibraryType, id: number): Promise<ActionResult> {
+  try {
+    unwrapEmpty(await api.DELETE('/api/library/{type}/{id}', { params: { path: { id, type } } }));
+    updateTag('library');
+    updateTag(`${type}:${id}`);
+    return { ok: true };
+  } catch (e) {
+    return failure(e);
+  }
+}
+
+// Страницы для кнопок «Показать ещё» (без кэша: курсоры уникальны).
+export async function loadMoreArtists(cursor: string) {
+  return unwrap(await api.GET('/api/library/artists', { params: { query: { cursor, limit: 50 } } }));
+}
+
+export async function loadMoreAlbums(cursor: string) {
+  return unwrap(await api.GET('/api/library/albums', { params: { query: { cursor, limit: 50 } } }));
+}
+
+export async function loadMoreTracks(statuses: string, cursor: string) {
+  return unwrap(
+    await api.GET('/api/library/tracks', {
+      params: { query: { cursor, limit: 100, status: statuses || undefined } },
+    }),
+  );
 }

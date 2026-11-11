@@ -160,17 +160,20 @@ pub async fn albums_for_artist(
 
 pub async fn list_tracks(
     db: impl PgExecutor<'_>,
-    status: Option<TrackStatus>,
+    statuses: &[TrackStatus],
     cursor: Option<Cursor>,
     limit: i64,
 ) -> sqlx::Result<Vec<TrackView>> {
     let (at, id) = split(cursor);
+    // Пустой список — без фильтра по статусу.
+    let statuses: Option<Vec<&str>> =
+        (!statuses.is_empty()).then(|| statuses.iter().map(|s| s.as_str()).collect());
     sqlx::query_as(&format!(
-        "{TRACK_SELECT} WHERE t.in_library AND ($1::text IS NULL OR t.status = $1)
+        "{TRACK_SELECT} WHERE t.in_library AND ($1::text[] IS NULL OR t.status = ANY($1))
            AND ($2::timestamptz IS NULL OR (t.added_at, t.id) < ($2, $3))
          ORDER BY t.added_at DESC, t.id DESC LIMIT $4"
     ))
-    .bind(status)
+    .bind(statuses)
     .bind(at)
     .bind(id)
     .bind(limit)

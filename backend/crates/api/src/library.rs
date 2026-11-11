@@ -416,7 +416,7 @@ pub async fn list_albums(
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct TrackPageParams {
-    /// Фильтр по статусу: adding, found, not_found, ready.
+    /// Фильтр по статусам через запятую: adding, found, not_found, ready (например `found,ready`).
     status: Option<String>,
     cursor: Option<String>,
     limit: Option<i64>,
@@ -435,16 +435,26 @@ pub async fn list_tracks(
 ) -> Result<Json<TrackPage>, ApiError> {
     let limit = page_limit(p.limit, DEFAULT_TRACK_PAGE)?;
     let cursor = decode_cursor(p.cursor.as_deref())?;
-    let status = match p.status.as_deref().filter(|s| !s.is_empty()) {
-        None => None,
-        Some(s) => Some(s.parse::<TrackStatus>().map_err(|_| {
-            ApiError::bad_request(
-                "bad_status",
-                "status must be adding, found, not_found or ready",
-            )
-        })?),
-    };
-    let rows = views::list_tracks(&state.db, status, cursor, limit + 1).await?;
+    let statuses = p
+        .status
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            s.split(',')
+                .map(|part| {
+                    part.trim().parse::<TrackStatus>().map_err(|_| {
+                        ApiError::bad_request(
+                            "bad_status",
+                            "status must be a comma-separated list of adding, found, not_found, ready",
+                        )
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let rows = views::list_tracks(&state.db, &statuses, cursor, limit + 1).await?;
     let (items, next_cursor) = paginate(
         rows,
         limit,

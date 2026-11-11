@@ -349,7 +349,7 @@
           {
             "name": "status",
             "in": "query",
-            "description": "Фильтр по статусу: adding, found, not_found, ready.",
+            "description": "Фильтр по статусам через запятую: adding, found, not_found, ready (например `found,ready`).",
             "required": false,
             "schema": {
               "type": "string"
@@ -1211,12 +1211,11 @@
       },
       "TrackStatus": {
         "type": "string",
-        "description": "Статус трека (жизненный цикл см. PLAN.md).",
         "enum": [
-          "Adding",
-          "Found",
-          "NotFound",
-          "Ready"
+          "adding",
+          "found",
+          "not_found",
+          "ready"
         ]
       }
     }

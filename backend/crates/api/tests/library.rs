@@ -735,6 +735,17 @@ async fn track_list_status_filter(pool: PgPool) {
     let (_, v) = get_json(router.clone(), "/api/library/tracks?status=found").await;
     assert_eq!(v["items"].as_array().unwrap().len(), 1);
     assert_eq!(v["items"][0]["title"], "Paranoid Android");
+    // несколько статусов через запятую
+    let (_, v) = get_json(router.clone(), "/api/library/tracks?status=found,ready").await;
+    assert_eq!(v["items"].as_array().unwrap().len(), 1);
+    let (_, v) = get_json(router.clone(), "/api/library/tracks?status=found,%20adding").await;
+    assert_eq!(v["items"].as_array().unwrap().len(), 4);
+    assert_eq!(
+        get_json(router.clone(), "/api/library/tracks?status=found,bogus")
+            .await
+            .0,
+        400
+    );
     let (_, v) = get_json(router, "/api/library/tracks?status=adding&limit=2").await;
     assert_eq!(v["items"].as_array().unwrap().len(), 2);
     assert!(v["next_cursor"].is_string());

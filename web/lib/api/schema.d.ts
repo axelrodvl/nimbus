@@ -393,11 +393,8 @@ export interface components {
             status?: null | components["schemas"]["TrackStatus"];
             title: string;
         };
-        /**
-         * @description Статус трека (жизненный цикл см. PLAN.md).
-         * @enum {string}
-         */
-        TrackStatus: "Adding" | "Found" | "NotFound" | "Ready";
+        /** @enum {string} */
+        TrackStatus: "adding" | "found" | "not_found" | "ready";
     };
     responses: never;
     parameters: never;
@@ -653,7 +650,7 @@ export interface operations {
     list_tracks: {
         parameters: {
             query?: {
-                /** @description Фильтр по статусу: adding, found, not_found, ready. */
+                /** @description Фильтр по статусам через запятую: adding, found, not_found, ready (например `found,ready`). */
                 status?: string;
                 cursor?: string;
                 limit?: number;

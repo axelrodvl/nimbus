@@ -3,7 +3,6 @@ import { expect, test } from '@playwright/test';
 test('главная открывается, навигация видна', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
-  await expect(page.getByText('Библиотека пуста')).toBeVisible();
   const nav = page.getByRole('link', { name: 'Library' }).first();
   await expect(nav).toBeVisible();
 });

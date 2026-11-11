@@ -30,3 +30,11 @@ export function unwrap<T>(res: Result<T>): T {
   if (isErrorBody(res.error)) throw new ApiError(status, res.error.error.code, res.error.error.message);
   throw new ApiError(status, 'unknown', res.response.statusText || `HTTP ${status}`);
 }
+
+// Для ответов без тела (204): бросает ApiError, если запрос не удался.
+export function unwrapEmpty(res: Result<unknown>): void {
+  if (res.response.ok && res.error === undefined) return;
+  const { status } = res.response;
+  if (isErrorBody(res.error)) throw new ApiError(status, res.error.error.code, res.error.error.message);
+  throw new ApiError(status, 'unknown', res.response.statusText || `HTTP ${status}`);
+}

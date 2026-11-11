@@ -64,7 +64,19 @@ export function LiveEventsProvider({ children }: { children: React.ReactNode }) 
     return () => {
       stopped = true;
       clearTimeout(timer);
-      socket?.close();
+      if (socket) {
+        socket.onmessage = null;
+        socket.onclose = null;
+        socket.onerror = null;
+        // Закрытие во время подключения даёт предупреждение браузера (двойной монтаж в dev):
+        // дожидаемся открытия и закрываем.
+        if (socket.readyState === WebSocket.CONNECTING) {
+          const pending = socket;
+          pending.onopen = () => pending.close();
+        } else {
+          socket.close();
+        }
+      }
     };
   }, []);
 

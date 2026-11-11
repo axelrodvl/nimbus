@@ -1,15 +1,21 @@
+import { AnimatedSuspense } from '@/components/ui/animated-suspense';
 import { PageWrapper } from '@/components/ui/page-layout';
-import { EmptyLibrary } from '@/features/library/components/empty-library';
+import { AlbumGridSkeleton } from '@/features/library/components/library-cards';
+import { LibraryContent, parseStatusFilter, parseTab } from '@/features/library/components/library-content';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Library',
 };
 
-export default function LibraryPage() {
+export default function LibraryPage({ searchParams }: PageProps<'/library'>) {
   return (
     <PageWrapper title="Library">
-      <EmptyLibrary />
+      <AnimatedSuspense fallback={<AlbumGridSkeleton />}>
+        {searchParams.then(sp => (
+          <LibraryContent tab={parseTab(sp.tab)} status={parseStatusFilter(sp.status)} />
+        ))}
+      </AnimatedSuspense>
     </PageWrapper>
   );
 }

@@ -10,6 +10,8 @@ type Props = {
   alt: string;
   size?: 'sm' | 'md' | 'lg';
   className?: string;
+  // Обложка в первом экране (LCP): грузить сразу, а не лениво.
+  priority?: boolean;
   // Что показывать, если обложки нет или она не загрузилась (по умолчанию — градиент с иконкой диска).
   fallback?: React.ReactNode;
 };
@@ -22,7 +24,7 @@ const sizeMap = {
 
 // Обложка из Cover Art Archive. Домен редиректит на archive.org, поэтому `unoptimized`:
 // браузер сам следует редиректам, а не наш сервер.
-export function Cover({ src, alt, size = 'md', className, fallback }: Props) {
+export function Cover({ src, alt, size = 'md', className, priority, fallback }: Props) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const showImage = Boolean(src) && failedSrc !== src;
 
@@ -41,6 +43,7 @@ export function Cover({ src, alt, size = 'md', className, fallback }: Props) {
           fill
           sizes={size === 'lg' ? '96px' : '56px'}
           unoptimized
+          priority={priority}
           className="object-cover"
           onError={() => setFailedSrc(src ?? null)}
         />

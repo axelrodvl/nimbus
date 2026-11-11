@@ -2,6 +2,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3002';
 const { port } = new URL(baseURL);
+const mockPort = Number(process.env.MOCK_BACKEND_PORT ?? 4010);
+const mockUrl = `http://localhost:${mockPort}`;
 
 export default defineConfig({
   forbidOnly: !!process.env.CI,
@@ -23,11 +25,22 @@ export default defineConfig({
     baseURL,
     trace: 'on-first-retry',
   },
-  webServer: {
-    command: `pnpm dev --port ${port}`,
-    reuseExistingServer: true,
-    stdout: 'pipe',
-    url: baseURL,
-  },
+  // Мок бэкенда (серверные компоненты ходят на BACKEND_URL с сервера, page.route их не видит)
+  // и dev-сервер Next, направленный на него.
+  webServer: [
+    {
+      command: 'node tests/mock-backend.mjs',
+      env: { MOCK_BACKEND_PORT: String(mockPort) },
+      reuseExistingServer: true,
+      url: `${mockUrl}/api/health`,
+    },
+    {
+      command: `pnpm dev --port ${port}`,
+      env: { BACKEND_URL: mockUrl, NEXT_PUBLIC_BACKEND_URL: mockUrl },
+      reuseExistingServer: true,
+      stdout: 'pipe',
+      url: baseURL,
+    },
+  ],
   workers: process.env.CI ? 1 : undefined,
 });
