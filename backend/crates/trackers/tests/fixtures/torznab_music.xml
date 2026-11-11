@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+  <channel>
+    <title>Jackett</title>
+    <item>
+      <title>Radiohead - OK Computer (1997) [FLAC]</title>
+      <guid>https://tracker.example/details/42</guid>
+      <link>https://jackett.local/dl/tracker/?file=OK+Computer</link>
+      <size>512345678</size>
+      <enclosure url="https://jackett.local/dl/tracker/?file=OK+Computer" length="512345678" type="application/x-bittorrent"/>
+      <torznab:attr name="category" value="3040"/>
+      <torznab:attr name="seeders" value="20"/>
+      <torznab:attr name="peers" value="25"/>
+      <torznab:attr name="infohash" value="ABCDEF0123456789ABCDEF0123456789ABCDEF01"/>
+      <torznab:attr name="files" value="14"/>
+    </item>
+    <item>
+      <title>Radiohead - Kid A [MP3]</title>
+      <guid>kid-a-guid</guid>
+      <link>magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&amp;dn=Kid+A</link>
+      <size>100</size>
+      <torznab:attr name="seeders" value="5"/>
+      <torznab:attr name="peers" value="4"/>
+    </item>
+    <item>
+      <title>Radiohead - Amnesiac (torrent only)</title>
+      <guid>amnesiac-guid</guid>
+      <link>__DL__</link>
+      <enclosure url="__DL__" length="1" type="application/x-bittorrent"/>
+      <torznab:attr name="seeders" value="1"/>
+    </item>
+  </channel>
+</rss>

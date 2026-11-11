@@ -4,3 +4,20 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+nimbus-core.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+futures.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+quick-xml = { version = "0.42.0", features = ["serialize"] }
+sha1 = "0.11.0"
+percent-encoding = "2.3.2"
+governor = "0.10.4"
+
+[dev-dependencies]
+wiremock.workspace = true
+sha1 = "0.11.0"

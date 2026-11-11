@@ -51,7 +51,7 @@
 | 09 | [x] | [Фронтенд: поиск](docs/plan/09-web-search-ui.md) | 08 |
 | 10 | [x] | [Бэкенд: добавление в библиотеку и API библиотеки](docs/plan/10-library-backend.md) | 05, 07 |
 | 11 | [x] | [Фронтенд: библиотека, статусы, live-события](docs/plan/11-web-library-ui.md) | 09, 10 |
-| 12 | [ ] | [Провайдеры торрентов: trait, TPB, Torznab](docs/plan/12-providers-tpb-torznab.md) | 04 |
+| 12 | [x] | [Провайдеры торрентов: trait, TPB, Torznab](docs/plan/12-providers-tpb-torznab.md) | 04 |
 | 13 | [ ] | [Провайдер RuTracker](docs/plan/13-provider-rutracker.md) | 12 |
 | 14 | [ ] | [Задача поиска раздач (discover)](docs/plan/14-discover-job.md) | 10, 12 |
 | 15 | [ ] | [Торрент-движок: обёртка над librqbit](docs/plan/15-torrent-engine.md) | 03 |
@@ -172,6 +172,11 @@ Web — порт `3000`, backend — `8080`, Postgres — `5432`.
 - Отклонения: ...
 - Важно для следующих шагов: ...
 -->
+
+### 2026-11-11 — шаг 12
+- Сделано: крейт `nimbus-trackers`: `TorrentProvider` (`search`, `resolve`), `SearchQuery`, `TorrentCandidate`, `ProviderError`; `build_magnet` + `PUBLIC_TRACKERS`; `TpbProvider` (apibay, строки-числа, «No results returned» → пусто, категории только 100–199, настраиваемый base URL); `TorznabProvider` (`t=music` → fallback `t=search&cat=3000`, `<torznab:attr>`, `leechers = peers - seeders`, `<error>` → `Auth`; `resolve` скачивает `.torrent` и считает info-hash — собственный разбор bencode + `sha1`); `ProviderRegistry::from_config` / `search_all` (параллельно, таймаут 20 с, сбой/таймаут одного не мешает остальным); `build_queries` (4 варианта, скобки убираются, `&`→`and` во второй). Лимитер `governor` 1 запрос / 2 с на провайдера. Тесты: 6 unit + 12 интеграционных (wiremock, фикстуры в `tests/fixtures/`, реальный ответ apibay `tpb_real.json` записан 2026-11-11) + живой `#[ignore]` — прошёл (`cargo test -p nimbus-trackers -- --ignored`).
+- Отклонения: в `TorrentCandidate` добавлено `download_url: Option<String>` (ссылка на `.torrent` для `resolve`); в `SearchQuery` — `broad: bool` (запрос «только артист», для провайдеров с хорошим поиском; последний в `build_queries`); в `ProviderError` — вариант `Timeout`. Пакет называется `nimbus-trackers` (`-p nimbus-trackers`). `.torrent`-кандидаты Torznab не пропускаются — резолвятся через `resolve`.
+- Важно для следующих шагов: шаг 13 регистрирует RuTracker в `ProviderRegistry::from_config` (там есть комментарий-заглушка в doc). Шаг 14: вызывать `search_all` для каждого `build_queries(..)` (запрос с `broad=true` слать осознанно), затем `resolve` для кандидатов без `info_hash` через `registry.get(source)`; дедуп по `info_hash`. Лимитер лежит внутри провайдера, поэтому `Arc`-провайдеры нужно переиспользовать, а не создавать на каждый запрос. quick-xml сопоставляет элементы по локальному имени (`torznab:attr` → `attr`).
 
 ### 2026-11-11 — шаг 11
 - Сделано (web): Server Functions в `app/actions/library.ts` (`addToLibrary`, `removeFromLibrary` возвращают `{ok,…}`/`{ok:false,code,message}` с понятными текстами, `revalidateLibrary(tags)`, `loadMore*`), `lib/data/library.ts` (`'use cache'` + теги `library`/`artist:{id}`/`album:{id}`, `cacheLife` 5/10/300 с, `connection()` — данные не пререндерятся, сборка не требует бэкенда); маршруты `/library` (вкладки Артисты·Альбомы·Треки через `?tab=`, чипы статусов `?status=all|playable|adding|not_found`, «Показать ещё» по `next_cursor`), `/artist/[id]`, `/album/[id]` (шапка, сводка статусов, прогресс, приглушённые треки вне библиотеки с «+», «Добавить весь альбом», удаление с подтверждением), главная («Недавно добавленные» 12 альбомов, «Готово к прослушиванию», CTA «Найдите музыку» с ⌘K), `not-found` для артиста/альбома, `error.tsx` с понятным сообщением; `TrackStatusBadge` (иконки + tooltip из таблицы плана, прогресс «Проверяем раздачи 3/7»), `LibraryTrackRow` (Play активен только для `found`/`ready`); `LiveLibrarySync` (`providers/live-library-provider.tsx`: store `trackStatus`/`albumProgress`, debounce `router.refresh()` + `revalidateLibrary` — 2 с для `track.status`, 1 с для `library.changed`/`resync`). Кнопка «Добавить» в поиске теперь настоящая (toast «Импортируем дискографию…» для артиста, `clearSearchCache()` после успеха).
