@@ -1,6 +1,7 @@
 import { GeistMono } from 'geist/font/mono';
 import { GeistSans } from 'geist/font/sans';
 import { OfflineIndicator } from '@/components/offline-indicator';
+import { IosViewportHeal } from '@/components/scripts/ios-viewport-heal';
 import { ThemeProvider } from '@/components/theme/theme-provider';
 import { Toaster } from '@/components/toaster';
 import { getLocale, getMessages, getT } from '@/lib/i18n/server';
@@ -22,6 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
     appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'Nimbus' },
     description: t('app.description'),
     icons: { apple: '/icons/apple-touch-icon.png' },
+    other: { 'apple-mobile-web-app-capable': 'yes' },
     title: {
       default: 'Nimbus',
       template: '%s · Nimbus',
@@ -40,6 +42,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body className="bg-surface dark:bg-surface-dark flex h-[100dvh] flex-col text-black antialiased dark:text-white">
         <I18nProvider locale={locale} messages={messages}>
           <ThemeProvider>
+            <IosViewportHeal />
             <OfflineIndicator />
             {children}
             <Toaster />
