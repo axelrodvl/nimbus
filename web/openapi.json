@@ -1615,6 +1615,14 @@
           "status_counts"
         ],
         "properties": {
+          "added_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Последнее добавление альбома или его трека (сортировка «Недавно добавлено»)."
+          },
           "artist_id": {
             "type": "integer",
             "format": "int64"
@@ -1810,6 +1818,14 @@
           "track_count"
         ],
         "properties": {
+          "added_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Когда добавлен в библиотеку (для сортировки «Недавно добавлено»)."
+          },
           "album_count": {
             "type": "integer",
             "format": "int64",

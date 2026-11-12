@@ -71,6 +71,8 @@ pub struct ArtistDto {
     pub track_count: i64,
     /// Состояние импорта дискографии; `null`, если импорт завершён или не запускался.
     pub import: Option<ImportStatusDto>,
+    /// Когда добавлен в библиотеку (для сортировки «Недавно добавлено»).
+    pub added_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, ToSchema, PartialEq, Eq)]
@@ -168,6 +170,8 @@ pub struct AlbumDto {
     pub in_library: bool,
     /// Все треки альбома (не только добавленные в библиотеку).
     pub track_count: i64,
+    /// Последнее добавление альбома или его трека (сортировка «Недавно добавлено»).
+    pub added_at: Option<DateTime<Utc>>,
     pub status_counts: StatusCounts,
 }
 
@@ -235,6 +239,7 @@ impl From<ArtistView> for ArtistDto {
             in_library: a.in_library,
             album_count: a.album_count,
             track_count: a.track_count,
+            added_at: a.added_at,
         }
     }
 }
@@ -252,6 +257,7 @@ impl From<AlbumView> for AlbumDto {
             cover_url: a.cover_url,
             in_library: a.in_library,
             track_count: a.track_count,
+            added_at: a.added_at,
             status_counts: StatusCounts {
                 adding: a.adding,
                 found: a.found,

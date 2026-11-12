@@ -554,6 +554,11 @@ export interface components {
             tracks: components["schemas"]["TrackDto"][];
         };
         AlbumDto: {
+            /**
+             * Format: date-time
+             * @description Последнее добавление альбома или его трека (сортировка «Недавно добавлено»).
+             */
+            added_at?: string | null;
             /** Format: int64 */
             artist_id: number;
             artist_name: string;
@@ -618,6 +623,11 @@ export interface components {
             artist: components["schemas"]["ArtistDto"];
         };
         ArtistDto: {
+            /**
+             * Format: date-time
+             * @description Когда добавлен в библиотеку (для сортировки «Недавно добавлено»).
+             */
+            added_at?: string | null;
             /**
              * Format: int64
              * @description Альбомы артиста, в которых хоть что-то в библиотеке.
