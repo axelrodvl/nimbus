@@ -128,6 +128,12 @@ async fn main() -> anyhow::Result<()> {
         .with_raw_base(format!("http://127.0.0.1:{}", bind.port()))
         .probe()
         .await;
+    // ffmpeg обязателен: перекодирование (CUE, APE/WV/DSD) и строка качества в плеере.
+    anyhow::ensure!(
+        transcoder.available,
+        "ffmpeg not found (`{}`): install it (e.g. `apt install ffmpeg`) or set NIMBUS_FFMPEG to its path",
+        transcoder.ffmpeg
+    );
     let state = AppState::new(db, Arc::new(config), events, mb)
         .with_engine(engine.clone())
         .with_settings(settings)

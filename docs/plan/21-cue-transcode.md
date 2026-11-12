@@ -10,7 +10,7 @@
 
 ## Требования к окружению
 
-`ffmpeg` в PATH (уже есть в Dockerfile шага 03; локально — `apt install ffmpeg`). При старте бэкенда проверить `ffmpeg -version`; если нет — логировать warning, эндпоинты перекодирования отвечают `503 ffmpeg_missing`.
+`ffmpeg` в PATH (уже есть в Dockerfile шага 03; локально — `apt install ffmpeg`). При старте бэкенда проверить `ffmpeg -version`; если нет — бэкенд отказывается стартовать (ffmpeg обязателен).
 
 ## Что сделать
 
