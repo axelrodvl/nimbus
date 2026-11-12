@@ -1,0 +1,76 @@
+# Запуск из готовых образов GHCR (без сборки). Лежит в пакете релиза как docker-compose.yml.
+# Версия берётся из NIMBUS_VERSION (.env), по умолчанию latest.
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: nimbus
+      POSTGRES_PASSWORD: nimbus
+      POSTGRES_DB: nimbus
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nimbus"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  backend:
+    image: ghcr.io/axelrodvl/nimbus-backend:${NIMBUS_VERSION:-latest}
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://nimbus:nimbus@db:5432/nimbus
+      NIMBUS_BIND: 0.0.0.0:8080
+      NIMBUS_DATA_DIR: /data
+      NIMBUS_CORS_ORIGIN: http://localhost:${NIMBUS_PORT:-8000}
+    volumes:
+      - ./data:/data
+    ports:
+      # Входящие BitTorrent-соединения.
+      - "6881:6881/tcp"
+      - "6881:6881/udp"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  web:
+    image: ghcr.io/axelrodvl/nimbus-web:${NIMBUS_VERSION:-latest}
+    environment:
+      BACKEND_URL: http://backend:8080
+      NIMBUS_API_TOKEN: ${NIMBUS_API_TOKEN:-}
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/login"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "${NIMBUS_PORT:-8000}:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

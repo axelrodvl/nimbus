@@ -54,6 +54,20 @@ Before the first run you may want to edit `.env`:
 | `NIMBUS_PORT` | Public port (default `8000`) |
 | `NIMBUS_CACHE_LIMIT_GB` | Torrent cache limit (default `50`) |
 
+## Run from prebuilt images (no build)
+
+Each [GitHub Release](https://github.com/axelrodvl/nimbus/releases) ships a ready-to-run bundle that pulls
+multi-arch (amd64/arm64) images from GHCR (`ghcr.io/axelrodvl/nimbus-backend`, `nimbus-web`):
+
+```sh
+unzip nimbus-vX.Y.Z.zip && cd nimbus
+cp .env.example .env
+docker compose up -d
+```
+
+To publish a release: `git tag vX.Y.Z && git push --tags` (workflow `.github/workflows/release.yml`). After the first
+publish, make the two packages public in the repository's *Packages* settings so anyone can pull them.
+
 ## Windows (via WSL 2)
 
 Nimbus is run on Windows inside **WSL 2** (Windows Subsystem for Linux) using Docker. Requires Windows 10 (22H2) or
