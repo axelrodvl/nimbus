@@ -404,6 +404,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tracks/{id}/audio-info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["audio_info"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tracks/{id}/prefetch": {
         parameters: {
             query?: never;
@@ -664,6 +680,31 @@ export interface components {
             name: string;
             /** Format: int32 */
             score: number;
+        };
+        AudioInfo: {
+            /**
+             * Format: int32
+             * @description Разрядность (только для lossless/PCM).
+             */
+            bit_depth?: number | null;
+            /**
+             * Format: int32
+             * @description Битрейт, кбит/с.
+             */
+            bitrate_kbps?: number | null;
+            /** @description Каналы: `mono`, `stereo`, `5.1`, … */
+            channels?: string | null;
+            /** @description Кодек (`flac`, `mp3`, `aac`, `alac`, `pcm_s24le`, …). */
+            codec?: string | null;
+            /** @description Расширение исходного файла (`flac`, `mp3`, …). */
+            ext: string;
+            /**
+             * Format: int32
+             * @description Частота дискретизации, Гц.
+             */
+            sample_rate?: number | null;
+            /** @description Играет через перекодирование на лету (в браузер уходит FLAC). */
+            transcoded: boolean;
         };
         DebugMetadataRequest: {
             magnet: string;
@@ -1829,6 +1870,47 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    audio_info: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID трека */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Параметры исходного аудио */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AudioInfo"];
+                };
+            };
+            /** @description Нет такого трека */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Трек не играбелен (`track_not_playable`) */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

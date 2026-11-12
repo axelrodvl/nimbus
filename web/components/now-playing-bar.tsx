@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
+import { AudioQuality } from '@/components/audio-quality';
 import { QueuePanel } from '@/components/queue-panel';
 import { Cover } from '@/components/ui/cover';
 import { Marquee } from '@/components/ui/marquee';
@@ -551,6 +552,8 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
             )}
           />
         </div>
+
+        <AudioQuality trackId={open ? track?.id : undefined} className="text-black/70 dark:text-white/75" />
 
         <div className="flex items-center gap-3 pt-2">
           <div className="flex min-w-0 flex-1 flex-col">

@@ -11,6 +11,7 @@ pub mod search;
 pub mod settings;
 pub mod sources;
 pub mod state;
+pub mod audio_info;
 pub mod stream;
 pub mod transcode;
 pub mod ws;

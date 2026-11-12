@@ -27,6 +27,7 @@ use crate::{library, routes, search, sources};
         library::get_album,
         library::get_track,
         crate::stream::stream_track,
+        crate::audio_info::audio_info,
         sources::album_torrents_list,
         sources::torrent_files,
         sources::track_sources_list,
@@ -92,6 +93,7 @@ use crate::{library, routes, search, sources};
         crate::downloads::DownloadDto,
         crate::downloads::DownloadState,
         crate::stream::PrefetchResponse,
+        crate::audio_info::AudioInfo,
     )),
     tags(
         (name = "system", description = "Служебные эндпоинты"),

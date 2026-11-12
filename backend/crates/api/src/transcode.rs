@@ -245,7 +245,7 @@ pub async fn transcode_response(
 }
 
 /// Вход для `ffmpeg`: файл на диске (если докачан) или локальный Range-эндпоинт, читающий из движка.
-async fn resolve_input(
+pub(crate) async fn resolve_input(
     state: &AppState,
     source: &TrackSource,
     torrent: &Torrent,

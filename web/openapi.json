@@ -1142,6 +1142,58 @@
         }
       }
     },
+    "/api/tracks/{id}/audio-info": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "operationId": "audio_info",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID трека",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Параметры исходного аудио",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Нет такого трека",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Трек не играбелен (`track_not_playable`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tracks/{id}/prefetch": {
       "post": {
         "tags": [
@@ -1928,6 +1980,64 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "AudioInfo": {
+        "type": "object",
+        "required": [
+          "ext",
+          "transcoded"
+        ],
+        "properties": {
+          "bit_depth": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Разрядность (только для lossless/PCM).",
+            "minimum": 0
+          },
+          "bitrate_kbps": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Битрейт, кбит/с.",
+            "minimum": 0
+          },
+          "channels": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Каналы: `mono`, `stereo`, `5.1`, …"
+          },
+          "codec": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Кодек (`flac`, `mp3`, `aac`, `alac`, `pcm_s24le`, …)."
+          },
+          "ext": {
+            "type": "string",
+            "description": "Расширение исходного файла (`flac`, `mp3`, …)."
+          },
+          "sample_rate": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Частота дискретизации, Гц.",
+            "minimum": 0
+          },
+          "transcoded": {
+            "type": "boolean",
+            "description": "Играет через перекодирование на лету (в браузер уходит FLAC)."
           }
         }
       },
