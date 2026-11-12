@@ -2417,6 +2417,14 @@
           "score"
         ],
         "properties": {
+          "album_library_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Id альбома трека в библиотеке (для перехода к альбому)."
+          },
           "album_mbid": {
             "type": [
               "string",

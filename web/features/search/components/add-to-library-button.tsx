@@ -2,6 +2,7 @@
 
 import { Check, Plus } from 'lucide-react';
 import { useOptimistic, useState, useTransition } from 'react';
+import type { AddResult } from '@/app/actions/library';
 import { Spinner } from '@/components/ui/spinner';
 import { addToLibraryWithToast } from '@/features/search/add-to-library';
 import { cn } from '@/lib/utils';
@@ -16,9 +17,10 @@ type Props = {
   className?: string;
   // Для палитры: кнопка не должна забирать фокус с поля ввода.
   tabIndex?: number;
+  onAdded?: (result: Extract<AddResult, { ok: true }>) => void;
 };
 
-export function AddToLibraryButton({ type, mbid, albumMbid, label: text, className, tabIndex }: Props) {
+export function AddToLibraryButton({ type, mbid, albumMbid, label: text, className, tabIndex, onAdded }: Props) {
   const t = useT();
   const [added, setAdded] = useState(false);
   const [optimisticAdded, setOptimisticAdded] = useOptimistic(added);
@@ -31,8 +33,11 @@ export function AddToLibraryButton({ type, mbid, albumMbid, label: text, classNa
     startTransition(async () => {
       setOptimisticAdded(true);
       const input = type === 'track' ? { album_mbid: albumMbid ?? null, mbid, type } : ({ mbid, type } as const);
-      const ok = await addToLibraryWithToast(input, t);
-      if (ok) setAdded(true);
+      const result = await addToLibraryWithToast(input, t);
+      if (result?.ok) {
+        setAdded(true);
+        onAdded?.(result);
+      }
     });
   }
 
@@ -60,7 +65,9 @@ export function AddToLibraryButton({ type, mbid, albumMbid, label: text, classNa
       ) : (
         <Plus className="h-4 w-4" />
       )}
-      {text ? <span className="px-0.5 text-sm font-semibold">{optimisticAdded ? t('add.addedShort') : text}</span> : null}
+      {text ? (
+        <span className="px-0.5 text-sm font-semibold">{optimisticAdded ? t('add.addedShort') : text}</span>
+      ) : null}
     </button>
   );
 }

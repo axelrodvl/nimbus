@@ -108,7 +108,7 @@ function buildItems(data: ReturnType<typeof useSearch>['data'], t: TFn): Item[] 
       icon: <Cover src={tr.cover_url} alt={tr.album_title ?? tr.title} size="sm" className="!h-9 !w-9" />,
       id: `track-${tr.mbid}`,
       kind: 'track',
-      libraryHref: null,
+      libraryHref: tr.album_library_id != null ? albumHref(tr.album_library_id) : null,
       meta: tr.duration_ms ? formatDuration(Math.floor(tr.duration_ms / 1000)) : undefined,
       subtitle: [t('kind.track'), tr.artist_name, tr.album_title].filter(Boolean).join(' · '),
       title: tr.title,

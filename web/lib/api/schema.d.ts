@@ -804,6 +804,11 @@ export interface components {
             next_cursor?: string | null;
         };
         TrackResult: {
+            /**
+             * Format: int64
+             * @description Id альбома трека в библиотеке (для перехода к альбому).
+             */
+            album_library_id?: number | null;
             /** Format: uuid */
             album_mbid?: string | null;
             album_title?: string | null;

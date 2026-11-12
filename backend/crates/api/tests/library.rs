@@ -293,13 +293,14 @@ async fn post_track_adds_only_that_track(pool: PgPool) {
     assert_eq!(status, 200);
     assert_eq!(body["status"], "exists");
 
-    // альбом с одним добавленным треком виден на странице артиста и в списке треков, но не в списке альбомов
+    // альбом с одним добавленным треком виден на странице артиста, в списке треков и в списке альбомов (недавно добавленные)
     let (_, v) = get_json(router.clone(), &format!("/api/artists/{}", track.artist_id)).await;
     assert_eq!(v["albums"].as_array().unwrap().len(), 1);
     assert_eq!(v["albums"][0]["in_library"], false);
     assert_eq!(v["artist"]["track_count"], 1);
     let (_, l) = get_json(router.clone(), "/api/library/albums").await;
-    assert!(l["items"].as_array().unwrap().is_empty());
+    assert_eq!(l["items"].as_array().unwrap().len(), 1);
+    assert_eq!(l["items"][0]["in_library"], false);
     let (_, l) = get_json(router, "/api/library/tracks").await;
     assert_eq!(l["items"].as_array().unwrap().len(), 1);
 }
@@ -439,6 +440,41 @@ async fn post_artist_is_accepted_and_import_job_adds_discography(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(count(&pool, "SELECT count(*) FROM tracks").await, 6);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn re_added_album_moves_to_top_of_recent(pool: PgPool) {
+    let server = mb_server().await;
+    let (_, router) = app(&pool, &server);
+    let (_, body) = post_json(
+        router.clone(),
+        "/api/library",
+        json!({"type": "album", "mbid": OK_COMPUTER}),
+    )
+    .await;
+    let album_id = body["id"].as_i64().unwrap();
+    // как будто альбом был добавлен давно, затем удалён
+    sqlx::query("UPDATE albums SET added_at = now() - interval '30 days' WHERE id = $1")
+        .bind(album_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    delete(router.clone(), &format!("/api/library/album/{album_id}")).await;
+    post_json(
+        router.clone(),
+        "/api/library",
+        json!({"type": "album", "mbid": OK_COMPUTER}),
+    )
+    .await;
+    let age = count(
+        &pool,
+        "SELECT count(*) FROM albums WHERE id > 0 AND added_at > now() - interval '1 day'",
+    )
+    .await;
+    assert_eq!(
+        age, 1,
+        "повторно добавленный альбом получает свежий added_at"
+    );
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]

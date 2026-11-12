@@ -49,7 +49,7 @@ pub async fn set_in_library(
 ) -> sqlx::Result<Option<Album>> {
     sqlx::query_as(
         "UPDATE albums SET in_library = $2,
-            added_at = CASE WHEN $2 THEN COALESCE(added_at, now()) ELSE added_at END
+            added_at = CASE WHEN $2 AND NOT in_library THEN now() WHEN $2 THEN COALESCE(added_at, now()) ELSE added_at END
          WHERE id = $1 RETURNING *",
     )
     .bind(id)
@@ -93,7 +93,7 @@ pub async fn set_in_library_for_artist(
 ) -> sqlx::Result<u64> {
     Ok(sqlx::query(
         "UPDATE albums SET in_library = $2,
-            added_at = CASE WHEN $2 THEN COALESCE(added_at, now()) ELSE added_at END
+            added_at = CASE WHEN $2 AND NOT in_library THEN now() WHEN $2 THEN COALESCE(added_at, now()) ELSE added_at END
          WHERE artist_id = $1 AND in_library IS DISTINCT FROM $2",
     )
     .bind(artist_id)

@@ -2,6 +2,7 @@
 
 import { Disc3 } from 'lucide-react';
 import Link from 'next/link';
+import { useState } from 'react';
 import { Cover } from '@/components/ui/cover';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState } from '@/components/ui/error-state';
@@ -232,8 +233,10 @@ function AlbumCard({ album }: { album: Album }) {
 }
 
 function TrackRow({ track }: { track: Track }) {
-  return (
-    <div className="hover:bg-card/60 dark:hover:bg-card-dark/60 flex items-center gap-3 rounded-md px-3 py-2 transition-colors">
+  const [albumId, setAlbumId] = useState<number | null>(track.album_library_id ?? null);
+  const inLibrary = track.library_id != null || albumId != null;
+  const info = (
+    <>
       <Cover src={track.cover_url} alt={track.album_title ?? track.title} size="sm" />
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-sm font-medium">{track.title}</span>
@@ -245,10 +248,27 @@ function TrackRow({ track }: { track: Track }) {
       {track.duration_ms ? (
         <span className="text-muted font-mono text-xs">{formatDuration(Math.floor(track.duration_ms / 1000))}</span>
       ) : null}
-      {track.library_id != null ? (
+    </>
+  );
+  const infoClass = 'flex min-w-0 flex-1 items-center gap-3';
+  return (
+    <div className="hover:bg-card/60 dark:hover:bg-card-dark/60 flex items-center gap-3 rounded-md px-3 py-2 transition-colors">
+      {albumId != null ? (
+        <Link href={albumHref(albumId)} className={infoClass}>
+          {info}
+        </Link>
+      ) : (
+        <div className={infoClass}>{info}</div>
+      )}
+      {inLibrary ? (
         <InLibraryBadge />
       ) : (
-        <AddToLibraryButton type="track" mbid={track.mbid} albumMbid={track.album_mbid} />
+        <AddToLibraryButton
+          type="track"
+          mbid={track.mbid}
+          albumMbid={track.album_mbid}
+          onAdded={r => setAlbumId(r.albumId ?? null)}
+        />
       )}
     </div>
   );

@@ -41,7 +41,7 @@ pub async fn set_in_library(
 ) -> sqlx::Result<Option<Artist>> {
     sqlx::query_as(
         "UPDATE artists SET in_library = $2,
-            added_at = CASE WHEN $2 THEN COALESCE(added_at, now()) ELSE added_at END
+            added_at = CASE WHEN $2 AND NOT in_library THEN now() WHEN $2 THEN COALESCE(added_at, now()) ELSE added_at END
          WHERE id = $1 RETURNING *",
     )
     .bind(id)

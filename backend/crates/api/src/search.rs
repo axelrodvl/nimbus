@@ -81,6 +81,8 @@ pub struct TrackResult {
     pub cover_url: Option<String>,
     pub score: u8,
     pub library_id: Option<i64>,
+    /// Id альбома трека в библиотеке (для перехода к альбому).
+    pub album_library_id: Option<i64>,
     pub status: Option<TrackStatus>,
 }
 
@@ -219,7 +221,7 @@ pub async fn search(
         &mut errors,
     )
     .await;
-    let track_info: HashMap<Uuid, (i64, TrackStatus)> = lookup(
+    let track_info: HashMap<Uuid, (i64, TrackStatus, i64)> = lookup(
         "tracks",
         track_hits.is_empty(),
         tracks::library_info_by_recording(
@@ -230,7 +232,7 @@ pub async fn search(
     )
     .await
     .into_iter()
-    .map(|(mbid, id, status)| (mbid, (id, status)))
+    .map(|(mbid, id, status, album_id)| (mbid, (id, status, album_id)))
     .collect();
     let artist_ids: HashMap<_, _> = artist_ids.into_iter().collect();
     let album_ids: HashMap<_, _> = album_ids.into_iter().collect();
@@ -269,6 +271,7 @@ pub async fn search(
                 let info = track_info.get(&t.mbid);
                 TrackResult {
                     library_id: info.map(|i| i.0),
+                    album_library_id: info.map(|i| i.2),
                     status: info.map(|i| i.1),
                     cover_url: t.release_group_mbid.map(|id| cover_url(id, COVER_SIZE)),
                     mbid: t.mbid,

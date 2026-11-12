@@ -14,7 +14,13 @@ export type LibraryType = 'artist' | 'album' | 'track';
 
 export type ActionResult<T = object> = ({ ok: true } & T) | { ok: false; code: string; message: string };
 
-export type AddResult = ActionResult<{ type: LibraryType; id: number; status: 'added' | 'importing' | 'exists' }>;
+export type AddResult = ActionResult<{
+  type: LibraryType;
+  id: number;
+  /** Для треков — альбом в библиотеке (чтобы сразу перейти к нему). */
+  albumId?: number;
+  status: 'added' | 'importing' | 'exists';
+}>;
 
 const TAG_PATTERN = /^(library|(artist|album|track):\d+)$/;
 
@@ -34,7 +40,14 @@ export async function addToLibrary(input: AddToLibraryInput): Promise<AddResult>
     const data = unwrap(await api.POST('/api/library', { body }));
     updateTag('library');
     if (data.type === 'artist' || data.type === 'album') updateTag(`${data.type}:${data.id}`);
-    return { id: data.id, ok: true, status: data.status, type: data.type };
+    let albumId: number | undefined;
+    if (data.type === 'track') {
+      const track = await api.GET('/api/tracks/{id}', { params: { path: { id: data.id } } });
+      albumId = track.data?.album_id;
+      updateTag('library');
+      if (albumId != null) updateTag(`album:${albumId}`);
+    }
+    return { albumId, id: data.id, ok: true, status: data.status, type: data.type };
   } catch (e) {
     return actionFailure(e);
   }

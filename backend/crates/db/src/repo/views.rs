@@ -142,15 +142,24 @@ pub async fn get_artist(db: impl PgExecutor<'_>, id: i64) -> sqlx::Result<Option
         .await
 }
 
+/// Альбомы библиотеки: добавленные целиком и те, где в библиотеке есть хотя бы один трек.
+/// `added_at` — самая поздняя дата добавления альбома или его трека (по ней сортировка и курсор).
 pub async fn list_albums(
     db: impl PgExecutor<'_>,
     cursor: Option<Cursor>,
     limit: i64,
 ) -> sqlx::Result<Vec<AlbumView>> {
     let (at, id) = split(cursor);
+    let select = ALBUM_SELECT.replace(
+        "al.in_library, al.added_at,",
+        "al.in_library, GREATEST(al.added_at, max(t.added_at) FILTER (WHERE t.in_library)) AS added_at,",
+    );
     sqlx::query_as(&format!(
-        "{ALBUM_SELECT} WHERE al.in_library AND ($1::timestamptz IS NULL OR (al.added_at, al.id) < ($1, $2))
-         {ALBUM_GROUP} ORDER BY al.added_at DESC, al.id DESC LIMIT $3"
+        "SELECT * FROM ({select}
+           WHERE al.in_library OR EXISTS (SELECT 1 FROM tracks it WHERE it.album_id = al.id AND it.in_library)
+           {ALBUM_GROUP}) x
+         WHERE ($1::timestamptz IS NULL OR (x.added_at, x.id) < ($1, $2))
+         ORDER BY x.added_at DESC, x.id DESC LIMIT $3"
     ))
     .bind(at)
     .bind(id)
