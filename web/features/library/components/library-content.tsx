@@ -52,13 +52,13 @@ export function LibraryTabs({ active, t }: { active: TabId; t: TFn }) {
   );
 }
 
-function StatusChips({ active, t }: { active: StatusFilterId; t: TFn }) {
+function StatusChips({ tab, active, t }: { tab: TabId; active: StatusFilterId; t: TFn }) {
   return (
     <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label={t('library.filter')}>
       {STATUS_FILTERS.map(s => (
         <Link
           key={s.id}
-          href={`/library?tab=tracks&status=${s.id}`}
+          href={`/library?tab=${tab}&status=${s.id}`}
           aria-current={s.id === active ? 'true' : undefined}
           className={cn(pill, 'text-xs', s.id === active ? pillActive : pillIdle)}
         >
@@ -74,14 +74,31 @@ export async function LibraryContent({ tab, status }: { tab: TabId; status: Stat
   return (
     <>
       <LibraryTabs active={tab} t={t} />
-      {tab === 'artists' ? <ArtistsTab /> : tab === 'albums' ? <AlbumsTab /> : <TracksTab status={status} />}
+      <StatusChips tab={tab} active={status} t={t} />
+      {tab === 'artists' ? (
+        <ArtistsTab status={status} />
+      ) : tab === 'albums' ? (
+        <AlbumsTab status={status} />
+      ) : (
+        <TracksTab status={status} />
+      )}
     </>
   );
 }
 
-async function ArtistsTab() {
-  const page = await getLibraryArtists();
-  if (page.items.length === 0) return <EmptyLibrary />;
+function statusesOf(status: StatusFilterId) {
+  return STATUS_FILTERS.find(s => s.id === status)!.statuses;
+}
+
+function EmptyFiltered({ status, t }: { status: StatusFilterId; t: TFn }) {
+  return status === 'all' ? <EmptyLibrary /> : <EmptyState title={t('library.noTracksStatus')} />;
+}
+
+async function ArtistsTab({ status }: { status: StatusFilterId }) {
+  const t = await getT();
+  const statuses = statusesOf(status);
+  const page = await getLibraryArtists(statuses);
+  if (page.items.length === 0) return <EmptyFiltered status={status} t={t} />;
   return (
     <ul data-testid="library-artists" className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
       {page.items.map(a => (
@@ -89,14 +106,16 @@ async function ArtistsTab() {
           <ArtistCard artist={a} />
         </li>
       ))}
-      <MoreArtists key={page.next_cursor ?? 'end'} initialCursor={page.next_cursor ?? null} />
+      <MoreArtists key={page.next_cursor ?? 'end'} initialCursor={page.next_cursor ?? null} statuses={statuses} />
     </ul>
   );
 }
 
-async function AlbumsTab() {
-  const page = await getLibraryAlbums();
-  if (page.items.length === 0) return <EmptyLibrary />;
+async function AlbumsTab({ status }: { status: StatusFilterId }) {
+  const t = await getT();
+  const statuses = statusesOf(status);
+  const page = await getLibraryAlbums(statuses);
+  if (page.items.length === 0) return <EmptyFiltered status={status} t={t} />;
   return (
     <ul data-testid="library-albums" className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
       {page.items.map((a, i) => (
@@ -104,24 +123,19 @@ async function AlbumsTab() {
           <LibraryAlbumCard album={a} priority={i < 4} />
         </li>
       ))}
-      <MoreAlbums key={page.next_cursor ?? 'end'} initialCursor={page.next_cursor ?? null} />
+      <MoreAlbums key={page.next_cursor ?? 'end'} initialCursor={page.next_cursor ?? null} statuses={statuses} />
     </ul>
   );
 }
 
 async function TracksTab({ status }: { status: StatusFilterId }) {
   const t = await getT();
-  const statuses = STATUS_FILTERS.find(s => s.id === status)!.statuses;
+  const statuses = statusesOf(status);
   const page = await getLibraryTracks(statuses);
   return (
     <>
-      <StatusChips active={status} t={t} />
       {page.items.length === 0 ? (
-        status === 'all' ? (
-          <EmptyLibrary />
-        ) : (
-          <EmptyState title={t('library.noTracksStatus')} />
-        )
+        <EmptyFiltered status={status} t={t} />
       ) : (
         <ul data-testid="library-tracks" className="flex flex-col gap-0.5">
           {page.items.map(t => (

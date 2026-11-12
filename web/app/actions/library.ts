@@ -77,12 +77,16 @@ export async function removeFromLibrary(type: LibraryType, id: number): Promise<
 }
 
 // Страницы для кнопок «Показать ещё» / "Show more" (без кэша: курсоры уникальны).
-export async function loadMoreArtists(cursor: string) {
-  return unwrap(await api.GET('/api/library/artists', { params: { query: { cursor, limit: 50 } } }));
+export async function loadMoreArtists(statuses: string, cursor: string) {
+  return unwrap(
+    await api.GET('/api/library/artists', { params: { query: { cursor, limit: 50, status: statuses || undefined } } }),
+  );
 }
 
-export async function loadMoreAlbums(cursor: string) {
-  return unwrap(await api.GET('/api/library/albums', { params: { query: { cursor, limit: 50 } } }));
+export async function loadMoreAlbums(statuses: string, cursor: string) {
+  return unwrap(
+    await api.GET('/api/library/albums', { params: { query: { cursor, limit: 50, status: statuses || undefined } } }),
+  );
 }
 
 export async function loadMoreTracks(statuses: string, cursor: string) {

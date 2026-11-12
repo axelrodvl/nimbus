@@ -14,28 +14,34 @@ const PAGE_TRACKS = 100;
 // Данные библиотеки живые: `connection()` исключает их из пререндера (бэкенд может быть недоступен
 // при сборке), а `'use cache'` внутри дальше кэширует ответ по тегам.
 
-export async function getLibraryArtists(cursor?: string, limit = PAGE_ALBUMS) {
+/** `statuses` — статусы треков через запятую; пусто — без фильтра. */
+export async function getLibraryArtists(statuses = '', cursor?: string, limit = PAGE_ALBUMS) {
   await connection();
-  return fetchArtists(cursor, limit);
+  return fetchArtists(statuses, cursor, limit);
 }
 
-async function fetchArtists(cursor: string | undefined, limit: number) {
+async function fetchArtists(statuses: string, cursor: string | undefined, limit: number) {
   'use cache';
   cacheTag('library');
   cacheLife({ expire: 300, revalidate: 10, stale: 5 });
-  return unwrap(await api.GET('/api/library/artists', { params: { query: { cursor, limit } } }));
+  return unwrap(
+    await api.GET('/api/library/artists', { params: { query: { cursor, limit, status: statuses || undefined } } }),
+  );
 }
 
-export async function getLibraryAlbums(cursor?: string, limit = PAGE_ALBUMS) {
+/** `statuses` — статусы треков через запятую; пусто — без фильтра. */
+export async function getLibraryAlbums(statuses = '', cursor?: string, limit = PAGE_ALBUMS) {
   await connection();
-  return fetchAlbums(cursor, limit);
+  return fetchAlbums(statuses, cursor, limit);
 }
 
-async function fetchAlbums(cursor: string | undefined, limit: number) {
+async function fetchAlbums(statuses: string, cursor: string | undefined, limit: number) {
   'use cache';
   cacheTag('library');
   cacheLife({ expire: 300, revalidate: 10, stale: 5 });
-  return unwrap(await api.GET('/api/library/albums', { params: { query: { cursor, limit } } }));
+  return unwrap(
+    await api.GET('/api/library/albums', { params: { query: { cursor, limit, status: statuses || undefined } } }),
+  );
 }
 
 /** `statuses` — через запятую (`found,ready`); пусто — все. */

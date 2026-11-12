@@ -1289,6 +1289,8 @@ export interface operations {
                 cursor?: string;
                 /** @description 1..200, по умолчанию 50 (для треков — 100). */
                 limit?: number;
+                /** @description Фильтр по статусам треков через запятую: adding, found, not_found, ready (например `found,ready`). */
+                status?: string;
             };
             header?: never;
             path?: never;
@@ -1321,6 +1323,8 @@ export interface operations {
                 cursor?: string;
                 /** @description 1..200, по умолчанию 50 (для треков — 100). */
                 limit?: number;
+                /** @description Фильтр по статусам треков через запятую: adding, found, not_found, ready (например `found,ready`). */
+                status?: string;
             };
             header?: never;
             path?: never;

@@ -571,6 +571,15 @@
               "type": "integer",
               "format": "int64"
             }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Фильтр по статусам треков через запятую: adding, found, not_found, ready (например `found,ready`).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -621,6 +630,15 @@
             "schema": {
               "type": "integer",
               "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Фильтр по статусам треков через запятую: adding, found, not_found, ready (например `found,ready`).",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           }
         ],

@@ -118,16 +118,28 @@ fn split(cursor: Option<Cursor>) -> (Option<DateTime<Utc>>, Option<i64>) {
     (cursor.map(|c| c.0), cursor.map(|c| c.1))
 }
 
+/// Пустой список — без фильтра по статусу.
+fn status_filter(statuses: &[TrackStatus]) -> Option<Vec<&str>> {
+    (!statuses.is_empty()).then(|| statuses.iter().map(|s| s.as_str()).collect())
+}
+
+/// Артисты библиотеки; с `statuses` — только те, у кого есть трек библиотеки с таким статусом.
 pub async fn list_artists(
     db: impl PgExecutor<'_>,
+    statuses: &[TrackStatus],
     cursor: Option<Cursor>,
     limit: i64,
 ) -> sqlx::Result<Vec<ArtistView>> {
     let (at, id) = split(cursor);
     sqlx::query_as(&format!(
-        "{ARTIST_SELECT} WHERE a.in_library AND ($1::timestamptz IS NULL OR (a.added_at, a.id) < ($1, $2))
-         ORDER BY a.added_at DESC, a.id DESC LIMIT $3"
+        "{ARTIST_SELECT} WHERE a.in_library
+           AND ($1::text[] IS NULL OR EXISTS (
+                 SELECT 1 FROM tracks t WHERE t.in_library AND t.status = ANY($1)
+                   AND (t.artist_id = a.id OR t.album_id IN (SELECT id FROM albums WHERE artist_id = a.id))))
+           AND ($2::timestamptz IS NULL OR (a.added_at, a.id) < ($2, $3))
+         ORDER BY a.added_at DESC, a.id DESC LIMIT $4"
     ))
+    .bind(status_filter(statuses))
     .bind(at)
     .bind(id)
     .bind(limit)
@@ -146,6 +158,7 @@ pub async fn get_artist(db: impl PgExecutor<'_>, id: i64) -> sqlx::Result<Option
 /// `added_at` — самая поздняя дата добавления альбома или его трека (по ней сортировка и курсор).
 pub async fn list_albums(
     db: impl PgExecutor<'_>,
+    statuses: &[TrackStatus],
     cursor: Option<Cursor>,
     limit: i64,
 ) -> sqlx::Result<Vec<AlbumView>> {
@@ -158,9 +171,12 @@ pub async fn list_albums(
         "SELECT * FROM ({select}
            WHERE al.in_library OR EXISTS (SELECT 1 FROM tracks it WHERE it.album_id = al.id AND it.in_library)
            {ALBUM_GROUP}) x
-         WHERE ($1::timestamptz IS NULL OR (x.added_at, x.id) < ($1, $2))
-         ORDER BY x.added_at DESC, x.id DESC LIMIT $3"
+         WHERE ($1::text[] IS NULL OR EXISTS (
+                 SELECT 1 FROM tracks ft WHERE ft.album_id = x.id AND ft.in_library AND ft.status = ANY($1)))
+           AND ($2::timestamptz IS NULL OR (x.added_at, x.id) < ($2, $3))
+         ORDER BY x.added_at DESC, x.id DESC LIMIT $4"
     ))
+    .bind(status_filter(statuses))
     .bind(at)
     .bind(id)
     .bind(limit)
@@ -197,15 +213,12 @@ pub async fn list_tracks(
     limit: i64,
 ) -> sqlx::Result<Vec<TrackView>> {
     let (at, id) = split(cursor);
-    // Пустой список — без фильтра по статусу.
-    let statuses: Option<Vec<&str>> =
-        (!statuses.is_empty()).then(|| statuses.iter().map(|s| s.as_str()).collect());
     sqlx::query_as(&format!(
         "{TRACK_SELECT} WHERE t.in_library AND ($1::text[] IS NULL OR t.status = ANY($1))
            AND ($2::timestamptz IS NULL OR (t.added_at, t.id) < ($2, $3))
          ORDER BY t.added_at DESC, t.id DESC LIMIT $4"
     ))
-    .bind(statuses)
+    .bind(status_filter(statuses))
     .bind(at)
     .bind(id)
     .bind(limit)

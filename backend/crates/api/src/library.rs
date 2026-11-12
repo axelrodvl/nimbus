@@ -424,6 +424,25 @@ pub async fn remove_from_library(
     Ok(StatusCode::NO_CONTENT)
 }
 
+fn parse_statuses(raw: Option<&str>) -> Result<Vec<TrackStatus>, ApiError> {
+    raw.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            s.split(',')
+                .map(|part| {
+                    part.trim().parse::<TrackStatus>().map_err(|_| {
+                        ApiError::bad_request(
+                            "bad_status",
+                            "status must be a comma-separated list of adding, found, not_found, ready",
+                        )
+                    })
+                })
+                .collect()
+        })
+        .transpose()
+        .map(Option::unwrap_or_default)
+}
+
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct PageParams {
@@ -431,6 +450,8 @@ pub struct PageParams {
     cursor: Option<String>,
     /// 1..200, по умолчанию 50 (для треков — 100).
     limit: Option<i64>,
+    /// Фильтр по статусам треков через запятую: adding, found, not_found, ready (например `found,ready`).
+    status: Option<String>,
 }
 
 #[utoipa::path(
@@ -446,7 +467,8 @@ pub async fn list_artists(
 ) -> Result<Json<ArtistPage>, ApiError> {
     let limit = page_limit(p.limit, DEFAULT_PAGE)?;
     let cursor = decode_cursor(p.cursor.as_deref())?;
-    let rows = views::list_artists(&state.db, cursor, limit + 1).await?;
+    let statuses = parse_statuses(p.status.as_deref())?;
+    let rows = views::list_artists(&state.db, &statuses, cursor, limit + 1).await?;
     let (items, next_cursor) = paginate(
         rows,
         limit,
@@ -469,7 +491,8 @@ pub async fn list_albums(
 ) -> Result<Json<AlbumPage>, ApiError> {
     let limit = page_limit(p.limit, DEFAULT_PAGE)?;
     let cursor = decode_cursor(p.cursor.as_deref())?;
-    let rows = views::list_albums(&state.db, cursor, limit + 1).await?;
+    let statuses = parse_statuses(p.status.as_deref())?;
+    let rows = views::list_albums(&state.db, &statuses, cursor, limit + 1).await?;
     let (items, next_cursor) = paginate(
         rows,
         limit,
@@ -501,25 +524,7 @@ pub async fn list_tracks(
 ) -> Result<Json<TrackPage>, ApiError> {
     let limit = page_limit(p.limit, DEFAULT_TRACK_PAGE)?;
     let cursor = decode_cursor(p.cursor.as_deref())?;
-    let statuses = p
-        .status
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| {
-            s.split(',')
-                .map(|part| {
-                    part.trim().parse::<TrackStatus>().map_err(|_| {
-                        ApiError::bad_request(
-                            "bad_status",
-                            "status must be a comma-separated list of adding, found, not_found, ready",
-                        )
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .transpose()?
-        .unwrap_or_default();
+    let statuses = parse_statuses(p.status.as_deref())?;
     let rows = views::list_tracks(&state.db, &statuses, cursor, limit + 1).await?;
     let (items, next_cursor) = paginate(
         rows,

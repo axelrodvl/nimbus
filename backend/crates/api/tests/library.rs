@@ -784,9 +784,23 @@ async fn track_list_status_filter(pool: PgPool) {
             .0,
         400
     );
-    let (_, v) = get_json(router, "/api/library/tracks?status=adding&limit=2").await;
+    let (_, v) = get_json(router.clone(), "/api/library/tracks?status=adding&limit=2").await;
     assert_eq!(v["items"].as_array().unwrap().len(), 2);
     assert!(v["next_cursor"].is_string());
+
+    // тот же фильтр для альбомов и артистов: нужен хотя бы один трек с таким статусом
+    let (_, v) = get_json(router.clone(), "/api/library/albums?status=found").await;
+    assert_eq!(v["items"].as_array().unwrap().len(), 1);
+    let (_, v) = get_json(router.clone(), "/api/library/albums?status=ready").await;
+    assert_eq!(v["items"].as_array().unwrap().len(), 0);
+    let (_, v) = get_json(router.clone(), "/api/library/artists?status=ready").await;
+    assert_eq!(v["items"].as_array().unwrap().len(), 0);
+    for uri in [
+        "/api/library/albums?status=bogus",
+        "/api/library/artists?status=bogus",
+    ] {
+        assert_eq!(get_json(router.clone(), uri).await.0, 400, "{uri}");
+    }
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]

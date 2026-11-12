@@ -13,16 +13,13 @@ const READY_TRACKS = 10;
 export async function HomeContent() {
   const t = await getT();
   const [albums, tracks] = await Promise.all([
-    getLibraryAlbums(undefined, RECENT_ALBUMS),
+    getLibraryAlbums('', undefined, RECENT_ALBUMS),
     getLibraryTracks('found,ready', undefined, READY_TRACKS),
   ]);
 
   if (albums.items.length === 0 && tracks.items.length === 0) {
     return (
-      <EmptyState
-        title={t('home.findMusic.title')}
-        body={t('home.findMusic.body')}
-      >
+      <EmptyState title={t('home.findMusic.title')} body={t('home.findMusic.body')}>
         <Link
           href="/search"
           className="bg-accent hover:bg-accent-hover inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold text-white"

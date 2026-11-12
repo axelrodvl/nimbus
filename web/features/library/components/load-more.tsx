@@ -38,8 +38,10 @@ function MoreButton({
 }
 
 // Компоненты рендерят `<li>` и кнопку внутри списка/сетки родителя.
-export function MoreAlbums({ initialCursor }: { initialCursor: string | null }) {
-  const { items, hasMore, pending, error, loadMore } = usePagedLoader(initialCursor, loadMoreAlbums);
+export function MoreAlbums({ initialCursor, statuses }: { initialCursor: string | null; statuses: string }) {
+  const { items, hasMore, pending, error, loadMore } = usePagedLoader(initialCursor, cursor =>
+    loadMoreAlbums(statuses, cursor),
+  );
   return (
     <>
       {items.map(a => (
@@ -52,8 +54,10 @@ export function MoreAlbums({ initialCursor }: { initialCursor: string | null }) 
   );
 }
 
-export function MoreArtists({ initialCursor }: { initialCursor: string | null }) {
-  const { items, hasMore, pending, error, loadMore } = usePagedLoader(initialCursor, loadMoreArtists);
+export function MoreArtists({ initialCursor, statuses }: { initialCursor: string | null; statuses: string }) {
+  const { items, hasMore, pending, error, loadMore } = usePagedLoader(initialCursor, cursor =>
+    loadMoreArtists(statuses, cursor),
+  );
   return (
     <>
       {items.map(a => (
