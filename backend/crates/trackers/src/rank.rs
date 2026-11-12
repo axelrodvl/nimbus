@@ -19,6 +19,9 @@ pub mod weights {
     pub const SEEDERS: f32 = 0.25;
     /// Сиды неизвестны (например, RuTracker до resolve).
     pub const SEEDERS_UNKNOWN: f32 = 0.05;
+    /// 0 сидов по данным трекера: раздача не отбрасывается (счётчик часто устарел,
+    /// пиры могут быть доступны через DHT), но получает штраф.
+    pub const SEEDERS_ZERO_PENALTY: f32 = -0.10;
     /// Сколько сидов считается «достаточно» (насыщение логарифма).
     pub const SEEDERS_SATURATION: f32 = 50.0;
     pub const FORMAT: f32 = 0.15;
@@ -212,9 +215,6 @@ pub fn score(c: &TorrentCandidate, input: &RankInput, prefs: &FormatPrefs) -> f3
     if containment(input.artist, &c.title) < ARTIST_MIN_SIMILARITY {
         return -1.0;
     }
-    if c.seeders == Some(0) {
-        return -1.0;
-    }
     let album = strip_brackets(input.album);
     let kind = classify(&c.title, input.artist, &album);
     let mut s = 0.0;
@@ -236,7 +236,8 @@ pub fn score(c: &TorrentCandidate, input: &RankInput, prefs: &FormatPrefs) -> f3
         _ => 0.0,
     };
     s += match c.seeders {
-        Some(n) => SEEDERS * ((1.0 + n as f32).ln() / (1.0 + SEEDERS_SATURATION).ln()).min(1.0),
+        Some(0) => SEEDERS_ZERO_PENALTY,
+        Some(n) => SEEDERS *((1.0 + n as f32).ln() / (1.0 + SEEDERS_SATURATION).ln()).min(1.0),
         None => SEEDERS_UNKNOWN,
     };
     if let Some(f) = detect_format(&c.title) {
@@ -417,17 +418,24 @@ mod tests {
     }
 
     #[test]
-    fn dead_torrents_are_discarded_unknown_seeders_are_not() {
-        assert!(
-            sc(
-                "Radiohead - OK Computer",
-                Some(0),
-                None,
-                "OK Computer",
-                None
-            ) < 0.0
+    fn zero_seeders_are_penalized_not_discarded() {
+        let zero = sc(
+            "Radiohead - OK Computer",
+            Some(0),
+            None,
+            "OK Computer",
+            None,
         );
-        assert!(sc("Radiohead - OK Computer", None, None, "OK Computer", None) > 0.0);
+        let one = sc(
+            "Radiohead - OK Computer",
+            Some(1),
+            None,
+            "OK Computer",
+            None,
+        );
+        assert!(zero > 0.0);
+        assert!(zero < one);
+        assert!(sc("Radiohead - OK Computer", None, None, "OK Computer", None) > zero);
     }
 
     #[test]
