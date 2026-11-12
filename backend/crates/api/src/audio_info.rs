@@ -57,9 +57,18 @@ pub fn parse_ffmpeg_info(stderr: &str) -> AudioInfo {
         } else if let Some(k) = p.strip_suffix(" kb/s") {
             info.bitrate_kbps = k.parse().ok();
         } else if matches!(*p, "mono" | "stereo") || p.contains("channels") || p.contains('.') {
-            let ch = p.split('(').next().unwrap_or(p).trim().replace(" channels", "");
+            let ch = p
+                .split('(')
+                .next()
+                .unwrap_or(p)
+                .trim()
+                .replace(" channels", "");
             info.channels = Some(ch);
-        } else if p.starts_with('s') || p.starts_with('u') || p.starts_with("flt") || p.starts_with("dbl") {
+        } else if p.starts_with('s')
+            || p.starts_with('u')
+            || p.starts_with("flt")
+            || p.starts_with("dbl")
+        {
             // s16, s32 (24 bit), fltp, s16p…
             info.bit_depth = p
                 .split_once('(')
@@ -128,10 +137,13 @@ pub async fn audio_info(
     let ext = file
         .ext
         .clone()
-        .or_else(|| file.path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()))
+        .or_else(|| {
+            file.path
+                .rsplit_once('.')
+                .map(|(_, e)| e.to_ascii_lowercase())
+        })
         .unwrap_or_default();
-    let transcoded =
-        crate::stream::direct_mime(&ext).is_none() || source.cue_start_ms.is_some();
+    let transcoded = crate::stream::direct_mime(&ext).is_none() || source.cue_start_ms.is_some();
 
     let mut info = AudioInfo::default();
     let tc = &state.transcoder;

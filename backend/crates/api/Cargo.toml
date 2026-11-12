@@ -9,6 +9,7 @@ test-fakes = ["nimbus-torrent/test-fakes"]
 
 [dependencies]
 nimbus-core.workspace = true
+reqwest.workspace = true
 nimbus-db.workspace = true
 nimbus-worker.workspace = true
 nimbus-musicbrainz.workspace = true

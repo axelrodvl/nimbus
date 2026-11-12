@@ -194,6 +194,41 @@
         }
       }
     },
+    "/api/artist-image/{mbid}": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "operationId": "artist_image",
+        "parameters": [
+          {
+            "name": "mbid",
+            "in": "path",
+            "description": "MBID артиста",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Редирект на изображение"
+          },
+          "404": {
+            "description": "Фото не найдено (`no_image`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/artists/{id}": {
       "get": {
         "tags": [

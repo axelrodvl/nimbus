@@ -28,6 +28,7 @@ use crate::{library, routes, search, sources};
         library::get_track,
         crate::stream::stream_track,
         crate::audio_info::audio_info,
+        crate::artist_image::artist_image,
         sources::album_torrents_list,
         sources::torrent_files,
         sources::track_sources_list,

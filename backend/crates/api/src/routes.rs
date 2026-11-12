@@ -26,12 +26,19 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
         .route("/library/artists", get(library::list_artists))
         .route("/library/albums", get(library::list_albums))
         .route("/library/tracks", get(library::list_tracks))
+        .route(
+            "/artist-image/{mbid}",
+            get(crate::artist_image::artist_image),
+        )
         .route("/artists/{id}", get(library::get_artist))
         .route("/artists/{id}/import", post(library::retry_artist_import))
         .route("/albums/{id}", get(library::get_album))
         .route("/tracks/{id}", get(library::get_track))
         .route("/tracks/{id}/stream", get(crate::stream::stream_track))
-        .route("/tracks/{id}/audio-info", get(crate::audio_info::audio_info))
+        .route(
+            "/tracks/{id}/audio-info",
+            get(crate::audio_info::audio_info),
+        )
         .route(
             "/internal/raw/{torrent_id}/{file_index}",
             get(crate::stream::raw_file),

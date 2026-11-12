@@ -52,6 +52,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/artist-image/{mbid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["artist_image"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/artists/{id}": {
         parameters: {
             query?: never;
@@ -1143,6 +1159,36 @@ export interface operations {
                 };
             };
             /** @description Нет такого альбома */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    artist_image: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description MBID артиста */
+                mbid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Редирект на изображение */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Фото не найдено (`no_image`) */
             404: {
                 headers: {
                     [name: string]: unknown;
