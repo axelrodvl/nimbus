@@ -3,9 +3,9 @@ use nimbus_core::jobs::Job;
 use nimbus_core::model::{Album, Artist, NewAlbum, NewArtist, NewTrack, Track, TrackStatus};
 use nimbus_db::repo::jobs::{ImportPhase, ImportProgress};
 use nimbus_db::repo::{albums, artists, jobs, tracks};
-use std::time::Instant;
 use nimbus_db::PgPool;
 use nimbus_musicbrainz::{cover_url, MbClient, ReleaseGroupHit};
+use std::time::Instant;
 use uuid::Uuid;
 
 use crate::error::LibraryError;
@@ -132,8 +132,7 @@ impl LibraryService {
             None => self.mb.release_group(rg_mbid).await?,
         };
         let artist = self.ensure_artist(rg.artist_mbid).await?;
-        let release = self.mb.pick_canonical_release(rg_mbid).await?;
-        let tracklist = self.mb.release_tracklist(release).await?;
+        let (release, tracklist) = self.mb.canonical_release_with_tracklist(rg_mbid).await?;
 
         let mut tx = self.db.begin().await?;
         let album = albums::upsert_by_rg_mbid(
@@ -373,7 +372,9 @@ impl LibraryService {
                     tracing::warn!(release_group = %rg, %title, "release group has no usable release, skipped");
                     summary.skipped += 1;
                     progress.skipped += 1;
-                    progress.log(format!("Skipped \"{title}\": no usable release in MusicBrainz"));
+                    progress.log(format!(
+                        "Skipped \"{title}\": no usable release in MusicBrainz"
+                    ));
                 }
                 Err(e) => {
                     progress.log(format!("Error on \"{title}\": {e}"));

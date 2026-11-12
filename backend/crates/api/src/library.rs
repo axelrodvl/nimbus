@@ -145,7 +145,10 @@ fn import_progress(a: &ArtistView) -> Option<ImportProgressDto> {
         log: p
             .log
             .into_iter()
-            .map(|e| ImportLogEntryDto { at: e.at, text: e.text })
+            .map(|e| ImportLogEntryDto {
+                at: e.at,
+                text: e.text,
+            })
             .collect(),
     })
 }

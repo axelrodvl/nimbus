@@ -88,6 +88,8 @@ pub(crate) struct BrowseReleaseGroups {
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct BrowseReleases {
+    #[serde(default, rename = "release-count")]
+    pub count: usize,
     #[serde(default)]
     pub releases: Vec<RawRelease>,
 }
@@ -316,6 +318,16 @@ impl RawRecording {
 }
 
 impl RawRelease {
+    pub(crate) fn brief(&self) -> ReleaseBrief {
+        ReleaseBrief {
+            mbid: self.id,
+            date: non_empty(self.date.clone()),
+            country: non_empty(self.country.clone()),
+            track_count: self.media.iter().map(|m| m.track_count).sum(),
+            formats: self.media.iter().map(|m| m.format.clone()).collect(),
+        }
+    }
+
     pub(crate) fn into_brief(self) -> ReleaseBrief {
         ReleaseBrief {
             mbid: self.id,

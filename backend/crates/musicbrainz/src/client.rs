@@ -371,6 +371,59 @@ impl MbClient {
             .ok_or(MbError::NotFound)
     }
 
+    /// Каноничный релиз группы вместе с треклистом — одним запросом (вместо двух).
+    /// Быстрый путь работает, только если все официальные релизы группы вернулись одной страницей
+    /// (тогда выбор тот же, что у `pick_canonical_release`); иначе, как и при любой ошибке
+    /// формата ответа, — прежняя пара запросов.
+    pub async fn canonical_release_with_tracklist(
+        &self,
+        release_group: Uuid,
+    ) -> Result<(Uuid, ReleaseTracklist)> {
+        let rg = release_group.to_string();
+        let limit = PAGE_LIMIT.to_string();
+        let query = [
+            ("release-group", rg.as_str()),
+            ("inc", "media recordings artist-credits"),
+            ("status", "official"),
+            ("limit", limit.as_str()),
+        ];
+        match self
+            .get_typed::<BrowseReleases>("release", &query, LOOKUP_TTL)
+            .await
+        {
+            Ok(page) if !page.releases.is_empty() && page.count <= page.releases.len() => {
+                let briefs: Vec<_> = page.releases.iter().map(|r| r.brief()).collect();
+                if let Some(best) = pick_canonical(&briefs).map(|r| r.mbid) {
+                    if let Some(r) = page.releases.into_iter().find(|r| r.id == best) {
+                        if r.media
+                            .iter()
+                            .all(|m| m.tracks.len() as u32 == m.track_count)
+                        {
+                            let full = RawReleaseFull {
+                                id: r.id,
+                                media: r.media,
+                            };
+                            return Ok((best, full.into()));
+                        }
+                    }
+                }
+            }
+            Ok(_) => {}
+            // Сеть/лимиты — не повод тратить ещё два запроса: пусть решает вызывающий (повтор задачи).
+            Err(e @ (MbError::RateLimited | MbError::Transport(_))) => return Err(e),
+            Err(MbError::Http { status, .. }) if status >= 500 => {
+                return Err(MbError::Http {
+                    status,
+                    body: String::new(),
+                })
+            }
+            Err(_) => {}
+        }
+        let release = self.pick_canonical_release(release_group).await?;
+        let tracklist = self.release_tracklist(release).await?;
+        Ok((release, tracklist))
+    }
+
     pub async fn release_tracklist(&self, release: Uuid) -> Result<ReleaseTracklist> {
         let r: RawReleaseFull = self
             .get_typed(

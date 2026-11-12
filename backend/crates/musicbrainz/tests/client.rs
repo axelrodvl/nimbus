@@ -264,6 +264,56 @@ async fn pick_canonical_release_falls_back_to_unofficial() {
 }
 
 #[tokio::test]
+async fn canonical_release_with_tracklist_is_one_request_when_all_releases_fit() {
+    let server = MockServer::start().await;
+    let rel = "c0000000-0000-4000-8000-000000000002";
+    Mock::given(path("/ws/2/release"))
+        .and(query_param("release-group", OK_COMPUTER))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "release-count": 1,
+            "releases": [{
+                "id": rel, "country": "XW", "date": "1997-05-21",
+                "media": [{"position": 1, "format": "Digital Media", "track-count": 1,
+                    "tracks": [{"id": "d0000000-0000-4000-8000-000000000001", "position": 1,
+                        "title": "Airbag", "length": 284000,
+                        "recording": {"id": "e0000000-0000-4000-8000-000000000001", "length": 284000}}]}]
+            }]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (id, tl) = client(&server)
+        .canonical_release_with_tracklist(uuid(OK_COMPUTER))
+        .await
+        .unwrap();
+    assert_eq!(id, uuid(rel));
+    assert_eq!(tl.tracks.len(), 1);
+    assert_eq!(tl.tracks[0].title, "Airbag");
+}
+
+#[tokio::test]
+async fn canonical_release_with_tracklist_falls_back_when_releases_do_not_fit_one_page() {
+    let server = MockServer::start().await;
+    // страница неполная (count > releases): быстрый путь не применяется, идут два запроса прежнего пути
+    Mock::given(path("/ws/2/release"))
+        .and(query_param("release-group", OK_COMPUTER))
+        .respond_with(json("releases_browse"))
+        .mount(&server)
+        .await;
+    Mock::given(path("/ws/2/release/c0000000-0000-4000-8000-000000000002"))
+        .respond_with(json("release"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (id, tl) = client(&server)
+        .canonical_release_with_tracklist(uuid(OK_COMPUTER))
+        .await
+        .unwrap();
+    assert_eq!(id, uuid("c0000000-0000-4000-8000-000000000002"));
+    assert!(!tl.tracks.is_empty());
+}
+
+#[tokio::test]
 async fn retries_on_503_then_succeeds() {
     let server = MockServer::start().await;
     Mock::given(path(format!("/ws/2/artist/{RADIOHEAD}")))
