@@ -405,7 +405,8 @@ impl TorrentEngine {
             self.seed_ratio.clone(),
         );
         tokio::spawn(async move {
-            let mut tick = tokio::time::interval(Duration::from_secs(30));
+            let period = Duration::from_secs(30);
+            let mut tick = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
             loop {
                 tick.tick().await;
                 let Some(limit) = decode_ratio(ratio.load(std::sync::atomic::Ordering::Relaxed))
@@ -417,7 +418,8 @@ impl TorrentEngine {
                 let _guard = selected.lock().await;
                 for h in handles {
                     let st = h.stats();
-                    if st.finished && !h.is_paused() && ratio_reached(&st, Some(limit)) {
+                    let live = matches!(st.state, librqbit::TorrentStatsState::Live);
+                    if live && st.finished && ratio_reached(&st, Some(limit)) {
                         match session.pause(&h).await {
                             Ok(()) => tracing::info!(
                                 info_hash = %h.info_hash().as_string(),
