@@ -32,7 +32,7 @@ export function QueuePanel({ open, onClose }: { open: boolean; onClose: () => vo
       aria-hidden={!open}
       inert={!open}
       className={cn(
-        'border-divider dark:border-divider-dark fixed top-0 right-0 bottom-0 z-40 flex w-80 max-w-[90vw] flex-col border-l bg-white shadow-2xl transition-transform duration-200 dark:bg-[#181818]',
+        'border-divider dark:border-divider-dark fixed top-0 right-0 bottom-0 z-[60] flex w-80 max-w-[90vw] flex-col border-l bg-white shadow-2xl transition-transform duration-200 dark:bg-[#181818]',
         open ? 'translate-x-0' : 'translate-x-full',
       )}
     >

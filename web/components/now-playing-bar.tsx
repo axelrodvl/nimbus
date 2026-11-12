@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  ChevronDown,
   ListMusic,
   Loader2,
   Pause,
@@ -16,7 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { QueuePanel } from '@/components/queue-panel';
 import { Cover } from '@/components/ui/cover';
 import { cn, formatDuration } from '@/lib/utils';
@@ -30,6 +31,7 @@ export function NowPlayingBar() {
   const player = usePlayer();
   const { track, isPlaying, position, duration, buffered, volume, muted, hasNext, status, shuffle, repeat } = player;
   const [queueOpen, setQueueOpen] = useState(false);
+  const [fullOpen, setFullOpen] = useState(false);
 
   const effectiveVolume = muted ? 0 : volume;
   const VolumeIcon = effectiveVolume === 0 ? VolumeX : effectiveVolume < 50 ? Volume1 : Volume2;
@@ -58,7 +60,9 @@ export function NowPlayingBar() {
       />
       <SkipButton direction="forward" onClick={player.next} disabled={!track || !hasNext} />
       <ToggleButton
-        label={repeat === 'off' ? t('player.repeat.off') : repeat === 'all' ? t('player.repeat.all') : t('player.repeat.one')}
+        label={
+          repeat === 'off' ? t('player.repeat.off') : repeat === 'all' ? t('player.repeat.all') : t('player.repeat.one')
+        }
         active={repeat !== 'off'}
         onClick={player.cycleRepeat}
         className="hidden sm:inline-flex"
@@ -72,16 +76,30 @@ export function NowPlayingBar() {
   return (
     <>
       <QueuePanel open={queueOpen} onClose={() => setQueueOpen(false)} />
+      <FullPlayer
+        open={fullOpen && Boolean(track)}
+        onClose={() => setFullOpen(false)}
+        onOpenQueue={() => setQueueOpen(true)}
+      />
       {track ? (
         <div
           style={{ viewTransitionName: 'player-bar' }}
           className="border-divider dark:border-divider-dark shrink-0 border-t bg-white px-4 py-2 sm:hidden dark:bg-[#181818]"
         >
           <div className="flex items-center gap-3">
-            <Cover src={track.coverUrl} alt={track.title} size="sm" className="!h-12 !w-12 !rounded-sm" />
-            <div className="flex min-w-0 flex-1 flex-col">
-              <TrackInfo title={track.title} artist={track.artist} artistId={track.artistId} />
-            </div>
+            <button
+              type="button"
+              onClick={() => setFullOpen(true)}
+              aria-label={t('player.expand')}
+              data-testid="player-expand"
+              className="flex min-w-0 flex-1 items-center gap-3 text-left"
+            >
+              <Cover src={track.coverUrl} alt={track.title} size="sm" className="!h-12 !w-12 !rounded-sm" />
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-sm font-medium text-black dark:text-white">{track.title}</span>
+                <span className="text-muted truncate text-xs">{track.artist}</span>
+              </div>
+            </button>
             <div className="flex items-center gap-3">
               <SkipButton direction="back" onClick={player.previous} />
               <PlayPauseButton
@@ -102,7 +120,13 @@ export function NowPlayingBar() {
           </div>
           <div className="mt-2 flex items-center gap-2">
             <span className="text-muted w-8 text-right text-[10px]">{formatDuration(elapsed)}</span>
-            <SliderBar value={position} max={duration} buffered={buffered} onChange={player.seekTo} label={t('player.seek')} />
+            <SliderBar
+              value={position}
+              max={duration}
+              buffered={buffered}
+              onChange={player.seekTo}
+              label={t('player.seek')}
+            />
             <span className="text-muted w-8 text-[10px]">{formatDuration(total)}</span>
           </div>
           <StatusLine className="mt-1" />
@@ -116,7 +140,15 @@ export function NowPlayingBar() {
         <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)_2fr] items-center gap-4 lg:grid-cols-[minmax(0,1fr)_2fr_minmax(0,1fr)]">
           <div className="min-w-0">
             <div className="hidden items-center gap-3 lg:flex">
-              <Cover src={track?.coverUrl} alt={track?.title ?? ''} size="sm" className="!h-14 !w-14 !rounded-sm" />
+              <button
+                type="button"
+                onClick={() => track && setFullOpen(true)}
+                aria-label={t('player.expand')}
+                disabled={!track}
+                className="shrink-0"
+              >
+                <Cover src={track?.coverUrl} alt={track?.title ?? ''} size="sm" className="!h-14 !w-14 !rounded-sm" />
+              </button>
               <TrackInfo
                 title={track?.title ?? t('player.nothing')}
                 artist={track?.artist}
@@ -424,6 +456,254 @@ function TrackInfo({
             </>
           ) : null)}
       </span>
+    </div>
+  );
+}
+
+// Полноэкранный плеер в стиле Apple Music. Сворачивается: шевроном/ручкой сверху, свайпом вниз, Esc.
+function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: () => void; onOpenQueue: () => void }) {
+  const t = useT();
+  const player = usePlayer();
+  const { track, isPlaying, position, duration, buffered, volume, muted, hasNext, status, shuffle, repeat } = player;
+  const [dragY, setDragY] = useState(0);
+  const startY = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    if ((e.target as HTMLElement).tagName === 'INPUT') return;
+    startY.current = e.touches[0].clientY;
+  };
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (startY.current === null) return;
+    setDragY(Math.max(0, e.touches[0].clientY - startY.current));
+  };
+  const onTouchEnd = () => {
+    if (startY.current === null) return;
+    startY.current = null;
+    if (dragY > 100) onClose();
+    setDragY(0);
+  };
+
+  const effectiveVolume = muted ? 0 : volume;
+  const RepeatIcon = repeat === 'one' ? Repeat1 : Repeat;
+  const connecting = status === 'loading' || status === 'buffering';
+  const dragging = dragY > 0;
+
+  return (
+    <div
+      data-testid="full-player"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('player.expand')}
+      aria-hidden={!open}
+      inert={!open}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchEnd}
+      style={open ? { transform: `translateY(${dragY}px)` } : undefined}
+      className={cn(
+        'fixed inset-0 z-50 flex flex-col overflow-hidden bg-white text-black dark:bg-[#181818] dark:text-white',
+        !dragging && 'transition-transform duration-300 ease-out',
+        !open && 'translate-y-full',
+      )}
+    >
+      {track ? (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 -z-0 scale-150 opacity-30 blur-3xl dark:opacity-40"
+          style={track.coverUrl ? { backgroundImage: `url(${track.coverUrl})`, backgroundSize: 'cover' } : undefined}
+        />
+      ) : null}
+      <div className="relative mx-auto flex h-full w-full max-w-md flex-col px-6 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={t('player.collapse')}
+          data-testid="full-player-close"
+          className="group mx-auto flex h-8 w-24 items-center justify-center"
+        >
+          <span className="h-1.5 w-10 rounded-full bg-black/25 transition-colors group-hover:bg-black/40 dark:bg-white/30 dark:group-hover:bg-white/50" />
+        </button>
+
+        <div className="flex min-h-0 flex-1 items-center justify-center py-4">
+          <Cover
+            src={track?.coverUrl}
+            alt={track?.title ?? ''}
+            className={cn(
+              'aspect-square !h-auto max-h-full !w-full !rounded-xl shadow-2xl transition-transform duration-300',
+              isPlaying ? 'scale-100' : 'scale-90',
+            )}
+          />
+        </div>
+
+        <div className="flex items-center gap-3 pt-2">
+          <div className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate text-xl font-semibold" data-testid="full-player-title">
+              {track?.albumId !== undefined ? (
+                <Link href={`/album/${track.albumId}`} onClick={onClose} className="hover:underline">
+                  {track.title}
+                </Link>
+              ) : (
+                track?.title
+              )}
+            </span>
+            <span className="text-muted truncate text-lg">
+              {track?.artistId !== undefined ? (
+                <Link href={`/artist/${track.artistId}`} onClick={onClose} className="hover:underline">
+                  {track.artist}
+                </Link>
+              ) : (
+                track?.artist
+              )}
+            </span>
+          </div>
+        </div>
+
+        <div className="pt-5">
+          <FullSlider
+            value={position}
+            max={duration}
+            buffered={buffered}
+            onChange={player.seekTo}
+            label={t('player.seek')}
+          />
+          <div className="text-muted mt-1 flex justify-between text-xs tabular-nums">
+            <span>{formatDuration(Math.floor(position))}</span>
+            <span>{formatDuration(Math.floor(duration))}</span>
+          </div>
+          {open ? <StatusLine className="mt-1" /> : null}
+        </div>
+
+        <div className="flex items-center justify-between pt-4">
+          <ToggleButton label={t('player.shuffle')} active={shuffle} onClick={player.toggleShuffle}>
+            <Shuffle className="h-5 w-5" />
+          </ToggleButton>
+          <button
+            type="button"
+            onClick={player.previous}
+            aria-label={t('player.previous')}
+            className="p-2 transition-transform active:scale-90"
+          >
+            <SkipBack className="h-9 w-9" fill="currentColor" />
+          </button>
+          <button
+            type="button"
+            onClick={player.togglePlayPause}
+            aria-label={isPlaying ? t('player.pause') : t('player.play')}
+            data-playing={isPlaying || undefined}
+            className="p-2 transition-transform active:scale-90"
+          >
+            {connecting && isPlaying ? (
+              <Loader2 className="h-14 w-14 animate-spin" />
+            ) : isPlaying ? (
+              <Pause className="h-14 w-14" fill="currentColor" />
+            ) : (
+              <Play className="h-14 w-14" fill="currentColor" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={player.next}
+            disabled={!hasNext}
+            aria-label={t('player.next')}
+            className="p-2 transition-transform active:scale-90 disabled:opacity-40"
+          >
+            <SkipForward className="h-9 w-9" fill="currentColor" />
+          </button>
+          <ToggleButton
+            label={
+              repeat === 'off'
+                ? t('player.repeat.off')
+                : repeat === 'all'
+                  ? t('player.repeat.all')
+                  : t('player.repeat.one')
+            }
+            active={repeat !== 'off'}
+            onClick={player.cycleRepeat}
+          >
+            <RepeatIcon className="h-5 w-5" />
+          </ToggleButton>
+        </div>
+
+        <div className="flex items-center gap-3 pt-6">
+          <button type="button" onClick={player.toggleMute} aria-label={t('player.mute')} className="text-muted p-1">
+            <VolumeX className="h-4 w-4" />
+          </button>
+          <FullSlider value={effectiveVolume} max={100} onChange={player.setVolume} label={t('player.volume')} />
+          <Volume2 className="text-muted h-4 w-4" aria-hidden />
+        </div>
+
+        <div className="flex items-center justify-between pt-6">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t('player.collapse')}
+            className="text-muted p-2 hover:text-black dark:hover:text-white"
+          >
+            <ChevronDown className="h-6 w-6" />
+          </button>
+          <button
+            type="button"
+            onClick={onOpenQueue}
+            aria-label={t('player.queue')}
+            className="text-muted p-2 hover:text-black dark:hover:text-white"
+          >
+            <ListMusic className="h-6 w-6" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Толстый слайдер для полноэкранного плеера (удобный для пальца).
+function FullSlider({
+  value,
+  max,
+  onChange,
+  label,
+  buffered,
+}: {
+  value: number;
+  max: number;
+  onChange: (v: number) => void;
+  label: string;
+  buffered?: [number, number][];
+}) {
+  const safeMax = max > 0 ? max : 1;
+  const pct = Math.min(100, Math.max(0, (value / safeMax) * 100));
+  return (
+    <div className="relative flex h-6 flex-1 items-center">
+      <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/15">
+        {buffered?.map(([s, e], i) => (
+          <div
+            key={i}
+            className="absolute top-0 h-full bg-black/15 dark:bg-white/20"
+            style={{ left: `${(s / safeMax) * 100}%`, width: `${((e - s) / safeMax) * 100}%` }}
+          />
+        ))}
+        <div
+          className="absolute top-0 left-0 h-full rounded-full bg-black/70 dark:bg-white/80"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={safeMax}
+        step="any"
+        value={Math.min(value, safeMax)}
+        onChange={e => onChange(Number(e.target.value))}
+        aria-label={label}
+        className="absolute inset-0 m-0 h-full w-full cursor-pointer appearance-none border-0 bg-transparent p-0 opacity-0"
+      />
     </div>
   );
 }
