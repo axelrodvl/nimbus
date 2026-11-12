@@ -72,7 +72,7 @@ export function SearchResults({ status, data, stale, error, query, onRetry }: Pr
       {total === 0 && data.errors.length === 0 ? (
         <EmptyState title={t('search.none')} body={t('search.noneBody', { query: data.query || query })} />
       ) : null}
-      <BestResult artist={data.artists[0]} tracks={data.tracks.slice(0, 4)} />
+      <BestResult artist={pickBestArtist(data)} tracks={data.tracks.slice(0, 4)} />
       {data.artists.length > 0 ? (
         <section aria-labelledby="search-artists">
           <h2 id="search-artists" className="mb-4">
@@ -130,6 +130,30 @@ function RetryButton({ onRetry }: { onRetry: () => void }) {
       {t('common.retry')}
     </button>
   );
+}
+
+const norm = (s: string) => s.trim().toLowerCase();
+
+/** Запрос = название трека («Nothing Else Matters») → лучший артист — исполнитель топового трека,
+ * а не случайный артист с похожим именем. Если имя артиста совпало с запросом — он и лучший. */
+function pickBestArtist(data: SearchResponse): Artist | undefined {
+  const q = norm(data.query);
+  const exact = data.artists.find(a => norm(a.name) === q);
+  if (exact) return exact;
+  const top = data.tracks[0];
+  if (top && norm(top.title) === q) {
+    return (
+      data.artists.find(a => a.mbid === top.artist_mbid) ?? {
+        country: null,
+        disambiguation: null,
+        library_id: null,
+        mbid: top.artist_mbid,
+        name: top.artist_name,
+        score: top.score,
+      }
+    );
+  }
+  return data.artists[0];
 }
 
 function BestResult({ artist, tracks }: { artist: Artist | undefined; tracks: Track[] }) {

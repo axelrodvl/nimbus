@@ -22,6 +22,8 @@ const MAX_QUERY_CHARS: usize = 200;
 /// Короче — ищем только артистов (экономия лимита MB).
 const MIN_FULL_SEARCH_CHARS: usize = 3;
 const COVER_SIZE: u16 = 250;
+/// Сколько кандидатов брать у MB для переранжирования по популярности (максимум MB).
+const CANDIDATES: u8 = 100;
 
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
@@ -187,18 +189,30 @@ pub async fn search(
             kinds.contains(&Kind::Album),
             "albums",
             deadline,
-            mb.search_release_groups(&q, limit),
+            mb.search_release_groups(&q, CANDIDATES),
             &mut e_albums
         ),
         run(
             kinds.contains(&Kind::Track),
             "tracks",
             deadline,
-            mb.search_recordings(&q, limit),
+            mb.search_recordings(&q, CANDIDATES),
             &mut e_tracks
         ),
     );
     let mut errors = [e_artists, e_albums, e_tracks].concat();
+
+    // MB отдаёт десятки записей с одинаковым score 100 (каверы, лайвы) — при равном score
+    // выше ставим то, что чаще слушают (ListenBrainz), и только потом обрезаем до limit.
+    let album_ids: Vec<Uuid> = album_hits.iter().map(|a| a.mbid).collect();
+    let track_ids: Vec<Uuid> = track_hits.iter().map(|t| t.mbid).collect();
+    let (album_pop, track_pop) = tokio::join!(
+        mb.release_group_popularity(&album_ids),
+        mb.recording_popularity(&track_ids),
+    );
+    let (mut album_hits, mut track_hits) = (album_hits, track_hits);
+    rank_by_popularity(&mut album_hits, &album_pop, |a| (a.mbid, a.score), limit);
+    rank_by_popularity(&mut track_hits, &track_pop, |t| (t.mbid, t.score), limit);
 
     // Обогащение: по одному запросу на тип. Сбой БД не должен ломать поиск.
     let artist_ids = lookup(
@@ -289,6 +303,20 @@ pub async fn search(
     }))
 }
 
+/// Стабильная сортировка: score MB ↓, затем прослушивания ↓; обрезка до `limit`.
+fn rank_by_popularity<T>(
+    hits: &mut Vec<T>,
+    pop: &HashMap<Uuid, u64>,
+    key: impl Fn(&T) -> (Uuid, u8),
+    limit: u8,
+) {
+    hits.sort_by_key(|h| {
+        let (id, score) = key(h);
+        std::cmp::Reverse((score, pop.get(&id).copied().unwrap_or(0)))
+    });
+    hits.truncate(limit as usize);
+}
+
 async fn lookup<T>(
     name: &str,
     skip: bool,
@@ -319,5 +347,18 @@ mod tests {
         let t = parse_types(Some("artist, track")).unwrap();
         assert!(t.contains(&Kind::Artist) && t.contains(&Kind::Track) && !t.contains(&Kind::Album));
         assert!(parse_types(Some("artist,bogus")).is_err());
+    }
+
+    #[test]
+    fn popularity_breaks_score_ties_then_truncates() {
+        let ids: Vec<Uuid> = (1..=4).map(Uuid::from_u128).collect();
+        // (id, score): все 100, кроме последнего; популярнее всех — ids[2].
+        let mut hits = vec![(ids[0], 100u8), (ids[1], 100), (ids[2], 100), (ids[3], 90)];
+        let pop = HashMap::from([(ids[2], 9000), (ids[1], 10), (ids[3], 99999)]);
+        rank_by_popularity(&mut hits, &pop, |h| *h, 3);
+        assert_eq!(
+            hits.iter().map(|h| h.0).collect::<Vec<_>>(),
+            vec![ids[2], ids[1], ids[0]]
+        );
     }
 }

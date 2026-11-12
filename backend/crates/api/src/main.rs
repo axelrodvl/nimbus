@@ -83,6 +83,7 @@ async fn main() -> anyhow::Result<()> {
     if let Some(f) = &fakes {
         mb_cfg.base = f.mb_base.parse().context("fake MB url")?;
         mb_cfg.min_interval = std::time::Duration::from_millis(5);
+        mb_cfg.lb_base = None;
     }
     let mb = MbClient::with_config(mb_cfg, Some(db.clone()))
         .context("cannot create MusicBrainz client")?;

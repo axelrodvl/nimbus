@@ -39,6 +39,8 @@ pub struct MbConfig {
     /// Пауза перед повтором при 503/429, если нет `Retry-After`.
     pub retry_delay: Duration,
     pub timeout: Duration,
+    /// База ListenBrainz API для сигнала популярности (`None` — без переранжирования).
+    pub lb_base: Option<Url>,
 }
 
 impl MbConfig {
@@ -49,6 +51,7 @@ impl MbConfig {
             min_interval: Duration::from_millis(1100),
             retry_delay: Duration::from_secs(2),
             timeout: Duration::from_secs(15),
+            lb_base: Some(Url::parse("https://api.listenbrainz.org/1/").expect("valid url")),
         }
     }
 }
@@ -213,6 +216,69 @@ impl MbClient {
             )
             .await?;
         r.recordings.into_iter().map(|x| x.into_hit()).collect()
+    }
+
+    /// Число прослушиваний (ListenBrainz) для записей. MB не ранжирует по популярности:
+    /// у «Nothing Else Matters» сотни записей со score 100, и оригинал тонет среди каверов.
+    /// Любая ошибка → пустая карта (поиск просто остаётся в порядке MB).
+    pub async fn recording_popularity(&self, mbids: &[Uuid]) -> HashMap<Uuid, u64> {
+        self.popularity(
+            "popularity/recording",
+            "recording_mbids",
+            "recording_mbid",
+            mbids,
+        )
+        .await
+    }
+
+    pub async fn release_group_popularity(&self, mbids: &[Uuid]) -> HashMap<Uuid, u64> {
+        self.popularity(
+            "popularity/release-group",
+            "release_group_mbids",
+            "release_group_mbid",
+            mbids,
+        )
+        .await
+    }
+
+    async fn popularity(
+        &self,
+        path: &str,
+        req_field: &str,
+        id_field: &str,
+        mbids: &[Uuid],
+    ) -> HashMap<Uuid, u64> {
+        let (Some(base), false) = (&self.inner.cfg.lb_base, mbids.is_empty()) else {
+            return HashMap::new();
+        };
+        let res: std::result::Result<Vec<Value>, String> = async {
+            let url = base.join(path).map_err(|e| e.to_string())?;
+            let resp = self
+                .inner
+                .http
+                .post(url)
+                .timeout(Duration::from_secs(5))
+                .json(&serde_json::json!({ req_field: mbids }))
+                .send()
+                .await
+                .and_then(|r| r.error_for_status())
+                .map_err(|e| e.to_string())?;
+            resp.json().await.map_err(|e| e.to_string())
+        }
+        .await;
+        match res {
+            Ok(items) => items
+                .iter()
+                .filter_map(|it| {
+                    let id = it.get(id_field)?.as_str()?.parse().ok()?;
+                    Some((id, it.get("total_listen_count")?.as_u64()?))
+                })
+                .collect(),
+            Err(e) => {
+                tracing::warn!(error = %e, "listenbrainz popularity failed");
+                HashMap::new()
+            }
+        }
     }
 
     // ---------------------------------------------------------------- lookup / browse

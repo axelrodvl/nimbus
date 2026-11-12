@@ -188,7 +188,7 @@ async fn album_creates_torrents_links_and_verify_jobs(pool: PgPool) {
             cand("Radiohead - Discography 1993-2016 [FLAC]", Some(3), 30),
             cand("Muse - OK Computer [FLAC]", Some(4), 50), // чужой артист
             cand("Radiohead - OK Computer [FLAC]", Some(5), 0), // 0 сидов: штраф, но не отбрасывается
-            cand("Radiohead - Kid A [FLAC]", Some(6), 50),  // другой альбом
+            cand("Radiohead - Kid A [FLAC]", Some(6), 50),      // другой альбом
         ])
     });
     let (ctx, events) = ctx(&pool, Some(provider.clone()), 1, 5);

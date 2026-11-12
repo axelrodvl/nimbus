@@ -27,6 +27,7 @@ pub fn test_config() -> Config {
 pub fn mb_client(server: &MockServer) -> MbClient {
     let mut c = MbConfig::new("NimbusTest/0.1 ( https://example.org/test )");
     c.base = format!("{}/ws/2/", server.uri()).parse().unwrap();
+    c.lb_base = None;
     c.min_interval = Duration::from_millis(1);
     c.retry_delay = Duration::from_millis(5);
     MbClient::with_config(c, None).unwrap()
@@ -36,6 +37,7 @@ pub fn mb_client(server: &MockServer) -> MbClient {
 pub fn state(pool: PgPool) -> AppState {
     let mut c = MbConfig::new("NimbusTest/0.1 ( https://example.org/test )");
     c.base = "http://127.0.0.1:9/ws/2/".parse().unwrap();
+    c.lb_base = None;
     AppState::new(
         pool,
         Arc::new(test_config()),
