@@ -136,7 +136,10 @@ function BestResult({ artist, tracks }: { artist: Artist | undefined; tracks: Tr
   const t = useT();
   if (!artist || tracks.length === 0) return null;
   return (
-    <section aria-labelledby="search-best" className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+    <section
+      aria-labelledby="search-best"
+      className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"
+    >
       <div>
         <h2 id="search-best" className="mb-4">
           {t('search.best')}
