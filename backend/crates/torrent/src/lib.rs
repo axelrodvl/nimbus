@@ -117,6 +117,18 @@ fn internal(e: impl std::fmt::Display) -> EngineError {
     EngineError::Internal(format!("{e:#}"))
 }
 
+/// Ошибка `add_torrent`. Если конечный список пиров (initial_peers) исчерпан, а метаданных нет,
+/// librqbit возвращает ошибку сразу, не дожидаясь нашего таймаута. Для вызывающих это то же самое,
+/// что таймаут («метаданные не получены»), поэтому и мапим в `MetadataTimeout`.
+fn add_error(e: impl std::fmt::Display) -> EngineError {
+    let msg = format!("{e:#}");
+    if msg.contains("no way to discover torrent metainfo") {
+        EngineError::MetadataTimeout
+    } else {
+        EngineError::Internal(msg)
+    }
+}
+
 /// Источник списка файлов по magnet (реализуется движком и фейком в тестах обработчиков).
 #[async_trait::async_trait]
 pub trait MetadataFetcher: Send + Sync {
@@ -530,7 +542,7 @@ impl TorrentEngine {
             let resp = tokio::time::timeout(self.cfg.metadata_timeout, fut)
                 .await
                 .map_err(|_| EngineError::MetadataTimeout)?
-                .map_err(internal)?;
+                .map_err(add_error)?;
             match resp {
                 AddTorrentResponse::ListOnly(r) => Ok(meta_of(&hash, &r.info)),
                 AddTorrentResponse::Added(_, h) | AddTorrentResponse::AlreadyManaged(_, h) => h
@@ -581,7 +593,7 @@ impl TorrentEngine {
             let resp = tokio::time::timeout(self.cfg.metadata_timeout, fut)
                 .await
                 .map_err(|_| EngineError::MetadataTimeout)?
-                .map_err(internal)?;
+                .map_err(add_error)?;
             let h = resp.into_handle().ok_or(EngineError::NotFound)?;
             if let Err(e) = check_index(&h, file_index) {
                 let _ = self
