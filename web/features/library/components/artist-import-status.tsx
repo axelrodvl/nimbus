@@ -20,7 +20,8 @@ type Progress = NonNullable<Import['progress']>;
 
 /** Одна строка о том, что делает импорт прямо сейчас. */
 function progressLine(t: ReturnType<typeof useT>, p: Progress) {
-  if (p.phase === 'albums') return t('artist.import.step.albums', { done: p.done, title: p.current ?? '…', total: p.total });
+  if (p.phase === 'albums')
+    return t('artist.import.step.albums', { done: p.done, title: p.current ?? '…', total: p.total });
   if (p.phase === 'discover') return t('artist.import.step.discover', { imported: p.imported });
   return t('artist.import.step.groups');
 }
@@ -29,7 +30,7 @@ function progressLine(t: ReturnType<typeof useT>, p: Progress) {
 function ImportLog({ log }: { log: Progress['log'] }) {
   return (
     <ol
-      className="text-muted bg-surface/40 max-h-64 w-full max-w-xl overflow-y-auto rounded-md p-3 text-left font-mono text-xs"
+      className="text-muted bg-card dark:bg-card-dark dark:text-gray max-h-64 w-full max-w-xl overflow-y-auto rounded-md p-3 text-left font-mono text-xs"
       data-testid="artist-import-log"
     >
       {[...log].reverse().map((e, i) => (
@@ -74,7 +75,9 @@ export function ArtistImportStatus({ artistId, status }: { artistId: number; sta
         >
           {t('artist.import.retry')}
         </Button>
-        {hasLog ? <DetailsToggle open={open} onToggle={() => setOpen(o => !o)} label={t('artist.import.details')} /> : null}
+        {hasLog ? (
+          <DetailsToggle open={open} onToggle={() => setOpen(o => !o)} label={t('artist.import.details')} />
+        ) : null}
         {open && progress ? <ImportLog log={progress.log} /> : null}
       </div>
     );
