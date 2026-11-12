@@ -39,6 +39,9 @@ use crate::{library, routes, search, sources};
         crate::settings::put_settings,
         crate::settings::test_provider,
         crate::settings::get_storage,
+        crate::downloads::list_downloads,
+        crate::downloads::pause_download,
+        crate::downloads::resume_download,
         crate::stream::prefetch_track,
     ),
     components(schemas(
@@ -85,6 +88,9 @@ use crate::{library, routes, search, sources};
         crate::settings::ProviderTestRequest,
         crate::settings::ProviderTestResponse,
         crate::settings::StorageDto,
+        crate::downloads::DownloadsResponse,
+        crate::downloads::DownloadDto,
+        crate::downloads::DownloadState,
         crate::stream::PrefetchResponse,
     )),
     tags(
@@ -92,6 +98,7 @@ use crate::{library, routes, search, sources};
         (name = "search", description = "Поиск в MusicBrainz"),
         (name = "sources", description = "Источники: раздачи, файлы, ручной выбор, retry"),
         (name = "settings", description = "Настройки, проверка провайдеров, хранилище"),
+        (name = "downloads", description = "Менеджер загрузок: торренты движка, пауза и запуск"),
         (name = "library", description = "Библиотека: добавление, списки, страницы артиста и альбома"),
     )
 )]

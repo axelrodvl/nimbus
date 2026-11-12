@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { FormatOrder } from '@/features/settings/components/format-order';
 import { ProviderTest } from '@/features/settings/components/provider-test';
 import { Check, Field, SectionForm, TextInput } from '@/features/settings/components/section-form';
@@ -188,6 +189,19 @@ export function SettingsView({ settings: s, storage }: { settings: Settings; sto
           <TextInput name="seed_ratio" type="number" step="0.1" min={0.1} defaultValue={s.storage.seed_ratio ?? ''} />
         </Field>
       </SectionForm>
+
+      <section data-testid="settings-downloads" aria-labelledby="s-downloads" className="mb-10 max-w-2xl">
+        <h2 id="s-downloads" className="mb-2 text-xl font-semibold">
+          {t('settings.downloads')}
+        </h2>
+        <p className="text-muted mb-4 text-sm">{t('settings.downloadsHint')}</p>
+        <Link
+          href="/settings/downloads"
+          className="border-divider hover:bg-card dark:border-divider-dark dark:hover:bg-card-dark inline-flex items-center rounded-full border px-5 py-2 text-sm font-semibold transition-colors"
+        >
+          {t('settings.downloadsOpen')}
+        </Link>
+      </section>
     </>
   );
 }

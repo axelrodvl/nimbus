@@ -237,7 +237,7 @@ pub fn score(c: &TorrentCandidate, input: &RankInput, prefs: &FormatPrefs) -> f3
     };
     s += match c.seeders {
         Some(0) => SEEDERS_ZERO_PENALTY,
-        Some(n) => SEEDERS *((1.0 + n as f32).ln() / (1.0 + SEEDERS_SATURATION).ln()).min(1.0),
+        Some(n) => SEEDERS * ((1.0 + n as f32).ln() / (1.0 + SEEDERS_SATURATION).ln()).min(1.0),
         None => SEEDERS_UNKNOWN,
     };
     if let Some(f) = detect_format(&c.title) {

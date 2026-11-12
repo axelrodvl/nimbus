@@ -164,6 +164,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/downloads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_downloads"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/downloads/{info_hash}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pause_download"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/downloads/{info_hash}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resume_download"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -609,6 +657,44 @@ export interface components {
         };
         DebugMetadataRequest: {
             magnet: string;
+        };
+        DownloadDto: {
+            /** Format: int64 */
+            down_bps: number;
+            /** @description Причина ошибки (`state = error`). */
+            error?: string | null;
+            finished: boolean;
+            /** @description Info-hash (hex, нижний регистр) — идентификатор торрента. */
+            info_hash: string;
+            name: string;
+            /**
+             * Format: int32
+             * @description Подключённые пиры (включая сидов).
+             */
+            peers: number;
+            /** Format: int64 */
+            progress_bytes: number;
+            /** Format: int32 */
+            seeds: number;
+            state: components["schemas"]["DownloadState"];
+            /** Format: int64 */
+            total_bytes: number;
+            /** Format: int64 */
+            up_bps: number;
+            /**
+             * Format: int64
+             * @description Отдано пирам за сессию.
+             */
+            uploaded_bytes: number;
+        };
+        /** @enum {string} */
+        DownloadState: "initializing" | "downloading" | "seeding" | "paused" | "error";
+        DownloadsResponse: {
+            /** Format: int64 */
+            down_bps: number;
+            torrents: components["schemas"]["DownloadDto"][];
+            /** Format: int64 */
+            up_bps: number;
         };
         EngineHealth: {
             /** Format: int64 */
@@ -1175,6 +1261,95 @@ export interface operations {
             };
             /** @description Метаданные не получены вовремя */
             504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_downloads: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Торренты в сессии движка: статус, пиры, сиды, скорости */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadsResponse"];
+                };
+            };
+            /** @description Торрент-движок не запущен */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    pause_download: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Info-hash торрента */
+                info_hash: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Торрент остановлен (идемпотентно) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Нет такого торрента */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    resume_download: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Info-hash торрента */
+                info_hash: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Торрент запущен (идемпотентно) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Нет такого торрента */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

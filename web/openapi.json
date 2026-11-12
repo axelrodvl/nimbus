@@ -436,6 +436,104 @@
         }
       }
     },
+    "/api/downloads": {
+      "get": {
+        "tags": [
+          "downloads"
+        ],
+        "operationId": "list_downloads",
+        "responses": {
+          "200": {
+            "description": "Торренты в сессии движка: статус, пиры, сиды, скорости",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadsResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Торрент-движок не запущен",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/downloads/{info_hash}/pause": {
+      "post": {
+        "tags": [
+          "downloads"
+        ],
+        "operationId": "pause_download",
+        "parameters": [
+          {
+            "name": "info_hash",
+            "in": "path",
+            "description": "Info-hash торрента",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Торрент остановлен (идемпотентно)"
+          },
+          "404": {
+            "description": "Нет такого торрента",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/downloads/{info_hash}/resume": {
+      "post": {
+        "tags": [
+          "downloads"
+        ],
+        "operationId": "resume_download",
+        "parameters": [
+          {
+            "name": "info_hash",
+            "in": "path",
+            "description": "Info-hash торрента",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Торрент запущен (идемпотентно)"
+          },
+          "404": {
+            "description": "Нет такого торрента",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "tags": [
@@ -1828,6 +1926,117 @@
           }
         }
       },
+      "DownloadDto": {
+        "type": "object",
+        "required": [
+          "info_hash",
+          "name",
+          "state",
+          "finished",
+          "progress_bytes",
+          "total_bytes",
+          "uploaded_bytes",
+          "down_bps",
+          "up_bps",
+          "peers",
+          "seeds"
+        ],
+        "properties": {
+          "down_bps": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Причина ошибки (`state = error`)."
+          },
+          "finished": {
+            "type": "boolean"
+          },
+          "info_hash": {
+            "type": "string",
+            "description": "Info-hash (hex, нижний регистр) — идентификатор торрента."
+          },
+          "name": {
+            "type": "string"
+          },
+          "peers": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Подключённые пиры (включая сидов).",
+            "minimum": 0
+          },
+          "progress_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "seeds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "state": {
+            "$ref": "#/components/schemas/DownloadState"
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "up_bps": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "uploaded_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Отдано пирам за сессию.",
+            "minimum": 0
+          }
+        }
+      },
+      "DownloadState": {
+        "type": "string",
+        "enum": [
+          "initializing",
+          "downloading",
+          "seeding",
+          "paused",
+          "error"
+        ]
+      },
+      "DownloadsResponse": {
+        "type": "object",
+        "required": [
+          "torrents",
+          "down_bps",
+          "up_bps"
+        ],
+        "properties": {
+          "down_bps": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "torrents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DownloadDto"
+            }
+          },
+          "up_bps": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "EngineHealth": {
         "type": "object",
         "required": [
@@ -2578,6 +2787,10 @@
     {
       "name": "settings",
       "description": "Настройки, проверка провайдеров, хранилище"
+    },
+    {
+      "name": "downloads",
+      "description": "Менеджер загрузок: торренты движка, пауза и запуск"
     },
     {
       "name": "library",

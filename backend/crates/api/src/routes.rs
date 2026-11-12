@@ -57,6 +57,15 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
             post(crate::settings::test_provider),
         )
         .route("/storage", get(crate::settings::get_storage))
+        .route("/downloads", get(crate::downloads::list_downloads))
+        .route(
+            "/downloads/{info_hash}/pause",
+            post(crate::downloads::pause_download),
+        )
+        .route(
+            "/downloads/{info_hash}/resume",
+            post(crate::downloads::resume_download),
+        )
         .route("/tracks/{id}/prefetch", post(crate::stream::prefetch_track))
         .route("/auth/login", post(crate::auth::login))
         .route("/auth/logout", post(crate::auth::logout))

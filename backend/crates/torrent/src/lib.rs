@@ -178,6 +178,38 @@ pub struct EngineStats {
     pub up_bps: u64,
 }
 
+/// Состояние торрента для менеджера загрузок.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TorrentState {
+    /// Проверка файлов / инициализация.
+    Initializing,
+    /// Качается (не завершён, не на паузе).
+    Downloading,
+    /// Завершён и раздаётся.
+    Seeding,
+    /// Остановлен вручную или по политике раздачи.
+    Paused,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TorrentInfo {
+    pub info_hash: InfoHash,
+    pub name: String,
+    pub state: TorrentState,
+    pub error: Option<String>,
+    pub finished: bool,
+    pub progress_bytes: u64,
+    pub total_bytes: u64,
+    pub uploaded_bytes: u64,
+    pub down_bps: u64,
+    pub up_bps: u64,
+    /// Подключённые пиры (включая сидов).
+    pub peers: u32,
+    /// Из подключённых пиров — сиды (есть все куски).
+    pub seeds: u32,
+}
+
 pub trait AsyncReadSeek: AsyncRead + AsyncSeek {}
 impl<T: AsyncRead + AsyncSeek> AsyncReadSeek for T {}
 
@@ -417,6 +449,37 @@ impl TorrentEngine {
             }
         }
         out
+    }
+
+    /// Все торренты сессии со статусом, пирами и скоростями (для менеджера загрузок).
+    pub fn list_torrents(&self) -> Vec<TorrentInfo> {
+        let handles: Vec<ManagedTorrentHandle> = self
+            .session
+            .with_torrents(|it| it.map(|(_, h)| h.clone()).collect());
+        let mut out: Vec<TorrentInfo> = handles.iter().map(torrent_info).collect();
+        out.sort_by_key(|t| t.name.to_lowercase());
+        out
+    }
+
+    /// Ставит торрент на паузу (остановка скачивания и раздачи).
+    pub async fn pause_torrent(&self, id: &TorrentHandleId) -> Result<(), EngineError> {
+        let _guard = self.selected.lock().await;
+        let h = self.handle(id).ok_or(EngineError::NotFound)?;
+        if !h.is_paused() {
+            self.session.pause(&h).await.map_err(internal)?;
+        }
+        Ok(())
+    }
+
+    /// Запускает торрент. Если лимит раздачи уже достигнут, фоновая проверка снова остановит
+    /// завершённый торрент.
+    pub async fn resume_torrent(&self, id: &TorrentHandleId) -> Result<(), EngineError> {
+        let _guard = self.selected.lock().await;
+        let h = self.handle(id).ok_or(EngineError::NotFound)?;
+        if h.is_paused() {
+            self.session.unpause(&h).await.map_err(internal)?;
+        }
+        Ok(())
     }
 
     pub fn listen_addr(&self) -> Option<SocketAddr> {
@@ -667,6 +730,41 @@ impl TorrentEngine {
     /// Останавливает сессию (сохраняя persistence).
     pub async fn shutdown(&self) {
         self.session.stop().await;
+    }
+}
+
+fn torrent_info(h: &ManagedTorrentHandle) -> TorrentInfo {
+    use librqbit::TorrentStatsState as S;
+    let st = h.stats();
+    let state = match st.state {
+        S::Error => TorrentState::Error,
+        S::Paused => TorrentState::Paused,
+        S::Initializing { paused: true } => TorrentState::Paused,
+        S::Initializing { paused: false } => TorrentState::Initializing,
+        S::Live if st.finished => TorrentState::Seeding,
+        S::Live => TorrentState::Downloading,
+    };
+    let (down_bps, up_bps, peers, seeds) = st.live.as_ref().map_or((0, 0, 0, 0), |l| {
+        (
+            l.download_speed.as_bytes(),
+            l.upload_speed.as_bytes(),
+            l.snapshot.peer_stats.live,
+            l.snapshot.peer_stats.live_seeders,
+        )
+    });
+    TorrentInfo {
+        info_hash: to_hash(h.info_hash()),
+        name: h.name().unwrap_or_else(|| h.info_hash().as_string()),
+        state,
+        error: st.error.clone(),
+        finished: st.finished,
+        progress_bytes: st.progress_bytes,
+        total_bytes: st.total_bytes,
+        uploaded_bytes: st.uploaded_bytes,
+        down_bps,
+        up_bps,
+        peers,
+        seeds,
     }
 }
 
