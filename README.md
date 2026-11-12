@@ -32,7 +32,7 @@ Requirements: [Docker](https://docs.docker.com/get-docker/) with the Compose v2 
 on Linux: Docker Engine, and your user in the `docker` group). Nothing else is needed — everything builds in containers.
 
 ```sh
-git clone <this-repo-url> nimbus
+git clone https://github.com/axelrodvl/nimbus.git nimbus
 cd nimbus
 ./scripts/start.sh
 ```
@@ -101,7 +101,7 @@ Pick one:
 
 ```sh
 cd ~
-git clone <this-repo-url> nimbus
+git clone https://github.com/axelrodvl/nimbus.git nimbus
 cd nimbus
 ./scripts/start.sh
 ```
@@ -186,3 +186,9 @@ The language is stored in the `nimbus_locale` cookie.
 - [docs/architecture.md](docs/architecture.md) — diagram, pipeline, statuses.
 - [docs/api.md](docs/api.md) — REST (OpenAPI) and WebSocket events.
 - [PLAN.md](PLAN.md) — development plan and log.
+
+## License
+
+[MIT](LICENSE). The frontend in `web/` is derived from [next-beats](https://github.com/nextjs/next-beats)
+(© Vercel, Inc., MIT); its notice is preserved in [LICENSE](LICENSE) and `web/LICENSE`.
+The license covers the code only, not the content you stream — see the disclaimer above.

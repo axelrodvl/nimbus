@@ -7,3 +7,12 @@ backend/data/
 web/.next/
 *.log
 .DS_Store
+
+# Downloaded / generated artifacts (not source)
+*.whl
+backend/*.whl
+web/.next/
+web/out/
+web/playwright-report/
+web/test-results/
+web/tsconfig.tsbuildinfo
