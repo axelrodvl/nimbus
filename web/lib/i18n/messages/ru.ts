@@ -124,7 +124,7 @@ const messages: Messages = {
   'notFound.item.toLibrary': 'В библиотеку',
   'notFound.title': 'Страница не найдена',
   'offline.toast': 'Нет сети — переподключаемся…',
-  'page.home.title': 'С возвращением',
+  'page.home.title': 'Nimbus',
   'palette.empty': 'Ничего не найдено',
   'palette.failed': 'Поиск не удался: {error}',
   'palette.failedPlain': 'Поиск не удался',
