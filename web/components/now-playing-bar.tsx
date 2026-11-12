@@ -464,7 +464,7 @@ function TrackInfo({
 function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: () => void; onOpenQueue: () => void }) {
   const t = useT();
   const player = usePlayer();
-  const { track, isPlaying, position, duration, buffered, volume, muted, hasNext, status, shuffle, repeat } = player;
+  const { track, isPlaying, position, duration, buffered, hasNext, status, shuffle, repeat } = player;
   const [dragY, setDragY] = useState(0);
   const startY = useRef<number | null>(null);
 
@@ -490,7 +490,6 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
     setDragY(0);
   };
 
-  const effectiveVolume = muted ? 0 : volume;
   const RepeatIcon = repeat === 'one' ? Repeat1 : Repeat;
   const connecting = status === 'loading' || status === 'buffering';
   const dragging = dragY > 0;
@@ -554,7 +553,7 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
                 track?.title
               )}
             </span>
-            <span className="text-muted truncate text-lg">
+            <span className="text-black/70 dark:text-white/75 truncate text-lg">
               {track?.artistId !== undefined ? (
                 <Link href={`/artist/${track.artistId}`} onClick={onClose} className="hover:underline">
                   {track.artist}
@@ -574,15 +573,20 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
             onChange={player.seekTo}
             label={t('player.seek')}
           />
-          <div className="text-muted mt-1 flex justify-between text-xs tabular-nums">
+          <div className="text-black/70 dark:text-white/75 mt-1 flex justify-between text-xs tabular-nums">
             <span>{formatDuration(Math.floor(position))}</span>
             <span>{formatDuration(Math.floor(duration))}</span>
           </div>
-          {open ? <StatusLine className="mt-1" /> : null}
+          {open ? <StatusLine className="mt-1 !text-black/70 dark:!text-white/75" /> : null}
         </div>
 
         <div className="flex items-center justify-between pt-4">
-          <ToggleButton label={t('player.shuffle')} active={shuffle} onClick={player.toggleShuffle}>
+          <ToggleButton
+            label={t('player.shuffle')}
+            active={shuffle}
+            onClick={player.toggleShuffle}
+            className={shuffle ? undefined : 'text-black/70 dark:text-white/75'}
+          >
             <Shuffle className="h-5 w-5" />
           </ToggleButton>
           <button
@@ -627,17 +631,10 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
             }
             active={repeat !== 'off'}
             onClick={player.cycleRepeat}
+            className={repeat === 'off' ? 'text-black/70 dark:text-white/75' : undefined}
           >
             <RepeatIcon className="h-5 w-5" />
           </ToggleButton>
-        </div>
-
-        <div className="flex items-center gap-3 pt-6">
-          <button type="button" onClick={player.toggleMute} aria-label={t('player.mute')} className="text-muted p-1">
-            <VolumeX className="h-4 w-4" />
-          </button>
-          <FullSlider value={effectiveVolume} max={100} onChange={player.setVolume} label={t('player.volume')} />
-          <Volume2 className="text-muted h-4 w-4" aria-hidden />
         </div>
 
         <div className="flex items-center justify-between pt-6">
@@ -645,7 +642,7 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
             type="button"
             onClick={onClose}
             aria-label={t('player.collapse')}
-            className="text-muted p-2 hover:text-black dark:hover:text-white"
+            className="text-black/70 dark:text-white/75 p-2 hover:text-black dark:hover:text-white"
           >
             <ChevronDown className="h-6 w-6" />
           </button>
@@ -653,7 +650,7 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
             type="button"
             onClick={onOpenQueue}
             aria-label={t('player.queue')}
-            className="text-muted p-2 hover:text-black dark:hover:text-white"
+            className="text-black/70 dark:text-white/75 p-2 hover:text-black dark:hover:text-white"
           >
             <ListMusic className="h-6 w-6" />
           </button>
@@ -681,16 +678,16 @@ function FullSlider({
   const pct = Math.min(100, Math.max(0, (value / safeMax) * 100));
   return (
     <div className="relative flex h-6 flex-1 items-center">
-      <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/15">
+      <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-black/20 dark:bg-white/30">
         {buffered?.map(([s, e], i) => (
           <div
             key={i}
-            className="absolute top-0 h-full bg-black/15 dark:bg-white/20"
+            className="absolute top-0 h-full bg-black/25 dark:bg-white/40"
             style={{ left: `${(s / safeMax) * 100}%`, width: `${((e - s) / safeMax) * 100}%` }}
           />
         ))}
         <div
-          className="absolute top-0 left-0 h-full rounded-full bg-black/70 dark:bg-white/80"
+          className="absolute top-0 left-0 h-full rounded-full bg-black/80 dark:bg-white"
           style={{ width: `${pct}%` }}
         />
       </div>
