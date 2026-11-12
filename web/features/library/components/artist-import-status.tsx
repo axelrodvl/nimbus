@@ -1,7 +1,7 @@
 'use client';
 
-import { Loader2, TriangleAlert } from 'lucide-react';
-import { useTransition } from 'react';
+import { ChevronDown, Loader2, TriangleAlert } from 'lucide-react';
+import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { retryArtistImport } from '@/app/actions/library';
 import { Button } from '@/components/ui/button';
@@ -16,11 +16,42 @@ function minutesUntil(iso: string | null | undefined) {
   return Math.max(1, Math.ceil((new Date(iso).getTime() - Date.now()) / 60_000));
 }
 
+type Progress = NonNullable<Import['progress']>;
+
+/** Одна строка о том, что делает импорт прямо сейчас. */
+function progressLine(t: ReturnType<typeof useT>, p: Progress) {
+  if (p.phase === 'albums') return t('artist.import.step.albums', { done: p.done, title: p.current ?? '…', total: p.total });
+  if (p.phase === 'discover') return t('artist.import.step.discover', { imported: p.imported });
+  return t('artist.import.step.groups');
+}
+
+/** Журнал шагов (по нажатию): новые записи сверху. Текст — от бэкенда, на английском. */
+function ImportLog({ log }: { log: Progress['log'] }) {
+  return (
+    <ol
+      className="text-muted bg-surface/40 max-h-64 w-full max-w-xl overflow-y-auto rounded-md p-3 text-left font-mono text-xs"
+      data-testid="artist-import-log"
+    >
+      {[...log].reverse().map((e, i) => (
+        <li key={`${e.at}-${i}`} className="py-0.5">
+          <time className="opacity-60" dateTime={e.at}>
+            {new Date(e.at).toLocaleTimeString()}
+          </time>{' '}
+          {e.text}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 // Статус импорта дискографии: идёт / ждём MusicBrainz (с повтором) / не удалось (с кнопкой «Повторить»).
 export function ArtistImportStatus({ artistId, status }: { artistId: number; status: Import }) {
   const t = useT();
   const [pending, start] = useTransition();
+  const [open, setOpen] = useState(false);
   const params = { attempt: status.attempt, max: status.max_attempts };
+  const progress = status.progress ?? null;
+  const hasLog = (progress?.log.length ?? 0) > 0;
 
   if (status.state === 'failed') {
     return (
@@ -43,6 +74,8 @@ export function ArtistImportStatus({ artistId, status }: { artistId: number; sta
         >
           {t('artist.import.retry')}
         </Button>
+        {hasLog ? <DetailsToggle open={open} onToggle={() => setOpen(o => !o)} label={t('artist.import.details')} /> : null}
+        {open && progress ? <ImportLog log={progress.log} /> : null}
       </div>
     );
   }
@@ -50,23 +83,57 @@ export function ArtistImportStatus({ artistId, status }: { artistId: number; sta
   const retrying = status.state === 'retrying';
   const text = retrying
     ? t('artist.import.retrying', { ...params, minutes: minutesUntil(status.retry_at) })
-    : status.attempt > 1
-      ? t('artist.import.attempt', params)
-      : t('artist.importing');
+    : progress
+      ? progressLine(t, progress)
+      : status.attempt > 1
+        ? t('artist.import.attempt', params)
+        : t('artist.importing');
+  const icon = retrying ? (
+    <TriangleAlert className="text-warning h-4 w-4 shrink-0" aria-hidden />
+  ) : (
+    <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+  );
   return (
-    <p
-      className="text-muted flex items-center gap-2 text-sm"
+    <div
+      className="flex max-w-full flex-col items-start gap-2"
       data-testid="artist-import"
       data-state={status.state}
       role="status"
       title={status.error ?? undefined}
     >
-      {retrying ? (
-        <TriangleAlert className="text-warning h-4 w-4 shrink-0" aria-hidden />
+      {hasLog ? (
+        <button
+          type="button"
+          className="text-muted hover:text-foreground flex max-w-full items-center gap-2 text-left text-sm"
+          aria-expanded={open}
+          title={t('artist.import.details')}
+          onClick={() => setOpen(o => !o)}
+        >
+          {icon}
+          <span className="min-w-0 truncate">{text}</span>
+          <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
+        </button>
       ) : (
-        <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+        <p className="text-muted flex items-center gap-2 text-sm">
+          {icon}
+          {text}
+        </p>
       )}
-      {text}
-    </p>
+      {open && progress ? <ImportLog log={progress.log} /> : null}
+    </div>
+  );
+}
+
+function DetailsToggle({ open, onToggle, label }: { open: boolean; onToggle: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      className="text-muted hover:text-foreground flex items-center gap-1 text-xs"
+      aria-expanded={open}
+      onClick={onToggle}
+    >
+      {label}
+      <ChevronDown className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
+    </button>
   );
 }

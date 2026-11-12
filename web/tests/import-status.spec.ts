@@ -46,3 +46,14 @@ test('библиотека: у карточек артистов есть бей
   );
   await expect(cards.getByRole('link', { name: /Radiohead/ }).getByTestId('artist-import-badge')).toHaveCount(0);
 });
+
+test('артист: идёт импорт — одна строка прогресса и подробный журнал по нажатию', async ({ page }) => {
+  await page.goto('/artist/22');
+  const status = page.getByTestId('artist-import').first();
+  await expect(status).toContainText('Импорт альбомов: 3 из 12 — Recovery');
+  await expect(page.getByTestId('artist-import-log').first()).toHaveCount(0);
+  await status.getByRole('button').click();
+  const log = page.getByTestId('artist-import-log').first();
+  await expect(log).toContainText('Found 12 release groups');
+  await expect(log).toContainText('Added "Relapse"');
+});

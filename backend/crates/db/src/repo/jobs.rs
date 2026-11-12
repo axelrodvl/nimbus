@@ -196,3 +196,88 @@ pub async fn has_queued_discover(db: impl PgExecutor<'_>, album_id: i64) -> sqlx
     .fetch_one(db)
     .await
 }
+
+/// Сколько записей журнала хранится в прогрессе импорта (старые отбрасываются).
+pub const IMPORT_LOG_LIMIT: usize = 300;
+
+/// Фаза импорта дискографии.
+#[derive(Debug, Clone, Copy, Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportPhase {
+    /// Запрашиваем список release group'ов у MusicBrainz.
+    Groups,
+    /// Добавляем альбомы по одному.
+    Albums,
+    /// Альбомы добавлены, ставим поиск источников.
+    Discover,
+}
+
+/// Запись журнала импорта (текст английский, для раскрывающегося списка «Подробности»).
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct ImportLogEntry {
+    pub at: DateTime<Utc>,
+    pub text: String,
+}
+
+/// Прогресс `import_artist`; хранится в `jobs.progress`.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct ImportProgress {
+    pub phase: ImportPhase,
+    /// Обработано release group'ов (добавлено + пропущено).
+    pub done: u32,
+    pub total: u32,
+    /// Альбом, который обрабатывается сейчас.
+    pub current: Option<String>,
+    pub imported: u32,
+    pub skipped: u32,
+    pub log: Vec<ImportLogEntry>,
+}
+
+impl ImportProgress {
+    pub fn new() -> Self {
+        Self {
+            phase: ImportPhase::Groups,
+            done: 0,
+            total: 0,
+            current: None,
+            imported: 0,
+            skipped: 0,
+            log: Vec::new(),
+        }
+    }
+
+    pub fn log(&mut self, text: impl Into<String>) {
+        self.log.push(ImportLogEntry {
+            at: Utc::now(),
+            text: text.into(),
+        });
+        if self.log.len() > IMPORT_LOG_LIMIT {
+            let excess = self.log.len() - IMPORT_LOG_LIMIT;
+            self.log.drain(..excess);
+        }
+    }
+}
+
+impl Default for ImportProgress {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Сохраняет прогресс активной задачи `import_artist` артиста.
+pub async fn set_import_progress(
+    db: impl PgExecutor<'_>,
+    artist_id: i64,
+    progress: &ImportProgress,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "UPDATE jobs SET progress = $2
+         WHERE kind = 'import_artist' AND payload->>'artist_id' = $1::text
+           AND state IN ('queued','running')",
+    )
+    .bind(artist_id)
+    .bind(serde_json::to_value(progress).unwrap_or(Value::Null))
+    .execute(db)
+    .await?;
+    Ok(())
+}

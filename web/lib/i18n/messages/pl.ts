@@ -19,12 +19,16 @@ const messages: Messages = {
   'artist.badge.retrying': 'Oczekiwanie na MusicBrainz…',
   'artist.counts': '{albums} · {tracks} w bibliotece',
   'artist.import.attempt': 'Importowanie dyskografii… (próba {attempt} z {max})',
+  'artist.import.details': 'Szczegóły',
   'artist.import.failed':
     'Nie udało się zaimportować dyskografii: MusicBrainz jest niedostępny. Poddano się po {max} próbach.',
   'artist.import.restarted': 'Import uruchomiony ponownie',
   'artist.import.retry': 'Spróbuj ponownie',
   'artist.import.retrying':
     'MusicBrainz nie odpowiada (próba {attempt} z {max} nie powiodła się). Ponowimy za około {minutes} min.',
+  'artist.import.step.albums': 'Import albumów: {done} z {total} — {title}',
+  'artist.import.step.discover': 'Zaimportowane albumy: {imported}. Szukanie źródeł…',
+  'artist.import.step.groups': 'Pobieranie listy albumów z MusicBrainz…',
   'artist.importing': 'Importowanie dyskografii…',
   'artist.noAlbums': 'Brak albumów w bibliotece.',
   'backend.down': 'Backend jest niedostępny — uruchom go (just backend)',

@@ -6,6 +6,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::{DateTime, SecondsFormat, Utc};
 use nimbus_core::model::TrackStatus;
+use nimbus_db::repo::jobs::{ImportPhase, ImportProgress};
 use nimbus_db::repo::views::{self, AlbumView, ArtistView, Cursor, TrackView};
 use nimbus_library::{AddOutcome, LibraryError, LibraryType};
 use serde::{Deserialize, Serialize};
@@ -93,6 +94,60 @@ pub struct ImportStatusDto {
     pub retry_at: Option<DateTime<Utc>>,
     /// Причина последней неудачи (для подсказки; текст от бэкенда, на английском).
     pub error: Option<String>,
+    /// Подробный прогресс текущей попытки (`null`, пока задача не начала работу).
+    pub progress: Option<ImportProgressDto>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportPhaseDto {
+    /// Запрашиваем список альбомов у MusicBrainz.
+    Groups,
+    /// Добавляем альбомы по одному.
+    Albums,
+    /// Альбомы добавлены, ставим поиск источников.
+    Discover,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ImportProgressDto {
+    pub phase: ImportPhaseDto,
+    /// Обработано release group'ов (добавлено + пропущено).
+    pub done: u32,
+    pub total: u32,
+    /// Альбом, который обрабатывается сейчас.
+    pub current: Option<String>,
+    pub imported: u32,
+    pub skipped: u32,
+    /// Журнал шагов (старые первыми; текст на английском).
+    pub log: Vec<ImportLogEntryDto>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ImportLogEntryDto {
+    pub at: DateTime<Utc>,
+    pub text: String,
+}
+
+fn import_progress(a: &ArtistView) -> Option<ImportProgressDto> {
+    let p: ImportProgress = serde_json::from_value(a.import_progress.clone()?).ok()?;
+    Some(ImportProgressDto {
+        phase: match p.phase {
+            ImportPhase::Groups => ImportPhaseDto::Groups,
+            ImportPhase::Albums => ImportPhaseDto::Albums,
+            ImportPhase::Discover => ImportPhaseDto::Discover,
+        },
+        done: p.done,
+        total: p.total,
+        current: p.current,
+        imported: p.imported,
+        skipped: p.skipped,
+        log: p
+            .log
+            .into_iter()
+            .map(|e| ImportLogEntryDto { at: e.at, text: e.text })
+            .collect(),
+    })
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -160,6 +215,7 @@ fn import_status(a: &ArtistView) -> Option<ImportStatusDto> {
         retry_at: (state == ImportState::Retrying)
             .then_some(a.import_run_after)
             .flatten(),
+        progress: import_progress(a),
         state,
     })
 }

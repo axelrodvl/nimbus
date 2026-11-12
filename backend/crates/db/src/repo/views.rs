@@ -26,6 +26,7 @@ pub struct ArtistView {
     pub import_max_attempts: Option<i32>,
     pub import_run_after: Option<DateTime<Utc>>,
     pub import_error: Option<String>,
+    pub import_progress: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -78,10 +79,11 @@ const ARTIST_SELECT: &str = "
       (SELECT count(*) FROM tracks t WHERE t.in_library
          AND (t.artist_id = a.id OR t.album_id IN (SELECT id FROM albums WHERE artist_id = a.id))) AS track_count,
       ij.state AS import_state, ij.attempts AS import_attempts, ij.max_attempts AS import_max_attempts,
-      ij.run_after AS import_run_after, ij.last_error AS import_error
+      ij.run_after AS import_run_after, ij.last_error AS import_error,
+      ij.progress AS import_progress
     FROM artists a
     LEFT JOIN LATERAL (
-      SELECT j.state, j.attempts, j.max_attempts, j.run_after, j.last_error FROM jobs j
+      SELECT j.state, j.attempts, j.max_attempts, j.run_after, j.last_error, j.progress FROM jobs j
        WHERE j.kind = 'import_artist' AND j.payload->>'artist_id' = a.id::text
        ORDER BY j.id DESC LIMIT 1) ij ON TRUE";
 

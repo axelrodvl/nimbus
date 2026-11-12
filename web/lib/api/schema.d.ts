@@ -719,6 +719,31 @@ export interface components {
             status: string;
             version: string;
         };
+        ImportLogEntryDto: {
+            /** Format: date-time */
+            at: string;
+            text: string;
+        };
+        /** @enum {string} */
+        ImportPhaseDto: "groups" | "albums" | "discover";
+        ImportProgressDto: {
+            /** @description Альбом, который обрабатывается сейчас. */
+            current?: string | null;
+            /**
+             * Format: int32
+             * @description Обработано release group'ов (добавлено + пропущено).
+             */
+            done: number;
+            /** Format: int32 */
+            imported: number;
+            /** @description Журнал шагов (старые первыми; текст на английском). */
+            log: components["schemas"]["ImportLogEntryDto"][];
+            phase: components["schemas"]["ImportPhaseDto"];
+            /** Format: int32 */
+            skipped: number;
+            /** Format: int32 */
+            total: number;
+        };
         /** @enum {string} */
         ImportState: "importing" | "retrying" | "failed";
         ImportStatusDto: {
@@ -731,6 +756,7 @@ export interface components {
             error?: string | null;
             /** Format: int32 */
             max_attempts: number;
+            progress?: null | components["schemas"]["ImportProgressDto"];
             /**
              * Format: date-time
              * @description Когда будет следующая попытка (только `retrying`).

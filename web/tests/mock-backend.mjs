@@ -127,9 +127,25 @@ function seed() {
   // Импорт дискографии: ждём MusicBrainz (повтор) и неудача (после исчерпания попыток).
   addArtist({
     id: 20,
-    import: { attempt: 2, error: 'MusicBrainz is unavailable: rate limited', max_attempts: 8, retry_at: new Date(Date.now() + 150_000).toISOString(), state: 'retrying' },
+    import: { attempt: 2, error: 'MusicBrainz is unavailable: rate limited', max_attempts: 8, progress: null, retry_at: new Date(Date.now() + 150_000).toISOString(), state: 'retrying' },
     mbid: 'aaaaaaaa-0000-4000-8000-000000000020',
     name: 'Retry Artist',
+  });
+  addArtist({
+    id: 22,
+    import: {
+      attempt: 1, error: null, max_attempts: 8, progress: {
+        current: 'Recovery', done: 3, imported: 2, log: [
+          { at: '2026-11-12T14:00:00Z', text: 'Found 12 release groups (albums and EPs) in 2.1s' },
+          { at: '2026-11-12T14:00:03Z', text: 'Skipped "Live Show": type Live' },
+          { at: '2026-11-12T14:00:06Z', text: 'Added "Relapse" (2.4s)' },
+        ], phase: 'albums', skipped: 1,
+        total: 12,
+      }, retry_at: null,
+      state: 'importing',
+    },
+    mbid: 'aaaaaaaa-0000-4000-8000-000000000022',
+    name: 'Progress Artist',
   });
   addArtist({
     id: 21,

@@ -1,7 +1,9 @@
 use nimbus_core::events::{Entity, Event, EventBus};
 use nimbus_core::jobs::Job;
 use nimbus_core::model::{Album, Artist, NewAlbum, NewArtist, NewTrack, Track, TrackStatus};
+use nimbus_db::repo::jobs::{ImportPhase, ImportProgress};
 use nimbus_db::repo::{albums, artists, jobs, tracks};
+use std::time::Instant;
 use nimbus_db::PgPool;
 use nimbus_musicbrainz::{cover_url, MbClient, ReleaseGroupHit};
 use uuid::Uuid;
@@ -313,36 +315,94 @@ impl LibraryService {
         let artist = artists::get(&self.db, artist_id)
             .await?
             .ok_or(LibraryError::NotFound("artist"))?;
+        let started = Instant::now();
+        let mut progress = ImportProgress::new();
+        progress.log(format!(
+            "Requesting the release list for {} from MusicBrainz (it allows ~1 request per second)",
+            artist.name
+        ));
+        self.save_progress(artist_id, &progress).await;
         let groups = self
             .mb
             .artist_release_groups(artist.mbid, &["album", "ep"])
             .await?;
+
+        progress.phase = ImportPhase::Albums;
+        progress.total = u32::try_from(groups.len()).unwrap_or(u32::MAX);
+        progress.log(format!(
+            "Found {} release groups (albums and EPs) in {:.1}s",
+            groups.len(),
+            started.elapsed().as_secs_f32()
+        ));
+        self.save_progress(artist_id, &progress).await;
 
         let mut summary = ImportSummary::default();
         for group in groups {
             let excluded = group
                 .secondary_types
                 .iter()
-                .any(|t| skip_secondary_types.iter().any(|s| s == t));
+                .find(|t| skip_secondary_types.iter().any(|s| s == *t))
+                .cloned();
+            let title = group.title.clone();
             // Совместные релизы, где первым указан другой артист, не добавляем: иначе в библиотеку
             // попал бы и он.
-            if excluded || group.artist_mbid != artist.mbid {
+            if excluded.is_some() || group.artist_mbid != artist.mbid {
                 summary.skipped += 1;
+                progress.skipped += 1;
+                progress.done += 1;
+                progress.log(match excluded {
+                    Some(t) => format!("Skipped \"{title}\": type {t}"),
+                    None => format!("Skipped \"{title}\": credited to another artist"),
+                });
+                self.save_progress(artist_id, &progress).await;
                 continue;
             }
-            let (title, rg) = (group.title.clone(), group.mbid);
-            match self.add_album_inner(rg, Some(group), false).await {
-                Ok(_) => summary.imported += 1,
+            progress.current = Some(title.clone());
+            self.save_progress(artist_id, &progress).await;
+            let (rg, album_started) = (group.mbid, Instant::now());
+            let outcome = self.add_album_inner(rg, Some(group), false).await;
+            let took = album_started.elapsed().as_secs_f32();
+            progress.done += 1;
+            match outcome {
+                Ok(_) => {
+                    summary.imported += 1;
+                    progress.imported += 1;
+                    progress.log(format!("Added \"{title}\" ({took:.1}s)"));
+                }
                 Err(LibraryError::MbNotFound) => {
                     tracing::warn!(release_group = %rg, %title, "release group has no usable release, skipped");
                     summary.skipped += 1;
+                    progress.skipped += 1;
+                    progress.log(format!("Skipped \"{title}\": no usable release in MusicBrainz"));
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    progress.log(format!("Error on \"{title}\": {e}"));
+                    self.save_progress(artist_id, &progress).await;
+                    return Err(e);
+                }
             }
+            self.save_progress(artist_id, &progress).await;
         }
+        progress.phase = ImportPhase::Discover;
+        progress.current = None;
+        progress.log(format!(
+            "Albums imported: {}, skipped: {}. Queued the source search ({:.0}s total)",
+            summary.imported,
+            summary.skipped,
+            started.elapsed().as_secs_f32()
+        ));
+        self.save_progress(artist_id, &progress).await;
         jobs::enqueue(&self.db, &Job::DiscoverArtist { artist_id }, None).await?;
         self.changed(Entity::Artist, artist_id);
         Ok(summary)
+    }
+
+    /// Сохраняет прогресс импорта и просит UI обновиться. Ошибка записи не должна ронять импорт.
+    async fn save_progress(&self, artist_id: i64, progress: &ImportProgress) {
+        if let Err(e) = jobs::set_import_progress(&self.db, artist_id, progress).await {
+            tracing::warn!(artist_id, error = %e, "failed to save import progress");
+        }
+        self.changed(Entity::Artist, artist_id);
     }
 
     // ------------------------------------------------------------ remove

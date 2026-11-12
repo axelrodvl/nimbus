@@ -19,12 +19,16 @@ const messages: Messages = {
   'artist.badge.retrying': 'MusicBrainz 대기 중…',
   'artist.counts': '라이브러리: {albums}, {tracks}',
   'artist.import.attempt': '디스코그래피를 가져오는 중… ({max}회 중 {attempt}번째 시도)',
+  'artist.import.details': '자세히',
   'artist.import.failed':
     '디스코그래피를 가져오지 못했습니다: MusicBrainz를 사용할 수 없습니다. {max}회 시도 후 중단했습니다.',
   'artist.import.restarted': '가져오기를 다시 시작했습니다',
   'artist.import.retry': '다시 시도',
   'artist.import.retrying':
     'MusicBrainz가 응답하지 않습니다({max}회 중 {attempt}번째 시도 실패). 약 {minutes}분 후 다시 시도합니다.',
+  'artist.import.step.albums': '앨범 가져오는 중: {done}/{total} — {title}',
+  'artist.import.step.discover': '가져온 앨범: {imported}개. 소스를 찾는 중…',
+  'artist.import.step.groups': 'MusicBrainz에서 앨범 목록을 가져오는 중…',
   'artist.importing': '디스코그래피를 가져오는 중…',
   'artist.noAlbums': '라이브러리에 앨범이 없습니다.',
   'backend.down': '백엔드를 사용할 수 없습니다 — 실행하세요 (just backend)',

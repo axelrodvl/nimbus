@@ -19,12 +19,16 @@ const messages: Messages = {
   'artist.badge.retrying': 'MusicBrainz की प्रतीक्षा…',
   'artist.counts': 'लाइब्रेरी में {albums} · {tracks}',
   'artist.import.attempt': 'डिस्कोग्राफ़ी इंपोर्ट हो रही है… ({max} में से {attempt} कोशिश)',
+  'artist.import.details': 'विवरण',
   'artist.import.failed':
     'डिस्कोग्राफ़ी इंपोर्ट नहीं हो सकी: MusicBrainz उपलब्ध नहीं है। {max} कोशिशों के बाद हार मान ली गई।',
   'artist.import.restarted': 'इंपोर्ट फिर से शुरू किया गया',
   'artist.import.retry': 'फिर से कोशिश करें',
   'artist.import.retrying':
     'MusicBrainz जवाब नहीं दे रहा ({max} में से {attempt} कोशिश विफल)। लगभग {minutes} मिनट में फिर कोशिश होगी।',
+  'artist.import.step.albums': 'एल्बम इम्पोर्ट हो रहे हैं: {total} में से {done} — {title}',
+  'artist.import.step.discover': 'इम्पोर्ट किए गए एल्बम: {imported}। स्रोत खोजे जा रहे हैं…',
+  'artist.import.step.groups': 'MusicBrainz से एल्बम सूची ली जा रही है…',
   'artist.importing': 'डिस्कोग्राफ़ी इंपोर्ट हो रही है…',
   'artist.noAlbums': 'लाइब्रेरी में कोई एल्बम नहीं है।',
   'backend.down': 'बैकएंड उपलब्ध नहीं है — उसे शुरू करें (just backend)',

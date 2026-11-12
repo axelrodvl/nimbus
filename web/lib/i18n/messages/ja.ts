@@ -19,12 +19,16 @@ const messages: Messages = {
   'artist.badge.retrying': 'MusicBrainz を待機中…',
   'artist.counts': 'ライブラリ内：{albums}、{tracks}',
   'artist.import.attempt': 'ディスコグラフィをインポート中…（{max} 回中 {attempt} 回目）',
+  'artist.import.details': '詳細',
   'artist.import.failed':
     'ディスコグラフィをインポートできませんでした：MusicBrainz に接続できません。{max} 回試行して中止しました。',
   'artist.import.restarted': 'インポートをやり直しました',
   'artist.import.retry': '再試行',
   'artist.import.retrying':
     'MusicBrainz が応答しません（{max} 回中 {attempt} 回目の試行に失敗）。約 {minutes} 分後に再試行します。',
+  'artist.import.step.albums': 'アルバムをインポート中：{done} / {total} — {title}',
+  'artist.import.step.discover': 'インポート済みアルバム：{imported}。ソースを検索しています…',
+  'artist.import.step.groups': 'MusicBrainz からアルバム一覧を取得しています…',
   'artist.importing': 'ディスコグラフィをインポート中…',
   'artist.noAlbums': 'ライブラリにアルバムがありません。',
   'backend.down': 'バックエンドに接続できません — 起動してください（just backend）',
