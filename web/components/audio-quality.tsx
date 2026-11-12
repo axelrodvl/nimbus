@@ -39,13 +39,22 @@ export function AudioQuality({ trackId, className }: { trackId: number | undefin
     };
   }, [trackId]);
 
-  const text = state && state.id === trackId ? state.text : '';
+  // Старый текст остаётся в DOM и гаснет, пока грузится новый, — без резкого мигания.
+  const text = state?.text ?? '';
+  const visible = state !== null && state.id === trackId;
   return (
     <div
       data-testid="audio-quality"
       className={cn('flex h-4 items-center justify-center text-[11px] tabular-nums', className)}
     >
-      <span className="truncate">{text}</span>
+      <span
+        className={cn(
+          'truncate transition-opacity duration-300 ease-out motion-reduce:transition-none',
+          visible ? 'opacity-100' : 'opacity-0',
+        )}
+      >
+        {text}
+      </span>
     </div>
   );
 }
