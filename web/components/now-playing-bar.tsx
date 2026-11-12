@@ -470,9 +470,16 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
 
   useEffect(() => {
     if (!open) return;
+    // Chrome на Android иначе воспринимает свайп вниз как pull-to-refresh.
+    const root = document.documentElement;
+    const prev = root.style.overscrollBehaviorY;
+    root.style.overscrollBehaviorY = 'none';
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      root.style.overscrollBehaviorY = prev;
+    };
   }, [open, onClose]);
 
   const onTouchStart = (e: React.TouchEvent) => {
@@ -508,7 +515,7 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
       onTouchCancel={onTouchEnd}
       style={open ? { transform: `translateY(${dragY}px)` } : undefined}
       className={cn(
-        'fixed inset-0 z-50 flex flex-col overflow-hidden bg-white text-black dark:bg-[#181818] dark:text-white',
+        'fixed inset-0 z-50 flex touch-pan-x flex-col overscroll-none overflow-hidden bg-white text-black dark:bg-[#181818] dark:text-white',
         !dragging && 'transition-transform duration-300 ease-out',
         !open && 'translate-y-full',
       )}
@@ -577,7 +584,9 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
             <span>{formatDuration(Math.floor(position))}</span>
             <span>{formatDuration(Math.floor(duration))}</span>
           </div>
-          {open ? <StatusLine className="mt-1 !text-black/70 dark:!text-white/75" /> : null}
+          <div className="mt-1 flex h-4 items-center justify-center">
+            {open ? <StatusLine className="!text-black/70 dark:!text-white/75" /> : null}
+          </div>
         </div>
 
         <div className="flex items-center justify-between pt-4">
@@ -636,6 +645,9 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
             <RepeatIcon className="h-5 w-5" />
           </ToggleButton>
         </div>
+
+        {/* Раньше здесь был ползунок громкости; место сохранено ради прежних отступов. */}
+        <div aria-hidden className="h-12 shrink-0" />
 
         <div className="flex items-center justify-between pt-6">
           <button
