@@ -471,6 +471,7 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
   const { track, isPlaying, position, duration, buffered, hasNext, status, shuffle, repeat } = player;
   const [dragY, setDragY] = useState(0);
   const startY = useRef<number | null>(null);
+  const coverStart = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -499,6 +500,21 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
     startY.current = null;
     if (dragY > 100) onClose();
     setDragY(0);
+  };
+
+  // Горизонтальный свайп по обложке: влево — следующий трек, вправо — предыдущий.
+  const onCoverTouchStart = (e: React.TouchEvent) => {
+    coverStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+  const onCoverTouchEnd = (e: React.TouchEvent) => {
+    const s = coverStart.current;
+    coverStart.current = null;
+    if (!s) return;
+    const dx = e.changedTouches[0].clientX - s.x;
+    const dy = e.changedTouches[0].clientY - s.y;
+    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    if (dx < 0) player.next();
+    else player.previous();
   };
 
   const RepeatIcon = repeat === 'one' ? Repeat1 : Repeat;
@@ -542,7 +558,13 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
           <span className="h-1.5 w-10 rounded-full bg-black/25 transition-colors group-hover:bg-black/40 dark:bg-white/30 dark:group-hover:bg-white/50" />
         </button>
 
-        <div className="flex min-h-0 flex-1 items-center justify-center py-4">
+        <div
+          data-testid="full-player-cover"
+          onTouchStart={onCoverTouchStart}
+          onTouchEnd={onCoverTouchEnd}
+          onTouchCancel={() => (coverStart.current = null)}
+          className="flex min-h-0 flex-1 items-center justify-center py-4"
+        >
           <Cover
             src={track?.coverUrl}
             alt={track?.title ?? ''}
