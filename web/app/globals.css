@@ -172,6 +172,44 @@
   }
 }
 
+/* Смена трека в полноэкранном плеере: текст выезжает со стороны свайпа */
+@keyframes track-in-next {
+  from {
+    opacity: 0;
+    transform: translateX(32px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes track-in-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-32px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-track-next {
+  animation: track-in-next 300ms ease-out both;
+}
+
+.animate-track-prev {
+  animation: track-in-prev 300ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-track-next,
+  .animate-track-prev {
+    animation: none;
+  }
+}
+
 /* Slide (Vertical) */
 ::view-transition-old(.slide-down) {
   animation:

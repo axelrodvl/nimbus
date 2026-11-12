@@ -502,6 +502,17 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
     setDragY(0);
   };
 
+  // Направление последней смены трека — от него зависит анимация текста.
+  const [dir, setDir] = useState<'next' | 'prev'>('next');
+  const goNext = () => {
+    setDir('next');
+    player.next();
+  };
+  const goPrev = () => {
+    setDir('prev');
+    player.previous();
+  };
+
   // Горизонтальный свайп по обложке: влево — следующий трек, вправо — предыдущий.
   const onCoverTouchStart = (e: React.TouchEvent) => {
     coverStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
@@ -513,8 +524,8 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
     const dx = e.changedTouches[0].clientX - s.x;
     const dy = e.changedTouches[0].clientY - s.y;
     if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-    if (dx < 0) player.next();
-    else player.previous();
+    if (dx < 0) goNext();
+    else goPrev();
   };
 
   const RepeatIcon = repeat === 'one' ? Repeat1 : Repeat;
@@ -578,7 +589,10 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
         <AudioQuality trackId={open ? track?.id : undefined} className="text-black/70 dark:text-white/75" />
 
         <div className="flex items-center gap-3 pt-2">
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div
+            key={track?.id}
+            className={cn('flex min-w-0 flex-1 flex-col', dir === 'next' ? 'animate-track-next' : 'animate-track-prev')}
+          >
             <Marquee className="text-xl font-semibold" data-testid="full-player-title">
               {track?.albumId !== undefined ? (
                 <Link href={`/album/${track.albumId}`} onClick={onClose} className="hover:underline">
@@ -628,7 +642,7 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
           </ToggleButton>
           <button
             type="button"
-            onClick={player.previous}
+            onClick={goPrev}
             aria-label={t('player.previous')}
             className="p-2 transition-transform active:scale-90"
           >
@@ -651,7 +665,7 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
           </button>
           <button
             type="button"
-            onClick={player.next}
+            onClick={goNext}
             disabled={!hasNext}
             aria-label={t('player.next')}
             className="p-2 transition-transform active:scale-90 disabled:opacity-40"
