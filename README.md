@@ -6,6 +6,10 @@ A self-hosted web music player: metadata from [MusicBrainz](https://musicbrainz.
 - **Backend:** Rust — axum, sqlx, librqbit (`backend/`)
 - **Database:** PostgreSQL
 
+> **Disclaimer.** This is a research / experimental project. Legally, it can only be used to listen to music that is
+> in the public domain (or that you otherwise have the explicit right to download and share). Nimbus does not host or
+> provide any content and does not verify the legal status of what you stream.
+
 > **Legal notice.** Downloading and sharing copyrighted content may be illegal in your country. This project is
 > intended for personal use with content you have the rights to. You are solely responsible for how you use it.
 
