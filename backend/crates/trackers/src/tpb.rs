@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use nimbus_core::model::{InfoHash, TorrentSource};
 use serde::Deserialize;
 
-use crate::limiter::{Limiter, DEFAULT_INTERVAL};
+use crate::limiter::{Limiter, FAST_INTERVAL};
 use crate::magnet::{build_magnet, PUBLIC_TRACKERS};
 use crate::types::*;
 
@@ -47,7 +47,7 @@ impl TpbProvider {
         Self {
             http,
             base_url: base_url.trim_end_matches('/').to_string(),
-            limiter: Limiter::new(DEFAULT_INTERVAL),
+            limiter: Limiter::new(FAST_INTERVAL),
         }
     }
 

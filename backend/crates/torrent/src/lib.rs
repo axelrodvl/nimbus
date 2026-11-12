@@ -54,7 +54,7 @@ impl EngineConfig {
             session_dir: base.join("session"),
             listen_port: None,
             seeding,
-            metadata_timeout: Duration::from_secs(90),
+            metadata_timeout: Duration::from_secs(45),
             dht: true,
             localhost_only: false,
             persistence: true,

@@ -187,10 +187,10 @@ pub async fn defer_queued_verifies(
     .rows_affected())
 }
 
-/// Есть ли у альбома ожидающая (`queued`) задача `discover_album`.
+/// Есть ли у альбома ожидающая (`queued`) или выполняющаяся (`running`) задача `discover_album`.
 pub async fn has_queued_discover(db: impl PgExecutor<'_>, album_id: i64) -> sqlx::Result<bool> {
     sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM jobs WHERE state = 'queued' AND dedup_key = $1)",
+        "SELECT EXISTS (SELECT 1 FROM jobs WHERE state IN ('queued','running') AND dedup_key = $1)",
     )
     .bind(format!("discover_album:{album_id}"))
     .fetch_one(db)

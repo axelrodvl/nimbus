@@ -273,6 +273,19 @@ async fn publish_progress(ctx: &JobCtx, album_id: i64) -> Result<(), JobError> {
 /// Если все раздачи альбома проверены, оставшиеся `adding` → `not_found`.
 /// Транзакция с блокировкой строки альбома: параллельные verify не конфликтуют.
 pub(crate) async fn finalize_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError> {
+    finalize(ctx, album_id, false).await
+}
+
+/// То же, но вызывается самой задачей `discover_album` перед завершением: её собственная
+/// запись ещё `running`, поэтому проверку «идёт discover» пропускаем.
+pub(crate) async fn finalize_album_from_discover(
+    ctx: &JobCtx,
+    album_id: i64,
+) -> Result<(), JobError> {
+    finalize(ctx, album_id, true).await
+}
+
+async fn finalize(ctx: &JobCtx, album_id: i64, from_discover: bool) -> Result<(), JobError> {
     let mut tx = ctx.db.begin().await?;
     sqlx::query("SELECT id FROM albums WHERE id = $1 FOR UPDATE")
         .bind(album_id)
@@ -280,7 +293,7 @@ pub(crate) async fn finalize_album(ctx: &JobCtx, album_id: i64) -> Result<(), Jo
         .await?;
     if album_torrents::count_unverified(&mut *tx, album_id).await? > 0
         || cue_candidates::count_pending(&mut *tx, album_id).await? > 0
-        || jobs::has_queued_discover(&mut *tx, album_id).await?
+        || (!from_discover && jobs::has_queued_discover(&mut *tx, album_id).await?)
     {
         tx.commit().await?;
         return Ok(());

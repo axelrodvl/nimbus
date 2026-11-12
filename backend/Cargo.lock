@@ -2436,6 +2436,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "encoding_rs",
+ "futures",
  "nimbus-core",
  "nimbus-db",
  "nimbus-library",

@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use nimbus_core::model::{InfoHash, TorrentSource};
 use serde::Deserialize;
 
-use crate::limiter::{Limiter, DEFAULT_INTERVAL};
+use crate::limiter::{Limiter, FAST_INTERVAL};
 use crate::torrent_file::info_hash_of_torrent;
 use crate::types::*;
 
@@ -69,7 +69,7 @@ impl TorznabProvider {
             http,
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key: api_key.to_string(),
-            limiter: Limiter::new(DEFAULT_INTERVAL),
+            limiter: Limiter::new(FAST_INTERVAL),
         }
     }
 

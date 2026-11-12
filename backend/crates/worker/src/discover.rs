@@ -1,11 +1,12 @@
 //! Задачи `DiscoverAlbum` и `DiscoverArtist`: поиск раздач у провайдеров, ранжирование,
 //! сохранение в `torrents`/`album_torrents` и постановка `VerifyTorrent`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
+use futures::StreamExt;
 use nimbus_core::events::{Event, JobStage};
 use nimbus_core::jobs::Job;
 use nimbus_core::model::{
@@ -18,6 +19,7 @@ use nimbus_trackers::{
 };
 
 use crate::runner::{JobCtx, JobError, JobHandler};
+use crate::verify::{finalize_album_from_discover, LOW_PRIORITY_DELAY};
 
 /// Через сколько повторять поиск, если провайдеры упали и кандидатов нет.
 pub const RETRY_AFTER: Duration = Duration::from_secs(10 * 60);
@@ -25,10 +27,12 @@ pub const RETRY_AFTER: Duration = Duration::from_secs(10 * 60);
 pub const DISCOGRAPHY_MIN_SCORE: f32 = 0.2;
 /// Небольшой бонус к баллу дискографии при привязке к альбомам.
 pub const DISCOGRAPHY_LINK_BONUS: f32 = 0.05;
-/// Смещение запуска `VerifyTorrent` по рангу раздачи.
-pub const VERIFY_STAGGER: Duration = Duration::from_secs(2);
+/// Смещение запуска `VerifyTorrent` по рангу раздачи (только чтобы лучшие взялись первыми).
+pub const VERIFY_STAGGER: Duration = Duration::from_millis(200);
 /// Пауза между постановкой `DiscoverAlbum` для альбомов артиста.
 pub const ALBUM_JOB_STAGGER: Duration = Duration::from_secs(5);
+/// Сколько лучших раздач отдаём на проверку сразу; остальные резолвятся и ставятся позже.
+const EARLY_WAVE: usize = 3;
 /// Сколько вариантов запроса используем для альбома (запросы 1–3 из `build_queries`).
 const ALBUM_QUERY_COUNT: usize = 3;
 
@@ -95,8 +99,22 @@ async fn search_and_rank(
         }
     };
     progress(0);
-    for (i, q) in queries.iter().enumerate() {
-        for (source, res) in ctx.providers.search_all(q).await {
+    // Запросы идут параллельно (темп каждого провайдера держит его лимитер);
+    // результаты разбираем в порядке запросов, чтобы выдача была детерминированной.
+    let mut pending: futures::stream::FuturesUnordered<_> = queries
+        .iter()
+        .enumerate()
+        .map(|(i, q)| async move { (i, ctx.providers.search_all(q).await) })
+        .collect();
+    let mut results = Vec::with_capacity(queries.len());
+    while let Some(r) = pending.next().await {
+        results.push(r);
+        progress(results.len() as u32);
+    }
+    results.sort_by_key(|(i, _)| *i);
+    for (i, outcomes) in results {
+        let q = &queries[i];
+        for (source, res) in outcomes {
             match res {
                 Ok(found) => {
                     for cand in found {
@@ -126,7 +144,6 @@ async fn search_and_rank(
                 }
             }
         }
-        progress(i as u32 + 1);
     }
     let mut ranked: Vec<Scored> = best.into_values().collect();
     ranked.sort_by(|a, b| {
@@ -141,21 +158,47 @@ async fn search_and_rank(
     }
 }
 
-/// `resolve` (если нужен hash) и сохранение раздачи. `None` — кандидата использовать нельзя.
-async fn persist(ctx: &JobCtx, s: &Scored, kind: TorrentKind) -> Result<Option<Torrent>, JobError> {
-    let mut cand = s.cand.clone();
-    if cand.info_hash.is_none() {
-        let Some(provider) = ctx.providers.get(cand.source) else {
-            return Ok(None);
-        };
-        cand = match provider.resolve(cand).await {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::warn!(title = %s.cand.title, error = %e, "resolve failed, skipping candidate");
-                return Ok(None);
-            }
-        };
+/// `resolve` (если нужен hash). `None` — кандидата использовать нельзя.
+async fn resolve_candidate(ctx: &JobCtx, s: &Scored) -> Option<TorrentCandidate> {
+    let cand = s.cand.clone();
+    if cand.info_hash.is_some() {
+        return Some(cand);
     }
+    let provider = ctx.providers.get(cand.source)?;
+    match provider.resolve(cand).await {
+        Ok(c) => Some(c),
+        Err(e) => {
+            tracing::warn!(title = %s.cand.title, error = %e, "resolve failed, skipping candidate");
+            None
+        }
+    }
+}
+
+/// Резолвит кандидатов параллельно, затем сохраняет по порядку ранга.
+/// Результат — пары (кандидат, раздача) в исходном порядке.
+async fn persist_all<'a>(
+    ctx: &JobCtx,
+    ranked: &'a [Scored],
+    kind_of: impl Fn(&Scored) -> TorrentKind,
+) -> Result<Vec<(&'a Scored, Torrent)>, JobError> {
+    // Не больше `max_candidates` штук; темп запросов задаёт лимитер провайдера.
+    let resolved: Vec<Option<TorrentCandidate>> =
+        futures::future::join_all(ranked.iter().map(|s| resolve_candidate(ctx, s))).await;
+    let mut out = Vec::new();
+    for (s, cand) in ranked.iter().zip(resolved) {
+        let Some(cand) = cand else { continue };
+        if let Some(t) = store(ctx, cand, kind_of(s)).await? {
+            out.push((s, t));
+        }
+    }
+    Ok(out)
+}
+
+async fn store(
+    ctx: &JobCtx,
+    cand: TorrentCandidate,
+    kind: TorrentKind,
+) -> Result<Option<Torrent>, JobError> {
     let Some(hash) = cand.info_hash.clone() else {
         return Ok(None);
     };
@@ -236,12 +279,28 @@ pub async fn discover_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError>
     };
     let outcome = search_and_rank(ctx, &queries, &input, Some(album_id), |_| true, 0.0).await;
 
-    for s in &outcome.ranked {
-        let kind = classify(&s.cand.title, &artist.name, &album.title);
-        if let Some(t) = persist(ctx, s, kind).await? {
-            album_torrents::link(&ctx.db, album_id, t.id, &s.query, s.score).await?;
-        }
+    let kind_of = |s: &Scored| classify(&s.cand.title, &artist.name, &album.title);
+    let (first, rest) = outcome
+        .ranked
+        .split_at(EARLY_WAVE.min(outcome.ranked.len()));
+
+    // Волна 1: лучшие кандидаты уходят на проверку сразу, не дожидаясь резолва остальных.
+    let mut queued_verify: HashSet<i64> = HashSet::new();
+    for (s, t) in persist_all(ctx, first, kind_of).await? {
+        album_torrents::link(&ctx.db, album_id, t.id, &s.query, s.score).await?;
     }
+    enqueue_verifies(ctx, album_id, &mut queued_verify, Duration::ZERO).await?;
+
+    // Волна 2: остальные. Если треки уже найдены волной 1 — это лишь резервные источники.
+    for (s, t) in persist_all(ctx, rest, kind_of).await? {
+        album_torrents::link(&ctx.db, album_id, t.id, &s.query, s.score).await?;
+    }
+    let delay = if library_tracks_found(ctx, album_id).await? {
+        LOW_PRIORITY_DELAY
+    } else {
+        Duration::ZERO
+    };
+    enqueue_verifies(ctx, album_id, &mut queued_verify, delay).await?;
 
     // Учитываем и раздачи, прилинкованные ранее (например, дискографии из DiscoverArtist).
     let linked = album_torrents::list_for_album(&ctx.db, album_id).await?;
@@ -258,10 +317,35 @@ pub async fn discover_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError>
         mark_not_found(ctx, album_id).await?;
         return Ok(());
     }
+    tracing::info!(album_id, torrents = linked.len(), "discovery done");
+    // Проверки первой волны могли закончиться, пока мы искали остальных.
+    finalize_album_from_discover(ctx, album_id).await
+}
 
-    // `linked` отсортирован по рангу: лучший проверяется сразу, остальные — со смещением.
-    let now = Utc::now();
-    for (i, t) in linked.iter().enumerate() {
+/// Все ли треки альбома из библиотеки уже найдены/скачаны.
+async fn library_tracks_found(ctx: &JobCtx, album_id: i64) -> Result<bool, JobError> {
+    Ok(tracks::list_by_album(&ctx.db, album_id)
+        .await?
+        .iter()
+        .filter(|t| t.in_library)
+        .all(|t| matches!(t.status, TrackStatus::Found | TrackStatus::Ready)))
+}
+
+/// Ставит `VerifyTorrent` для прилинкованных раздач, которых ещё не ставили в этом запуске.
+/// Список отсортирован по рангу: лучший стартует первым, остальные — со смещением.
+async fn enqueue_verifies(
+    ctx: &JobCtx,
+    album_id: i64,
+    queued: &mut HashSet<i64>,
+    delay: Duration,
+) -> Result<(), JobError> {
+    let linked = album_torrents::list_for_album(&ctx.db, album_id).await?;
+    let now = Utc::now() + chrono::Duration::from_std(delay).unwrap_or_default();
+    let fresh: Vec<_> = linked
+        .iter()
+        .filter(|t| !queued.contains(&t.torrent.id))
+        .collect();
+    for (i, t) in fresh.into_iter().enumerate() {
         let at = now + chrono::Duration::from_std(VERIFY_STAGGER * i as u32).unwrap_or_default();
         jobs::enqueue(
             &ctx.db,
@@ -272,8 +356,8 @@ pub async fn discover_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError>
             Some(at),
         )
         .await?;
+        queued.insert(t.torrent.id);
     }
-    tracing::info!(album_id, torrents = linked.len(), "discovery done");
     Ok(())
 }
 
@@ -318,10 +402,8 @@ pub async fn discover_artist(ctx: &JobCtx, artist_id: i64) -> Result<(), JobErro
     )
     .await;
 
-    for s in &outcome.ranked {
-        let Some(t) = persist(ctx, s, TorrentKind::Discography).await? else {
-            continue;
-        };
+    let stored = persist_all(ctx, &outcome.ranked, |_| TorrentKind::Discography).await?;
+    for (s, t) in &stored {
         let rank = (s.score + DISCOGRAPHY_LINK_BONUS).min(1.0);
         for a in &lib_albums {
             album_torrents::link(&ctx.db, a.id, t.id, &s.query, rank).await?;

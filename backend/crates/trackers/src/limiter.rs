@@ -6,6 +6,8 @@ use governor::{clock::DefaultClock, state::InMemoryState, state::NotKeyed, Quota
 pub struct Limiter(RateLimiter<NotKeyed, InMemoryState, DefaultClock>);
 
 pub const DEFAULT_INTERVAL: Duration = Duration::from_secs(2);
+/// Для apibay и собственного Torznab-индексера (Prowlarr/Jackett) хватает более частых запросов.
+pub const FAST_INTERVAL: Duration = Duration::from_millis(500);
 
 impl Limiter {
     pub fn new(interval: Duration) -> Self {
