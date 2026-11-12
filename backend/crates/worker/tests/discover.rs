@@ -187,7 +187,7 @@ async fn album_creates_torrents_links_and_verify_jobs(pool: PgPool) {
             cand("Radiohead - OK Computer (1997) [MP3 320]", Some(2), 20),
             cand("Radiohead - Discography 1993-2016 [FLAC]", Some(3), 30),
             cand("Muse - OK Computer [FLAC]", Some(4), 50), // чужой артист
-            cand("Radiohead - OK Computer [FLAC]", Some(5), 0), // мёртвая
+            cand("Radiohead - OK Computer [FLAC]", Some(5), 0), // 0 сидов: штраф, но не отбрасывается
             cand("Radiohead - Kid A [FLAC]", Some(6), 50),  // другой альбом
         ])
     });
@@ -207,11 +207,12 @@ async fn album_creates_torrents_links_and_verify_jobs(pool: PgPool) {
         [
             "Radiohead - OK Computer (1997) [FLAC]",
             "Radiohead - OK Computer (1997) [MP3 320]",
+            "Radiohead - OK Computer [FLAC]",
             "Radiohead - Discography 1993-2016 [FLAC]",
         ]
     );
     assert_eq!(linked[0].torrent.kind, TorrentKind::Album);
-    assert_eq!(linked[2].torrent.kind, TorrentKind::Discography);
+    assert_eq!(linked[3].torrent.kind, TorrentKind::Discography);
     assert!(linked[0].rank_score > linked[1].rank_score);
     assert_eq!(linked[0].torrent.info_hash, hash(1).as_str());
     assert!(linked[0].torrent.magnet.starts_with("magnet:?"));
@@ -219,7 +220,7 @@ async fn album_creates_torrents_links_and_verify_jobs(pool: PgPool) {
 
     // verify-задачи на каждую раздачу, треки остаются в `adding`.
     let verify = queued(&pool, "verify_torrent").await;
-    assert_eq!(verify.len(), 3);
+    assert_eq!(verify.len(), 4);
     for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
         assert_eq!(t.status, TrackStatus::Adding);
     }
@@ -246,9 +247,9 @@ async fn album_creates_torrents_links_and_verify_jobs(pool: PgPool) {
             .await
             .unwrap()
             .len(),
-        3
+        4
     );
-    assert_eq!(queued(&pool, "verify_torrent").await.len(), 3);
+    assert_eq!(queued(&pool, "verify_torrent").await.len(), 4);
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
