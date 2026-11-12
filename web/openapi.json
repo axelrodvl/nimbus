@@ -1071,6 +1071,26 @@
         }
       }
     },
+    "/api/settings/reimport-artists": {
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "reimport_artists",
+        "responses": {
+          "200": {
+            "description": "Повторный импорт дискографий всех артистов библиотеки поставлен в очередь (уже имеющиеся альбомы не дублируются)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReimportResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/storage": {
       "get": {
         "tags": [
@@ -2522,6 +2542,19 @@
           },
           "sample_count": {
             "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ReimportResponse": {
+        "type": "object",
+        "required": [
+          "queued"
+        ],
+        "properties": {
+          "queued": {
+            "type": "integer",
+            "description": "Сколько артистов поставлено на повторный импорт дискографии.",
             "minimum": 0
           }
         }

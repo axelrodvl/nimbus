@@ -12,9 +12,22 @@ use crate::error::LibraryError;
 
 type Result<T, E = LibraryError> = std::result::Result<T, E>;
 
-/// Release group'ы с этими secondary types не импортируются при добавлении артиста
-/// (по умолчанию; настраивается: `search.skip_secondary_types`).
-pub const EXCLUDED_SECONDARY_TYPES: &[&str] = &["Compilation", "Live", "Remix", "DJ-mix", "Demo"];
+/// Release group'ы с этими типами (primary — `EP`, или secondary) не импортируются при добавлении
+/// артиста (по умолчанию; настраивается: `search.skip_secondary_types`).
+pub const EXCLUDED_SECONDARY_TYPES: &[&str] = &[
+    "EP",
+    "Compilation",
+    "Live",
+    "Remix",
+    "DJ-mix",
+    "Demo",
+    "Soundtrack",
+    "Mixtape/Street",
+    "Spokenword",
+    "Interview",
+    "Audiobook",
+    "Audio drama",
+];
 
 const COVER_SIZE: u16 = 500;
 
@@ -293,7 +306,7 @@ impl LibraryService {
         Ok(())
     }
 
-    /// Тело задачи `ImportArtist`: альбомы и EP артиста без Compilation/Live/Remix/DJ-mix/Demo,
+    /// Тело задачи `ImportArtist`: альбомы и EP артиста, кроме отключённых типов,
     /// каждый добавляется без `discover_album`; в конце — `discover_artist`.
     /// Группы без релизов в MB пропускаются; сетевые ошибки возвращаются (задача повторится,
     /// импорт идемпотентен).
@@ -338,8 +351,9 @@ impl LibraryService {
         let mut summary = ImportSummary::default();
         for group in groups {
             let excluded = group
-                .secondary_types
+                .primary_type
                 .iter()
+                .chain(group.secondary_types.iter())
                 .find(|t| skip_secondary_types.iter().any(|s| s == *t))
                 .cloned();
             let title = group.title.clone();

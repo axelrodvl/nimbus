@@ -21,6 +21,16 @@ export async function saveSettings(patch: SettingsPatch): Promise<ActionResult<{
   }
 }
 
+/** Повторный импорт дискографий всех артистов библиотеки (после включения новых типов релизов). */
+export async function reimportArtists(): Promise<ActionResult<{ queued: number }>> {
+  try {
+    const r = unwrap(await api.POST('/api/settings/reimport-artists'));
+    return { ok: true, queued: r.queued };
+  } catch (e) {
+    return actionFailure(e);
+  }
+}
+
 export async function testProvider(
   provider: 'tpb' | 'rutracker' | 'torznab',
 ): Promise<ActionResult<{ message: string; success: boolean; sampleCount: number }>> {

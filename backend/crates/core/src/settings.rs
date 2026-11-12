@@ -50,7 +50,7 @@ pub struct SearchSettings {
     pub max_candidates: u8,
     /// Порядок предпочтения форматов: `flac, alac, mp3_320, mp3_v0, aac, ape_wv, mp3_other`.
     pub format_prefs: Vec<String>,
-    /// Release group'ы с такими secondary types не импортируются вместе с артистом.
+    /// Release group'ы с такими типами (primary `EP` или secondary) не импортируются вместе с артистом.
     pub skip_secondary_types: Vec<String>,
 }
 
@@ -105,10 +105,23 @@ impl Default for SearchSettings {
         Self {
             max_candidates: 8,
             format_prefs: FORMAT_KEYS.iter().map(|s| s.to_string()).collect(),
-            skip_secondary_types: ["Compilation", "Live", "Remix", "DJ-mix", "Demo"]
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
+            skip_secondary_types: [
+                "EP",
+                "Compilation",
+                "Live",
+                "Remix",
+                "DJ-mix",
+                "Demo",
+                "Soundtrack",
+                "Mixtape/Street",
+                "Spokenword",
+                "Interview",
+                "Audiobook",
+                "Audio drama",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
         }
     }
 }

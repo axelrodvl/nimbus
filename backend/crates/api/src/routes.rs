@@ -64,6 +64,10 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
             "/settings/providers/test",
             post(crate::settings::test_provider),
         )
+        .route(
+            "/settings/reimport-artists",
+            post(crate::settings::reimport_artists),
+        )
         .route("/storage", get(crate::settings::get_storage))
         .route("/downloads", get(crate::downloads::list_downloads))
         .route(

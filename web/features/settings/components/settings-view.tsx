@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { FormatOrder } from '@/features/settings/components/format-order';
 import { ProviderTest } from '@/features/settings/components/provider-test';
+import { ReleaseTypes } from '@/features/settings/components/release-types';
 import { Check, Field, SectionForm, TextInput } from '@/features/settings/components/section-form';
 import { SECRET_MASK, type Settings, type Storage } from '@/features/settings/types';
 import { formatSize } from '@/features/sources/format';
@@ -85,12 +86,15 @@ export function SettingsView({ settings: s, storage }: { settings: Settings; sto
           search: {
             format_prefs: fd.getAll('format_prefs').map(String),
             max_candidates: num(fd, 'max_candidates'),
-            skip_secondary_types: str(fd, 'skip_types')
-              .split(',')
-              .map(t => t.trim())
-              .filter(Boolean),
+            skip_secondary_types: fd.getAll('skip_types').map(String),
           },
         })}
+        askReimport={fd => {
+          const before = new Set(s.search.skip_secondary_types);
+          // Вопрос нужен, только если какой-то ранее пропускавшийся тип включили.
+          const after = new Set(fd.getAll('skip_types').map(String));
+          return [...before].some(type => !after.has(type));
+        }}
       >
         <Field label={t('settings.maxCandidates')}>
           <TextInput name="max_candidates" type="number" min={1} max={30} defaultValue={s.search.max_candidates} />
@@ -99,9 +103,11 @@ export function SettingsView({ settings: s, storage }: { settings: Settings; sto
           <span className="text-sm font-medium">{t('settings.formatOrder')}</span>
           <FormatOrder initial={s.search.format_prefs} />
         </div>
-        <Field label={t('settings.skipTypes')} hint={t('settings.skipTypesHint')}>
-          <TextInput name="skip_types" defaultValue={s.search.skip_secondary_types.join(', ')} />
-        </Field>
+        <div className="flex flex-col gap-1">
+          <span className="text-sm font-medium">{t('settings.skipTypes')}</span>
+          <ReleaseTypes skipped={s.search.skip_secondary_types} />
+          <span className="text-muted text-xs">{t('settings.skipTypesHint')}</span>
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <Field label={t('settings.accept')} hint="0…1">
             <TextInput name="accept" type="number" step="0.01" min={0} max={1} defaultValue={s.matching.accept} />
@@ -123,20 +129,9 @@ export function SettingsView({ settings: s, storage }: { settings: Settings; sto
           },
         })}
       >
-        <Check
-          name="prefetch_next"
-          label={t('settings.prefetch')}
-          defaultChecked={s.playback.prefetch_next}
-        />
-        <Check
-          name="transcode_alac"
-          label={t('settings.transcodeAlac')}
-          defaultChecked={s.playback.transcode_alac}
-        />
-        <Field
-          label={t('settings.codec')}
-          hint={t('settings.codecHint')}
-        >
+        <Check name="prefetch_next" label={t('settings.prefetch')} defaultChecked={s.playback.prefetch_next} />
+        <Check name="transcode_alac" label={t('settings.transcodeAlac')} defaultChecked={s.playback.transcode_alac} />
+        <Field label={t('settings.codec')} hint={t('settings.codecHint')}>
           <select
             name="codec"
             defaultValue={s.playback.transcode_lossy_codec}
@@ -179,13 +174,8 @@ export function SettingsView({ settings: s, storage }: { settings: Settings; sto
           <TextInput name="cache_limit_gb" type="number" min={1} defaultValue={s.storage.cache_limit_gb} />
         </Field>
         <Check name="seeding" label={t('settings.seeding')} defaultChecked={s.storage.seeding} />
-        <p className="text-muted -mt-2 text-xs">
-          {t('settings.seedingNote')}
-        </p>
-        <Field
-          label={t('settings.seedRatio')}
-          hint={t('settings.seedRatioHint')}
-        >
+        <p className="text-muted -mt-2 text-xs">{t('settings.seedingNote')}</p>
+        <Field label={t('settings.seedRatio')} hint={t('settings.seedRatioHint')}>
           <TextInput name="seed_ratio" type="number" step="0.1" min={0.1} defaultValue={s.storage.seed_ratio ?? ''} />
         </Field>
       </SectionForm>

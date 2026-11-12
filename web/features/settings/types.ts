@@ -30,3 +30,20 @@ export const FORMAT_LABELS: Record<string, string> = {
   mp3_320: 'MP3 320',
   mp3_v0: 'MP3 V0',
 };
+
+/** Типы релизов MusicBrainz, которые можно импортировать с артистом (в порядке показа). */
+export const RELEASE_TYPES = [
+  'Album',
+  'EP',
+  'Compilation',
+  'Live',
+  'Remix',
+  'DJ-mix',
+  'Demo',
+  'Soundtrack',
+  'Mixtape/Street',
+  'Spokenword',
+  'Interview',
+  'Audiobook',
+  'Audio drama',
+] as const;

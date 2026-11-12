@@ -372,6 +372,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/reimport-artists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["reimport_artists"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/storage": {
         parameters: {
             query?: never;
@@ -864,6 +880,10 @@ export interface components {
             message: string;
             ok: boolean;
             sample_count: number;
+        };
+        ReimportResponse: {
+            /** @description Сколько артистов поставлено на повторный импорт дискографии. */
+            queued: number;
         };
         RetryResponse: {
             /** @description Была ли поставлена новая задача (`false` — такая уже в очереди). */
@@ -1840,6 +1860,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    reimport_artists: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Повторный импорт дискографий всех артистов библиотеки поставлен в очередь (уже имеющиеся альбомы не дублируются) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReimportResponse"];
                 };
             };
         };

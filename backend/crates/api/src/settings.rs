@@ -167,6 +167,30 @@ pub async fn test_provider(
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+pub struct ReimportResponse {
+    /// Сколько артистов поставлено на повторный импорт дискографии.
+    pub queued: usize,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/settings/reimport-artists",
+    tag = "settings",
+    responses((status = 200, description = "Повторный импорт дискографий всех артистов библиотеки поставлен в очередь (уже имеющиеся альбомы не дублируются)", body = ReimportResponse))
+)]
+pub async fn reimport_artists(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<ReimportResponse>, ApiError> {
+    authorize(&state, &headers)?;
+    let ids = nimbus_db::repo::artists::library_artist_ids(&state.db).await?;
+    for id in &ids {
+        state.library.enqueue_import(*id).await?;
+    }
+    Ok(Json(ReimportResponse { queued: ids.len() }))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
 pub struct StorageDto {
     pub used_bytes: u64,
     pub limit_bytes: u64,

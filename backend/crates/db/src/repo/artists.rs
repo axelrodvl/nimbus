@@ -67,6 +67,13 @@ pub async fn list_in_library(
     .await
 }
 
+/// Идентификаторы всех артистов библиотеки.
+pub async fn library_artist_ids(db: impl PgExecutor<'_>) -> sqlx::Result<Vec<i64>> {
+    sqlx::query_scalar("SELECT id FROM artists WHERE in_library ORDER BY id")
+        .fetch_all(db)
+        .await
+}
+
 /// `(mbid, id)` для артистов из `mbids`, которые находятся в библиотеке.
 pub async fn library_ids_by_mbid(
     db: impl PgExecutor<'_>,

@@ -61,7 +61,7 @@ const defaultSettings = () => ({
   search: {
     format_prefs: ['flac', 'alac', 'mp3_320', 'mp3_v0', 'aac', 'ape_wv', 'mp3_other'],
     max_candidates: 8,
-    skip_secondary_types: ['Compilation', 'Live', 'Remix', 'DJ-mix', 'Demo'],
+    skip_secondary_types: ['EP', 'Compilation', 'Live', 'Remix', 'DJ-mix', 'Demo', 'Soundtrack', 'Mixtape/Street', 'Spokenword', 'Interview', 'Audiobook', 'Audio drama'],
   },
   storage: { cache_limit_gb: 50, seed_ratio: null, seeding: false },
 });
@@ -436,6 +436,10 @@ createServer(async (req, res) => {
       torrents_active: 1,
       used_bytes: 3 * 1024 ** 3,
     });
+  }
+  if (p === '/api/settings/reimport-artists' && req.method === 'POST') {
+    requestLog.push({ method: 'POST', path: p });
+    return send(res, 200, { queued: 3 });
   }
   if (p === '/api/settings/providers/test' && req.method === 'POST') {
     const body = await readJson(req);

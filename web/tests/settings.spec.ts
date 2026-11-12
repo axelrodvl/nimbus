@@ -68,14 +68,31 @@ test('поиск и сопоставление: порядок форматов,
   await page.goto('/settings');
   const search = section(page, 'search');
   await search.getByRole('button', { name: 'Выше: ALAC' }).click();
-  await search.getByLabel('Пропускать типы релизов').fill('Live, Demo');
+  // По умолчанию включён только Album.
+  await expect(search.getByRole('switch', { name: 'Album' })).toHaveAttribute('aria-checked', 'true');
+  await expect(search.getByRole('switch', { name: 'EP' })).toHaveAttribute('aria-checked', 'false');
+  await search.getByRole('switch', { name: 'Album' }).click();
   await search.getByLabel('Порог уверенного совпадения').fill('0.9');
   await search.getByRole('button', { name: 'Сохранить' }).click();
+  // Включённых типов не прибавилось → вопроса нет.
   await expect(page.getByText('«Поиск и сопоставление»: сохранено')).toBeVisible();
   const [put] = await puts(page);
   expect(put?.body?.search.format_prefs.slice(0, 2)).toEqual(['alac', 'flac']);
-  expect(put?.body?.search.skip_secondary_types).toEqual(['Live', 'Demo']);
+  expect(put?.body?.search.skip_secondary_types).toContain('Album');
+  expect(put?.body?.search.skip_secondary_types).toContain('Soundtrack');
   expect(put?.body?.matching).toEqual({ accept: 0.9, confirm: 0.65 });
+});
+
+test('включение ранее пропускаемого типа: диалог, повторный импорт для существующих', async ({ page }) => {
+  await page.goto('/settings');
+  const search = section(page, 'search');
+  await search.getByRole('switch', { name: 'EP' }).click();
+  await search.getByRole('button', { name: 'Сохранить' }).click();
+  await page.getByRole('button', { name: 'И для существующих' }).click();
+  await expect(page.getByText('«Поиск и сопоставление»: сохранено')).toBeVisible();
+  const [put] = await puts(page);
+  expect(put?.body?.search.skip_secondary_types).not.toContain('EP');
+  expect((await log(page)).some(r => r.path === '/api/settings/reimport-artists')).toBe(true);
 });
 
 test('кнопка «Проверить» показывает результат пробного поиска', async ({ page }) => {
