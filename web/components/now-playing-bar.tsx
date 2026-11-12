@@ -20,6 +20,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { QueuePanel } from '@/components/queue-panel';
 import { Cover } from '@/components/ui/cover';
+import { Marquee } from '@/components/ui/marquee';
 import { cn, formatDuration } from '@/lib/utils';
 import { useT } from '@/providers/i18n-provider';
 import { useTrackStatus } from '@/providers/live-library-provider';
@@ -96,7 +97,7 @@ export function NowPlayingBar() {
             >
               <Cover src={track.coverUrl} alt={track.title} size="sm" className="!h-12 !w-12 !rounded-sm" />
               <div className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate text-sm font-medium text-black dark:text-white">{track.title}</span>
+                <Marquee className="text-sm font-medium text-black dark:text-white">{track.title}</Marquee>
                 <span className="text-muted truncate text-xs">{track.artist}</span>
               </div>
             </button>
@@ -432,11 +433,13 @@ function TrackInfo({
 }) {
   const titleEl =
     albumId !== undefined ? (
-      <Link href={`/album/${albumId}`} className="truncate hover:underline">
-        {title}
-      </Link>
+      <Marquee>
+        <Link href={`/album/${albumId}`} className="hover:underline">
+          {title}
+        </Link>
+      </Marquee>
     ) : (
-      <span className="truncate">{title}</span>
+      <Marquee>{title}</Marquee>
     );
   return (
     <div className="flex min-w-0 flex-col" data-testid="player-track">
@@ -515,7 +518,7 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
       onTouchCancel={onTouchEnd}
       style={open ? { transform: `translateY(${dragY}px)` } : undefined}
       className={cn(
-        'fixed inset-0 z-50 flex touch-pan-x flex-col overscroll-none overflow-hidden bg-white text-black dark:bg-[#181818] dark:text-white',
+        'fixed inset-0 z-50 flex touch-pan-x flex-col overflow-hidden overscroll-none bg-white text-black dark:bg-[#181818] dark:text-white',
         !dragging && 'transition-transform duration-300 ease-out',
         !open && 'translate-y-full',
       )}
@@ -551,7 +554,7 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
 
         <div className="flex items-center gap-3 pt-2">
           <div className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-xl font-semibold" data-testid="full-player-title">
+            <Marquee className="text-xl font-semibold" data-testid="full-player-title">
               {track?.albumId !== undefined ? (
                 <Link href={`/album/${track.albumId}`} onClick={onClose} className="hover:underline">
                   {track.title}
@@ -559,8 +562,8 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
               ) : (
                 track?.title
               )}
-            </span>
-            <span className="text-black/70 dark:text-white/75 truncate text-lg">
+            </Marquee>
+            <span className="truncate text-lg text-black/70 dark:text-white/75">
               {track?.artistId !== undefined ? (
                 <Link href={`/artist/${track.artistId}`} onClick={onClose} className="hover:underline">
                   {track.artist}
@@ -580,7 +583,7 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
             onChange={player.seekTo}
             label={t('player.seek')}
           />
-          <div className="text-black/70 dark:text-white/75 mt-1 flex justify-between text-xs tabular-nums">
+          <div className="mt-1 flex justify-between text-xs text-black/70 tabular-nums dark:text-white/75">
             <span>{formatDuration(Math.floor(position))}</span>
             <span>{formatDuration(Math.floor(duration))}</span>
           </div>
@@ -654,7 +657,7 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
             type="button"
             onClick={onClose}
             aria-label={t('player.collapse')}
-            className="text-black/70 dark:text-white/75 p-2 hover:text-black dark:hover:text-white"
+            className="p-2 text-black/70 hover:text-black dark:text-white/75 dark:hover:text-white"
           >
             <ChevronDown className="h-6 w-6" />
           </button>
@@ -662,7 +665,7 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
             type="button"
             onClick={onOpenQueue}
             aria-label={t('player.queue')}
-            className="text-black/70 dark:text-white/75 p-2 hover:text-black dark:hover:text-white"
+            className="p-2 text-black/70 hover:text-black dark:text-white/75 dark:hover:text-white"
           >
             <ListMusic className="h-6 w-6" />
           </button>

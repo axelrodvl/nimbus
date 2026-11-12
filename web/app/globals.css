@@ -313,3 +313,23 @@
     height: 11px;
   }
 }
+
+/* Marquee: long track titles scroll back and forth */
+@keyframes marquee {
+  0%,
+  20% {
+    transform: translateX(0);
+  }
+  80%,
+  100% {
+    transform: translateX(var(--marquee-dist));
+  }
+}
+.marquee-run {
+  animation: marquee linear infinite alternate;
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee-run {
+    animation: none;
+  }
+}
