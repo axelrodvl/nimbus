@@ -24,7 +24,7 @@ export const STATUS_FILTERS = [
 export type StatusFilterId = (typeof STATUS_FILTERS)[number]['id'];
 
 export function parseTab(value: string | string[] | undefined): TabId {
-  return TABS.find(t => t.id === value)?.id ?? 'albums';
+  return TABS.find(t => t.id === value)?.id ?? 'artists';
 }
 
 export function parseStatusFilter(value: string | string[] | undefined): StatusFilterId {
