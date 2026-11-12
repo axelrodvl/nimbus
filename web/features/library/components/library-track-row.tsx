@@ -73,7 +73,14 @@ export function LibraryTrackRow({ track, queue, showAlbum = true, index, albumMb
         )}
       </button>
       {index === undefined ? <Cover src={track.cover_url} alt={track.album_title} size="sm" /> : null}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div
+        className={cn('flex min-w-0 flex-1 flex-col', playable && 'cursor-pointer')}
+        onClick={e => {
+          // Клик по ссылкам (исполнитель/альбом) — навигация, остальное — play/pause.
+          if ((e.target as HTMLElement).closest('a')) return;
+          toggle();
+        }}
+      >
         <span className={cn('truncate text-sm font-medium', isCurrent && 'text-accent')}>{track.title}</span>
         <span className="text-muted truncate text-xs">
           <Link href={`/artist/${track.artist_id}`} className="hover:underline">
