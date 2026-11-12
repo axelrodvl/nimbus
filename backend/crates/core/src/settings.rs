@@ -136,8 +136,8 @@ impl Default for StorageSettings {
     fn default() -> Self {
         Self {
             cache_limit_gb: 50,
-            seeding: false,
-            seed_ratio: None,
+            seeding: true,
+            seed_ratio: Some(1.0),
         }
     }
 }
@@ -168,7 +168,7 @@ impl Settings {
             storage: StorageSettings {
                 cache_limit_gb: c.cache_limit_gb,
                 seeding: c.seeding,
-                seed_ratio: None,
+                seed_ratio: c.seed_ratio,
             },
             ..Self::default()
         }
@@ -336,7 +336,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(m.storage.cache_limit_gb, 5);
-        assert!(!m.storage.seeding);
+        assert!(m.storage.seeding);
+        assert_eq!(m.storage.seed_ratio, Some(1.0));
         assert_eq!(m.matching.accept, 0.9);
         assert_eq!(m.matching.confirm, 0.65);
         assert_eq!(m.providers, cur.providers);

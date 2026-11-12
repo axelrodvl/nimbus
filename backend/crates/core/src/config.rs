@@ -14,7 +14,7 @@ pub enum ConfigError {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Config {
     pub database_url: String,
     pub bind: SocketAddr,
@@ -30,6 +30,8 @@ pub struct Config {
     pub rutracker_proxy: Option<String>,
     pub cache_limit_gb: u64,
     pub seeding: bool,
+    /// NIMBUS_SEED_RATIO: лимит раздачи (по умолчанию 1.0; `0`/`none` — без лимита).
+    pub seed_ratio: Option<f64>,
     pub api_token: Option<String>,
     /// NIMBUS_DEBUG: включает отладочные эндпоинты в release-сборке.
     pub debug: bool,
@@ -87,6 +89,21 @@ impl Config {
             }
         };
 
+        let seed_ratio = match opt("NIMBUS_SEED_RATIO").as_deref() {
+            None => Some(1.0),
+            Some("none" | "0") => None,
+            Some(v) => Some(
+                v.parse::<f64>()
+                    .ok()
+                    .filter(|r| r.is_finite() && *r > 0.0)
+                    .ok_or_else(|| ConfigError::Invalid {
+                        name: "NIMBUS_SEED_RATIO",
+                        value: v.to_string(),
+                        reason: "expected a positive number, 0 or none".into(),
+                    })?,
+            ),
+        };
+
         Ok(Self {
             database_url,
             bind,
@@ -104,7 +121,8 @@ impl Config {
             rutracker_cookie: opt("NIMBUS_RUTRACKER_COOKIE"),
             rutracker_proxy: opt("NIMBUS_RUTRACKER_PROXY"),
             cache_limit_gb,
-            seeding: parse_bool("NIMBUS_SEEDING", false)?,
+            seeding: parse_bool("NIMBUS_SEEDING", true)?,
+            seed_ratio,
             api_token: opt("NIMBUS_API_TOKEN"),
             debug: parse_bool("NIMBUS_DEBUG", false)?,
         })
@@ -126,7 +144,8 @@ mod tests {
         assert_eq!(c.data_dir, PathBuf::from("./data"));
         assert_eq!(c.cors_origin, "http://localhost:3000");
         assert!(c.tpb_enabled);
-        assert!(!c.seeding);
+        assert!(c.seeding);
+        assert_eq!(c.seed_ratio, Some(1.0));
         assert!(!c.debug);
         assert_eq!(c.cache_limit_gb, 50);
         assert!(c.torznab_url.is_none() && c.api_token.is_none());

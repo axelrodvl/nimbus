@@ -96,6 +96,7 @@ async fn main() -> anyhow::Result<()> {
     let initial = settings.get();
     #[allow(unused_mut)]
     let mut engine_cfg = EngineConfig::new(&config.data_dir, initial.storage.seeding);
+    engine_cfg.seed_ratio = initial.storage.seed_ratio;
     #[cfg(feature = "test-fakes")]
     if let Some(f) = &fakes {
         engine_cfg.localhost_only = true;

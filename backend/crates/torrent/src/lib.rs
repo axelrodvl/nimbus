@@ -34,6 +34,9 @@ pub struct EngineConfig {
     pub listen_port: Option<u16>,
     /// `false` — после завершения выбранных файлов торрент ставится на паузу (не раздаём).
     pub seeding: bool,
+    /// Лимит раздачи: после `uploaded >= ratio * downloaded` завершённый торрент ставится на
+    /// паузу. `None` — раздаём без ограничений.
+    pub seed_ratio: Option<f64>,
     pub metadata_timeout: Duration,
     /// Включить DHT.
     pub dht: bool,
@@ -54,6 +57,7 @@ impl EngineConfig {
             session_dir: base.join("session"),
             listen_port: None,
             seeding,
+            seed_ratio: None,
             metadata_timeout: Duration::from_secs(45),
             dht: true,
             localhost_only: false,
@@ -182,6 +186,9 @@ pub struct TorrentEngine {
     cfg: EngineConfig,
     /// Раздавать ли завершённые торренты (меняется из настроек на лету).
     seeding: std::sync::atomic::AtomicBool,
+    /// Лимит раздачи (uploaded / downloaded); `None` — без лимита. Хранится как биты `f64`
+    /// (`u64::MAX` — нет лимита), меняется на лету.
+    seed_ratio: Arc<std::sync::atomic::AtomicU64>,
     metadata_slots: Semaphore,
     /// Выбранные для скачивания файлы по торрентам. Мьютекс сериализует `ensure_file`/`release_file`.
     selected: Arc<Mutex<HashMap<InfoHash, HashSet<usize>>>>,
@@ -195,6 +202,24 @@ pub fn union_selection(current: &HashSet<usize>, add: usize) -> Option<HashSet<u
     let mut next = current.clone();
     next.insert(add);
     Some(next)
+}
+
+fn encode_ratio(r: Option<f64>) -> u64 {
+    r.map_or(u64::MAX, f64::to_bits)
+}
+
+fn decode_ratio(bits: u64) -> Option<f64> {
+    (bits != u64::MAX).then(|| f64::from_bits(bits))
+}
+
+/// Достигнут ли лимит раздачи: `uploaded >= ratio * downloaded`.
+pub fn ratio_reached(st: &librqbit::TorrentStats, ratio: Option<f64>) -> bool {
+    match ratio {
+        Some(r) if st.finished && st.progress_bytes > 0 => {
+            st.uploaded_bytes as f64 >= r * st.progress_bytes as f64
+        }
+        _ => false,
+    }
 }
 
 fn to_hash(id: librqbit::dht::Id20) -> InfoHash {
@@ -250,11 +275,15 @@ impl TorrentEngine {
         let engine = Self {
             session,
             seeding: std::sync::atomic::AtomicBool::new(cfg.seeding),
+            seed_ratio: Arc::new(std::sync::atomic::AtomicU64::new(encode_ratio(
+                cfg.seed_ratio,
+            ))),
             cfg,
             metadata_slots: Semaphore::new(METADATA_CONCURRENCY),
             selected: Arc::new(Mutex::new(HashMap::new())),
         };
         engine.restore_selection().await;
+        engine.spawn_ratio_watcher();
         Ok(engine)
     }
 
@@ -290,7 +319,7 @@ impl TorrentEngine {
         let _guard = self.selected.lock().await;
         for h in handles {
             let finished = h.stats().finished;
-            let res = if on && h.is_paused() {
+            let res = if on && h.is_paused() && !ratio_reached(&h.stats(), self.seed_ratio()) {
                 self.session.unpause(&h).await
             } else if !on && finished && !h.is_paused() {
                 self.session.pause(&h).await
@@ -302,6 +331,74 @@ impl TorrentEngine {
             }
         }
         tracing::info!(seeding = on, "seeding policy changed");
+    }
+
+    pub fn seed_ratio(&self) -> Option<f64> {
+        decode_ratio(self.seed_ratio.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    /// Меняет лимит раздачи на лету: завершённые торренты ниже нового лимита снимаются с паузы
+    /// (если раздача включена), достигшие его — ставятся на паузу ближайшей проверкой.
+    pub async fn set_seed_ratio(&self, ratio: Option<f64>) {
+        let new = encode_ratio(ratio);
+        if self
+            .seed_ratio
+            .swap(new, std::sync::atomic::Ordering::Relaxed)
+            == new
+        {
+            return;
+        }
+        if self.seeding() {
+            let handles: Vec<ManagedTorrentHandle> = self
+                .session
+                .with_torrents(|it| it.map(|(_, h)| h.clone()).collect());
+            let _guard = self.selected.lock().await;
+            for h in handles {
+                let st = h.stats();
+                if st.finished && h.is_paused() && !ratio_reached(&st, ratio) {
+                    if let Err(e) = self.session.unpause(&h).await {
+                        tracing::warn!(error = %e, "cannot resume seeding of a torrent");
+                    }
+                }
+            }
+        }
+        tracing::info!(?ratio, "seed ratio changed");
+    }
+
+    /// Раз в 30 с ставит на паузу завершённые торренты, достигшие лимита раздачи.
+    fn spawn_ratio_watcher(&self) {
+        let (session, selected, ratio) = (
+            self.session.clone(),
+            self.selected.clone(),
+            self.seed_ratio.clone(),
+        );
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(30));
+            loop {
+                tick.tick().await;
+                let Some(limit) = decode_ratio(ratio.load(std::sync::atomic::Ordering::Relaxed))
+                else {
+                    continue;
+                };
+                let handles: Vec<ManagedTorrentHandle> =
+                    session.with_torrents(|it| it.map(|(_, h)| h.clone()).collect());
+                let _guard = selected.lock().await;
+                for h in handles {
+                    let st = h.stats();
+                    if st.finished && !h.is_paused() && ratio_reached(&st, Some(limit)) {
+                        match session.pause(&h).await {
+                            Ok(()) => tracing::info!(
+                                info_hash = %h.info_hash().as_string(),
+                                uploaded = st.uploaded_bytes,
+                                downloaded = st.progress_bytes,
+                                "seed ratio reached, torrent paused"
+                            ),
+                            Err(e) => tracing::warn!(error = %e, "cannot pause seeded torrent"),
+                        }
+                    }
+                }
+            }
+        });
     }
 
     /// Сводка по движку: число торрентов и суммарные скорости (байт/с).

@@ -27,6 +27,7 @@ pub async fn apply_settings(state: &AppState, settings: &Settings) -> Result<(),
         .map_err(|e| ApiError::bad_request("invalid_settings", format!("providers: {e}")))?;
     if let Some(engine) = &state.engine {
         engine.set_seeding(settings.storage.seeding).await;
+        engine.set_seed_ratio(settings.storage.seed_ratio).await;
     }
     Ok(())
 }
