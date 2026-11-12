@@ -343,12 +343,24 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       play: () => dispatch({ type: 'PLAYING', value: true }),
       playing: () => setStatus('playing'),
       progress: () => tick(),
+      // iOS Safari шлёт `stalled` и во время нормального воспроизведения: буферизация — только если данных реально нет.
       stalled: () => {
-        if (!audio.paused) setStatus('buffering');
+        if (!audio.paused && audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) setStatus('buffering');
       },
-      timeupdate: () => tick(),
+      timeupdate: () => {
+        // Время идёт — трек играет, даже если `playing`/`canplay` не пришли после `stalled`/`waiting`.
+        const st = latestStatus();
+        if (
+          !audio.paused &&
+          audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA &&
+          (st === 'buffering' || st === 'loading')
+        ) {
+          setStatus('playing');
+        }
+        tick();
+      },
       waiting: () => {
-        if (!audio.paused) setStatus('buffering');
+        if (!audio.paused && audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) setStatus('buffering');
       },
     };
     const latestStatus = () => latest.current.state.status;
