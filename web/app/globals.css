@@ -371,3 +371,12 @@
     animation: none;
   }
 }
+
+/* Home-screen app: no browser chrome, so the large viewport is the whole screen. On launch iOS can
+   report a stale, too-short dynamic viewport (dead strip at the bottom until the user drags); lvh
+   is not affected. Unlayered so it beats the h-[100dvh] utility on <body>. */
+@media (display-mode: standalone) {
+  body {
+    height: 100lvh;
+  }
+}
