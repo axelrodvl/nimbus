@@ -97,11 +97,13 @@ text_enum!(
 );
 
 text_enum!(
-    /// Причина статуса `not_found` (колонка `tracks.status_reason`).
+    /// Причина статуса `not_found` (колонка `tracks.status_reason`);
+    /// `search_failed` — поиск не удался (ошибки до исчерпания попыток).
     NotFoundReason {
         NoTorrents => "no_torrents",
         DeadTorrents => "dead_torrents",
         NoMatch => "no_match",
+        SearchFailed => "search_failed",
     }
 );
 

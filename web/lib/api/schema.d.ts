@@ -244,6 +244,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retry_job"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/library": {
         parameters: {
             query?: never;
@@ -951,6 +983,39 @@ export interface components {
             retry_at?: string | null;
             state: components["schemas"]["ImportState"];
         };
+        /** @description Сколько задач в каждом активном состоянии (`done` не считаются). */
+        JobCountsDto: {
+            /** Format: int64 */
+            failed: number;
+            /** Format: int64 */
+            queued: number;
+            /** Format: int64 */
+            running: number;
+        };
+        /** @description Задача очереди. */
+        JobDto: {
+            /** Format: int32 */
+            attempts: number;
+            /** Format: int64 */
+            id: number;
+            /** @description Вид: `discover_album`, `verify_torrent`, `import_artist`, … */
+            kind: string;
+            last_error?: string | null;
+            /** Format: int32 */
+            max_attempts: number;
+            payload: unknown;
+            /**
+             * Format: int32
+             * @description Чем больше, тем раньше берётся (интерактивные — 10, обычные — 0, фоновые — -10).
+             */
+            priority: number;
+            /** Format: date-time */
+            run_after: string;
+            /** @description `queued` | `running` | `done` | `failed`. */
+            state: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
         JobsHealth: {
             /**
              * Format: int64
@@ -961,6 +1026,10 @@ export interface components {
             queued: number;
             /** Format: int64 */
             running: number;
+        };
+        JobsResponse: {
+            counts: components["schemas"]["JobCountsDto"];
+            jobs: components["schemas"]["JobDto"][];
         };
         /** @enum {string} */
         LibraryKind: "artist" | "album" | "track";
@@ -1661,6 +1730,83 @@ export interface operations {
             };
         };
     };
+    list_jobs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Фильтр по состоянию: `queued`, `running`, `done`, `failed`. */
+                state: string | null;
+                /** @description Фильтр по виду задачи. */
+                kind: string | null;
+                /** @description Сколько вернуть (1–500, по умолчанию 50). */
+                limit: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Задачи (новые первыми) и счётчики по состояниям */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobsResponse"];
+                };
+            };
+            /** @description Неизвестное состояние (`invalid_state`) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    retry_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Id задачи */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Задача снова в очереди (попытки обнулены, приоритет интерактивный) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobDto"];
+                };
+            };
+            /** @description Нет такой задачи */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Задача не `failed` (`not_failed`) или уже есть активная такая же (`duplicate`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     add_to_library: {
         parameters: {
             query?: never;
@@ -2172,7 +2318,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Сохранённые настройки (секреты замаскированы) */
+            /** @description Сохранённые настройки (секреты замаскированы) и поле `restart_required` — true, если изменился раздел `performance` (применится после перезапуска) */
             200: {
                 headers: {
                     [name: string]: unknown;

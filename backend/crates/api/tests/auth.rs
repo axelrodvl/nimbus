@@ -193,6 +193,7 @@ async fn every_api_route_is_closed_without_a_token(pool: PgPool) {
         "/api/storage",
         "/api/settings",
         "/api/debug/jobs",
+        "/api/jobs",
     ];
     for uri in get_paths {
         let res = send(&app, get(uri).body(Body::empty()).unwrap()).await;
@@ -204,6 +205,7 @@ async fn every_api_route_is_closed_without_a_token(pool: PgPool) {
         ("POST", "/api/artists/1/import"),
         ("POST", "/api/albums/1/retry"),
         ("POST", "/api/tracks/1/retry"),
+        ("POST", "/api/jobs/1/retry"),
         ("PUT", "/api/settings"),
         ("POST", "/api/settings/providers/test"),
     ] {

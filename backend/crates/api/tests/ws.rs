@@ -106,9 +106,13 @@ async fn ws_lagged_client_gets_resync(pool: PgPool) {
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn debug_jobs_endpoint(pool: PgPool) {
     use nimbus_core::jobs::Job;
-    nimbus_db::repo::jobs::enqueue(&pool, &Job::DiscoverAlbum { album_id: 7 }, None)
-        .await
-        .unwrap();
+    nimbus_db::repo::jobs::enqueue(
+        &pool,
+        &Job::DiscoverAlbum { album_id: 7 },
+        nimbus_db::repo::jobs::EnqueueOpts::default(),
+    )
+    .await
+    .unwrap();
     let addr = serve(state(pool, EventBus::new())).await;
     let body: serde_json::Value = reqwest_get(&format!(
         "http://{addr}/api/debug/jobs?state=queued&limit=10"

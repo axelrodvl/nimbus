@@ -16,6 +16,29 @@ pub struct Settings {
     pub matching: MatchingSettings,
     pub playback: PlaybackSettings,
     pub storage: StorageSettings,
+    pub performance: PerformanceSettings,
+}
+
+/// Параллелизм фоновых воркеров. Читается при старте: изменение требует перезапуска.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PerformanceSettings {
+    /// Одновременных задач поиска (`discover_*`).
+    pub discover_workers: u8,
+    /// Одновременных проверок раздач (`verify_torrent`, `process_cue`).
+    pub verify_workers: u8,
+    /// Одновременных импортов дискографий (`import_artist`).
+    pub import_workers: u8,
+}
+
+impl Default for PerformanceSettings {
+    fn default() -> Self {
+        Self {
+            discover_workers: 8,
+            verify_workers: 16,
+            import_workers: 2,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -213,6 +236,16 @@ impl Settings {
         if !["opus", "mp3"].contains(&self.playback.transcode_lossy_codec.as_str()) {
             return Err("playback.transcode_lossy_codec must be \"opus\" or \"mp3\"".into());
         }
+        let p = &self.performance;
+        for (name, v) in [
+            ("discover_workers", p.discover_workers),
+            ("verify_workers", p.verify_workers),
+            ("import_workers", p.import_workers),
+        ] {
+            if !(1..=64).contains(&v) {
+                return Err(format!("performance.{name} must be between 1 and 64"));
+            }
+        }
         if self.storage.cache_limit_gb == 0 {
             return Err("storage.cache_limit_gb must be at least 1".into());
         }
@@ -338,6 +371,40 @@ mod tests {
         assert!(!v.to_string().contains("pw") && !v.to_string().contains("KEY"));
         let none = mask_secrets(&Settings::default());
         assert!(none["providers"]["torznab"].is_null());
+    }
+
+    #[test]
+    fn performance_defaults_and_bounds() {
+        let p = Settings::default().performance;
+        assert_eq!(
+            (p.discover_workers, p.verify_workers, p.import_workers),
+            (8, 16, 2)
+        );
+        for bad in [0u8, 65] {
+            let mut s = Settings::default();
+            s.performance.import_workers = bad;
+            assert!(s.validate().is_err(), "{bad}");
+        }
+        let s = Settings {
+            performance: PerformanceSettings {
+                discover_workers: 1,
+                verify_workers: 64,
+                import_workers: 64,
+            },
+            ..Settings::default()
+        };
+        assert!(s.validate().is_ok());
+    }
+
+    #[test]
+    fn performance_can_be_patched_partially() {
+        let m = merge_patch(
+            &Settings::default(),
+            &json!({"performance": {"verify_workers": 4}}),
+        )
+        .unwrap();
+        assert_eq!(m.performance.verify_workers, 4);
+        assert_eq!(m.performance.discover_workers, 8);
     }
 
     #[test]

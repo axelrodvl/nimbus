@@ -21,6 +21,8 @@ pub struct AppState {
     pub files: Option<Arc<dyn FileProvider>>,
     /// Настройки приложения (редактируются из UI).
     pub settings: nimbus_db::settings::SettingsStore,
+    /// Параллелизм воркеров, с которым запущен процесс (меняется только перезапуском).
+    pub boot_performance: nimbus_core::settings::PerformanceSettings,
     /// Реестр провайдеров торрентов (пересобирается при изменении настроек).
     pub providers: Arc<nimbus_trackers::ProviderRegistry>,
     /// Активные стримы и недавний prefetch (вытеснение кэша их не трогает).
@@ -35,11 +37,13 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(db: PgPool, config: Arc<Config>, events: EventBus, mb: MbClient) -> Self {
+        let settings = nimbus_db::settings::SettingsStore::new(
+            db.clone(),
+            nimbus_core::Settings::from_config(&config),
+        );
         Self {
-            settings: nimbus_db::settings::SettingsStore::new(
-                db.clone(),
-                nimbus_core::Settings::from_config(&config),
-            ),
+            boot_performance: settings.get().performance.clone(),
+            settings,
             providers: Arc::new(nimbus_trackers::ProviderRegistry::new(vec![])),
             activity: nimbus_core::activity::Activity::default(),
             library: LibraryService::new(db.clone(), mb.clone(), events.clone()),
@@ -76,6 +80,7 @@ impl AppState {
 
 impl AppState {
     pub fn with_settings(mut self, settings: nimbus_db::settings::SettingsStore) -> Self {
+        self.boot_performance = settings.get().performance.clone();
         self.settings = settings;
         self
     }

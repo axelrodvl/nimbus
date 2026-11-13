@@ -4,11 +4,12 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use nimbus_core::events::{Event, JobStage};
-use nimbus_core::jobs::Job;
+use nimbus_core::jobs::{Job, PRIORITY_BACKGROUND};
 use nimbus_core::model::{
     MetaStatus, NewTorrentFile, NewTrackSource, NotFoundReason, Torrent, TrackStatus,
 };
 use nimbus_db::helpers::set_track_status_and_publish;
+use nimbus_db::repo::jobs::EnqueueOpts;
 use nimbus_db::repo::{
     album_torrents, albums, artists, cue_candidates, jobs, torrents, track_sources, tracks,
 };
@@ -21,8 +22,6 @@ use crate::runner::{JobCtx, JobError, JobHandler};
 pub const MAX_META_ATTEMPTS: i32 = 3;
 /// Пауза перед повтором после таймаута: `RETRY_STEP * meta_attempts`.
 pub const RETRY_STEP: Duration = Duration::from_secs(15 * 60);
-/// Резервные источники проверяются с низким приоритетом, когда все треки уже найдены.
-pub const LOW_PRIORITY_DELAY: Duration = Duration::from_secs(10 * 60);
 
 pub struct VerifyHandler;
 
@@ -40,6 +39,27 @@ impl JobHandler for VerifyHandler {
             } => verify_torrent(ctx, torrent_id, album_id).await,
             _ => Err(JobError::Fatal("unexpected job kind".into())),
         }
+    }
+
+    /// Раздача так и не проверена: помечаем проверенной (иначе альбом навсегда ждал бы её),
+    /// а если метаданные не получены — раздача `error`; затем альбом финализируется
+    /// (оставшиеся `adding` → `not_found`).
+    async fn on_exhausted(&self, job: &Job, ctx: &JobCtx, reason: &str) -> Result<(), JobError> {
+        let Job::VerifyTorrent {
+            torrent_id,
+            album_id,
+        } = job
+        else {
+            return Ok(());
+        };
+        if let Some(t) = torrents::get(&ctx.db, *torrent_id).await? {
+            if t.meta_status != MetaStatus::Ok {
+                torrents::set_meta_status(&ctx.db, t.id, MetaStatus::Error, Some(reason)).await?;
+            }
+        }
+        album_torrents::mark_verified(&ctx.db, *album_id, *torrent_id).await?;
+        publish_progress(ctx, *album_id).await?;
+        finalize_album(ctx, *album_id).await
     }
 }
 
@@ -61,7 +81,7 @@ async fn load_files(ctx: &JobCtx, torrent: &Torrent) -> Result<FileList, JobErro
 
     let fetcher = ctx.fetcher()?;
     let t = torrents::set_meta_status(&ctx.db, torrent.id, MetaStatus::Fetching, None).await?;
-    match fetcher.fetch_metadata(&t.magnet).await {
+    match ctx.run(fetcher.fetch_metadata(&t.magnet)).await? {
         Ok(meta) => {
             let new: Vec<NewTorrentFile> = meta
                 .files
@@ -231,7 +251,7 @@ pub async fn verify_torrent(ctx: &JobCtx, torrent_id: i64, album_id: i64) -> Res
                     album_id,
                     cue_file_index: c.cue_file_index as i32,
                 },
-                None,
+                EnqueueOpts::priority(ctx.priority),
             )
             .await?;
         }
@@ -251,7 +271,7 @@ pub async fn verify_torrent(ctx: &JobCtx, torrent_id: i64, album_id: i64) -> Res
         .filter(|t| t.in_library)
         .all(|t| matches!(t.status, TrackStatus::Found | TrackStatus::Ready));
     if all_found {
-        jobs::defer_queued_verifies(&ctx.db, album_id, LOW_PRIORITY_DELAY).await?;
+        jobs::demote_queued_verifies(&ctx.db, album_id, PRIORITY_BACKGROUND).await?;
     }
 
     album_torrents::mark_verified(&ctx.db, album_id, torrent_id).await?;

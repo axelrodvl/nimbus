@@ -589,6 +589,127 @@
         }
       }
     },
+    "/api/jobs": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "operationId": "list_jobs",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "path",
+            "description": "Фильтр по состоянию: `queued`, `running`, `done`, `failed`.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "description": "Фильтр по виду задачи.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Сколько вернуть (1–500, по умолчанию 50).",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Задачи (новые первыми) и счётчики по состояниям",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Неизвестное состояние (`invalid_state`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{id}/retry": {
+      "post": {
+        "tags": [
+          "jobs"
+        ],
+        "operationId": "retry_job",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id задачи",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Задача снова в очереди (попытки обнулены, приоритет интерактивный)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Нет такой задачи",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Задача не `failed` (`not_failed`) или уже есть активная такая же (`duplicate`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/library": {
       "post": {
         "tags": [
@@ -1295,7 +1416,7 @@
         },
         "responses": {
           "200": {
-            "description": "Сохранённые настройки (секреты замаскированы)",
+            "description": "Сохранённые настройки (секреты замаскированы) и поле `restart_required` — true, если изменился раздел `performance` (применится после перезапуска)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2787,6 +2908,86 @@
           }
         }
       },
+      "JobCountsDto": {
+        "type": "object",
+        "description": "Сколько задач в каждом активном состоянии (`done` не считаются).",
+        "required": [
+          "queued",
+          "running",
+          "failed"
+        ],
+        "properties": {
+          "failed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "queued": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "running": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "JobDto": {
+        "type": "object",
+        "description": "Задача очереди.",
+        "required": [
+          "id",
+          "kind",
+          "payload",
+          "state",
+          "attempts",
+          "max_attempts",
+          "priority",
+          "run_after",
+          "updated_at"
+        ],
+        "properties": {
+          "attempts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Вид: `discover_album`, `verify_torrent`, `import_artist`, …"
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_attempts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "payload": {},
+          "priority": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Чем больше, тем раньше берётся (интерактивные — 10, обычные — 0, фоновые — -10)."
+          },
+          "run_after": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "state": {
+            "type": "string",
+            "description": "`queued` | `running` | `done` | `failed`."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "JobsHealth": {
         "type": "object",
         "required": [
@@ -2807,6 +3008,24 @@
           "running": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "JobsResponse": {
+        "type": "object",
+        "required": [
+          "jobs",
+          "counts"
+        ],
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/JobCountsDto"
+          },
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobDto"
+            }
           }
         }
       },
@@ -3519,6 +3738,10 @@
     {
       "name": "sources",
       "description": "Источники: раздачи, файлы, ручной выбор, retry"
+    },
+    {
+      "name": "jobs",
+      "description": "Очередь фоновых задач"
     },
     {
       "name": "settings",

@@ -38,28 +38,31 @@ impl JobHandler for ProcessCueHandler {
         else {
             return Err(JobError::Fatal("unexpected job kind".into()));
         };
-        let result = process_cue(ctx, torrent_id, album_id, cue_file_index).await;
-        // Кандидат не должен блокировать финализацию альбома вечно: на последней попытке
-        // или при фатальной ошибке помечаем его разобранным и финализируем.
-        let give_up = match &result {
-            Ok(()) => false,
-            Err(JobError::Fatal(_)) => true,
-            Err(_) => ctx.is_last_attempt(),
+        process_cue(ctx, torrent_id, album_id, cue_file_index).await
+    }
+
+    /// Кандидат не должен блокировать финализацию альбома вечно: при исчерпании попыток или
+    /// фатальной ошибке помечаем его разобранным и финализируем альбом.
+    async fn on_exhausted(&self, job: &Job, ctx: &JobCtx, _reason: &str) -> Result<(), JobError> {
+        let Job::ProcessCue {
+            torrent_id,
+            album_id,
+            cue_file_index,
+        } = job
+        else {
+            return Ok(());
         };
-        if give_up {
-            cue_candidates::mark_processed(&ctx.db, torrent_id, album_id, cue_file_index).await?;
-            finalize_album(ctx, album_id).await?;
-        }
-        result
+        cue_candidates::mark_processed(&ctx.db, *torrent_id, *album_id, *cue_file_index).await?;
+        finalize_album(ctx, *album_id).await
     }
 }
 
 /// Скачивает CUE-файл и возвращает его байты.
 async fn fetch_cue(ctx: &JobCtx, magnet: &str, cue_file_index: usize) -> Result<Vec<u8>, JobError> {
     let files = ctx.files()?;
-    let handle = files
-        .ensure_file(magnet, cue_file_index)
-        .await
+    let handle = ctx
+        .run(files.ensure_file(magnet, cue_file_index))
+        .await?
         .map_err(|e| match e {
             EngineError::MetadataTimeout => JobError::Retry {
                 after: RETRY_AFTER,
@@ -78,7 +81,11 @@ async fn fetch_cue(ctx: &JobCtx, magnet: &str, cue_file_index: usize) -> Result<
             tokio::time::sleep(POLL).await;
         }
     };
-    if tokio::time::timeout(CUE_FETCH_TIMEOUT, wait).await.is_err() {
+    if ctx
+        .run(tokio::time::timeout(CUE_FETCH_TIMEOUT, wait))
+        .await?
+        .is_err()
+    {
         return Err(JobError::Retry {
             after: RETRY_AFTER,
             reason: "cue file download timeout".into(),

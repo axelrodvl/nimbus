@@ -52,7 +52,7 @@ pub async fn get_settings(
     tag = "settings",
     request_body(content = Object, description = "Частичный объект настроек (merge). Пустой секрет или «••••» не меняет сохранённое значение; `null` сбрасывает необязательное поле."),
     responses(
-        (status = 200, description = "Сохранённые настройки (секреты замаскированы)", body = Object),
+        (status = 200, description = "Сохранённые настройки (секреты замаскированы) и поле `restart_required` — true, если изменился раздел `performance` (применится после перезапуска)", body = Object),
         (status = 400, description = "Некорректные значения (`invalid_settings`)", body = ErrorResponse),
     )
 )]
@@ -72,7 +72,15 @@ pub async fn put_settings(
         SettingsError::Db(e) => e.into(),
     })?;
     apply_settings(&state, &saved).await?;
-    Ok(Json(mask_secrets(&saved)))
+    let mut out = mask_secrets(&saved);
+    // Параллелизм воркеров читается при старте: перезапуск нужен, пока значения отличаются от стартовых.
+    if let Some(o) = out.as_object_mut() {
+        o.insert(
+            "restart_required".into(),
+            Value::Bool(saved.performance != state.boot_performance),
+        );
+    }
+    Ok(Json(out))
 }
 
 #[derive(Debug, Deserialize, ToSchema)]

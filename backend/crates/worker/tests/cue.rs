@@ -261,6 +261,18 @@ async fn unusable_cue_is_fatal_and_does_not_block_the_album(pool: PgPool) {
     let ctx = ctx(&pool, b"this is not a cue sheet");
     let err = ProcessCueHandler.handle(job(&w), &ctx).await.unwrap_err();
     assert!(matches!(err, JobError::Fatal(_)));
+    // Раннер при `Fatal` вызывает хук исчерпания: кандидат закрывается, альбом финализируется.
+    assert_eq!(
+        cue_candidates::count_pending(&pool, w.album_id)
+            .await
+            .unwrap(),
+        1,
+        "до хука кандидат ещё ждёт"
+    );
+    ProcessCueHandler
+        .on_exhausted(&job(&w), &ctx, &err.to_string())
+        .await
+        .unwrap();
     assert_eq!(
         cue_candidates::count_pending(&pool, w.album_id)
             .await

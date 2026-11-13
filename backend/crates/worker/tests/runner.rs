@@ -7,7 +7,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use nimbus_core::events::EventBus;
 use nimbus_core::jobs::Job;
-use nimbus_db::repo::jobs;
+use nimbus_db::repo::jobs::{self, EnqueueOpts};
 use nimbus_worker::{JobCtx, JobError, JobHandler, WorkerConfig, WorkerPool};
 use sqlx::PgPool;
 
@@ -93,10 +93,14 @@ async fn run_flaky(
         vec![(h.clone() as Arc<dyn JobHandler>, 1)],
         fast_cfg(),
     );
-    let id = jobs::enqueue(&pool, &Job::DiscoverAlbum { album_id: 1 }, None)
-        .await
-        .unwrap()
-        .unwrap();
+    let id = jobs::enqueue(
+        &pool,
+        &Job::DiscoverAlbum { album_id: 1 },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     let row = wait_state(&pool, id, "done").await;
     (h, row, pool_w)
 }
@@ -136,10 +140,14 @@ async fn fatal_is_not_retried(pool: PgPool) {
         vec![(h.clone() as Arc<dyn JobHandler>, 1)],
         fast_cfg(),
     );
-    let id = jobs::enqueue(&pool, &Job::DiscoverAlbum { album_id: 1 }, None)
-        .await
-        .unwrap()
-        .unwrap();
+    let id = jobs::enqueue(
+        &pool,
+        &Job::DiscoverAlbum { album_id: 1 },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     let row = wait_state(&pool, id, "failed").await;
     assert_eq!(row.attempts, 1);
     assert_eq!(row.last_error.as_deref(), Some("nope"));
@@ -153,7 +161,11 @@ async fn handlers_complete_jobs_via_notify(pool: PgPool) {
         poll_interval: Duration::from_secs(60),
         ..fast_cfg()
     };
-    let w = WorkerPool::spawn(ctx(&pool), nimbus_worker::handlers::default_handlers(), cfg);
+    let w = WorkerPool::spawn(
+        ctx(&pool),
+        nimbus_worker::handlers::handlers(&nimbus_core::settings::PerformanceSettings::default()),
+        cfg,
+    );
     tokio::time::sleep(Duration::from_millis(300)).await; // дать LISTEN подключиться
                                                           // Реальный обработчик discover требует существующего артиста (без альбомов в библиотеке — no-op).
     let artist_id = nimbus_db::repo::artists::upsert_by_mbid(
@@ -168,17 +180,21 @@ async fn handlers_complete_jobs_via_notify(pool: PgPool) {
     .await
     .unwrap()
     .id;
-    let a = jobs::enqueue(&pool, &Job::DiscoverArtist { artist_id }, None)
-        .await
-        .unwrap()
-        .unwrap();
+    let a = jobs::enqueue(
+        &pool,
+        &Job::DiscoverArtist { artist_id },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     let b = jobs::enqueue(
         &pool,
         &Job::VerifyTorrent {
             torrent_id: 1,
             album_id: 1,
         },
-        None,
+        EnqueueOpts::default(),
     )
     .await
     .unwrap()
@@ -188,4 +204,407 @@ async fn handlers_complete_jobs_via_notify(pool: PgPool) {
     let row = wait_state(&pool, b, "failed").await;
     assert!(row.last_error.unwrap().contains("not found"));
     w.shutdown().await;
+}
+
+/// Обработчик с настраиваемым поведением и счётчиками вызовов `handle` / `on_exhausted`.
+#[derive(Clone, Copy)]
+enum Behavior {
+    Ok,
+    Unexpected,
+    Fatal,
+    /// Ждёт отмену и честно возвращает `Cancelled`.
+    CancelAware,
+    /// Игнорирует отмену: висит, пока его не прервут.
+    Hang,
+    /// Работает заданное время, затем успех.
+    Sleep(Duration),
+}
+
+struct Probe {
+    behavior: Behavior,
+    calls: AtomicU32,
+    exhausted: AtomicU32,
+    retried: AtomicU32,
+    /// Сколько ближайших вызовов `on_exhausted` должны упасть с ошибкой.
+    hook_failures: AtomicU32,
+}
+
+impl Probe {
+    fn new(behavior: Behavior) -> Arc<Self> {
+        Arc::new(Self {
+            behavior,
+            calls: AtomicU32::new(0),
+            exhausted: AtomicU32::new(0),
+            retried: AtomicU32::new(0),
+            hook_failures: AtomicU32::new(0),
+        })
+    }
+    fn retried(&self) -> u32 {
+        self.retried.load(Ordering::SeqCst)
+    }
+    fn calls(&self) -> u32 {
+        self.calls.load(Ordering::SeqCst)
+    }
+    fn exhausted(&self) -> u32 {
+        self.exhausted.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl JobHandler for Probe {
+    fn kinds(&self) -> &'static [&'static str] {
+        &["discover_album"]
+    }
+    async fn handle(&self, _job: Job, ctx: &JobCtx) -> Result<(), JobError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        match self.behavior {
+            Behavior::Ok => Ok(()),
+            Behavior::Unexpected => Err(JobError::Unexpected("nope".into())),
+            Behavior::Fatal => Err(JobError::Fatal("fatal".into())),
+            Behavior::CancelAware => {
+                ctx.cancel.cancelled().await;
+                Err(JobError::Cancelled)
+            }
+            Behavior::Hang => std::future::pending().await,
+            Behavior::Sleep(d) => {
+                tokio::time::sleep(d).await;
+                Ok(())
+            }
+        }
+    }
+    async fn on_retry(&self, _job: &Job, _ctx: &JobCtx, _reason: &str) {
+        self.retried.fetch_add(1, Ordering::SeqCst);
+    }
+    async fn on_exhausted(&self, _job: &Job, _ctx: &JobCtx, _reason: &str) -> Result<(), JobError> {
+        if self
+            .hook_failures
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            return Err(JobError::Unexpected("hook db error".into()));
+        }
+        self.exhausted.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+fn spawn_probe(pool: &PgPool, probe: &Arc<Probe>, cfg: WorkerConfig) -> WorkerPool {
+    WorkerPool::spawn(
+        ctx(pool),
+        vec![(probe.clone() as Arc<dyn JobHandler>, 1)],
+        cfg,
+    )
+}
+
+async fn enqueue_album(pool: &PgPool, max_attempts: Option<i32>) -> i64 {
+    jobs::enqueue(
+        pool,
+        &Job::DiscoverAlbum { album_id: 1 },
+        EnqueueOpts {
+            max_attempts,
+            ..EnqueueOpts::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap()
+}
+
+async fn get_row(pool: &PgPool, id: i64) -> jobs::JobRow {
+    jobs::list(pool, None, 50)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|r| r.id == id)
+        .unwrap()
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn heartbeat_keeps_a_long_job_from_being_run_twice(pool: PgPool) {
+    // Обработчик работает втрое дольше stale_after, а обслуживание проверяет «зависшие» каждые 30 мс.
+    let probe = Probe::new(Behavior::Sleep(Duration::from_millis(900)));
+    let cfg = WorkerConfig {
+        stale_after: Duration::from_millis(300),
+        heartbeat_interval: Duration::from_millis(50),
+        maintenance_interval: Duration::from_millis(30),
+        ..fast_cfg()
+    };
+    let w = spawn_probe(&pool, &probe, cfg);
+    let id = enqueue_album(&pool, None).await;
+    wait_state(&pool, id, "done").await;
+    assert_eq!(probe.calls(), 1, "задача не должна запускаться повторно");
+    assert_eq!(get_row(&pool, id).await.attempts, 1);
+    w.shutdown().await;
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn without_heartbeat_a_lost_job_is_requeued(pool: PgPool) {
+    // Воркер «умер»: строка running с протухшим heartbeat — обслуживание возвращает её в очередь.
+    let id = enqueue_album(&pool, None).await;
+    jobs::claim(&pool, "dead", &["discover_album"])
+        .await
+        .unwrap()
+        .unwrap();
+    sqlx::query("UPDATE jobs SET heartbeat_at = now() - interval '1 hour'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let probe = Probe::new(Behavior::Ok);
+    let cfg = WorkerConfig {
+        stale_after: Duration::from_millis(300),
+        maintenance_interval: Duration::from_millis(30),
+        ..fast_cfg()
+    };
+    let w = spawn_probe(&pool, &probe, cfg);
+    let row = wait_state(&pool, id, "done").await;
+    assert_eq!(row.attempts, 2, "аварийный путь попытку не возвращает");
+    w.shutdown().await;
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn shutdown_cancels_handler_and_requeues_without_spending_attempt(pool: PgPool) {
+    let probe = Probe::new(Behavior::CancelAware);
+    let w = spawn_probe(&pool, &probe, fast_cfg());
+    let id = enqueue_album(&pool, None).await;
+    wait_state(&pool, id, "running").await;
+    w.shutdown().await;
+    let row = get_row(&pool, id).await;
+    assert_eq!((row.state.as_str(), row.attempts), ("queued", 0));
+    assert!(row.locked_by.is_none());
+    assert_eq!(probe.exhausted(), 0, "отмена — не исчерпание");
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn shutdown_aborts_handler_that_ignores_cancellation(pool: PgPool) {
+    let probe = Probe::new(Behavior::Hang);
+    let cfg = WorkerConfig {
+        shutdown_timeout: Duration::from_millis(200),
+        ..fast_cfg()
+    };
+    let w = spawn_probe(&pool, &probe, cfg);
+    let id = enqueue_album(&pool, None).await;
+    wait_state(&pool, id, "running").await;
+    let started = std::time::Instant::now();
+    w.shutdown().await;
+    assert!(started.elapsed() < Duration::from_secs(5));
+    let row = get_row(&pool, id).await;
+    assert_eq!((row.state.as_str(), row.attempts), ("queued", 0));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn on_exhausted_is_called_once_when_attempts_run_out(pool: PgPool) {
+    let probe = Probe::new(Behavior::Unexpected);
+    let w = spawn_probe(&pool, &probe, fast_cfg());
+    let id = enqueue_album(&pool, Some(2)).await;
+    wait_state(&pool, id, "failed").await;
+    nimbus_testkit::eventually(Duration::from_secs(5), || async { probe.exhausted() >= 1 }).await;
+    tokio::time::sleep(Duration::from_millis(300)).await; // убедиться, что повторов хука нет
+    assert_eq!((probe.calls(), probe.exhausted()), (2, 1));
+    assert_eq!(
+        probe.retried(),
+        1,
+        "on_retry — только для запланированного повтора"
+    );
+    w.shutdown().await;
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn on_exhausted_is_retried_after_transient_hook_errors(pool: PgPool) {
+    let probe = Probe::new(Behavior::Fatal);
+    probe.hook_failures.store(2, Ordering::SeqCst);
+    let w = spawn_probe(&pool, &probe, fast_cfg());
+    let id = enqueue_album(&pool, None).await;
+    wait_state(&pool, id, "failed").await;
+    nimbus_testkit::eventually(Duration::from_secs(10), || async { probe.exhausted() == 1 }).await;
+    assert_eq!(probe.calls(), 1, "повторяется хук, а не задача");
+    w.shutdown().await;
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn on_exhausted_is_called_for_fatal_errors(pool: PgPool) {
+    let probe = Probe::new(Behavior::Fatal);
+    let w = spawn_probe(&pool, &probe, fast_cfg());
+    let id = enqueue_album(&pool, None).await;
+    wait_state(&pool, id, "failed").await;
+    nimbus_testkit::eventually(Duration::from_secs(5), || async { probe.exhausted() == 1 }).await;
+    assert_eq!(probe.calls(), 1);
+    w.shutdown().await;
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn on_exhausted_is_not_called_after_a_successful_retry(pool: PgPool) {
+    let h = Arc::new(FlakyWithHook {
+        inner: Flaky {
+            calls: AtomicU32::new(0),
+            fail_times: 1,
+            mode: "retry",
+        },
+        exhausted: AtomicU32::new(0),
+    });
+    let w = WorkerPool::spawn(
+        ctx(&pool),
+        vec![(h.clone() as Arc<dyn JobHandler>, 1)],
+        fast_cfg(),
+    );
+    let id = enqueue_album(&pool, None).await;
+    wait_state(&pool, id, "done").await;
+    assert_eq!(h.exhausted.load(Ordering::SeqCst), 0);
+    w.shutdown().await;
+}
+
+struct FlakyWithHook {
+    inner: Flaky,
+    exhausted: AtomicU32,
+}
+
+#[async_trait]
+impl JobHandler for FlakyWithHook {
+    fn kinds(&self) -> &'static [&'static str] {
+        self.inner.kinds()
+    }
+    async fn handle(&self, job: Job, ctx: &JobCtx) -> Result<(), JobError> {
+        self.inner.handle(job, ctx).await
+    }
+    async fn on_exhausted(&self, _: &Job, _: &JobCtx, _: &str) -> Result<(), JobError> {
+        self.exhausted.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn on_exhausted_is_called_for_stale_job_out_of_attempts(pool: PgPool) {
+    let id = enqueue_album(&pool, Some(1)).await;
+    jobs::claim(&pool, "dead", &["discover_album"])
+        .await
+        .unwrap()
+        .unwrap();
+    sqlx::query("UPDATE jobs SET heartbeat_at = now() - interval '1 hour'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let probe = Probe::new(Behavior::Ok);
+    let cfg = WorkerConfig {
+        stale_after: Duration::from_millis(300),
+        maintenance_interval: Duration::from_millis(30),
+        ..fast_cfg()
+    };
+    let w = spawn_probe(&pool, &probe, cfg);
+    wait_state(&pool, id, "failed").await;
+    nimbus_testkit::eventually(Duration::from_secs(5), || async { probe.exhausted() == 1 }).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!((probe.calls(), probe.exhausted()), (0, 1));
+    w.shutdown().await;
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn start_recovers_orphans_and_returns_their_attempt(pool: PgPool) {
+    let id = enqueue_album(&pool, Some(1)).await;
+    jobs::claim(&pool, "crashed-process", &["discover_album"])
+        .await
+        .unwrap()
+        .unwrap();
+    // max_attempts = 1: без возврата попытки задача бы не запустилась.
+    let probe = Probe::new(Behavior::Ok);
+    let w = WorkerPool::start(
+        ctx(&pool),
+        vec![(probe.clone() as Arc<dyn JobHandler>, 1)],
+        fast_cfg(),
+    )
+    .await
+    .unwrap();
+    let row = wait_state(&pool, id, "done").await;
+    assert_eq!(row.attempts, 1);
+    w.shutdown().await;
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn higher_priority_jobs_run_first(pool: PgPool) {
+    // Один воркер: порядок выполнения = порядок claim.
+    struct Order(std::sync::Mutex<Vec<i64>>);
+    #[async_trait]
+    impl JobHandler for Order {
+        fn kinds(&self) -> &'static [&'static str] {
+            &["discover_album"]
+        }
+        async fn handle(&self, job: Job, _: &JobCtx) -> Result<(), JobError> {
+            if let Job::DiscoverAlbum { album_id } = job {
+                self.0.lock().unwrap().push(album_id);
+            }
+            Ok(())
+        }
+    }
+    let order = Arc::new(Order(Default::default()));
+    for (album, prio) in [(1, -10), (2, 0), (3, 10)] {
+        jobs::enqueue(
+            &pool,
+            &Job::DiscoverAlbum { album_id: album },
+            EnqueueOpts::priority(prio),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    }
+    let w = WorkerPool::spawn(
+        ctx(&pool),
+        vec![(order.clone() as Arc<dyn JobHandler>, 1)],
+        fast_cfg(),
+    );
+    nimbus_testkit::eventually(Duration::from_secs(5), || async {
+        order.0.lock().unwrap().len() == 3
+    })
+    .await;
+    assert_eq!(*order.0.lock().unwrap(), [3, 2, 1]);
+    w.shutdown().await;
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn exhausted_import_publishes_artist_changed(pool: PgPool) {
+    let c = ctx(&pool);
+    let mut rx = c.events.subscribe();
+    nimbus_worker::handlers::ImportArtistHandler
+        .on_exhausted(&Job::ImportArtist { artist_id: 7 }, &c, "mb down")
+        .await
+        .unwrap();
+    assert_eq!(
+        rx.try_recv().unwrap(),
+        nimbus_core::events::Event::LibraryChanged {
+            entity: nimbus_core::events::Entity::Artist,
+            id: 7
+        }
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn import_retry_publishes_artist_changed_after_state_is_saved(pool: PgPool) {
+    let c = ctx(&pool);
+    let mut rx = c.events.subscribe();
+    nimbus_worker::handlers::ImportArtistHandler
+        .on_retry(&Job::ImportArtist { artist_id: 9 }, &c, "503")
+        .await;
+    assert_eq!(
+        rx.try_recv().unwrap(),
+        nimbus_core::events::Event::LibraryChanged {
+            entity: nimbus_core::events::Entity::Artist,
+            id: 9
+        }
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn handlers_use_worker_counts_from_settings(pool: PgPool) {
+    let _ = pool;
+    let perf = nimbus_core::settings::PerformanceSettings {
+        discover_workers: 3,
+        verify_workers: 5,
+        import_workers: 7,
+    };
+    let counts: Vec<(Vec<&str>, usize)> = nimbus_worker::handlers::handlers(&perf)
+        .iter()
+        .map(|(h, n)| (h.kinds().to_vec(), *n))
+        .collect();
+    let of = |kind: &str| counts.iter().find(|(k, _)| k.contains(&kind)).unwrap().1;
+    assert_eq!(of("discover_album"), 3);
+    assert_eq!(of("discover_artist"), 3);
+    assert_eq!(of("verify_torrent"), 5);
+    assert_eq!(of("import_artist"), 7);
 }

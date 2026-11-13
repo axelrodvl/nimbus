@@ -144,6 +144,10 @@ async fn post_album_creates_tracks_job_and_events(pool: PgPool) {
     let queued = jobs::list(&pool, Some("queued"), 10).await.unwrap();
     assert_eq!(queued.len(), 1);
     assert_eq!(queued[0].job().unwrap(), Job::DiscoverAlbum { album_id });
+    assert_eq!(
+        queued[0].priority, 10,
+        "добавление пользователем — интерактивный приоритет"
+    );
 
     let events = drain(&mut rx);
     assert!(
@@ -353,6 +357,7 @@ async fn post_artist_is_accepted_and_import_job_adds_discography(pool: PgPool) {
     assert_eq!(queued.len(), 1);
     let job = queued[0].job().unwrap();
     assert_eq!(job, Job::ImportArtist { artist_id });
+    assert_eq!(queued[0].priority, 0, "массовый импорт — обычный приоритет");
     assert_eq!(
         albums::list_by_artist(&pool, artist_id)
             .await

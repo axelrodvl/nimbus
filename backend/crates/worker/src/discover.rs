@@ -8,10 +8,11 @@ use async_trait::async_trait;
 use chrono::Utc;
 use futures::StreamExt;
 use nimbus_core::events::{Event, JobStage};
-use nimbus_core::jobs::Job;
+use nimbus_core::jobs::{Job, PRIORITY_BACKGROUND};
 use nimbus_core::model::{
     Album, Artist, NewTorrent, NotFoundReason, Torrent, TorrentKind, TrackStatus,
 };
+use nimbus_db::repo::jobs::EnqueueOpts;
 use nimbus_db::repo::{album_torrents, albums, artists, jobs, torrents, tracks};
 use nimbus_trackers::rank::{classify, score, FormatPrefs, RankInput};
 use nimbus_trackers::{
@@ -19,7 +20,7 @@ use nimbus_trackers::{
 };
 
 use crate::runner::{JobCtx, JobError, JobHandler};
-use crate::verify::{finalize_album_from_discover, LOW_PRIORITY_DELAY};
+use crate::verify::{finalize_album, finalize_album_from_discover};
 
 /// Через сколько повторять поиск, если провайдеры упали и кандидатов нет.
 pub const RETRY_AFTER: Duration = Duration::from_secs(10 * 60);
@@ -49,6 +50,22 @@ impl JobHandler for DiscoverHandler {
             Job::DiscoverAlbum { album_id } => discover_album(ctx, album_id).await,
             Job::DiscoverArtist { artist_id } => discover_artist(ctx, artist_id).await,
             _ => Err(JobError::Fatal("unexpected job kind".into())),
+        }
+    }
+
+    /// Поиск окончательно не удался: если у альбома нет ни одной раздачи — его треки
+    /// `adding → not_found` (`search_failed`), иначе альбом финализируется по найденному.
+    async fn on_exhausted(&self, job: &Job, ctx: &JobCtx, _reason: &str) -> Result<(), JobError> {
+        let Job::DiscoverAlbum { album_id } = job else {
+            return Ok(());
+        };
+        if album_torrents::list_for_album(&ctx.db, *album_id)
+            .await?
+            .is_empty()
+        {
+            mark_not_found(ctx, *album_id, NotFoundReason::SearchFailed).await
+        } else {
+            finalize_album(ctx, *album_id).await
         }
     }
 }
@@ -224,13 +241,17 @@ async fn store(
     Ok(Some(t))
 }
 
-async fn mark_not_found(ctx: &JobCtx, album_id: i64) -> Result<(), JobError> {
+async fn mark_not_found(
+    ctx: &JobCtx,
+    album_id: i64,
+    reason: NotFoundReason,
+) -> Result<(), JobError> {
     let changed = tracks::set_status_for_album(
         &ctx.db,
         album_id,
         &[TrackStatus::Adding],
         TrackStatus::NotFound,
-        Some(NotFoundReason::NoTorrents),
+        Some(reason),
     )
     .await?;
     for t in changed {
@@ -277,7 +298,16 @@ pub async fn discover_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError>
         album: &album.title,
         year: album.year,
     };
-    let outcome = search_and_rank(ctx, &queries, &input, Some(album_id), |_| true, 0.0).await;
+    let outcome = ctx
+        .run(search_and_rank(
+            ctx,
+            &queries,
+            &input,
+            Some(album_id),
+            |_| true,
+            0.0,
+        ))
+        .await?;
 
     let kind_of = |s: &Scored| classify(&s.cand.title, &artist.name, &album.title);
     let (first, rest) = outcome
@@ -286,21 +316,22 @@ pub async fn discover_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError>
 
     // Волна 1: лучшие кандидаты уходят на проверку сразу, не дожидаясь резолва остальных.
     let mut queued_verify: HashSet<i64> = HashSet::new();
-    for (s, t) in persist_all(ctx, first, kind_of).await? {
+    for (s, t) in ctx.run(persist_all(ctx, first, kind_of)).await?? {
         album_torrents::link(&ctx.db, album_id, t.id, &s.query, s.score).await?;
     }
-    enqueue_verifies(ctx, album_id, &mut queued_verify, Duration::ZERO).await?;
+    enqueue_verifies(ctx, album_id, &mut queued_verify, ctx.priority).await?;
 
     // Волна 2: остальные. Если треки уже найдены волной 1 — это лишь резервные источники.
-    for (s, t) in persist_all(ctx, rest, kind_of).await? {
+    for (s, t) in ctx.run(persist_all(ctx, rest, kind_of)).await?? {
         album_torrents::link(&ctx.db, album_id, t.id, &s.query, s.score).await?;
     }
-    let delay = if library_tracks_found(ctx, album_id).await? {
-        LOW_PRIORITY_DELAY
+    // Резервные источники (все треки уже найдены) проверяются в фоне.
+    let priority = if library_tracks_found(ctx, album_id).await? {
+        PRIORITY_BACKGROUND
     } else {
-        Duration::ZERO
+        ctx.priority
     };
-    enqueue_verifies(ctx, album_id, &mut queued_verify, delay).await?;
+    enqueue_verifies(ctx, album_id, &mut queued_verify, priority).await?;
 
     // Учитываем и раздачи, прилинкованные ранее (например, дискографии из DiscoverArtist).
     let linked = album_torrents::list_for_album(&ctx.db, album_id).await?;
@@ -314,7 +345,7 @@ pub async fn discover_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError>
                 ),
             });
         }
-        mark_not_found(ctx, album_id).await?;
+        mark_not_found(ctx, album_id, NotFoundReason::NoTorrents).await?;
         return Ok(());
     }
     tracing::info!(album_id, torrents = linked.len(), "discovery done");
@@ -337,10 +368,10 @@ async fn enqueue_verifies(
     ctx: &JobCtx,
     album_id: i64,
     queued: &mut HashSet<i64>,
-    delay: Duration,
+    priority: i16,
 ) -> Result<(), JobError> {
     let linked = album_torrents::list_for_album(&ctx.db, album_id).await?;
-    let now = Utc::now() + chrono::Duration::from_std(delay).unwrap_or_default();
+    let now = Utc::now();
     let fresh: Vec<_> = linked
         .iter()
         .filter(|t| !queued.contains(&t.torrent.id))
@@ -353,7 +384,11 @@ async fn enqueue_verifies(
                 torrent_id: t.torrent.id,
                 album_id,
             },
-            Some(at),
+            EnqueueOpts {
+                run_after: Some(at),
+                priority,
+                ..EnqueueOpts::default()
+            },
         )
         .await?;
         queued.insert(t.torrent.id);
@@ -392,17 +427,22 @@ pub async fn discover_artist(ctx: &JobCtx, artist_id: i64) -> Result<(), JobErro
         album: "",
         year: None,
     };
-    let outcome = search_and_rank(
-        ctx,
-        &queries,
-        &input,
-        None,
-        |c| classify(&c.title, name, "") == TorrentKind::Discography,
-        DISCOGRAPHY_MIN_SCORE,
-    )
-    .await;
+    let outcome = ctx
+        .run(search_and_rank(
+            ctx,
+            &queries,
+            &input,
+            None,
+            |c| classify(&c.title, name, "") == TorrentKind::Discography,
+            DISCOGRAPHY_MIN_SCORE,
+        ))
+        .await?;
 
-    let stored = persist_all(ctx, &outcome.ranked, |_| TorrentKind::Discography).await?;
+    let stored = ctx
+        .run(persist_all(ctx, &outcome.ranked, |_| {
+            TorrentKind::Discography
+        }))
+        .await??;
     for (s, t) in &stored {
         let rank = (s.score + DISCOGRAPHY_LINK_BONUS).min(1.0);
         for a in &lib_albums {
@@ -414,7 +454,16 @@ pub async fn discover_artist(ctx: &JobCtx, artist_id: i64) -> Result<(), JobErro
     let now = Utc::now();
     for (i, a) in lib_albums.iter().enumerate() {
         let at = now + chrono::Duration::from_std(ALBUM_JOB_STAGGER * i as u32).unwrap_or_default();
-        jobs::enqueue(&ctx.db, &Job::DiscoverAlbum { album_id: a.id }, Some(at)).await?;
+        jobs::enqueue(
+            &ctx.db,
+            &Job::DiscoverAlbum { album_id: a.id },
+            EnqueueOpts {
+                run_after: Some(at),
+                priority: ctx.priority,
+                ..EnqueueOpts::default()
+            },
+        )
+        .await?;
     }
     tracing::info!(
         artist_id,

@@ -323,6 +323,10 @@ async fn retry_track_enqueues_discover_and_sets_adding(pool: PgPool) {
     let queued = jobs::list(&pool, Some("queued"), 10).await.unwrap();
     assert_eq!(queued.len(), 1);
     assert_eq!(queued[0].kind, "discover_album");
+    assert_eq!(
+        queued[0].priority, 10,
+        "действие пользователя — интерактивный приоритет"
+    );
     // Повтор: задача уже в очереди (dedup).
     let (_, body) = post_json(app.clone(), &uri, json!({})).await;
     assert_eq!(body["queued"], false);
@@ -360,10 +364,9 @@ async fn retry_album_resets_not_found_and_timeouts(pool: PgPool) {
             .unwrap(),
         1
     );
-    assert_eq!(
-        jobs::list(&pool, Some("queued"), 10).await.unwrap().len(),
-        1
-    );
+    let queued = jobs::list(&pool, Some("queued"), 10).await.unwrap();
+    assert_eq!(queued.len(), 1);
+    assert_eq!(queued[0].priority, 10);
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
@@ -392,6 +395,7 @@ async fn manual_magnet_creates_torrent_and_verify_job(pool: PgPool) {
     assert!((l.rank_score - 1.0).abs() < 1e-6);
     let queued = jobs::list(&pool, Some("queued"), 10).await.unwrap();
     assert!(queued.iter().any(|j| j.kind == "verify_torrent"
+        && j.priority == 10
         && j.payload == json!({ "torrent_id": t, "album_id": w.album_id })));
 
     // Без dn= заголовок — хэш.

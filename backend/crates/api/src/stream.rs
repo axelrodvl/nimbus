@@ -706,7 +706,9 @@ impl Watcher {
                 nimbus_db::repo::jobs::enqueue(
                     &state.db,
                     &nimbus_core::jobs::Job::EvictCache,
-                    None,
+                    nimbus_db::repo::jobs::EnqueueOpts::priority(
+                        nimbus_core::jobs::PRIORITY_BACKGROUND,
+                    ),
                 )
                 .await?;
                 self.last_bytes.remove(&key);

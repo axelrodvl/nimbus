@@ -242,3 +242,42 @@ async fn storage_reports_usage_and_limit(pool: PgPool) {
     );
     let _ = std::fs::remove_file(&file);
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn performance_defaults_are_exposed(pool: PgPool) {
+    let (_, body) = get_json(router(state(pool)), "/api/settings").await;
+    assert_eq!(
+        body["performance"],
+        json!({"discover_workers": 8, "verify_workers": 16, "import_workers": 2})
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn performance_is_validated(pool: PgPool) {
+    let app = router(state(pool));
+    for bad in [0, 65, 200] {
+        let (code, body) = put(app.clone(), json!({"performance": {"verify_workers": bad}})).await;
+        assert_eq!(code, 400, "{bad}: {body}");
+        assert_eq!(body["error"]["code"], "invalid_settings");
+    }
+    let (code, _) = put(app.clone(), json!({"performance": {"verify_workers": -1}})).await;
+    assert_eq!(code, 400, "отрицательное не помещается в u8");
+    let (code, _) = put(app, json!({"performance": {"import_workers": 64}})).await;
+    assert_eq!(code, 200);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn restart_required_only_when_performance_changes(pool: PgPool) {
+    let app = router(state(pool));
+    let (_, body) = put(app.clone(), json!({"storage": {"cache_limit_gb": 7}})).await;
+    assert_eq!(body["restart_required"], false);
+    let (_, body) = put(app.clone(), json!({"performance": {"discover_workers": 4}})).await;
+    assert_eq!(body["restart_required"], true);
+    assert_eq!(body["performance"]["discover_workers"], 4);
+    // Пока процесс работает со старыми значениями, посторонние сохранения флаг не сбрасывают.
+    let (_, body) = put(app.clone(), json!({"storage": {"cache_limit_gb": 8}})).await;
+    assert_eq!(body["restart_required"], true);
+    // Вернули стартовое значение — перезапуск не нужен.
+    let (_, body) = put(app, json!({"performance": {"discover_workers": 8}})).await;
+    assert_eq!(body["restart_required"], false);
+}

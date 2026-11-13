@@ -3,6 +3,15 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Приоритет задач, запущенных действием пользователя (добавить альбом/трек, повтор, свой magnet).
+pub const PRIORITY_INTERACTIVE: i16 = 10;
+/// Приоритет по умолчанию (массовый импорт, обычный поиск).
+pub const PRIORITY_NORMAL: i16 = 0;
+/// Приоритет фоновой работы (резервные источники, авто-повторы, вытеснение кэша).
+pub const PRIORITY_BACKGROUND: i16 = -10;
+const _: () =
+    assert!(PRIORITY_INTERACTIVE > PRIORITY_NORMAL && PRIORITY_NORMAL > PRIORITY_BACKGROUND);
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "payload", rename_all = "snake_case")]
 pub enum Job {

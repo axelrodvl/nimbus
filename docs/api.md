@@ -7,6 +7,17 @@
   (`POST /api/auth/login {"token": "..."}` → `204` + cookie; `POST /api/auth/logout`). Без токена — `401 unauthorized`.
   `GET /api/health` открыт всегда и возвращает `db`, `engine {torrents, down_bps, up_bps}` и `jobs {queued, running, failed_24h}`.
 
+## Очередь задач
+
+- `GET /api/jobs?state=&kind=&limit=` → `{ jobs: [JobDto], counts: { queued, running, failed } }`;
+  `JobDto { id, kind, payload, state, attempts, max_attempts, priority, run_after, last_error, updated_at }`.
+  `state` — `queued|running|done|failed` (иначе `400 invalid_state`); `limit` 1–500 (по умолчанию 50);
+  счётчики не зависят от фильтров.
+- `POST /api/jobs/{id}/retry` — только для `failed`: попытки обнуляются, приоритет интерактивный. `404` — нет задачи,
+  `409 not_failed` — задача не `failed`, `409 duplicate` — уже есть активная такая же.
+- `PUT /api/settings` дополнительно возвращает `restart_required: true`, если изменился раздел `performance`
+  (число воркеров применяется после перезапуска).
+
 ## WebSocket `/api/ws`
 
 Токен — cookie, заголовок или `?token=`. Сообщения — JSON с полем `type`:

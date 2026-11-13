@@ -6,6 +6,7 @@ pub mod error;
 pub mod extract;
 #[cfg(feature = "test-fakes")]
 pub mod fakes;
+pub mod jobs;
 pub mod library;
 pub mod openapi;
 pub mod playlists;

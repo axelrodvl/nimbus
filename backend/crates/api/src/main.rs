@@ -7,7 +7,7 @@ use nimbus_core::Config;
 use nimbus_musicbrainz::MbClient;
 use nimbus_torrent::{EngineConfig, TorrentEngine};
 use nimbus_trackers::ProviderRegistry;
-use nimbus_worker::handlers::default_handlers;
+use nimbus_worker::handlers::handlers;
 use nimbus_worker::{JobCtx, WorkerConfig, WorkerPool};
 use tracing_subscriber::EnvFilter;
 
@@ -49,10 +49,29 @@ async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(&config.data_dir)
         .with_context(|| format!("cannot create data dir {}", config.data_dir.display()))?;
 
-    let db = nimbus_db::connect(&config.database_url)
+    // Начальный пул — для миграций и чтения настроек; размер рабочего зависит от `performance`.
+    let boot = nimbus_db::connect(&config.database_url)
         .await
         .context("cannot connect to database")?;
-    nimbus_db::migrate(&db).await.context("migrations failed")?;
+    nimbus_db::migrate(&boot)
+        .await
+        .context("migrations failed")?;
+    let perf = nimbus_db::settings::SettingsStore::load(
+        boot.clone(),
+        nimbus_core::Settings::from_config(&config),
+    )
+    .await
+    .context("cannot load settings")?
+    .get()
+    .performance
+    .clone();
+    let workers_total = u32::from(perf.discover_workers)
+        + u32::from(perf.verify_workers)
+        + u32::from(perf.import_workers);
+    let db = nimbus_db::connect_sized(&config.database_url, nimbus_db::pool_size(workers_total))
+        .await
+        .context("cannot connect to database")?;
+    boot.close().await;
 
     let bind = config.bind;
     let events = EventBus::new();
@@ -119,14 +138,16 @@ async fn main() -> anyhow::Result<()> {
         .reload(&initial.providers)
         .context("cannot create torrent providers")?;
     let activity = nimbus_core::activity::Activity::default();
-    let workers = WorkerPool::spawn(
+    let workers = WorkerPool::start(
         JobCtx::new(db.clone(), events.clone(), mb.clone(), providers.clone())
             .with_engine(engine.clone())
             .with_settings(settings.clone())
             .with_activity(activity.clone()),
-        default_handlers(),
+        handlers(&initial.performance),
         WorkerConfig::default(),
-    );
+    )
+    .await
+    .context("cannot start workers")?;
     let ffmpeg = std::env::var("NIMBUS_FFMPEG").unwrap_or_else(|_| "ffmpeg".into());
     let transcoder = nimbus_api::transcode::Transcoder::new(ffmpeg)
         .with_raw_base(format!("http://127.0.0.1:{}", bind.port()))

@@ -4,11 +4,12 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use nimbus_core::events::{Entity, Event};
-use nimbus_core::jobs::Job;
+use nimbus_core::jobs::{Job, PRIORITY_INTERACTIVE};
 use nimbus_core::model::{
     InfoHash, MetaStatus, NewTorrent, TorrentKind, TorrentSource, TrackSource, TrackStatus,
 };
 use nimbus_db::helpers::set_track_status_and_publish;
+use nimbus_db::repo::jobs::EnqueueOpts;
 use nimbus_db::repo::{album_torrents, albums, downloads, jobs, torrents, track_sources, tracks};
 use nimbus_torrent::TorrentHandleId;
 use serde::{Deserialize, Serialize};
@@ -424,7 +425,7 @@ pub async fn retry_track(
         &Job::DiscoverAlbum {
             album_id: track.album_id,
         },
-        None,
+        EnqueueOpts::priority(PRIORITY_INTERACTIVE),
     )
     .await?
     .is_some();
@@ -473,9 +474,13 @@ pub async fn retry_album(
         });
     }
     album_torrents::reset_verified_timeouts(&state.db, id).await?;
-    let queued = jobs::enqueue(&state.db, &Job::DiscoverAlbum { album_id: id }, None)
-        .await?
-        .is_some();
+    let queued = jobs::enqueue(
+        &state.db,
+        &Job::DiscoverAlbum { album_id: id },
+        EnqueueOpts::priority(PRIORITY_INTERACTIVE),
+    )
+    .await?
+    .is_some();
     Ok((
         StatusCode::ACCEPTED,
         Json(RetryResponse {
@@ -564,7 +569,7 @@ pub async fn add_magnet(
             torrent_id: torrent.id,
             album_id: id,
         },
-        None,
+        EnqueueOpts::priority(PRIORITY_INTERACTIVE),
     )
     .await?
     .is_some();

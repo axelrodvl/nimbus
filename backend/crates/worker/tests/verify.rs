@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use nimbus_core::events::{Event, EventBus, JobStage};
 use nimbus_core::jobs::Job;
 use nimbus_core::model::*;
+use nimbus_db::repo::jobs::EnqueueOpts;
 use nimbus_db::repo::{
     album_torrents, albums, artists, cue_candidates, jobs, torrents, track_sources, tracks,
 };
@@ -522,7 +523,7 @@ async fn cue_image_is_recorded_and_tracks_end_up_not_found(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
-async fn queued_discover_blocks_not_found_and_found_album_defers_other_verifies(pool: PgPool) {
+async fn queued_discover_blocks_not_found_and_found_album_demotes_other_verifies(pool: PgPool) {
     let s = setup(&pool, &OK).await;
     let a = add_torrent(&pool, s.album_id, 1, 0.9).await;
     let b = add_torrent(&pool, s.album_id, 2, 0.5).await;
@@ -532,7 +533,7 @@ async fn queued_discover_blocks_not_found_and_found_album_defers_other_verifies(
         &Job::DiscoverAlbum {
             album_id: s.album_id,
         },
-        None,
+        EnqueueOpts::default(),
     )
     .await
     .unwrap();
@@ -542,7 +543,7 @@ async fn queued_discover_blocks_not_found_and_found_album_defers_other_verifies(
             torrent_id: b,
             album_id: s.album_id,
         },
-        None,
+        EnqueueOpts::default(),
     )
     .await
     .unwrap();
@@ -561,7 +562,7 @@ async fn queued_discover_blocks_not_found_and_found_album_defers_other_verifies(
         .await
         .unwrap();
 
-    // Второй альбом: после успеха первой раздачи вторая откладывается на 10 минут.
+    // Второй альбом: после успеха первой раздачи вторая понижается до фонового приоритета.
     let s2 = setup(&pool, &OK).await;
     let c = add_torrent(&pool, s2.album_id, 3, 0.9).await;
     let d = add_torrent(&pool, s2.album_id, 4, 0.5).await;
@@ -571,7 +572,7 @@ async fn queued_discover_blocks_not_found_and_found_album_defers_other_verifies(
             torrent_id: d,
             album_id: s2.album_id,
         },
-        None,
+        EnqueueOpts::default(),
     )
     .await
     .unwrap();
@@ -584,8 +585,11 @@ async fn queued_discover_blocks_not_found_and_found_album_defers_other_verifies(
         .into_iter()
         .find(|j| j.kind == "verify_torrent" && j.payload["album_id"] == s2.album_id)
         .unwrap();
-    let delay = row.run_after - chrono::Utc::now();
-    assert!(delay.num_seconds() > 9 * 60, "{delay}");
+    assert_eq!(row.priority, nimbus_core::jobs::PRIORITY_BACKGROUND);
+    assert!(
+        row.run_after <= chrono::Utc::now(),
+        "запуск не откладывается, только понижается приоритет"
+    );
     // Статусы не ждут резервных раздач.
     for (st, _) in statuses(&pool, s2.album_id).await {
         assert_eq!(st, TrackStatus::Found);
@@ -659,4 +663,109 @@ async fn handler_dispatch_and_missing_entities(pool: PgPool) {
         verify_torrent(&ctx, a, 9999).await,
         Err(JobError::Fatal(_))
     ));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn exhausted_verify_marks_torrent_verified_and_tracks_not_found(pool: PgPool) {
+    let s = setup(&pool, &OK).await;
+    let t = add_torrent(&pool, s.album_id, 1, 0.9).await;
+    let (ctx, _) = ctx(&pool, FakeFetcher::new(vec![]));
+    // Раздача так и не дала метаданные (verify падал `Unexpected` до исчерпания попыток).
+    VerifyHandler
+        .on_exhausted(
+            &Job::VerifyTorrent {
+                torrent_id: t,
+                album_id: s.album_id,
+            },
+            &ctx,
+            "db down",
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        album_torrents::count_unverified(&pool, s.album_id)
+            .await
+            .unwrap(),
+        0
+    );
+    let torrent = torrents::get(&pool, t).await.unwrap().unwrap();
+    assert_eq!(torrent.meta_status, MetaStatus::Error);
+    for (st, reason) in statuses(&pool, s.album_id).await {
+        assert_eq!(st, TrackStatus::NotFound, "а не вечный adding");
+        assert_eq!(reason.as_deref(), Some("dead_torrents"));
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn exhausted_verify_keeps_successful_metadata_status(pool: PgPool) {
+    let s = setup(&pool, &OK).await;
+    let t = add_torrent(&pool, s.album_id, 1, 0.9).await;
+    torrents::set_meta_status(&pool, t, MetaStatus::Ok, None)
+        .await
+        .unwrap();
+    let (ctx, _) = ctx(&pool, FakeFetcher::new(vec![]));
+    VerifyHandler
+        .on_exhausted(
+            &Job::VerifyTorrent {
+                torrent_id: t,
+                album_id: s.album_id,
+            },
+            &ctx,
+            "boom",
+        )
+        .await
+        .unwrap();
+    let torrent = torrents::get(&pool, t).await.unwrap().unwrap();
+    assert_eq!(torrent.meta_status, MetaStatus::Ok);
+    assert_eq!(
+        album_torrents::count_unverified(&pool, s.album_id)
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn verify_job_that_times_out_to_exhaustion_leaves_no_adding_tracks(pool: PgPool) {
+    // Сквозной сценарий через раннер: единственная попытка, таймаут метаданных → failed → хук.
+    let s = setup(&pool, &OK).await;
+    let t = add_torrent(&pool, s.album_id, 1, 0.9).await;
+    let (ctx, _) = ctx(&pool, FakeFetcher::new(vec![(hash(1), Reply::Timeout)]));
+    let id = jobs::enqueue(
+        &pool,
+        &Job::VerifyTorrent {
+            torrent_id: t,
+            album_id: s.album_id,
+        },
+        EnqueueOpts {
+            max_attempts: Some(1),
+            ..EnqueueOpts::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let w = nimbus_worker::WorkerPool::spawn(
+        ctx,
+        vec![(Arc::new(VerifyHandler) as Arc<dyn JobHandler>, 1)],
+        nimbus_worker::WorkerConfig {
+            poll_interval: std::time::Duration::from_millis(50),
+            maintenance_interval: std::time::Duration::from_secs(3600),
+            ..nimbus_worker::WorkerConfig::default()
+        },
+    );
+    nimbus_testkit::eventually(std::time::Duration::from_secs(10), || async {
+        let job_failed = jobs::list(&pool, Some("failed"), 10)
+            .await
+            .unwrap()
+            .iter()
+            .any(|j| j.id == id);
+        job_failed
+            && statuses(&pool, s.album_id)
+                .await
+                .iter()
+                .all(|(st, _)| *st == TrackStatus::NotFound)
+    })
+    .await;
+    w.shutdown().await;
 }

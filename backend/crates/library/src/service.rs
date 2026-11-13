@@ -1,7 +1,7 @@
 use nimbus_core::events::{Entity, Event, EventBus};
-use nimbus_core::jobs::Job;
+use nimbus_core::jobs::{Job, PRIORITY_INTERACTIVE, PRIORITY_NORMAL};
 use nimbus_core::model::{Album, Artist, NewAlbum, NewArtist, NewTrack, Track, TrackStatus};
-use nimbus_db::repo::jobs::{ImportPhase, ImportProgress};
+use nimbus_db::repo::jobs::{EnqueueOpts, ImportPhase, ImportProgress};
 use nimbus_db::repo::{albums, artists, jobs, tracks};
 use nimbus_db::PgPool;
 use nimbus_musicbrainz::{cover_url, MbClient, ReleaseGroupHit};
@@ -218,7 +218,12 @@ impl LibraryService {
         tx.commit().await?;
 
         if discover {
-            jobs::enqueue(&self.db, &Job::DiscoverAlbum { album_id: album.id }, None).await?;
+            jobs::enqueue(
+                &self.db,
+                &Job::DiscoverAlbum { album_id: album.id },
+                EnqueueOpts::priority(PRIORITY_INTERACTIVE),
+            )
+            .await?;
         }
         for t in reset {
             self.events.publish(Event::TrackStatus {
@@ -267,7 +272,12 @@ impl LibraryService {
         }
         tx.commit().await?;
 
-        jobs::enqueue(&self.db, &Job::DiscoverAlbum { album_id: album.id }, None).await?;
+        jobs::enqueue(
+            &self.db,
+            &Job::DiscoverAlbum { album_id: album.id },
+            EnqueueOpts::priority(PRIORITY_INTERACTIVE),
+        )
+        .await?;
         if track.status == TrackStatus::NotFound {
             self.events.publish(Event::TrackStatus {
                 track_id: track.id,
@@ -296,11 +306,14 @@ impl LibraryService {
     /// Ставит задачу импорта дискографии (повторно можно вызывать после неудачи: активная задача не дублируется).
     /// Попыток больше обычного: MusicBrainz часто отвечает 503, и импорт должен пережить паузу.
     pub async fn enqueue_import(&self, artist_id: i64) -> Result<()> {
-        jobs::enqueue_with_attempts(
+        jobs::enqueue(
             &self.db,
             &Job::ImportArtist { artist_id },
-            None,
-            Some(IMPORT_MAX_ATTEMPTS),
+            EnqueueOpts {
+                max_attempts: Some(IMPORT_MAX_ATTEMPTS),
+                priority: PRIORITY_NORMAL,
+                ..EnqueueOpts::default()
+            },
         )
         .await?;
         Ok(())
@@ -407,7 +420,12 @@ impl LibraryService {
             started.elapsed().as_secs_f32()
         ));
         self.save_progress(artist_id, &progress).await;
-        jobs::enqueue(&self.db, &Job::DiscoverArtist { artist_id }, None).await?;
+        jobs::enqueue(
+            &self.db,
+            &Job::DiscoverArtist { artist_id },
+            EnqueueOpts::default(),
+        )
+        .await?;
         self.changed(Entity::Artist, artist_id);
         Ok(summary)
     }

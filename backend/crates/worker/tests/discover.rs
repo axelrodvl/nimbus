@@ -492,3 +492,82 @@ async fn handler_dispatches_jobs(pool: PgPool) {
         .await
         .is_err());
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn exhausted_discover_without_torrents_marks_search_failed(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 3, true).await;
+    // Провайдер падает всегда: до последней попытки — Retry.
+    let provider = Fake::new(|_| Err(ProviderError::Network("down".into())));
+    let (ctx, events) = ctx(&pool, Some(provider), 1, 2);
+    let mut rx = events.subscribe();
+    let err = discover_album(&ctx, album_id).await.unwrap_err();
+    assert!(matches!(err, JobError::Retry { .. }), "{err:?}");
+
+    DiscoverHandler
+        .on_exhausted(&Job::DiscoverAlbum { album_id }, &ctx, "providers down")
+        .await
+        .unwrap();
+    for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
+        assert_eq!(t.status, TrackStatus::NotFound);
+        assert_eq!(t.status_reason.as_deref(), Some("search_failed"));
+    }
+    let events = drain(&mut rx)
+        .into_iter()
+        .filter(|e| matches!(e, Event::TrackStatus { status: TrackStatus::NotFound, reason: Some(r), .. } if r == "search_failed"))
+        .count();
+    assert_eq!(events, 3);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn exhausted_discover_with_linked_torrent_finalizes_instead(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 3, true).await;
+    // Раздача прилинкована и уже проверена (ничего не нашла), но discover упал: альбом не должен зависнуть.
+    let t = torrents::upsert_by_info_hash(
+        &pool,
+        &NewTorrent {
+            info_hash: hash(1),
+            magnet: format!("magnet:?xt=urn:btih:{}", hash(1)),
+            source: TorrentSource::Tpb,
+            source_topic_id: None,
+            title: "t".into(),
+            size_bytes: None,
+            seeders: None,
+            leechers: None,
+            kind: TorrentKind::Album,
+        },
+    )
+    .await
+    .unwrap();
+    album_torrents::link(&pool, album_id, t.id, "q", 0.5)
+        .await
+        .unwrap();
+    album_torrents::mark_verified(&pool, album_id, t.id)
+        .await
+        .unwrap();
+    let (ctx, _) = ctx(&pool, None, 5, 5);
+    DiscoverHandler
+        .on_exhausted(&Job::DiscoverAlbum { album_id }, &ctx, "boom")
+        .await
+        .unwrap();
+    for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
+        assert_eq!(t.status, TrackStatus::NotFound);
+        assert_ne!(t.status_reason.as_deref(), Some("search_failed"));
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn discover_stops_with_cancelled_when_pool_is_shutting_down(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 3, true).await;
+    let provider = Fake::new(|_| Ok(vec![]));
+    let (ctx, _) = ctx(&pool, Some(provider), 1, 5);
+    ctx.cancel.cancel();
+    let err = discover_album(&ctx, album_id).await.unwrap_err();
+    assert!(matches!(err, JobError::Cancelled), "{err:?}");
+    // Состояние не испорчено: треки всё ещё ждут поиска.
+    for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
+        assert_eq!(t.status, TrackStatus::Adding);
+    }
+}

@@ -87,6 +87,8 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
             post(crate::settings::reimport_artists),
         )
         .route("/storage", get(crate::settings::get_storage))
+        .route("/jobs", get(crate::jobs::list_jobs))
+        .route("/jobs/{id}/retry", post(crate::jobs::retry_job))
         .route("/downloads", get(crate::downloads::list_downloads))
         .route(
             "/downloads/{info_hash}/pause",

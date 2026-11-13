@@ -1,10 +1,11 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
 use nimbus_core::events::EventBus;
-use nimbus_core::jobs::Job;
+use nimbus_core::jobs::{Job, PRIORITY_BACKGROUND};
 use nimbus_db::repo::jobs::{self, JobRow};
 use nimbus_musicbrainz::MbClient;
 use nimbus_torrent::{MetadataFetcher, TorrentEngine};
@@ -12,7 +13,7 @@ use nimbus_trackers::ProviderRegistry;
 use sqlx::postgres::PgListener;
 use sqlx::PgPool;
 use tokio::sync::Notify;
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 
 /// Контекст, доступный обработчикам (следующие шаги добавят сюда trackers, torrent).
@@ -37,6 +38,11 @@ pub struct JobCtx {
     /// Номер текущей попытки (с 1) и лимит попыток задачи; выставляются раннером перед вызовом.
     pub attempt: i32,
     pub max_attempts: i32,
+    /// Отмена: срабатывает при остановке пула. Обработчики, ждущие сеть, обязаны завершаться
+    /// по ней (`tokio::select!` с `ctx.cancel.cancelled()`) и возвращать [`JobError::Cancelled`].
+    pub cancel: CancellationToken,
+    /// Приоритет выполняемой задачи; порождаемые ею задачи наследуют его (выставляет раннер).
+    pub priority: i16,
 }
 
 impl JobCtx {
@@ -61,6 +67,8 @@ impl JobCtx {
             files: None,
             attempt: 1,
             max_attempts: 1,
+            cancel: CancellationToken::new(),
+            priority: nimbus_core::jobs::PRIORITY_NORMAL,
         }
     }
 
@@ -109,6 +117,15 @@ impl JobCtx {
             .ok_or_else(|| JobError::Fatal("torrent engine is not configured".into()))
     }
 
+    /// Выполняет ожидание (сеть, поиск) отменяемо: при остановке пула возвращает [`JobError::Cancelled`].
+    pub async fn run<T>(&self, fut: impl std::future::Future<Output = T>) -> Result<T, JobError> {
+        tokio::select! {
+            biased;
+            _ = self.cancel.cancelled() => Err(JobError::Cancelled),
+            v = fut => Ok(v),
+        }
+    }
+
     /// Последняя ли это попытка (после неё задача получит статус `failed`).
     pub fn is_last_attempt(&self) -> bool {
         self.attempt >= self.max_attempts
@@ -126,6 +143,9 @@ pub enum JobError {
     /// Неожиданная ошибка: повтор с экспоненциальным backoff по умолчанию.
     #[error("unexpected: {0}")]
     Unexpected(String),
+    /// Обработчик прерван остановкой пула: задача возвращается в очередь без траты попытки.
+    #[error("cancelled")]
+    Cancelled,
 }
 
 impl From<anyhow::Error> for JobError {
@@ -144,6 +164,16 @@ impl From<sqlx::Error> for JobError {
 pub trait JobHandler: Send + Sync {
     fn kinds(&self) -> &'static [&'static str];
     async fn handle(&self, job: Job, ctx: &JobCtx) -> Result<(), JobError>;
+
+    /// Вызывается после того, как неудавшаяся попытка записана и задача вернулась в `queued`
+    /// (повтор запланирован). Нужен, чтобы UI увидел изменившийся статус уже по актуальным данным.
+    async fn on_retry(&self, _job: &Job, _ctx: &JobCtx, _reason: &str) {}
+
+    /// Вызывается один раз, когда задача окончательно стала `failed`. Должен привести данные
+    /// в согласованное состояние (ничего не должно навсегда остаться «в процессе»).
+    async fn on_exhausted(&self, _job: &Job, _ctx: &JobCtx, _reason: &str) -> Result<(), JobError> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -153,7 +183,9 @@ pub struct WorkerConfig {
     pub backoff_max: Duration,
     /// Как часто опрашивать очередь, если нет NOTIFY.
     pub poll_interval: Duration,
-    /// Сколько `running` считается зависшим.
+    /// Как часто раннер отмечает, что задача жива (`jobs.heartbeat_at`).
+    pub heartbeat_interval: Duration,
+    /// Сколько без heartbeat задача `running` считается зависшей (воркер умер).
     pub stale_after: Duration,
     pub maintenance_interval: Duration,
     pub done_retention: Duration,
@@ -168,7 +200,8 @@ impl Default for WorkerConfig {
             backoff_base: Duration::from_secs(30),
             backoff_max: Duration::from_secs(30 * 60),
             poll_interval: Duration::from_secs(5),
-            stale_after: Duration::from_secs(10 * 60),
+            heartbeat_interval: Duration::from_secs(15),
+            stale_after: Duration::from_secs(90),
             maintenance_interval: Duration::from_secs(60),
             done_retention: Duration::from_secs(7 * 24 * 3600),
             shutdown_timeout: Duration::from_secs(10),
@@ -189,71 +222,114 @@ impl WorkerConfig {
 
 pub struct WorkerPool {
     token: CancellationToken,
-    tasks: Vec<JoinHandle<()>>,
+    tasks: JoinSet<()>,
+    worker_ids: Vec<String>,
+    db: PgPool,
     shutdown_timeout: Duration,
 }
 
+/// Задача tokio, которая прерывается при drop (иначе при `abort()` внешней задачи
+/// обработчик, запущенный внутри неё, продолжил бы работать «сиротой»).
+struct AbortOnDrop<T>(JoinHandle<T>);
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// Обработчики по виду задачи — для вызова `on_exhausted` из обслуживающего цикла.
+type HandlerMap = Arc<HashMap<&'static str, Arc<dyn JobHandler>>>;
+
 impl WorkerPool {
+    /// Восстановление после падения + запуск: возвращает в очередь всё осиротевшее `running`
+    /// (см. [`jobs::recover_orphans`]) и запускает воркеры. Так запускается боевой процесс.
+    pub async fn start(
+        ctx: JobCtx,
+        handlers: Vec<(Arc<dyn JobHandler>, usize)>,
+        cfg: WorkerConfig,
+    ) -> sqlx::Result<Self> {
+        let n = jobs::recover_orphans(&ctx.db).await?;
+        if n > 0 {
+            tracing::warn!(count = n, "returned orphaned running jobs to the queue");
+        }
+        Ok(Self::spawn(ctx, handlers, cfg))
+    }
+
     /// Запускает воркеры: для каждого обработчика — `concurrency` циклов claim → handle → complete/fail,
     /// плюс слушатель `NOTIFY jobs` и фоновое обслуживание очереди.
     pub fn spawn(
-        ctx: JobCtx,
+        mut ctx: JobCtx,
         handlers: Vec<(Arc<dyn JobHandler>, usize)>,
         cfg: WorkerConfig,
     ) -> Self {
         let token = CancellationToken::new();
+        ctx.cancel = token.child_token();
         let notify = Arc::new(Notify::new());
         let cfg = Arc::new(cfg);
-        let mut tasks = Vec::new();
+        let mut tasks = JoinSet::new();
+        let mut worker_ids = Vec::new();
+        let mut by_kind: HashMap<&'static str, Arc<dyn JobHandler>> = HashMap::new();
+        for (h, _) in &handlers {
+            for k in h.kinds() {
+                by_kind.insert(k, h.clone());
+            }
+        }
+        let by_kind: HandlerMap = Arc::new(by_kind);
 
-        tasks.push(tokio::spawn(listen_loop(
-            ctx.db.clone(),
-            notify.clone(),
-            token.clone(),
-        )));
-        tasks.push(tokio::spawn(maintenance_loop(
-            ctx.db.clone(),
+        tasks.spawn(listen_loop(ctx.db.clone(), notify.clone(), token.clone()));
+        tasks.spawn(maintenance_loop(
+            ctx.clone(),
+            by_kind,
             cfg.clone(),
             token.clone(),
-        )));
+        ));
 
         for (handler, concurrency) in handlers {
             for n in 0..concurrency.max(1) {
                 let worker_id =
                     format!("{}-{}-{}", handler.kinds().join("+"), std::process::id(), n);
-                tasks.push(tokio::spawn(worker_loop(
+                worker_ids.push(worker_id.clone());
+                tasks.spawn(worker_loop(
                     worker_id,
                     handler.clone(),
                     ctx.clone(),
                     cfg.clone(),
                     notify.clone(),
                     token.clone(),
-                )));
+                ));
             }
         }
         Self {
             token,
             tasks,
+            worker_ids,
+            db: ctx.db.clone(),
             shutdown_timeout: cfg.shutdown_timeout,
         }
     }
 
-    /// Перестаёт брать новые задачи и ждёт текущие (до `shutdown_timeout`).
-    pub async fn shutdown(self) {
+    /// Остановка: отменяет токен (новые задачи не берутся, обработчики получают `ctx.cancel`),
+    /// ждёт до `shutdown_timeout`; не успевшие задачи прерываются, а их строки возвращаются
+    /// в `queued` без траты попытки.
+    pub async fn shutdown(mut self) {
         self.token.cancel();
-        let wait = futures_join_all(self.tasks);
+        let tasks = &mut self.tasks;
+        let wait = async { while tasks.join_next().await.is_some() {} };
         if tokio::time::timeout(self.shutdown_timeout, wait)
             .await
             .is_err()
         {
-            tracing::warn!("worker shutdown timed out, some jobs are still running");
+            tracing::warn!("worker shutdown timed out, aborting running jobs");
+            self.tasks.abort_all();
+            while self.tasks.join_next().await.is_some() {}
         }
-    }
-}
-
-async fn futures_join_all(tasks: Vec<JoinHandle<()>>) {
-    for t in tasks {
-        let _ = t.await;
+        // Всё, что осталось `running` у наших воркеров (прервано или не успело записать итог), — в очередь.
+        match jobs::release_workers(&self.db, &self.worker_ids).await {
+            Ok(0) => {}
+            Ok(n) => tracing::warn!(count = n, "returned interrupted jobs to the queue"),
+            Err(e) => tracing::error!(error = %e, "cannot release jobs on shutdown"),
+        }
     }
 }
 
@@ -299,18 +375,31 @@ async fn sleep_or_cancel(d: Duration, token: &CancellationToken) -> bool {
     }
 }
 
-async fn maintenance_loop(db: PgPool, cfg: Arc<WorkerConfig>, token: CancellationToken) {
+async fn maintenance_loop(
+    ctx: JobCtx,
+    handlers: HandlerMap,
+    cfg: Arc<WorkerConfig>,
+    token: CancellationToken,
+) {
+    let db = &ctx.db;
     let mut last_purge = std::time::Instant::now() - Duration::from_secs(24 * 3600);
     let mut last_evict = std::time::Instant::now();
     loop {
-        match jobs::requeue_stale(&db, cfg.stale_after).await {
-            Ok(0) => {}
-            Ok(n) => tracing::warn!(count = n, "requeued stale jobs"),
+        match jobs::requeue_stale(db, cfg.stale_after).await {
+            Ok(out) => {
+                if out.requeued > 0 {
+                    tracing::warn!(count = out.requeued, "requeued stale jobs");
+                }
+                for row in &out.failed {
+                    tracing::warn!(job_id = row.id, kind = %row.kind, "stale job exhausted its attempts");
+                    exhausted(&handlers, &ctx, row, "worker lost; attempts exhausted").await;
+                }
+            }
             Err(e) => tracing::error!(error = %e, "requeue_stale failed"),
         }
         if last_purge.elapsed() > Duration::from_secs(3600) {
             last_purge = std::time::Instant::now();
-            if let Err(e) = jobs::purge_done(&db, cfg.done_retention).await {
+            if let Err(e) = jobs::purge_done(db, cfg.done_retention).await {
                 tracing::error!(error = %e, "purge_done failed");
             }
         }
@@ -319,12 +408,54 @@ async fn maintenance_loop(db: PgPool, cfg: Arc<WorkerConfig>, token: Cancellatio
             .is_some_and(|i| last_evict.elapsed() >= i)
         {
             last_evict = std::time::Instant::now();
-            if let Err(e) = jobs::enqueue(&db, &Job::EvictCache, None).await {
+            if let Err(e) = jobs::enqueue(
+                db,
+                &Job::EvictCache,
+                jobs::EnqueueOpts::priority(PRIORITY_BACKGROUND),
+            )
+            .await
+            {
                 tracing::error!(error = %e, "cannot enqueue cache eviction");
             }
         }
         if sleep_or_cancel(cfg.maintenance_interval, &token).await {
             return;
+        }
+    }
+}
+
+/// Вызывает `on_exhausted` обработчика задачи, ставшей `failed`. Ошибка хука логируется:
+/// задача уже окончательно провалена, повторять нечего.
+async fn exhausted(handlers: &HandlerMap, ctx: &JobCtx, row: &JobRow, reason: &str) {
+    let Some(handler) = handlers.get(row.kind.as_str()) else {
+        return;
+    };
+    let Ok(job) = row.job() else { return };
+    run_exhausted(handler, &job, ctx, row.id, reason).await;
+}
+
+/// Сколько раз пробуем хук исчерпания, прежде чем сдаться, и пауза между попытками.
+const EXHAUSTED_TRIES: u32 = 3;
+const EXHAUSTED_PAUSE: Duration = Duration::from_millis(500);
+
+/// Вызывает `on_exhausted` с несколькими попытками: хук чаще всего упирается во временную ошибку БД,
+/// а потеря очистки оставила бы альбом навсегда «в процессе». Если не вышло — ошибка в логе.
+async fn run_exhausted(
+    handler: &Arc<dyn JobHandler>,
+    job: &Job,
+    ctx: &JobCtx,
+    job_id: i64,
+    reason: &str,
+) {
+    for attempt in 1..=EXHAUSTED_TRIES {
+        match handler.on_exhausted(job, ctx, reason).await {
+            Ok(()) => return,
+            Err(e) => {
+                tracing::error!(job_id, error = %e, attempt, "on_exhausted failed");
+                if attempt < EXHAUSTED_TRIES {
+                    tokio::time::sleep(EXHAUSTED_PAUSE).await;
+                }
+            }
         }
     }
 }
@@ -343,7 +474,7 @@ async fn worker_loop(
         let notified = notify.notified();
         match jobs::claim(&ctx.db, &worker_id, kinds).await {
             Ok(Some(row)) => {
-                process(&row, &handler, &ctx, &cfg).await;
+                process(&worker_id, &row, &handler, &ctx, &cfg).await;
                 continue;
             }
             Ok(None) => {}
@@ -358,27 +489,73 @@ async fn worker_loop(
     tracing::debug!(worker = %worker_id, "worker stopped");
 }
 
-async fn process(row: &JobRow, handler: &Arc<dyn JobHandler>, ctx: &JobCtx, cfg: &WorkerConfig) {
+/// Пока задача выполняется, раз в `every` отмечает, что воркер жив.
+async fn heartbeat_loop(db: PgPool, id: i64, worker_id: String, every: Duration) {
+    loop {
+        tokio::time::sleep(every).await;
+        match jobs::heartbeat(&db, id, &worker_id).await {
+            Ok(true) => {}
+            Ok(false) => {
+                tracing::warn!(
+                    job_id = id,
+                    "job no longer belongs to this worker; heartbeat stopped"
+                );
+                return;
+            }
+            Err(e) => tracing::warn!(job_id = id, error = %e, "heartbeat failed"),
+        }
+    }
+}
+
+async fn process(
+    worker_id: &str,
+    row: &JobRow,
+    handler: &Arc<dyn JobHandler>,
+    ctx: &JobCtx,
+    cfg: &WorkerConfig,
+) {
     let job = match row.job() {
         Ok(j) => j,
         Err(e) => {
             tracing::error!(job_id = row.id, kind = %row.kind, error = %e, "unparsable job payload");
-            let _ = jobs::fail(&ctx.db, row.id, &format!("bad payload: {e}"), None).await;
+            if let Err(e) = jobs::fail(&ctx.db, row.id, &format!("bad payload: {e}"), None).await {
+                tracing::error!(job_id = row.id, error = %e, "fail update failed");
+            }
             return;
         }
     };
 
-    // Отдельная задача: паника в обработчике не убивает воркер.
+    let mut heartbeat = AbortOnDrop(tokio::spawn(heartbeat_loop(
+        ctx.db.clone(),
+        row.id,
+        worker_id.to_string(),
+        cfg.heartbeat_interval,
+    )));
+    // Отдельная задача: паника в обработчике не убивает воркер. При drop (abort воркера
+    // на остановке) прерывается и она.
     let h = handler.clone();
     let mut c = ctx.clone();
     c.attempt = row.attempts;
     c.max_attempts = row.max_attempts;
-    let result = tokio::spawn(async move { h.handle(job, &c).await }).await;
+    c.priority = row.priority;
+    let handled_job = job.clone();
+    let mut task = AbortOnDrop(tokio::spawn(async move { h.handle(handled_job, &c).await }));
+    let result = (&mut task.0).await;
+    // Heartbeat гасим до записи итога: иначе он мог бы «оживить» уже завершённую строку.
+    heartbeat.0.abort();
+    let _ = (&mut heartbeat.0).await;
 
-    let outcome = match result {
+    let (reason, delay) = match result {
         Ok(Ok(())) => {
             if let Err(e) = jobs::complete(&ctx.db, row.id).await {
                 tracing::error!(job_id = row.id, error = %e, "complete failed");
+            }
+            return;
+        }
+        Ok(Err(JobError::Cancelled)) => {
+            tracing::info!(job_id = row.id, kind = %row.kind, "job cancelled, returned to the queue");
+            if let Err(e) = jobs::release(&ctx.db, row.id).await {
+                tracing::error!(job_id = row.id, error = %e, "release failed");
             }
             return;
         }
@@ -390,19 +567,14 @@ async fn process(row: &JobRow, handler: &Arc<dyn JobHandler>, ctx: &JobCtx, cfg:
             Some(cfg.backoff(row.attempts)),
         ),
     };
-    let (reason, delay) = outcome;
     let retry_at = delay.map(|d| Utc::now() + chrono::Duration::from_std(d).unwrap_or_default());
     tracing::warn!(job_id = row.id, kind = %row.kind, attempts = row.attempts, %reason, retry = retry_at.is_some(), "job failed");
-    if let Err(e) = jobs::fail(&ctx.db, row.id, &reason, retry_at).await {
-        tracing::error!(job_id = row.id, error = %e, "fail update failed");
-    }
-    // Статус импорта дискографии виден в UI: сообщаем, что он изменился (повтор или окончательная неудача).
-    if let Ok(Job::ImportArtist { artist_id }) = row.job() {
-        ctx.events
-            .publish(nimbus_core::events::Event::LibraryChanged {
-                entity: nimbus_core::events::Entity::Artist,
-                id: artist_id,
-            });
+    match jobs::fail(&ctx.db, row.id, &reason, retry_at).await {
+        Ok(updated) if updated.state == "failed" => {
+            run_exhausted(handler, &job, ctx, row.id, &reason).await;
+        }
+        Ok(_) => handler.on_retry(&job, ctx, &reason).await,
+        Err(e) => tracing::error!(job_id = row.id, error = %e, "fail update failed"),
     }
 }
 
