@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, Pause, Play } from 'lucide-react';
+import { AlertTriangle, Headphones, Pause, Play } from 'lucide-react';
 import Link from 'next/link';
 import { Cover } from '@/components/ui/cover';
 import { Equalizer } from '@/components/ui/equalizer';
@@ -23,10 +23,12 @@ type Props = {
   index?: number;
   /** MBID release group альбома — нужен для кнопки «+» у треков вне библиотеки. */
   albumMbid?: string;
+  /** Строка в обычном плейлисте: в меню появляется «Убрать из плейлиста». */
+  playlistId?: string;
 };
 
 // Строка трека библиотеки: статус, воспроизведение (только `found`/`ready`), «+» для треков вне библиотеки.
-export function LibraryTrackRow({ track, queue, showAlbum = true, index, albumMbid }: Props) {
+export function LibraryTrackRow({ track, queue, showAlbum = true, index, albumMbid, playlistId }: Props) {
   const t = useT();
   const player = usePlayer();
   const live = useTrackStatus(track.id, track.status, track.status_reason ?? null);
@@ -96,6 +98,16 @@ export function LibraryTrackRow({ track, queue, showAlbum = true, index, albumMb
           ) : null}
         </span>
       </div>
+      {track.play_count > 0 ? (
+        <span
+          data-testid="play-count"
+          title={t('count.plays', { count: track.play_count })}
+          className="text-muted hidden items-center gap-1 text-xs tabular-nums sm:flex"
+        >
+          <Headphones className="h-3 w-3" aria-hidden />
+          {track.play_count}
+        </span>
+      ) : null}
       {track.duration_ms ? (
         <span className="text-muted hidden font-mono text-xs sm:block">
           {formatDuration(Math.floor(track.duration_ms / 1000))}
@@ -125,6 +137,7 @@ export function LibraryTrackRow({ track, queue, showAlbum = true, index, albumMb
           albumId={track.album_id}
           title={track.title}
           notFound={live.status === 'not_found'}
+          playlistId={playlistId}
         />
       ) : albumMbid ? (
         <AddToLibraryButton type="track" mbid={track.mbid_recording} albumMbid={albumMbid} className="h-7 w-7" />

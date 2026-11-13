@@ -291,6 +291,7 @@ export function describeBackendError(code: string | undefined): PlayerError {
 /** Текст ошибки плеера на языке интерфейса. */
 export function playerErrorText(t: TFn, code: string): string {
   if ((KNOWN_ERRORS as readonly string[]).includes(code)) return t(`player.error.${code as (typeof KNOWN_ERRORS)[number]}`);
+    return t(`player.error.${code as (typeof KNOWN_ERRORS)[number]}`);
   if (code === 'network') return t('player.error.network');
   return t('player.error.default');
 }
@@ -335,4 +336,38 @@ export function describeDownload(d: DownloadInfo, t: TFn): string {
 
 export function toRanges(r: { length: number; start(i: number): number; end(i: number): number }): [number, number][] {
   return Array.from({ length: r.length }, (_, i) => [r.start(i), r.end(i)] as [number, number]);
+}
+
+// --- Счётчик прослушиваний
+
+/** Прослушивание засчитывается после половины трека, но не позже чем через 4 минуты (длительность неизвестна — 30 с). */
+const PLAY_COUNT_MAX_S = 240;
+const PLAY_COUNT_UNKNOWN_DURATION_S = 30;
+/** Скачок позиции больше этого между обновлениями — перемотка, а не прослушивание. */
+export const LISTEN_MAX_STEP_S = 2;
+
+/** Сколько секунд нужно реально прослушать, чтобы трек засчитался. */
+export const playCountThreshold = (durationS: number) =>
+  durationS > 0 ? Math.min(durationS / 2, PLAY_COUNT_MAX_S) : PLAY_COUNT_UNKNOWN_DURATION_S;
+
+/** Накопленное время реального воспроизведения текущего трека. */
+export type Listen = { trackId: number; seconds: number; last: number | null; counted: boolean };
+
+/**
+ * Очередное обновление позиции (`timeupdate` во время воспроизведения). Перемотки (скачок позиции) время не копят.
+ * `count: true` возвращается ровно один раз на трек — когда набрано достаточно.
+ */
+export function advanceListen(
+  prev: Listen | null,
+  trackId: number,
+  position: number,
+  durationS: number,
+): { listen: Listen; count: boolean } {
+  const l: Listen = prev?.trackId === trackId ? { ...prev } : { counted: false, last: null, seconds: 0, trackId };
+  const delta = l.last === null ? 0 : position - l.last;
+  l.last = position;
+  if (delta > 0 && delta < LISTEN_MAX_STEP_S) l.seconds += delta;
+  const count = !l.counted && l.seconds >= playCountThreshold(durationS);
+  if (count) l.counted = true;
+  return { count, listen: l };
 }

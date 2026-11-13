@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test';
 import { en } from '../lib/i18n/messages/en';
 import { translate } from '../lib/i18n/translate';
 import {
+  advanceListen,
   applyShuffle,
   describeBackendError,
   describeDownload,
@@ -10,11 +11,13 @@ import {
   initialState,
   nextPlayableIndex,
   parseStored,
+  playCountThreshold,
   playerReducer,
   prevPlayableIndex,
   probeStreamError,
   serializeState,
   shuffleAround,
+  type Listen,
   type PlayerState,
 } from '../providers/player/engine';
 
@@ -131,4 +134,45 @@ test('ошибки бэкенда и форматирование загрузк
   expect(describeDownload({ bytes_done: 1, bytes_total: 2, down_speed_bps: 2048, peers: 3 }, t)).toContain(
     '3 peers · 2 KB/s',
   );
+});
+
+test('порог прослушивания: половина трека, но не больше 4 минут', () => {
+  expect(playCountThreshold(200)).toBe(100);
+  expect(playCountThreshold(1000)).toBe(240);
+  expect(playCountThreshold(0)).toBe(30);
+});
+
+// Имитация `timeupdate` каждые 0.25 с на отрезке [from, to).
+function listenRange(prev: Listen | null, id: number, from: number, to: number, duration: number) {
+  let listen = prev;
+  let counts = 0;
+  for (let p = from; p < to; p += 0.25) {
+    const r = advanceListen(listen, id, p, duration);
+    listen = r.listen;
+    if (r.count) counts++;
+  }
+  return { counts, listen: listen! };
+}
+
+test('прослушивание засчитывается один раз — после половины трека', () => {
+  const first = listenRange(null, 1, 0, 90, 200);
+  expect(first.counts).toBe(0);
+  const second = listenRange(first.listen, 1, 90, 200, 200);
+  expect(second.counts).toBe(1);
+});
+
+test('перемотка не копит время прослушивания', () => {
+  let r = listenRange(null, 1, 0, 10, 200);
+  // Прыжок на 150 с и ещё немного: суммарно реально прослушано ~20 с.
+  r = listenRange(r.listen, 1, 150, 160, 200);
+  expect(r.counts).toBe(0);
+  expect(r.listen.seconds).toBeLessThan(25);
+});
+
+test('другой трек начинает учёт заново', () => {
+  const a = listenRange(null, 1, 0, 90, 200);
+  const b = listenRange(a.listen, 2, 0, 50, 200);
+  expect(b.counts).toBe(0);
+  expect(b.listen.trackId).toBe(2);
+  expect(b.listen.seconds).toBeLessThan(51);
 });

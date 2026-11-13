@@ -4,6 +4,7 @@ import { EmptyLibrary } from '@/features/library/components/empty-library';
 import { ArtistCard, LibraryAlbumCard } from '@/features/library/components/library-cards';
 import { LibraryTrackRow } from '@/features/library/components/library-track-row';
 import { MoreAlbums, MoreArtists, MoreTracks } from '@/features/library/components/load-more';
+import { PlaylistsTab } from '@/features/playlists/components/playlists-tab';
 import { getLibraryAlbums, getLibraryArtists, getLibraryTracks } from '@/lib/data/library';
 import { getT, type TFn } from '@/lib/i18n/server';
 import { cn } from '@/lib/utils';
@@ -12,6 +13,7 @@ export const TABS = [
   { id: 'artists', label: 'group.artists' },
   { id: 'albums', label: 'group.albums' },
   { id: 'tracks', label: 'group.tracks' },
+  { id: 'playlists', label: 'group.playlists' },
 ] as const;
 export type TabId = (typeof TABS)[number]['id'];
 
@@ -74,11 +76,13 @@ export async function LibraryContent({ tab, status }: { tab: TabId; status: Stat
   return (
     <>
       <LibraryTabs active={tab} t={t} />
-      <StatusChips tab={tab} active={status} t={t} />
+      {tab === 'playlists' ? null : <StatusChips tab={tab} active={status} t={t} />}
       {tab === 'artists' ? (
         <ArtistsTab status={status} />
       ) : tab === 'albums' ? (
         <AlbumsTab status={status} />
+      ) : tab === 'playlists' ? (
+        <PlaylistsTab />
       ) : (
         <TracksTab status={status} />
       )}

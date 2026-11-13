@@ -2,12 +2,14 @@
 
 import { createContext, useCallback, useContext, useEffect, useReducer, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { recordPlay } from '@/app/actions/playlists';
 import { loadPrefetchEnabled, prefetchTrack } from '@/app/actions/settings';
 import { useLiveEvent } from '@/hooks/use-live-events';
 import { publicBackendUrl } from '@/lib/env';
 import { useT } from '@/providers/i18n-provider';
 import { useLiveLibrary } from '@/providers/live-library-provider';
 import {
+  advanceListen,
   applyShuffle,
   canPlayStatus,
   currentTrack,
@@ -23,6 +25,7 @@ import {
   shuffleAround,
   STORAGE_KEY,
   toRanges,
+  type Listen,
   type PlayerState,
   type RepeatMode,
 } from '@/providers/player/engine';
@@ -73,7 +76,6 @@ const PREFETCH_BEFORE_END_S = 30;
 const TICK_THROTTLE_MS = 250;
 const PERSIST_INTERVAL_MS = 2000;
 const SEEK_STEP_S = 5;
-
 // Элементы, в которых клавиши ←/→/пробел заняты самим элементом.
 function isEditable(t: EventTarget | null) {
   if (!(t instanceof HTMLElement)) return false;
@@ -107,6 +109,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const positionOf = (audio: HTMLAudioElement) => offsetRef.current + audio.currentTime;
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastTickRef = useRef(0);
+  /** Учёт прослушивания текущего трека: накопленные секунды реального воспроизведения. */
+  const listenRef = useRef<Listen | null>(null);
   const lastPositionStateRef = useRef(0);
   const latest = useRef({ state, t, trackStatus });
   const actionsRef = useRef<Actions | null>(null);
@@ -318,13 +322,32 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         type: 'TICK',
       });
     };
+    // Засчитывает прослушивание, когда реально проиграно достаточно (перемотки не копят время).
+    const countListen = () => {
+      const id = loadedIdRef.current;
+      if (id === null || audio.paused) return;
+      const track = currentTrack(latest.current.state);
+      const duration = track?.durationMs ? track.durationMs / 1000 : audio.duration;
+      const { listen, count } = advanceListen(
+        listenRef.current,
+        id,
+        positionOf(audio),
+        Number.isFinite(duration) ? duration : 0,
+      );
+      listenRef.current = listen;
+      if (count) void recordPlay(id);
+    };
     const setStatus = (status: PlayerState['status']) => dispatch({ status, type: 'STATUS' });
     const on: Record<string, () => void> = {
       canplay: () => {
         if (!audio.paused) setStatus('playing');
       },
       durationchange: () => tick(true),
-      ended: () => a()?.onEnded(),
+      ended: () => {
+        // Трек доигран (в т. ч. при повторе одного трека) — следующий проход считается заново.
+        listenRef.current = null;
+        a()?.onEnded();
+      },
       error: () => a()?.onError(),
       loadedmetadata: () => {
         if (pendingSeekRef.current > 0) {
@@ -348,6 +371,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         if (!audio.paused && audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) setStatus('buffering');
       },
       timeupdate: () => {
+        countListen();
         // Время идёт — трек играет, даже если `playing`/`canplay` не пришли после `stalled`/`waiting`.
         const st = latestStatus();
         if (

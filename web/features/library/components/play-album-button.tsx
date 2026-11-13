@@ -9,7 +9,7 @@ import { useLiveLibrary } from '@/providers/live-library-provider';
 import { usePlayer } from '@/providers/player-provider';
 
 // «Слушать альбом»: очередь из играбельных (`found`/`ready`) треков альбома, с учётом live-статусов.
-export function PlayAlbumButton({ tracks }: { tracks: TrackDto[] }) {
+export function PlayAlbumButton({ tracks, label }: { tracks: TrackDto[]; label?: string }) {
   const t = useT();
   const player = usePlayer();
   const { trackStatus } = useLiveLibrary();
@@ -41,7 +41,7 @@ export function PlayAlbumButton({ tracks }: { tracks: TrackDto[] }) {
       ) : (
         <Play className="h-4 w-4" fill="currentColor" />
       )}
-      {isThisPlaying ? t('play.pause') : t('play.album')}
+      {isThisPlaying ? t('play.pause') : (label ?? t('play.album'))}
     </button>
   );
 }

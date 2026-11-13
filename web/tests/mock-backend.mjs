@@ -314,6 +314,7 @@ function trackDto(t) {
     in_library: t.in_library,
     mbid_recording: t.mbid_recording,
     needs_confirmation: primaryOf(t.id)?.needs_confirmation ?? false,
+    play_count: t.play_count ?? 0,
     playback: t.playback ?? 'direct',
     position: t.position,
     status: t.status,
@@ -455,6 +456,20 @@ createServer(async (req, res) => {
     if (!a) return err(res, 404, 'not_found', 'artist not found');
     a.import = { attempt: 1, error: null, max_attempts: 8, retry_at: null, state: 'importing' };
     return send(res, 202, {});
+  }
+  if (req.method === 'POST' && (sm = p.match(/^\/api\/tracks\/(\d+)\/played$/))) {
+    requestLog.push({ method: 'POST', path: p });
+    const t = tracks.get(Number(sm[1]));
+    if (!t) return err(res, 404, 'not_found', 'track not found');
+    t.play_count = (t.play_count ?? 0) + 1;
+    return send(res, 200, { play_count: t.play_count });
+  }
+  if (req.method === 'GET' && p === '/api/playlists') {
+    return send(res, 200, {
+      items: [
+        { cover_url: null, created_at: null, id: 'favorites', kind: 'favorites', last_used_at: null, name: 'Favorites', track_count: 0 },
+      ],
+    });
   }
   if (req.method === 'POST' && /^\/api\/tracks\/\d+\/prefetch$/.test(p)) {
     requestLog.push({ method: 'POST', path: p });
