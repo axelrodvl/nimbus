@@ -17,7 +17,9 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::io::ReaderStream;
 
 use crate::error::ApiError;
+use crate::idle::IdleTimeout;
 use crate::state::AppState;
+use crate::stream::{Delivery, INTERNAL_HEADER};
 
 /// Сколько процессов `ffmpeg` работает одновременно.
 pub const MAX_PROCESSES: usize = 4;
@@ -78,10 +80,19 @@ impl Transcoder {
 }
 
 /// Аргументы `ffmpeg`: отрезок `[start, start + dur)` входа → FLAC в stdout.
-pub fn ffmpeg_args(input: &str, start_s: f64, dur_s: Option<f64>) -> Vec<String> {
+/// `header` — HTTP-заголовок для входа-URL (`-headers`, строго до `-i`).
+pub fn ffmpeg_args(
+    input: &str,
+    start_s: f64,
+    dur_s: Option<f64>,
+    header: Option<(&str, &str)>,
+) -> Vec<String> {
     let mut a: Vec<String> = ["-hide_banner", "-loglevel", "error", "-nostdin"]
         .map(String::from)
         .into();
+    if let Some((name, value)) = header {
+        a.extend(["-headers".into(), format!("{name}: {value}\r\n")]);
+    }
     a.extend([
         "-ss".into(),
         format!("{start_s:.3}"),
@@ -110,7 +121,7 @@ pub fn duration_ms(track: &Track, source: &TrackSource) -> Option<i64> {
 
 /// Поток stdout `ffmpeg`; пока он жив — живы процесс (убивается при drop) и слот лимита.
 struct FfmpegStream {
-    inner: ReaderStream<ChildStdout>,
+    inner: IdleTimeout<ReaderStream<ChildStdout>>,
     _child: Child,
     _permit: OwnedSemaphorePermit,
     _activity: nimbus_core::activity::StreamGuard,
@@ -128,6 +139,7 @@ fn err(status: StatusCode, code: &str, msg: impl Into<String>) -> ApiError {
 }
 
 /// Ответ `200 audio/flac` с перекодированным треком (или `HEAD` без тела).
+#[allow(clippy::too_many_arguments)]
 pub async fn transcode_response(
     state: &AppState,
     method: &Method,
@@ -136,6 +148,7 @@ pub async fn transcode_response(
     torrent: &Torrent,
     size: u64,
     t: Option<f64>,
+    delivery: &Delivery,
 ) -> Result<Response, ApiError> {
     let tc = &state.transcoder;
     if !tc.available {
@@ -155,6 +168,9 @@ pub async fn transcode_response(
         .header(H_TRANSCODE, "1");
     if let Some(ms) = total_ms {
         builder = builder.header(H_DURATION, ms);
+    }
+    if let Some(d) = &delivery.disposition {
+        builder = builder.header(header::CONTENT_DISPOSITION, d);
     }
     if method == Method::HEAD {
         return builder
@@ -186,8 +202,13 @@ pub async fn transcode_response(
         .begin_stream(source.torrent_id, source.file_index);
     let input = resolve_input(state, source, torrent, size).await?;
 
+    // Секрет нужен только когда вход — наш внутренний URL; в аргументах процесса он виден лишь
+    // локальным пользователям хоста, в логи не попадает.
+    let secret = input
+        .starts_with("http")
+        .then(|| (INTERNAL_HEADER, state.internal_token.as_ref()));
     let mut child = Command::new(&tc.ffmpeg)
-        .args(ffmpeg_args(&input, base_s + offset, dur_s))
+        .args(ffmpeg_args(&input, base_s + offset, dur_s, secret))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -233,8 +254,15 @@ pub async fn transcode_response(
     let _ = downloads::touch_played(&state.db, source.torrent_id, source.file_index).await;
 
     let head = futures::stream::once(async move { Ok::<Bytes, std::io::Error>(Bytes::from(buf)) });
+    let track_id = track.id;
     let rest = FfmpegStream {
-        inner: ReaderStream::with_capacity(stdout, CHUNK),
+        inner: IdleTimeout::new(
+            ReaderStream::with_capacity(stdout, CHUNK),
+            delivery.idle,
+            Some(Box::new(move || {
+                tracing::warn!(track_id, "transcode stalled, dropping the connection");
+            })),
+        ),
         _child: child,
         _permit: permit,
         _activity: activity,
@@ -274,15 +302,26 @@ mod tests {
 
     #[test]
     fn args_for_cue_segment() {
-        let a = ffmpeg_args("/x/image.flac", 288.0, Some(282.493));
+        let a = ffmpeg_args("/x/image.flac", 288.0, Some(282.493), None);
         let s = a.join(" ");
         assert!(s.contains("-ss 288.000 -i /x/image.flac -t 282.493 -map 0:a:0"));
         assert!(s.ends_with("-c:a flac -f flac pipe:1"));
     }
 
     #[test]
+    fn header_goes_before_the_input() {
+        let a = ffmpeg_args("http://x/raw", 0.0, None, Some(("x-h", "secret")));
+        let (h, i) = (
+            a.iter().position(|x| x == "-headers").unwrap(),
+            a.iter().position(|x| x == "-i").unwrap(),
+        );
+        assert!(h < i);
+        assert_eq!(a[h + 1], "x-h: secret\r\n");
+    }
+
+    #[test]
     fn args_without_duration_have_no_t() {
-        let a = ffmpeg_args("in.wv", 0.0, None);
+        let a = ffmpeg_args("in.wv", 0.0, None, None);
         assert!(!a.iter().any(|x| x == "-t"));
     }
 }

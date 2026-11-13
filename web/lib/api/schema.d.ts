@@ -2747,6 +2747,11 @@ export interface operations {
             query?: {
                 /** @description Только для перекодируемых треков: начать с этой секунды (перемотка). */
                 t?: number;
+                /**
+                 * @description `1` — полный файл для сохранения на устройстве: `Content-Disposition: attachment`
+                 *     и увеличенный таймаут простоя (120 с). Остальное поведение — как у обычного стрима.
+                 */
+                download?: number;
             };
             header?: never;
             path: {
@@ -2757,7 +2762,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Аудио целиком (`audio/*`); для перекодируемых треков — `audio/flac` без Range (`X-Nimbus-Transcode: 1`, `X-Nimbus-Duration-Ms`) */
+            /** @description Аудио целиком (`audio/*`); для завершённого файла — `ETag`, `Cache-Control: private, no-cache`; с `download=1` — `Content-Disposition: attachment`; для перекодируемых треков — `audio/flac` без Range (`X-Nimbus-Transcode: 1`, `X-Nimbus-Duration-Ms`) */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2766,6 +2771,13 @@ export interface operations {
             };
             /** @description Часть аудио по заголовку Range (только прямая отдача) */
             206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Завершённый файл не изменился (`If-None-Match` совпал с `ETag`) */
+            304: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2809,6 +2821,15 @@ export interface operations {
             };
             /** @description Нет пиров: данные не пришли вовремя (`no_peers`) */
             504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Ошибка хранилища торрент-движка, например нет места (`storage_error`) */
+            507: {
                 headers: {
                     [name: string]: unknown;
                 };

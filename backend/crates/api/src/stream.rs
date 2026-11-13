@@ -1,7 +1,7 @@
 //! `GET /api/tracks/{id}/stream`: отдача аудио с поддержкой Range (с диска или из торрент-движка),
 //! наблюдатель прогресса загрузок и статус `ready`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path as FsPath;
 use std::time::{Duration, Instant};
 
@@ -9,21 +9,40 @@ use axum::body::{Body, Bytes};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::Response;
+use futures::FutureExt;
 use nimbus_core::events::Event;
 use nimbus_core::model::{InfoHash, NewDownload, Torrent, TrackSource, TrackStatus};
 use nimbus_db::helpers::set_track_status_and_publish;
 use nimbus_db::repo::{downloads, torrents, track_sources, tracks};
 use nimbus_torrent::{AsyncReadSeek, EngineError, TorrentHandleId};
 use nimbus_worker::torrent_file;
+use subtle::ConstantTimeEq;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
+use tokio_util::sync::CancellationToken;
 
 use crate::auth::authorize;
 use crate::error::ApiError;
+use crate::idle::{IdleTimeout, OnIdle};
 use crate::state::AppState;
 
 /// Размер буфера чтения при отдаче.
 const CHUNK: usize = 64 * 1024;
+
+/// Заголовок с секретом процесса: им `ffmpeg` ходит на `/api/internal/raw/…`.
+pub const INTERNAL_HEADER: &str = "x-nimbus-internal";
+
+/// Таймаут простоя для `?download=1` (полный файл для офлайна: пиры могут отвечать медленно).
+pub const DOWNLOAD_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Параметры доставки тела ответа, общие для прямой отдачи и перекодирования.
+#[derive(Clone)]
+pub struct Delivery {
+    /// Сколько тело может молчать посреди ответа.
+    pub idle: Duration,
+    /// `Content-Disposition` для `?download=1`.
+    pub disposition: Option<HeaderValue>,
+}
 
 // ------------------------------------------------------------------ Range
 
@@ -111,6 +130,9 @@ fn err(status: StatusCode, code: &str, msg: impl Into<String>) -> ApiError {
 pub struct StreamQuery {
     /// Только для перекодируемых треков: начать с этой секунды (перемотка).
     pub t: Option<f64>,
+    /// `1` — полный файл для сохранения на устройстве: `Content-Disposition: attachment`
+    /// и увеличенный таймаут простоя (120 с). Остальное поведение — как у обычного стрима.
+    pub download: Option<u8>,
 }
 
 #[utoipa::path(
@@ -119,11 +141,13 @@ pub struct StreamQuery {
     tag = "library",
     params(("id" = i64, Path, description = "ID трека"), StreamQuery),
     responses(
-        (status = 200, description = "Аудио целиком (`audio/*`); для перекодируемых треков — `audio/flac` без Range (`X-Nimbus-Transcode: 1`, `X-Nimbus-Duration-Ms`)"),
+        (status = 200, description = "Аудио целиком (`audio/*`); для завершённого файла — `ETag`, `Cache-Control: private, no-cache`; с `download=1` — `Content-Disposition: attachment`; для перекодируемых треков — `audio/flac` без Range (`X-Nimbus-Transcode: 1`, `X-Nimbus-Duration-Ms`)"),
         (status = 206, description = "Часть аудио по заголовку Range (только прямая отдача)"),
         (status = 404, description = "Нет такого трека", body = crate::error::ErrorResponse),
         (status = 409, description = "Трек не `found`/`ready` (`track_not_playable`)", body = crate::error::ErrorResponse),
+        (status = 304, description = "Завершённый файл не изменился (`If-None-Match` совпал с `ETag`)"),
         (status = 416, description = "Диапазон вне файла", body = crate::error::ErrorResponse),
+        (status = 507, description = "Ошибка хранилища торрент-движка, например нет места (`storage_error`)", body = crate::error::ErrorResponse),
         (status = 503, description = "Нет ffmpeg (`ffmpeg_missing`) или слишком много перекодирований (`transcoder_busy`)", body = crate::error::ErrorResponse),
         (status = 504, description = "Нет пиров: данные не пришли вовремя (`no_peers`)", body = crate::error::ErrorResponse),
     )
@@ -172,16 +196,33 @@ pub async fn stream_track(
         .unwrap_or_default();
     let size = file.size_bytes.max(0) as u64;
 
-    match direct_mime(&ext) {
-        Some(mime) if source.cue_start_ms.is_none() => {
+    let direct = direct_mime(&ext).filter(|_| source.cue_start_ms.is_none());
+    let download = q.download == Some(1);
+    let delivery = Delivery {
+        idle: if download {
+            state.stream_idle_timeout.max(DOWNLOAD_IDLE_TIMEOUT)
+        } else {
+            state.stream_idle_timeout
+        },
+        // Перекодированный ответ — всегда FLAC.
+        disposition: download.then(|| {
+            content_disposition(
+                track.position,
+                &track.title,
+                if direct.is_some() { &ext } else { "flac" },
+            )
+        }),
+    };
+    match direct {
+        Some(mime) => {
             serve_file(
-                &state, &method, &headers, &torrent, &source, track.id, size, mime,
+                &state, &method, &headers, &torrent, &source, track.id, size, mime, &delivery,
             )
             .await
         }
-        _ => {
+        None => {
             crate::transcode::transcode_response(
-                &state, &method, &track, &source, &torrent, size, q.t,
+                &state, &method, &track, &source, &torrent, size, q.t, &delivery,
             )
             .await
         }
@@ -189,6 +230,8 @@ pub async fn stream_track(
 }
 
 /// Только для `ffmpeg` с этого же хоста: сырой файл раздачи с поддержкой Range.
+/// Нужен секрет процесса в заголовке `X-Nimbus-Internal` (и loopback, если известен адрес клиента).
+/// В OpenAPI не описан.
 pub async fn raw_file(
     State(state): State<AppState>,
     method: Method,
@@ -196,6 +239,12 @@ pub async fn raw_file(
     Path((torrent_id, file_index)): Path<(i64, i32)>,
     req: axum::extract::Request,
 ) -> Result<Response, ApiError> {
+    let token_ok = headers
+        .get(INTERNAL_HEADER)
+        .is_some_and(|v| bool::from(v.as_bytes().ct_eq(state.internal_token.as_bytes())));
+    if !token_ok {
+        return Err(err(StatusCode::FORBIDDEN, "forbidden", "internal endpoint"));
+    }
     if let Some(ci) = req
         .extensions()
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
@@ -234,6 +283,10 @@ pub async fn raw_file(
         0,
         file.size_bytes.max(0) as u64,
         "application/octet-stream",
+        &Delivery {
+            idle: state.stream_idle_timeout,
+            disposition: None,
+        },
     )
     .await
 }
@@ -249,7 +302,23 @@ async fn serve_file(
     track_id: i64,
     size: u64,
     mime: &'static str,
+    delivery: &Delivery,
 ) -> Result<Response, ApiError> {
+    // Завершённый файл на диске: неизменяемое содержимое → ETag.
+    let local = completed_local_path(state, source, size).await?;
+    let etag = local
+        .as_ref()
+        .map(|_| etag_for(&torrent.info_hash, source.file_index, size));
+    if let Some(tag) = &etag {
+        if if_none_match(headers, tag) {
+            return Response::builder()
+                .status(StatusCode::NOT_MODIFIED)
+                .header(header::ETAG, tag.as_str())
+                .header(header::CACHE_CONTROL, CACHE_CONTROL)
+                .body(Body::empty())
+                .map_err(|_| ApiError::internal());
+        }
+    }
     let range = parse_range(
         headers.get(header::RANGE).and_then(|v| v.to_str().ok()),
         size,
@@ -272,8 +341,14 @@ async fn serve_file(
     let mut builder = Response::builder()
         .header(header::ACCEPT_RANGES, "bytes")
         .header(header::CONTENT_TYPE, mime)
-        .header(header::CACHE_CONTROL, "no-store")
+        .header(header::CACHE_CONTROL, CACHE_CONTROL)
         .header(header::CONTENT_LENGTH, len);
+    if let Some(tag) = &etag {
+        builder = builder.header(header::ETAG, tag.as_str());
+    }
+    if let Some(d) = &delivery.disposition {
+        builder = builder.header(header::CONTENT_DISPOSITION, d);
+    }
     if partial {
         builder = builder
             .status(StatusCode::PARTIAL_CONTENT)
@@ -289,9 +364,9 @@ async fn serve_file(
     let guard = state
         .activity
         .begin_stream(source.torrent_id, source.file_index);
-    let reader = open_reader(state, torrent, source, size).await?;
+    let reader = open_reader(state, torrent, source, size, local).await?;
     downloads::touch_played(&state.db, source.torrent_id, source.file_index).await?;
-    let body = body_from(state, track_id, source, reader, start, len).await?;
+    let body = body_from(state, track_id, source, reader, start, len, delivery.idle).await?;
     let body = Body::from_stream(Guarded {
         inner: body.into_data_stream(),
         _guard: guard,
@@ -299,44 +374,132 @@ async fn serve_file(
     builder.body(body).map_err(|_| ApiError::internal())
 }
 
+/// Значение `Cache-Control` для файлов: клиент может хранить, но обязан перепроверять (решает service worker).
+const CACHE_CONTROL: &str = "private, no-cache";
+
 /// Путь к файлу на диске, если загрузка завершена и файл на месте нужного размера.
+/// Если в БД файл числится завершённым, а на диске его нет или размер другой, — сбрасывает
+/// `completed_at` и возвращает треки `ready → found` (на лету, как `reconcile_downloads`);
+/// вызывающий идёт через движок.
 pub(crate) async fn completed_local_path(
     state: &AppState,
     source: &TrackSource,
     size: u64,
 ) -> Result<Option<String>, ApiError> {
-    let existing = downloads::get(&state.db, source.torrent_id, source.file_index).await?;
-    if let Some(d) = existing.filter(|d| d.completed_at.is_some()) {
-        if let Ok(meta) = tokio::fs::metadata(&d.local_path).await {
-            if meta.len() == size {
-                return Ok(Some(d.local_path));
-            }
+    let Some(d) = downloads::get(&state.db, source.torrent_id, source.file_index)
+        .await?
+        .filter(|d| d.completed_at.is_some())
+    else {
+        return Ok(None);
+    };
+    match tokio::fs::metadata(&d.local_path).await {
+        Ok(meta) if meta.len() == size => Ok(Some(d.local_path)),
+        _ => {
+            tracing::warn!(
+                torrent_id = d.torrent_id,
+                file = d.file_index,
+                "completed download is missing or has a wrong size, resetting"
+            );
+            reset_missing_download(state, d.torrent_id, d.file_index).await?;
+            Ok(None)
         }
     }
-    Ok(None)
+}
+
+/// Сбрасывает завершённую загрузку, файла которой нет на диске; треки `ready → found`.
+async fn reset_missing_download(
+    state: &AppState,
+    torrent_id: i64,
+    file_index: i32,
+) -> Result<(), sqlx::Error> {
+    downloads::reset_completed(&state.db, torrent_id, file_index).await?;
+    for t in
+        track_sources::tracks_with_primary(&state.db, torrent_id, file_index, TrackStatus::Ready)
+            .await?
+    {
+        set_track_status_and_publish(&state.db, &state.events, t.id, TrackStatus::Found, None)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Стабильный между перезапусками `ETag` завершённого файла (FNV-1a 64 от `info_hash:file_index:size`).
+fn etag_for(info_hash: &str, file_index: i32, size: u64) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in format!("{info_hash}:{file_index}:{size}").bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("\"{h:016x}\"")
+}
+
+/// Совпадает ли `If-None-Match` с тегом (`*`, список, слабые теги `W/"…"`).
+fn if_none_match(headers: &HeaderMap, tag: &str) -> bool {
+    headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| {
+            v.split(',')
+                .map(str::trim)
+                .any(|t| t == "*" || t.strip_prefix("W/").unwrap_or(t) == tag)
+        })
+}
+
+/// `Content-Disposition: attachment` с именем «NN - Название.ext»: небезопасные символы заменены,
+/// для не-ASCII есть `filename*` (RFC 6266).
+pub(crate) fn content_disposition(position: i32, title: &str, ext: &str) -> HeaderValue {
+    let clean: String = title
+        .chars()
+        .map(|c| {
+            if c.is_control() || "/\\:*?\"<>|;%".contains(c) {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let clean: String = clean.trim().chars().take(100).collect();
+    let clean = if clean.is_empty() {
+        "track".into()
+    } else {
+        clean
+    };
+    let ext: String = ext.chars().filter(char::is_ascii_alphanumeric).collect();
+    let name = format!("{position:02} - {clean}.{ext}");
+    let ascii: String = name
+        .chars()
+        .map(|c| if c.is_ascii() { c } else { '_' })
+        .collect();
+    let mut encoded = String::new();
+    for b in name.bytes() {
+        if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+            encoded.push(b as char);
+        } else {
+            encoded.push_str(&format!("%{b:02X}"));
+        }
+    }
+    HeaderValue::from_str(&format!(
+        "attachment; filename=\"{ascii}\"; filename*=UTF-8''{encoded}"
+    ))
+    .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
 }
 
 type Reader = Box<dyn AsyncReadSeek + Send + Unpin>;
 
-/// Файл с диска, если загрузка завершена и файл на месте; иначе — поток из движка.
+/// Файл с диска (`local` — результат `completed_local_path`), иначе — поток из движка.
 async fn open_reader(
     state: &AppState,
     torrent: &Torrent,
     source: &TrackSource,
     size: u64,
+    local: Option<String>,
 ) -> Result<Reader, ApiError> {
-    let existing = downloads::get(&state.db, source.torrent_id, source.file_index).await?;
-    if let Some(d) = &existing {
-        if d.completed_at.is_some() {
-            if let Ok(meta) = tokio::fs::metadata(&d.local_path).await {
-                if meta.len() == size {
-                    if let Ok(f) = tokio::fs::File::open(&d.local_path).await {
-                        return Ok(Box::new(f));
-                    }
-                }
-            }
+    if let Some(path) = local {
+        if let Ok(f) = tokio::fs::File::open(&path).await {
+            return Ok(Box::new(f));
         }
     }
+    let existing = downloads::get(&state.db, source.torrent_id, source.file_index).await?;
 
     let files = state.files.as_ref().ok_or_else(|| {
         err(
@@ -422,6 +585,7 @@ async fn body_from(
     mut reader: Reader,
     start: u64,
     len: u64,
+    idle: Duration,
 ) -> Result<Body, ApiError> {
     if len == 0 {
         return Ok(Body::empty());
@@ -457,7 +621,16 @@ async fn body_from(
         ));
     }
     let head = futures::stream::once(async move { Ok::<Bytes, std::io::Error>(Bytes::from(buf)) });
-    let rest = ReaderStream::with_capacity(limited, CHUNK);
+    // Нечего переключать: источник не привязан к треку (внутренний эндпоинт).
+    let on_idle: Option<OnIdle> = (track_id != 0).then(|| {
+        let (st, src) = (state.clone(), source.clone());
+        Box::new(move || {
+            tracing::warn!(track_id, "stream went idle, dropping the connection");
+            // Короткая задача без отслеживания: одно переключение primary в БД, завершается сама.
+            tokio::spawn(async move { failover(&st, &src).await });
+        }) as OnIdle
+    });
+    let rest = IdleTimeout::new(ReaderStream::with_capacity(limited, CHUNK), idle, on_idle);
     Ok(Body::from_stream(futures::StreamExt::chain(head, rest)))
 }
 
@@ -636,7 +809,6 @@ async fn prefetch_head(
 pub struct Watcher {
     last_bytes: HashMap<(i64, i32), u64>,
     last_db_write: HashMap<(i64, i32), Instant>,
-    hashes: HashMap<i64, InfoHash>,
     /// Как часто писать `bytes_done` в БД.
     pub db_write_interval: Option<Duration>,
 }
@@ -650,37 +822,56 @@ impl Watcher {
     }
 
     /// Один проход: прогресс всех незавершённых загрузок, события и переход в `ready`.
+    /// Чтений из БД — два на тик (список загрузок с `info_hash` и треки изменившихся файлов),
+    /// независимо от числа загрузок.
     pub async fn tick(&mut self, state: &AppState) -> Result<(), sqlx::Error> {
         let Some(files) = state.files.as_ref() else {
             return Ok(());
         };
-        for d in downloads::list_active(&state.db).await? {
+        let active = downloads::list_active_with_hash(&state.db).await?;
+        // Загрузка исчезла (завершена, удалена) — забываем её состояние.
+        let alive: HashSet<(i64, i32)> = active
+            .iter()
+            .map(|d| (d.torrent_id, d.file_index))
+            .collect();
+        self.last_bytes.retain(|k, _| alive.contains(k));
+        self.last_db_write.retain(|k, _| alive.contains(k));
+
+        // Прогресс — без БД; дальше интересны только изменившиеся и завершённые файлы.
+        let mut items = Vec::new();
+        for d in &active {
             let key = (d.torrent_id, d.file_index);
-            let hash = match self.hashes.get(&d.torrent_id) {
-                Some(h) => h.clone(),
-                None => {
-                    let Some(t) = torrents::get(&state.db, d.torrent_id).await? else {
-                        continue;
-                    };
-                    let Ok(h) = InfoHash::parse(&t.info_hash) else {
-                        continue;
-                    };
-                    self.hashes.insert(d.torrent_id, h.clone());
-                    h
-                }
+            let Ok(hash) = InfoHash::parse(&d.info_hash) else {
+                continue;
             };
             let Some(p) = files.file_progress(&TorrentHandleId(hash), d.file_index as usize) else {
                 continue;
             };
             let changed = self.last_bytes.insert(key, p.bytes_done) != Some(p.bytes_done);
+            if changed || p.finished {
+                items.push((key, p, changed));
+            }
+        }
+        if items.is_empty() {
+            return Ok(());
+        }
 
+        let keys: Vec<(i64, i32)> = items.iter().map(|(k, _, _)| *k).collect();
+        let mut tracks: HashMap<(i64, i32), Vec<track_sources::PrimaryTrack>> = HashMap::new();
+        for t in track_sources::primary_tracks_for_files(&state.db, &keys).await? {
+            tracks
+                .entry((t.torrent_id, t.file_index))
+                .or_default()
+                .push(t);
+        }
+
+        for (key, p, changed) in items {
+            let (torrent_id, file_index) = key;
+            let of_file = tracks.get(&key).map(Vec::as_slice).unwrap_or_default();
             if changed {
-                for track_id in
-                    track_sources::track_ids_with_primary(&state.db, d.torrent_id, d.file_index)
-                        .await?
-                {
+                for t in of_file {
                     state.events.publish(Event::StreamProgress {
-                        track_id,
+                        track_id: t.track_id,
                         bytes_done: p.bytes_done,
                         bytes_total: p.bytes_total,
                         peers: p.peers,
@@ -690,19 +881,12 @@ impl Watcher {
             }
 
             if p.finished {
-                downloads::mark_completed(&state.db, d.torrent_id, d.file_index).await?;
-                for t in track_sources::tracks_with_primary(
-                    &state.db,
-                    d.torrent_id,
-                    d.file_index,
-                    TrackStatus::Found,
-                )
-                .await?
-                {
+                downloads::mark_completed(&state.db, torrent_id, file_index).await?;
+                for t in of_file.iter().filter(|t| t.status == TrackStatus::Found) {
                     set_track_status_and_publish(
                         &state.db,
                         &state.events,
-                        t.id,
+                        t.track_id,
                         TrackStatus::Ready,
                         None,
                     )
@@ -719,11 +903,7 @@ impl Watcher {
                 .await?;
                 self.last_bytes.remove(&key);
                 self.last_db_write.remove(&key);
-                tracing::info!(
-                    torrent_id = d.torrent_id,
-                    file = d.file_index,
-                    "download completed"
-                );
+                tracing::info!(torrent_id, file = file_index, "download completed");
             } else if changed {
                 let due = self.db_write_interval.is_none_or(|iv| {
                     self.last_db_write
@@ -733,8 +913,8 @@ impl Watcher {
                 if due {
                     downloads::update_progress(
                         &state.db,
-                        d.torrent_id,
-                        d.file_index,
+                        torrent_id,
+                        file_index,
                         p.bytes_done as i64,
                     )
                     .await?;
@@ -746,15 +926,56 @@ impl Watcher {
     }
 }
 
-/// Запускает наблюдатель (раз в секунду) в фоне.
-pub fn spawn_watcher(state: AppState) -> tokio::task::JoinHandle<()> {
+/// Запускает наблюдатель (раз в секунду) под супервизором; завершается по `cancel`.
+pub fn spawn_watcher(state: AppState, cancel: CancellationToken) -> tokio::task::JoinHandle<()> {
+    spawn_watcher_with(
+        state,
+        cancel,
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+    )
+}
+
+/// Супервизор наблюдателя: тик раз в `every`; паника в тике логируется (`error`), состояние
+/// наблюдателя создаётся заново после паузы `restart_pause`, цикл продолжается. Ошибка БД —
+/// только предупреждение. Задачу ждёт вызывающий (`main` после `cancel`).
+pub fn spawn_watcher_with(
+    state: AppState,
+    cancel: CancellationToken,
+    every: Duration,
+    restart_pause: Duration,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut w = Watcher::new();
-        let mut interval = tokio::time::interval(Duration::from_secs(1));
+        let mut interval = tokio::time::interval(every);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
-            interval.tick().await;
-            if let Err(e) = w.tick(&state).await {
-                tracing::warn!(error = %e, "download watcher tick failed");
+            tokio::select! {
+                () = cancel.cancelled() => return,
+                _ = interval.tick() => {}
+            }
+            // Тик не прерываем отменой: он состоит из коротких запросов к БД, а обрыв посередине
+            // (между `mark_completed` и переводом треков в `ready`) оставил бы треки в `found`.
+            match std::panic::AssertUnwindSafe(w.tick(&state))
+                .catch_unwind()
+                .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!(error = %e, "download watcher tick failed"),
+                Err(panic) => {
+                    let msg = panic
+                        .downcast_ref::<&str>()
+                        .map(|s| (*s).to_string())
+                        .or_else(|| panic.downcast_ref::<String>().cloned())
+                        .unwrap_or_default();
+                    tracing::error!(panic = %msg, "download watcher panicked, restarting");
+                    tokio::select! {
+                        () = cancel.cancelled() => return,
+                        () = tokio::time::sleep(restart_pause) => {}
+                    }
+                    w = Watcher::new();
+                    interval.reset();
+                }
             }
         }
     })
@@ -768,18 +989,7 @@ pub async fn reconcile_downloads(state: &AppState) -> Result<usize, sqlx::Error>
             continue;
         }
         tracing::warn!(path = %d.local_path, "completed download is missing on disk, resetting");
-        downloads::reset_completed(&state.db, d.torrent_id, d.file_index).await?;
-        for t in track_sources::tracks_with_primary(
-            &state.db,
-            d.torrent_id,
-            d.file_index,
-            TrackStatus::Ready,
-        )
-        .await?
-        {
-            set_track_status_and_publish(&state.db, &state.events, t.id, TrackStatus::Found, None)
-                .await?;
-        }
+        reset_missing_download(state, d.torrent_id, d.file_index).await?;
         fixed += 1;
     }
     Ok(fixed)

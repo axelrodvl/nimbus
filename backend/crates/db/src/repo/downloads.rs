@@ -71,6 +71,25 @@ pub async fn list_active(db: impl PgExecutor<'_>) -> sqlx::Result<Vec<Download>>
     .await
 }
 
+/// Незавершённая загрузка вместе с `info_hash` торрента (для наблюдателя: без запроса на каждую строку).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ActiveDownload {
+    pub torrent_id: i64,
+    pub file_index: i32,
+    pub info_hash: String,
+}
+
+/// Незавершённые загрузки с `info_hash` одним запросом.
+pub async fn list_active_with_hash(db: impl PgExecutor<'_>) -> sqlx::Result<Vec<ActiveDownload>> {
+    sqlx::query_as(
+        "SELECT d.torrent_id, d.file_index, t.info_hash
+         FROM downloads d JOIN torrents t ON t.id = d.torrent_id
+         WHERE d.completed_at IS NULL ORDER BY d.torrent_id, d.file_index",
+    )
+    .fetch_all(db)
+    .await
+}
+
 /// Завершённые загрузки (для проверки наличия файлов при старте).
 pub async fn list_completed(db: impl PgExecutor<'_>) -> sqlx::Result<Vec<Download>> {
     sqlx::query_as(

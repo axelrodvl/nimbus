@@ -33,14 +33,15 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 dotenvy.workspace = true
 subtle = "2"
+rand = "0.9"
 
 [dev-dependencies]
 http-body-util = "0.1"
 wiremock.workspace = true
 tokio-tungstenite = "0.26"
-rand = "0.9"
 nimbus-testkit.workspace = true
 async-trait.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 
 [[bin]]
 name = "nimbus"

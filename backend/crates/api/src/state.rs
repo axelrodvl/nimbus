@@ -31,8 +31,21 @@ pub struct AppState {
     pub transcoder: crate::transcode::Transcoder,
     /// Сколько ждать первых байт стрима, прежде чем ответить `504 no_peers`.
     pub first_byte_timeout: Duration,
+    /// Сколько стрим может молчать посреди ответа, прежде чем соединение будет разорвано.
+    pub stream_idle_timeout: Duration,
+    /// Секрет процесса для внутреннего эндпоинта `/api/internal/raw/…` (заголовок `X-Nimbus-Internal`).
+    /// Генерируется при старте, никуда не пишется и не логируется.
+    pub internal_token: Arc<str>,
     /// Общий таймаут эндпоинта поиска.
     pub search_timeout: Duration,
+}
+
+/// 32 случайных байта в hex.
+fn new_internal_token() -> String {
+    use rand::RngCore;
+    let mut b = [0u8; 32];
+    rand::rng().fill_bytes(&mut b);
+    b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 impl AppState {
@@ -51,6 +64,8 @@ impl AppState {
             files: None,
             transcoder: crate::transcode::Transcoder::new("ffmpeg"),
             first_byte_timeout: Duration::from_secs(60),
+            stream_idle_timeout: Duration::from_secs(45),
+            internal_token: new_internal_token().into(),
             db,
             config,
             events,

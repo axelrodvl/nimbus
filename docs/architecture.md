@@ -120,5 +120,5 @@ HTTP-запроса): TPB/apibay — 250 мс и 4; Torznab (свой индек
 
 Один статический токен (`NIMBUS_API_TOKEN`), сравнение за постоянное время. Источники: `Authorization: Bearer`,
 cookie `nimbus_token` (HttpOnly, SameSite=Lax; значение — hex токена), для WebSocket также `?token=`.
-`/api/health` и `/api/auth/login` открыты. Внутренний `/api/internal/raw/…` доступен только с loopback (для ffmpeg).
+`/api/health` и `/api/auth/login` открыты. Внутренний `/api/internal/raw/…` (для ffmpeg) требует секрет процесса в заголовке `X-Nimbus-Internal` (32 случайных байта, создаются при старте, не логируются) и loopback; в OpenAPI его нет. Стрим рвётся, если молчит дольше `stream_idle_timeout` (45 с; 120 с для `?download=1`) — плеер переподключается с `Range`.
 Веб-сервер (`proxy.ts`) перенаправляет на `/login` без валидной cookie и ходит в API с токеном из своего окружения.

@@ -102,6 +102,37 @@ pub async fn track_ids_with_primary(
     .await
 }
 
+/// Трек с primary-источником на файл раздачи и его статус.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct PrimaryTrack {
+    pub torrent_id: i64,
+    pub file_index: i32,
+    pub track_id: i64,
+    pub status: nimbus_core::model::TrackStatus,
+}
+
+/// Все треки, у которых primary-источник — один из файлов `files` (`(torrent_id, file_index)`), одним запросом.
+pub async fn primary_tracks_for_files(
+    db: impl PgExecutor<'_>,
+    files: &[(i64, i32)],
+) -> sqlx::Result<Vec<PrimaryTrack>> {
+    if files.is_empty() {
+        return Ok(vec![]);
+    }
+    let (torrents, indexes): (Vec<i64>, Vec<i32>) = files.iter().copied().unzip();
+    sqlx::query_as(
+        "SELECT ts.torrent_id, ts.file_index, t.id AS track_id, t.status
+         FROM unnest($1::bigint[], $2::int[]) AS f(torrent_id, file_index)
+         JOIN track_sources ts ON ts.torrent_id = f.torrent_id AND ts.file_index = f.file_index AND ts.is_primary
+         JOIN tracks t ON t.id = ts.track_id
+         ORDER BY ts.torrent_id, ts.file_index, t.id",
+    )
+    .bind(torrents)
+    .bind(indexes)
+    .fetch_all(db)
+    .await
+}
+
 pub async fn get(db: impl PgExecutor<'_>, id: i64) -> sqlx::Result<Option<TrackSource>> {
     sqlx::query_as("SELECT * FROM track_sources WHERE id = $1")
         .bind(id)

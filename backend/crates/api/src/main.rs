@@ -202,7 +202,8 @@ async fn main() -> anyhow::Result<()> {
         Ok(n) => tracing::warn!(count = n, "reset downloads whose files are missing"),
         Err(e) => tracing::warn!(error = %e, "downloads reconcile failed"),
     }
-    let watcher = nimbus_api::stream::spawn_watcher(state.clone());
+    let shutdown = tokio_util::sync::CancellationToken::new();
+    let watcher = nimbus_api::stream::spawn_watcher(state.clone(), shutdown.clone());
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind(bind)
@@ -215,7 +216,10 @@ async fn main() -> anyhow::Result<()> {
     )
     .with_graceful_shutdown(shutdown_signal())
     .await?;
-    watcher.abort();
+    shutdown.cancel();
+    if let Err(e) = watcher.await {
+        tracing::warn!(error = %e, "download watcher did not stop cleanly");
+    }
     backfill.abort();
     workers.shutdown().await;
     engine.shutdown().await;

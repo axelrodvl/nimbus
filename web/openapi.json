@@ -1978,14 +1978,28 @@
               "type": "number",
               "format": "double"
             }
+          },
+          {
+            "name": "download",
+            "in": "query",
+            "description": "`1` — полный файл для сохранения на устройстве: `Content-Disposition: attachment`\nи увеличенный таймаут простоя (120 с). Остальное поведение — как у обычного стрима.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Аудио целиком (`audio/*`); для перекодируемых треков — `audio/flac` без Range (`X-Nimbus-Transcode: 1`, `X-Nimbus-Duration-Ms`)"
+            "description": "Аудио целиком (`audio/*`); для завершённого файла — `ETag`, `Cache-Control: private, no-cache`; с `download=1` — `Content-Disposition: attachment`; для перекодируемых треков — `audio/flac` без Range (`X-Nimbus-Transcode: 1`, `X-Nimbus-Duration-Ms`)"
           },
           "206": {
             "description": "Часть аудио по заголовку Range (только прямая отдача)"
+          },
+          "304": {
+            "description": "Завершённый файл не изменился (`If-None-Match` совпал с `ETag`)"
           },
           "404": {
             "description": "Нет такого трека",
@@ -2029,6 +2043,16 @@
           },
           "504": {
             "description": "Нет пиров: данные не пришли вовремя (`no_peers`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Ошибка хранилища торрент-движка, например нет места (`storage_error`)",
             "content": {
               "application/json": {
                 "schema": {
