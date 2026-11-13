@@ -4,18 +4,20 @@ import { ShortcutHint } from '@/components/shortcut-hint';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ArtistCard, LibraryAlbumCard } from '@/features/library/components/library-cards';
 import { LibraryTrackRow } from '@/features/library/components/library-track-row';
-import { getLibraryAlbums, getLibraryArtists, getLibraryTracks } from '@/lib/data/library';
+import { getLibraryAlbums, getLibraryArtists, getLibraryTracks, getRecentlyPlayedAlbums } from '@/lib/data/library';
 import { getT } from '@/lib/i18n/server';
 
 const RECENT_ALBUMS = 12;
 const READY_TRACKS = 10;
+const PLAYED_ALBUMS = 4;
 
 export async function HomeContent() {
   const t = await getT();
-  const [albums, artists, tracks] = await Promise.all([
+  const [albums, artists, tracks, played] = await Promise.all([
     getLibraryAlbums('', undefined, RECENT_ALBUMS),
     getLibraryArtists('', undefined, RECENT_ALBUMS),
     getLibraryTracks('found,ready', undefined, READY_TRACKS),
+    getRecentlyPlayedAlbums(PLAYED_ALBUMS),
   ]);
 
   // Артист, чья дискография ещё импортируется (или пуста), показывается сразу — альбомы появятся по мере импорта.
@@ -45,6 +47,20 @@ export async function HomeContent() {
 
   return (
     <div className="flex flex-col gap-10">
+      {played.items.length > 0 ? (
+        <section aria-labelledby="home-played">
+          <h2 id="home-played" className="mb-4">
+            {t('home.played')}
+          </h2>
+          <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+            {played.items.map((a, i) => (
+              <li key={a.id}>
+                <LibraryAlbumCard album={a} priority={i < 4} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       {recent.length > 0 ? (
         <section aria-labelledby="home-recent">
           <h2 id="home-recent" className="mb-4">

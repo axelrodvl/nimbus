@@ -186,6 +186,32 @@ pub async fn list_albums(
     .await
 }
 
+/// Недавно проигранные альбомы (по `downloads.last_played_at` primary-источников), свежие первыми.
+/// `added_at` в результате — время последнего проигрывания.
+pub async fn recently_played_albums(
+    db: impl PgExecutor<'_>,
+    limit: i64,
+) -> sqlx::Result<Vec<AlbumView>> {
+    let select = ALBUM_SELECT.replace(
+        "al.in_library, al.added_at,",
+        "al.in_library, p.played_at AS added_at,",
+    );
+    sqlx::query_as(&format!(
+        "{select}
+         JOIN (SELECT pt.album_id, max(d.last_played_at) AS played_at
+                 FROM downloads d
+                 JOIN track_sources ts ON ts.torrent_id = d.torrent_id AND ts.file_index = d.file_index AND ts.is_primary
+                 JOIN tracks pt ON pt.id = ts.track_id
+                WHERE d.last_played_at IS NOT NULL
+                GROUP BY pt.album_id) p ON p.album_id = al.id
+         GROUP BY al.id, ar.name, p.played_at
+         ORDER BY p.played_at DESC, al.id DESC LIMIT $1"
+    ))
+    .bind(limit)
+    .fetch_all(db)
+    .await
+}
+
 pub async fn get_album(db: impl PgExecutor<'_>, id: i64) -> sqlx::Result<Option<AlbumView>> {
     sqlx::query_as(&format!("{ALBUM_SELECT} WHERE al.id = $1{ALBUM_GROUP}"))
         .bind(id)

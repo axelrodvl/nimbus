@@ -95,6 +95,7 @@ const messages: Messages = {
   'group.tracks': 'Parçalar',
   'home.findMusic.body': 'Aramayı açın, bir sanatçı, albüm veya parça bulun ve kitaplığa ekleyin.',
   'home.findMusic.title': 'Müzik bulun',
+  'home.played': 'Son çalınanlar',
   'home.ready': 'Dinlenmeye hazır',
   'home.readyEmpty': 'Henüz bir şey bulunamadı — torrentler hâlâ aranıyor.',
   'home.recent': 'Son eklenenler',

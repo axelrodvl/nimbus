@@ -96,6 +96,7 @@ const messages: Messages = {
   'group.tracks': 'ट्रैक',
   'home.findMusic.body': 'खोज खोलें, कोई कलाकार, एल्बम या ट्रैक ढूँढें और लाइब्रेरी में जोड़ें।',
   'home.findMusic.title': 'संगीत खोजें',
+  'home.played': 'हाल ही में चलाए गए',
   'home.ready': 'सुनने के लिए तैयार',
   'home.readyEmpty': 'अभी तक कुछ नहीं मिला — टोरेंट अभी खोजे जा रहे हैं।',
   'home.recent': 'हाल ही में जोड़े गए',

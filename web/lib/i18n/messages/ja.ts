@@ -97,6 +97,7 @@ const messages: Messages = {
   'group.tracks': '曲',
   'home.findMusic.body': '検索を開き、アーティスト、アルバム、曲を見つけてライブラリに追加します。',
   'home.findMusic.title': '音楽を探しましょう',
+  'home.played': '最近再生',
   'home.ready': '再生可能',
   'home.readyEmpty': 'まだ見つかっていません — トレントを検索中です。',
   'home.recent': '最近追加',

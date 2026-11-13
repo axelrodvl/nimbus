@@ -95,6 +95,7 @@ const messages: Messages = {
   'group.tracks': 'Треки',
   'home.findMusic.body': 'Откройте поиск, найдите артиста, альбом или трек и добавьте в библиотеку.',
   'home.findMusic.title': 'Найдите музыку',
+  'home.played': 'Недавно прослушанные',
   'home.ready': 'Готово к прослушиванию',
   'home.readyEmpty': 'Пока ничего не найдено — раздачи ещё ищутся.',
   'home.recent': 'Недавно добавленные',

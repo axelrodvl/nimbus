@@ -21,6 +21,7 @@ use crate::{library, routes, search, sources};
         library::remove_from_library,
         library::list_artists,
         library::list_albums,
+        library::recently_played_albums,
         library::list_tracks,
         library::get_artist,
         library::retry_artist_import,

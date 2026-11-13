@@ -96,6 +96,7 @@ const messages: Messages = {
   'group.tracks': '곡',
   'home.findMusic.body': '검색을 열어 아티스트, 앨범 또는 곡을 찾고 라이브러리에 추가하세요.',
   'home.findMusic.title': '음악을 찾아보세요',
+  'home.played': '최근 재생',
   'home.ready': '재생 가능',
   'home.readyEmpty': '아직 찾은 것이 없습니다 — 토렌트를 계속 검색하는 중입니다.',
   'home.recent': '최근 추가',

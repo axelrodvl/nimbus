@@ -98,6 +98,7 @@ const messages: Messages = {
   'home.findMusic.body':
     'Ouvrez la recherche, trouvez un artiste, un album ou un morceau et ajoutez-le à la bibliothèque.',
   'home.findMusic.title': 'Trouvez de la musique',
+  'home.played': 'Écoutés récemment',
   'home.ready': 'Prêts à écouter',
   'home.readyEmpty': 'Rien de trouvé pour l’instant — la recherche de torrents est en cours.',
   'home.recent': 'Ajoutés récemment',

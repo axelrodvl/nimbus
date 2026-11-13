@@ -97,6 +97,7 @@ const messages: Messages = {
   'group.tracks': 'Pistas',
   'home.findMusic.body': 'Abre la búsqueda, encuentra un artista, álbum o pista y añádelo a la biblioteca.',
   'home.findMusic.title': 'Encuentra música',
+  'home.played': 'Reproducidos recientemente',
   'home.ready': 'Listas para reproducir',
   'home.readyEmpty': 'Aún no se ha encontrado nada: los torrents se siguen buscando.',
   'home.recent': 'Añadidos recientemente',

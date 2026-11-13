@@ -94,6 +94,7 @@ const messages: Messages = {
   'group.tracks': '曲目',
   'home.findMusic.body': '打开搜索，找到艺术家、专辑或曲目并添加到音乐库。',
   'home.findMusic.title': '发现音乐',
+  'home.played': '最近播放',
   'home.ready': '可播放',
   'home.readyEmpty': '暂时还没有找到——正在搜索种子。',
   'home.recent': '最近添加',

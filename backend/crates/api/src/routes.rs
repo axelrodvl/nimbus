@@ -25,6 +25,10 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
         .route("/library/{type}/{id}", delete(library::remove_from_library))
         .route("/library/artists", get(library::list_artists))
         .route("/library/albums", get(library::list_albums))
+        .route(
+            "/library/albums/recently-played",
+            get(library::recently_played_albums),
+        )
         .route("/library/tracks", get(library::list_tracks))
         .route(
             "/artist-image/{mbid}",

@@ -44,6 +44,18 @@ async function fetchAlbums(statuses: string, cursor: string | undefined, limit: 
   );
 }
 
+export async function getRecentlyPlayedAlbums(limit = 4) {
+  await connection();
+  return fetchRecentlyPlayed(limit);
+}
+
+async function fetchRecentlyPlayed(limit: number) {
+  'use cache';
+  cacheTag('library');
+  cacheLife({ expire: 300, revalidate: 10, stale: 5 });
+  return unwrap(await api.GET('/api/library/albums/recently-played', { params: { query: { limit } } }));
+}
+
 /** `statuses` — через запятую (`found,ready`); пусто — все. */
 export async function getLibraryTracks(statuses = '', cursor?: string, limit = PAGE_TRACKS) {
   await connection();

@@ -94,6 +94,7 @@ export const en = {
   'group.tracks': 'Tracks',
   'home.findMusic.body': 'Open search, find an artist, album or track and add it to the library.',
   'home.findMusic.title': 'Find some music',
+  'home.played': 'Recently played',
   'home.ready': 'Ready to play',
   'home.readyEmpty': 'Nothing found yet — torrents are still being searched.',
   'home.recent': 'Recently added',

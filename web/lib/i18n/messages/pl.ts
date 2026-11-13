@@ -96,6 +96,7 @@ const messages: Messages = {
   'group.tracks': 'Utwory',
   'home.findMusic.body': 'Otwórz wyszukiwarkę, znajdź wykonawcę, album lub utwór i dodaj do biblioteki.',
   'home.findMusic.title': 'Znajdź muzykę',
+  'home.played': 'Ostatnio odtwarzane',
   'home.ready': 'Gotowe do odtwarzania',
   'home.readyEmpty': 'Na razie nic nie znaleziono — torrenty są jeszcze wyszukiwane.',
   'home.recent': 'Ostatnio dodane',

@@ -569,6 +569,31 @@ pub async fn list_albums(
 
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
+pub struct RecentlyPlayedParams {
+    limit: Option<i64>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/library/albums/recently-played",
+    tag = "library",
+    params(RecentlyPlayedParams),
+    responses((status = 200, body = AlbumPage), (status = 400, body = ErrorResponse))
+)]
+pub async fn recently_played_albums(
+    State(state): State<AppState>,
+    Query(p): Query<RecentlyPlayedParams>,
+) -> Result<Json<AlbumPage>, ApiError> {
+    let limit = page_limit(p.limit, DEFAULT_PAGE)?;
+    let rows = views::recently_played_albums(&state.db, limit).await?;
+    Ok(Json(AlbumPage {
+        items: rows.into_iter().map(AlbumDto::from).collect(),
+        next_cursor: None,
+    }))
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct TrackPageParams {
     /// Фильтр по статусам через запятую: adding, found, not_found, ready (например `found,ready`).
     status: Option<String>,
