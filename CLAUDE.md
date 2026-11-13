@@ -24,7 +24,7 @@
 - `./scripts/build.sh` — собрать все образы (сборка Rust и Next.js идёт внутри контейнеров; на хосте нужен только Docker)
 - `./scripts/start.sh` — поднять весь стек из собранных образов (http://localhost:8000)
 - `./scripts/stop.sh` — опустить контейнеры (`--purge` — ещё и том БД)
-- `./scripts/prune-target.sh [ГБ]` — ротация `backend/target`: удаляет его, если он больше лимита (20 ГБ); уже вызывается из `just backend-test` / `backend-cov`. Если запускаешь `cargo` напрямую — вызывай перед сборкой, иначе диск забивается устаревшими бинарниками
+- `./scripts/prune-target.sh [ГБ]` — ротация `backend/target`: удаляет его, если он больше лимита (20 ГБ); вызывается из `just backend-test` / `backend-cov` и хуком Claude после каждой Bash-команды (`.claude/settings.json`). Если запускаешь `cargo` напрямую — вызывай перед сборкой, иначе диск забивается устаревшими бинарниками
 - `just db-up` — поднять Postgres (docker compose)
 - `just backend` — запустить бэкенд
 - `just web` — запустить фронтенд
