@@ -125,6 +125,9 @@ fn parse_id(raw: &str) -> Result<TorrentHandleId, ApiError> {
 fn map_err(e: EngineError) -> ApiError {
     match e {
         EngineError::NotFound => ApiError::not_found("torrent not found"),
+        EngineError::Storage(m) => {
+            ApiError::new(StatusCode::INSUFFICIENT_STORAGE, "storage_error", m)
+        }
         other => ApiError::new(StatusCode::BAD_GATEWAY, "torrent_error", other.to_string()),
     }
 }

@@ -57,7 +57,8 @@ images changed).
 
 - Logs: `docker compose logs -f` (or `just logs`)
 - Data (torrents, cache) lives in `./data`; the database lives in the `nimbus_pgdata` Docker volume.
-- Port `6881` (TCP/UDP) is published for incoming BitTorrent connections.
+- Port `6881` (TCP/UDP) is published for incoming BitTorrent connections. It is set by `NIMBUS_TORRENT_PORT`
+  (default `6881`; docker compose publishes whatever port it is set to; a busy port falls back to a random one).
 
 Before the first run you may want to edit `.env`:
 

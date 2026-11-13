@@ -31,14 +31,15 @@ services:
       DATABASE_URL: postgres://nimbus:nimbus@db:5432/nimbus
       NIMBUS_BIND: 0.0.0.0:8080
       NIMBUS_DATA_DIR: /data
+      NIMBUS_TORRENT_PORT: ${NIMBUS_TORRENT_PORT:-6881}
       # Один origin через caddy: CORS не нужен.
       NIMBUS_CORS_ORIGIN: http://localhost:8000
     volumes:
       - ./data:/data
     ports:
       # Входящие BitTorrent-соединения.
-      - "6881:6881/tcp"
-      - "6881:6881/udp"
+      - "${NIMBUS_TORRENT_PORT:-6881}:${NIMBUS_TORRENT_PORT:-6881}/tcp"
+      - "${NIMBUS_TORRENT_PORT:-6881}:${NIMBUS_TORRENT_PORT:-6881}/udp"
     depends_on:
       db:
         condition: service_healthy

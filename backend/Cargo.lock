@@ -2414,9 +2414,13 @@ dependencies = [
  "async-trait",
  "librqbit",
  "nimbus-core",
+ "nimbus-testkit",
+ "nimbus-torrent",
  "rand 0.9.5",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-util",
  "tracing",
 ]
 
@@ -4264,6 +4268,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "libc",
  "pin-project-lite",
  "tokio",

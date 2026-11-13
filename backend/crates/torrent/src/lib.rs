@@ -1,4 +1,19 @@
 //! Обёртка над librqbit — единственное место, которое знает про торрент-движок.
+//!
+//! # Блокировки и фоновые задачи
+//!
+//! * `state` — `std::sync::Mutex<HashMap<InfoHash, Arc<TorrentSlot>>>`: карта «торрент → слот». Берётся
+//!   только на чтение/вставку записи и **никогда не держится через `.await`**.
+//! * `TorrentSlot.op` — `tokio::sync::Mutex<()>` одного торрента: сериализует `ensure_files`,
+//!   `release_file`, `pause_torrent`, `resume_torrent`, политику раздачи и «паузу по завершении».
+//!   Операции над разными торрентами не ждут друг друга. Ожидание `op` ограничено `metadata_timeout`
+//!   (`MetadataTimeout`). Порядок: сначала `op` слота, затем (кратко) `state` или `slot.selected`;
+//!   две `op` одновременно не берутся (политика раздачи идёт по торрентам по одному).
+//! * `TorrentSlot.selected` — выбранные файлы (`std::sync::Mutex`, без `.await`); читается без `op`
+//!   (`open_stream`, `selected_files`), меняется только под `op`.
+//! * `list_torrents()` и `stats()` читают только сессию librqbit и слотов не касаются.
+//! * Фоновые задачи живут в `TaskTracker` и останавливаются по `CancellationToken` в `shutdown()`:
+//!   одна задача ratio-watcher и не более одной «паузы по завершении» на торрент (`slot.pause_task`).
 
 #[cfg(feature = "test-fakes")]
 pub mod fake_swarm;
@@ -16,7 +31,10 @@ use librqbit::{
 };
 use nimbus_core::model::InfoHash;
 use tokio::io::{AsyncRead, AsyncSeek};
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{OwnedMutexGuard, Semaphore};
+use tokio::task::AbortHandle;
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 use tracing::Instrument;
 
 type ManagedTorrentHandle = Arc<ManagedTorrent>;
@@ -38,6 +56,8 @@ pub struct EngineConfig {
     /// паузу. `None` — раздаём без ограничений.
     pub seed_ratio: Option<f64>,
     pub metadata_timeout: Duration,
+    /// Как часто проверять лимит раздачи (`seed_ratio`) у завершённых торрентов.
+    pub ratio_check_interval: Duration,
     /// Включить DHT.
     pub dht: bool,
     /// Слушать только 127.0.0.1 (тесты, локальный рой).
@@ -59,6 +79,7 @@ impl EngineConfig {
             seeding,
             seed_ratio: None,
             metadata_timeout: Duration::from_secs(45),
+            ratio_check_interval: Duration::from_secs(30),
             dht: true,
             localhost_only: false,
             persistence: true,
@@ -109,6 +130,9 @@ pub enum EngineError {
     InvalidFileIndex(usize),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    /// Ошибка хранилища: нет места, нет прав, файловая система только для чтения.
+    #[error("storage error: {0}")]
+    Storage(String),
     #[error("{0}")]
     Internal(String),
 }
@@ -124,9 +148,37 @@ fn add_error(e: impl std::fmt::Display) -> EngineError {
     let msg = format!("{e:#}");
     if msg.contains("no way to discover torrent metainfo") {
         EngineError::MetadataTimeout
+    } else if let Some(i) = out_of_range_index(&msg) {
+        EngineError::InvalidFileIndex(i)
+    } else if is_storage_message(&msg) {
+        EngineError::Storage(msg)
     } else {
         EngineError::Internal(msg)
     }
+}
+
+/// librqbit отклоняет `only_files` с несуществующим индексом сообщением «file id N is out of range».
+fn out_of_range_index(msg: &str) -> Option<usize> {
+    let rest = msg.split("file id ").nth(1)?;
+    let (num, tail) = rest.split_once(' ')?;
+    tail.starts_with("is out of range")
+        .then(|| num.parse().ok())
+        .flatten()
+}
+
+/// Похоже ли сообщение на ошибку диска (нет места, нет прав, read-only, квота).
+fn is_storage_message(msg: &str) -> bool {
+    let m = msg.to_lowercase();
+    [
+        "no space left",
+        "permission denied",
+        "read-only file system",
+        "disk quota",
+        "not enough space",
+        "os error",
+    ]
+    .iter()
+    .any(|p| m.contains(p))
 }
 
 /// Источник списка файлов по magnet (реализуется движком и фейком в тестах обработчиков).
@@ -150,6 +202,18 @@ pub trait FileProvider: Send + Sync {
         magnet: &str,
         file_index: usize,
     ) -> Result<TorrentHandleId, EngineError>;
+    /// Несколько файлов за один вызов (по умолчанию — цикл `ensure_file`).
+    async fn ensure_files(
+        &self,
+        magnet: &str,
+        file_indexes: &[usize],
+    ) -> Result<TorrentHandleId, EngineError> {
+        let mut id = None;
+        for &i in file_indexes {
+            id = Some(self.ensure_file(magnet, i).await?);
+        }
+        id.ok_or_else(|| EngineError::Internal("no files requested".into()))
+    }
     async fn open_stream(
         &self,
         id: &TorrentHandleId,
@@ -167,6 +231,13 @@ impl FileProvider for TorrentEngine {
         file_index: usize,
     ) -> Result<TorrentHandleId, EngineError> {
         TorrentEngine::ensure_file(self, magnet, file_index).await
+    }
+    async fn ensure_files(
+        &self,
+        magnet: &str,
+        file_indexes: &[usize],
+    ) -> Result<TorrentHandleId, EngineError> {
+        TorrentEngine::ensure_files(self, magnet, file_indexes).await
     }
     async fn open_stream(
         &self,
@@ -225,6 +296,92 @@ pub struct TorrentInfo {
 pub trait AsyncReadSeek: AsyncRead + AsyncSeek {}
 impl<T: AsyncRead + AsyncSeek> AsyncReadSeek for T {}
 
+/// Слот торрента: всё, что относится к одному торренту и сериализуется его блокировкой.
+struct TorrentSlot {
+    /// Сериализует операции над торрентом.
+    op: Arc<tokio::sync::Mutex<()>>,
+    /// Выбранные для скачивания файлы.
+    selected: std::sync::Mutex<HashSet<usize>>,
+    /// Ожидание завершения для «паузы по завершении»: не более одной задачи на торрент.
+    pause_task: std::sync::Mutex<Option<AbortHandle>>,
+}
+
+impl TorrentSlot {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            op: Arc::new(tokio::sync::Mutex::new(())),
+            selected: std::sync::Mutex::new(HashSet::new()),
+            pause_task: std::sync::Mutex::new(None),
+        })
+    }
+
+    fn selection(&self) -> HashSet<usize> {
+        lock_std(&self.selected).clone()
+    }
+
+    fn set_selection(&self, files: HashSet<usize>) {
+        *lock_std(&self.selected) = files;
+    }
+
+    /// Подменяет задачу «паузы по завершении»; предыдущая прерывается.
+    fn replace_pause_task(&self, new: Option<AbortHandle>) {
+        if let Some(old) = std::mem::replace(&mut *lock_std(&self.pause_task), new) {
+            old.abort();
+        }
+    }
+}
+
+fn lock_std<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+type SlotMap = Arc<std::sync::Mutex<HashMap<InfoHash, Arc<TorrentSlot>>>>;
+
+/// Берёт `op` слота торрента (создаёт слот при `create`), ожидая не дольше `wait`.
+/// `Ok(None)` — слота нет и создавать не просили. Если слот успели удалить, пока ждали, берём заново.
+async fn lock_slot(
+    state: &SlotMap,
+    hash: &InfoHash,
+    create: bool,
+    wait: Duration,
+) -> Result<Option<(Arc<TorrentSlot>, OwnedMutexGuard<()>)>, EngineError> {
+    loop {
+        let slot = {
+            let mut map = lock_std(state);
+            match map.get(hash) {
+                Some(s) => s.clone(),
+                None if create => {
+                    let s = TorrentSlot::new();
+                    map.insert(hash.clone(), s.clone());
+                    s
+                }
+                None => return Ok(None),
+            }
+        };
+        let guard = tokio::time::timeout(wait, slot.op.clone().lock_owned())
+            .await
+            .map_err(|_| EngineError::MetadataTimeout)?;
+        let current = lock_std(state)
+            .get(hash)
+            .is_some_and(|c| Arc::ptr_eq(c, &slot));
+        if current {
+            return Ok(Some((slot, guard)));
+        }
+    }
+}
+
+/// Убирает слот (вызывать под его `op`) и прерывает его фоновую задачу.
+fn remove_slot(state: &SlotMap, hash: &InfoHash) {
+    if let Some(slot) = lock_std(state).remove(hash) {
+        slot.replace_pause_task(None);
+    }
+}
+
+/// Сколько фоновые задачи ждут `op` торрента; дольше — пропускаем (торрент занят долгой операцией).
+const BACKGROUND_LOCK_WAIT: Duration = Duration::from_secs(5);
+/// Сколько `shutdown` ждёт фоновые задачи.
+const SHUTDOWN_TASKS_WAIT: Duration = Duration::from_secs(5);
+
 pub struct TorrentEngine {
     session: Arc<Session>,
     cfg: EngineConfig,
@@ -234,8 +391,11 @@ pub struct TorrentEngine {
     /// (`u64::MAX` — нет лимита), меняется на лету.
     seed_ratio: Arc<std::sync::atomic::AtomicU64>,
     metadata_slots: Semaphore,
-    /// Выбранные для скачивания файлы по торрентам. Мьютекс сериализует `ensure_file`/`release_file`.
-    selected: Arc<Mutex<HashMap<InfoHash, HashSet<usize>>>>,
+    /// Слоты торрентов (см. описание модуля).
+    state: SlotMap,
+    tasks: TaskTracker,
+    cancel: CancellationToken,
+    stopped: std::sync::atomic::AtomicBool,
 }
 
 /// Объединение множеств выбранных файлов (чистая функция для тестов).
@@ -256,14 +416,17 @@ fn decode_ratio(bits: u64) -> Option<f64> {
     (bits != u64::MAX).then(|| f64::from_bits(bits))
 }
 
-/// Достигнут ли лимит раздачи: `uploaded >= ratio * downloaded`.
-pub fn ratio_reached(st: &librqbit::TorrentStats, ratio: Option<f64>) -> bool {
+/// Чистое правило лимита раздачи: завершённый торрент, у которого `uploaded >= ratio * downloaded`.
+pub fn ratio_hit(finished: bool, downloaded: u64, uploaded: u64, ratio: Option<f64>) -> bool {
     match ratio {
-        Some(r) if st.finished && st.progress_bytes > 0 => {
-            st.uploaded_bytes as f64 >= r * st.progress_bytes as f64
-        }
+        Some(r) if finished && downloaded > 0 => uploaded as f64 >= r * downloaded as f64,
         _ => false,
     }
+}
+
+/// Достигнут ли лимит раздачи: `uploaded >= ratio * downloaded`.
+pub fn ratio_reached(st: &librqbit::TorrentStats, ratio: Option<f64>) -> bool {
+    ratio_hit(st.finished, st.progress_bytes, st.uploaded_bytes, ratio)
 }
 
 fn to_hash(id: librqbit::dht::Id20) -> InfoHash {
@@ -281,6 +444,15 @@ pub fn join_path(components: &[String], fallback_name: &str) -> String {
     } else {
         components.join("/")
     }
+}
+
+/// Порт свободен и по TCP, и по UDP (uTP) на заданном адресе.
+fn port_is_free(ip: IpAddr, port: u16) -> bool {
+    std::net::TcpListener::bind((ip, port)).is_ok() && std::net::UdpSocket::bind((ip, port)).is_ok()
+}
+
+fn handles_of(session: &Session) -> Vec<ManagedTorrentHandle> {
+    session.with_torrents(|it| it.map(|(_, h)| h.clone()).collect())
 }
 
 impl TorrentEngine {
@@ -304,7 +476,14 @@ impl TorrentEngine {
         } else {
             Ipv4Addr::UNSPECIFIED.into()
         };
-        let port = cfg.listen_port.unwrap_or(0);
+        let mut port = cfg.listen_port.unwrap_or(0);
+        if port != 0 && !port_is_free(ip, port) {
+            tracing::warn!(
+                port,
+                "BitTorrent port is busy, falling back to a random port"
+            );
+            port = 0;
+        }
         opts.listen = Some(ListenerOptions {
             listen_addr: SocketAddr::new(ip, port),
             ..ListenerOptions::default()
@@ -324,15 +503,18 @@ impl TorrentEngine {
             ))),
             cfg,
             metadata_slots: Semaphore::new(METADATA_CONCURRENCY),
-            selected: Arc::new(Mutex::new(HashMap::new())),
+            state: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            tasks: TaskTracker::new(),
+            cancel: CancellationToken::new(),
+            stopped: std::sync::atomic::AtomicBool::new(false),
         };
-        engine.restore_selection().await;
+        engine.restore_selection();
         engine.spawn_ratio_watcher();
         Ok(engine)
     }
 
-    /// После рестарта торренты восстановлены из persistence: синхронизируем карту выбранных файлов.
-    async fn restore_selection(&self) {
+    /// После рестарта торренты восстановлены из persistence: синхронизируем выбранные файлы.
+    fn restore_selection(&self) {
         let found: Vec<(InfoHash, HashSet<usize>)> = self.session.with_torrents(|it| {
             it.filter_map(|(_, h)| {
                 h.only_files()
@@ -340,15 +522,27 @@ impl TorrentEngine {
             })
             .collect()
         });
-        let mut sel = self.selected.lock().await;
+        let mut map = lock_std(&self.state);
         for (hash, files) in found {
             tracing::info!(info_hash = %hash, files = files.len(), "restored torrent from session");
-            sel.insert(hash, files);
+            let slot = TorrentSlot::new();
+            slot.set_selection(files);
+            map.insert(hash, slot);
         }
     }
 
     pub fn seeding(&self) -> bool {
         self.seeding.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Применяет `f` к каждому торренту сессии по очереди, беря `op` его слота (не дольше
+    /// `BACKGROUND_LOCK_WAIT`: занятый долгой операцией торрент пропускается).
+    async fn for_each_torrent<F, Fut>(&self, f: F)
+    where
+        F: Fn(ManagedTorrentHandle) -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        for_each_torrent(&self.session, &self.state, f).await;
     }
 
     /// Включает/выключает раздачу: при включении снимает с паузы завершённые торренты,
@@ -357,23 +551,27 @@ impl TorrentEngine {
         if self.seeding.swap(on, std::sync::atomic::Ordering::Relaxed) == on {
             return;
         }
-        let handles: Vec<ManagedTorrentHandle> = self
-            .session
-            .with_torrents(|it| it.map(|(_, h)| h.clone()).collect());
-        let _guard = self.selected.lock().await;
-        for h in handles {
-            let finished = h.stats().finished;
-            let res = if on && h.is_paused() && !ratio_reached(&h.stats(), self.seed_ratio()) {
-                self.session.unpause(&h).await
-            } else if !on && finished && !h.is_paused() {
-                self.session.pause(&h).await
-            } else {
-                continue;
-            };
-            if let Err(e) = res {
-                tracing::warn!(error = %e, "cannot change seeding state of a torrent");
+        let session = self.session.clone();
+        let ratio = self.seed_ratio.clone();
+        self.for_each_torrent(|h| {
+            let session = session.clone();
+            let ratio = ratio.clone();
+            async move {
+                let st = h.stats();
+                let limit = decode_ratio(ratio.load(std::sync::atomic::Ordering::Relaxed));
+                let res = if on && h.is_paused() && !ratio_reached(&st, limit) {
+                    session.unpause(&h).await
+                } else if !on && st.finished && !h.is_paused() {
+                    session.pause(&h).await
+                } else {
+                    return;
+                };
+                if let Err(e) = res {
+                    tracing::warn!(error = %e, "cannot change seeding state of a torrent");
+                }
             }
-        }
+        })
+        .await;
         tracing::info!(seeding = on, "seeding policy changed");
     }
 
@@ -393,65 +591,69 @@ impl TorrentEngine {
             return;
         }
         if self.seeding() {
-            let handles: Vec<ManagedTorrentHandle> = self
-                .session
-                .with_torrents(|it| it.map(|(_, h)| h.clone()).collect());
-            let _guard = self.selected.lock().await;
-            for h in handles {
-                let st = h.stats();
-                if st.finished && h.is_paused() && !ratio_reached(&st, ratio) {
-                    if let Err(e) = self.session.unpause(&h).await {
-                        tracing::warn!(error = %e, "cannot resume seeding of a torrent");
+            let session = self.session.clone();
+            self.for_each_torrent(|h| {
+                let session = session.clone();
+                async move {
+                    let st = h.stats();
+                    if st.finished && h.is_paused() && !ratio_reached(&st, ratio) {
+                        if let Err(e) = session.unpause(&h).await {
+                            tracing::warn!(error = %e, "cannot resume seeding of a torrent");
+                        }
                     }
                 }
-            }
+            })
+            .await;
         }
         tracing::info!(?ratio, "seed ratio changed");
     }
 
-    /// Раз в 30 с ставит на паузу завершённые торренты, достигшие лимита раздачи.
+    /// Фоновая проверка лимита раздачи: завершённые торренты, достигшие его, ставятся на паузу.
     fn spawn_ratio_watcher(&self) {
-        let (session, selected, ratio) = (
+        let (session, state, ratio, cancel) = (
             self.session.clone(),
-            self.selected.clone(),
+            self.state.clone(),
             self.seed_ratio.clone(),
+            self.cancel.clone(),
         );
-        tokio::spawn(async move {
-            let period = Duration::from_secs(30);
+        let period = self.cfg.ratio_check_interval;
+        self.tasks.spawn(async move {
             let mut tick = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
             loop {
-                tick.tick().await;
+                tokio::select! {
+                    _ = cancel.cancelled() => return,
+                    _ = tick.tick() => {}
+                }
                 let Some(limit) = decode_ratio(ratio.load(std::sync::atomic::Ordering::Relaxed))
                 else {
                     continue;
                 };
-                let handles: Vec<ManagedTorrentHandle> =
-                    session.with_torrents(|it| it.map(|(_, h)| h.clone()).collect());
-                let _guard = selected.lock().await;
-                for h in handles {
-                    let st = h.stats();
-                    let live = matches!(st.state, librqbit::TorrentStatsState::Live);
-                    if live && st.finished && ratio_reached(&st, Some(limit)) {
-                        match session.pause(&h).await {
-                            Ok(()) => tracing::info!(
-                                info_hash = %h.info_hash().as_string(),
-                                uploaded = st.uploaded_bytes,
-                                downloaded = st.progress_bytes,
-                                "seed ratio reached, torrent paused"
-                            ),
-                            Err(e) => tracing::warn!(error = %e, "cannot pause seeded torrent"),
+                for_each_torrent(&session, &state, |h| {
+                    let session = session.clone();
+                    async move {
+                        let st = h.stats();
+                        let live = matches!(st.state, librqbit::TorrentStatsState::Live);
+                        if live && ratio_reached(&st, Some(limit)) {
+                            match session.pause(&h).await {
+                                Ok(()) => tracing::info!(
+                                    info_hash = %h.info_hash().as_string(),
+                                    uploaded = st.uploaded_bytes,
+                                    downloaded = st.progress_bytes,
+                                    "seed ratio reached, torrent paused"
+                                ),
+                                Err(e) => tracing::warn!(error = %e, "cannot pause seeded torrent"),
+                            }
                         }
                     }
-                }
+                })
+                .await;
             }
         });
     }
 
-    /// Сводка по движку: число торрентов и суммарные скорости (байт/с).
+    /// Сводка по движку: число торрентов и суммарные скорости (байт/с). Слотов не касается.
     pub fn stats(&self) -> EngineStats {
-        let handles: Vec<ManagedTorrentHandle> = self
-            .session
-            .with_torrents(|it| it.map(|(_, h)| h.clone()).collect());
+        let handles = handles_of(&self.session);
         let mut out = EngineStats {
             torrents: handles.len() as u64,
             ..EngineStats::default()
@@ -466,10 +668,9 @@ impl TorrentEngine {
     }
 
     /// Все торренты сессии со статусом, пирами и скоростями (для менеджера загрузок).
+    /// Слотов не касается: не ждёт долгих операций над торрентами.
     pub fn list_torrents(&self) -> Vec<TorrentInfo> {
-        let handles: Vec<ManagedTorrentHandle> = self
-            .session
-            .with_torrents(|it| it.map(|(_, h)| h.clone()).collect());
+        let handles = handles_of(&self.session);
         let mut out: Vec<TorrentInfo> = handles.iter().map(torrent_info).collect();
         out.sort_by_key(|t| t.name.to_lowercase());
         out
@@ -477,8 +678,8 @@ impl TorrentEngine {
 
     /// Ставит торрент на паузу (остановка скачивания и раздачи).
     pub async fn pause_torrent(&self, id: &TorrentHandleId) -> Result<(), EngineError> {
-        let _guard = self.selected.lock().await;
         let h = self.handle(id).ok_or(EngineError::NotFound)?;
+        let _op = self.lock_existing(&id.0).await?;
         if !h.is_paused() {
             self.session.pause(&h).await.map_err(internal)?;
         }
@@ -488,12 +689,22 @@ impl TorrentEngine {
     /// Запускает торрент. Если лимит раздачи уже достигнут, фоновая проверка снова остановит
     /// завершённый торрент.
     pub async fn resume_torrent(&self, id: &TorrentHandleId) -> Result<(), EngineError> {
-        let _guard = self.selected.lock().await;
         let h = self.handle(id).ok_or(EngineError::NotFound)?;
+        let _op = self.lock_existing(&id.0).await?;
         if h.is_paused() {
             self.session.unpause(&h).await.map_err(internal)?;
         }
         Ok(())
+    }
+
+    /// `op` торрента, который есть в сессии (слот создаётся, если его ещё нет).
+    async fn lock_existing(
+        &self,
+        hash: &InfoHash,
+    ) -> Result<(Arc<TorrentSlot>, OwnedMutexGuard<()>), EngineError> {
+        lock_slot(&self.state, hash, true, self.cfg.metadata_timeout)
+            .await?
+            .ok_or(EngineError::NotFound)
     }
 
     pub fn listen_addr(&self) -> Option<SocketAddr> {
@@ -560,73 +771,196 @@ impl TorrentEngine {
         magnet: &str,
         file_index: usize,
     ) -> Result<TorrentHandleId, EngineError> {
+        self.ensure_files(magnet, &[file_index]).await
+    }
+
+    /// Гарантирует, что торрент в сессии и среди скачиваемых есть все `file_indexes`
+    /// (один `update_only_files` на набор). Идемпотентно; параллельные вызовы для одного
+    /// торрента выстраиваются по очереди, для разных — независимы.
+    pub async fn ensure_files(
+        &self,
+        magnet: &str,
+        file_indexes: &[usize],
+    ) -> Result<TorrentHandleId, EngineError> {
         let (_, hash) = Self::parse_magnet(magnet)?;
         let id = TorrentHandleId(hash.clone());
+        if file_indexes.is_empty() {
+            return Err(EngineError::Internal("no files requested".into()));
+        }
+        let want: HashSet<usize> = file_indexes.iter().copied().collect();
         async {
-            let mut sel = self.selected.lock().await;
+            let wait = self.cfg.metadata_timeout;
+            let (slot, _op) = lock_slot(&self.state, &hash, true, wait)
+                .await?
+                .ok_or(EngineError::NotFound)?;
 
-            if let Some(h) = self.handle(&id) {
-                check_index(&h, file_index)?;
-                let current = sel.entry(hash.clone()).or_default();
-                if let Some(next) = union_selection(current, file_index) {
-                    self.session
-                        .update_only_files(&h, &next)
-                        .await
-                        .map_err(internal)?;
-                    *current = next;
-                    if h.is_paused() {
-                        self.session.unpause(&h).await.map_err(internal)?;
-                    }
-                    self.spawn_pause_when_done(&hash, &h);
-                } else if h.is_paused() && !file_is_finished(&h, file_index) {
-                    self.session.unpause(&h).await.map_err(internal)?;
-                    self.spawn_pause_when_done(&hash, &h);
+            let mut existing = self.handle(&id);
+            if let Some(h) = &existing {
+                if self.recover_errored(&hash, h).await {
+                    existing = None;
                 }
-                return Ok(id.clone());
+            }
+            if let Some(h) = existing {
+                return self
+                    .extend_selection(&slot, &hash, &h, &want)
+                    .await
+                    .map(|()| id.clone());
             }
 
             // Новый торрент: сразу с `only_files`, чтобы никогда не качать всё.
+            let mut only: Vec<usize> = want.iter().copied().collect();
+            only.sort_unstable();
             let fut = self.session.add_torrent(
                 AddTorrent::from_url(magnet.to_string()),
-                Some(self.add_options(Some(vec![file_index]), false)),
+                Some(self.add_options(Some(only), false)),
             );
-            let resp = tokio::time::timeout(self.cfg.metadata_timeout, fut)
-                .await
-                .map_err(|_| EngineError::MetadataTimeout)?
-                .map_err(add_error)?;
-            let h = resp.into_handle().ok_or(EngineError::NotFound)?;
-            if let Err(e) = check_index(&h, file_index) {
-                let _ = self
-                    .session
-                    .delete(TorrentIdOrHash::Hash(to_id20(&hash)?), false)
-                    .await;
+            let added = match tokio::time::timeout(wait, fut).await {
+                Err(_) => Err(EngineError::MetadataTimeout),
+                Ok(Err(e)) => Err(add_error(e)),
+                Ok(Ok(resp)) => resp.into_handle().ok_or(EngineError::NotFound),
+            };
+            let h = match added {
+                Ok(h) => h,
+                Err(e) => {
+                    self.discard_unselected(&slot, &hash).await;
+                    return Err(e);
+                }
+            };
+            if let Some(e) = want.iter().find_map(|&f| check_index(&h, f).err()) {
+                self.discard_unselected(&slot, &hash).await;
                 return Err(e);
             }
-            sel.insert(hash.clone(), HashSet::from([file_index]));
-            self.spawn_pause_when_done(&hash, &h);
+            slot.set_selection(want);
+            self.spawn_pause_when_done(&slot, &hash, &h);
             Ok(id.clone())
         }
-        .instrument(tracing::info_span!("ensure_file", info_hash = %id.0, file_index))
+        .instrument(
+            tracing::info_span!("ensure_files", info_hash = %id.0, files = file_indexes.len()),
+        )
         .await
     }
 
-    /// При `seeding = false` ставит торрент на паузу, когда все выбранные файлы скачаны.
-    fn spawn_pause_when_done(&self, hash: &InfoHash, h: &ManagedTorrentHandle) {
-        if self.seeding() {
+    /// Торрент уже в сессии: расширяет выбор и при необходимости снимает с паузы (под `op`).
+    async fn extend_selection(
+        &self,
+        slot: &Arc<TorrentSlot>,
+        hash: &InfoHash,
+        h: &ManagedTorrentHandle,
+        want: &HashSet<usize>,
+    ) -> Result<(), EngineError> {
+        for &f in want {
+            check_index(h, f)?;
+        }
+        let current = slot.selection();
+        let mut next = current.clone();
+        next.extend(want.iter().copied());
+        if next != current {
+            self.wait_initialized(h).await?;
+            self.session
+                .update_only_files(h, &next)
+                .await
+                .map_err(internal)?;
+            slot.set_selection(next);
+            if h.is_paused() {
+                self.session.unpause(h).await.map_err(internal)?;
+            }
+            self.spawn_pause_when_done(slot, hash, h);
+        } else if h.is_paused() && want.iter().any(|&f| !file_is_finished(h, f)) {
+            self.session.unpause(h).await.map_err(internal)?;
+            self.spawn_pause_when_done(slot, hash, h);
+        }
+        Ok(())
+    }
+
+    /// `update_only_files` не работает у торрента в проверке файлов: ждём выхода из неё.
+    async fn wait_initialized(&self, h: &ManagedTorrentHandle) -> Result<(), EngineError> {
+        let deadline = tokio::time::Instant::now() + self.cfg.metadata_timeout;
+        while matches!(
+            h.stats().state,
+            librqbit::TorrentStatsState::Initializing { .. }
+        ) {
+            if tokio::time::Instant::now() >= deadline {
+                return Err(EngineError::MetadataTimeout);
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        Ok(())
+    }
+
+    /// Торрент в состоянии `Error`: пишем причину и перезапускаем (`unpause`); если не вышло —
+    /// удаляем из сессии, и вызывающий добавит его заново. `true` — торрент удалён.
+    async fn recover_errored(&self, hash: &InfoHash, h: &ManagedTorrentHandle) -> bool {
+        let st = h.stats();
+        if !matches!(st.state, librqbit::TorrentStatsState::Error) {
+            return false;
+        }
+        tracing::warn!(info_hash = %hash, error = ?st.error, "torrent is in error state, restarting");
+        if self.session.unpause(h).await.is_ok() {
+            let _ = self.wait_initialized(h).await;
+            if !matches!(h.stats().state, librqbit::TorrentStatsState::Error) {
+                return false;
+            }
+        }
+        tracing::warn!(info_hash = %hash, "restart did not help, re-adding the torrent");
+        match to_id20(hash) {
+            Ok(id20) => {
+                let _ = self
+                    .session
+                    .delete(TorrentIdOrHash::Hash(id20), false)
+                    .await;
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Очистка после неудачного добавления: торрент без выбранных файлов не должен оставаться
+    /// ни в сессии, ни в слотах (иначе он был бы утечкой: не раздаётся и не удаляется).
+    async fn discard_unselected(&self, slot: &Arc<TorrentSlot>, hash: &InfoHash) {
+        if !slot.selection().is_empty() {
             return;
         }
-        let (session, h, selected, hash) = (
+        if let Ok(id20) = to_id20(hash) {
+            if self.session.get(TorrentIdOrHash::Hash(id20)).is_some() {
+                if let Err(e) = self
+                    .session
+                    .delete(TorrentIdOrHash::Hash(id20), false)
+                    .await
+                {
+                    tracing::warn!(info_hash = %hash, error = %e, "cannot remove torrent after failed add");
+                }
+            }
+        }
+        remove_slot(&self.state, hash);
+    }
+
+    /// При `seeding = false` ставит торрент на паузу, когда все выбранные файлы скачаны.
+    /// На торрент — не больше одной такой задачи (предыдущая прерывается).
+    fn spawn_pause_when_done(
+        &self,
+        slot: &Arc<TorrentSlot>,
+        hash: &InfoHash,
+        h: &ManagedTorrentHandle,
+    ) {
+        if self.seeding() {
+            slot.replace_pause_task(None);
+            return;
+        }
+        let (session, h, slot_task, hash, cancel) = (
             self.session.clone(),
             h.clone(),
-            self.selected.clone(),
+            slot.clone(),
             hash.clone(),
+            self.cancel.clone(),
         );
-        tokio::spawn(async move {
-            if h.wait_until_completed().await.is_err() {
-                return;
+        let handle = self.tasks.spawn(async move {
+            tokio::select! {
+                _ = cancel.cancelled() => return,
+                // Ошибка — торрент удалён из сессии: тихо выходим.
+                r = h.wait_until_completed() => if r.is_err() { return },
             }
             // Пока ждали, могли добавить ещё файл — тогда торрент уже не завершён.
-            let _guard = selected.lock().await;
+            let _op = slot_task.op.lock().await;
             if h.stats().finished && !h.is_paused() {
                 if let Err(e) = session.pause(&h).await {
                     tracing::warn!(info_hash = %hash, error = %e, "cannot pause finished torrent");
@@ -635,6 +969,7 @@ impl TorrentEngine {
                 }
             }
         });
+        slot.replace_pause_task(Some(handle.abort_handle()));
     }
 
     /// Поток чтения файла; чтение ждёт куски, куски вокруг позиции в приоритете.
@@ -645,17 +980,18 @@ impl TorrentEngine {
     ) -> Result<Box<dyn AsyncReadSeek + Send + Unpin>, EngineError> {
         let h = self.handle(id).ok_or(EngineError::NotFound)?;
         check_index(&h, file_index)?;
-        let selected = self
-            .selected
-            .lock()
-            .await
-            .get(&id.0)
-            .is_some_and(|s| s.contains(&file_index));
-        if !selected {
+        if !self.selection_of(&id.0).contains(&file_index) {
             return Err(EngineError::NotFound);
         }
         let stream = h.stream(file_index).await.map_err(internal)?;
         Ok(Box::new(stream))
+    }
+
+    fn selection_of(&self, hash: &InfoHash) -> HashSet<usize> {
+        lock_std(&self.state)
+            .get(hash)
+            .map(|s| s.selection())
+            .unwrap_or_default()
     }
 
     pub fn file_progress(&self, id: &TorrentHandleId, file_index: usize) -> Option<FileProgress> {
@@ -699,29 +1035,39 @@ impl TorrentEngine {
         file_index: usize,
         delete_data: bool,
     ) -> Result<(), EngineError> {
-        let mut sel = self.selected.lock().await;
+        let Some((slot, _op)) =
+            lock_slot(&self.state, &id.0, false, self.cfg.metadata_timeout).await?
+        else {
+            return Err(EngineError::NotFound);
+        };
         let Some(h) = self.handle(id) else {
-            sel.remove(&id.0);
+            remove_slot(&self.state, &id.0);
             return Err(EngineError::NotFound);
         };
         let path = self.file_path(id, file_index);
-        let current = sel.entry(id.0.clone()).or_default();
-        current.remove(&file_index);
-        if current.is_empty() {
-            sel.remove(&id.0);
+        let mut next = slot.selection();
+        next.remove(&file_index);
+        if next.is_empty() {
             self.session
                 .delete(TorrentIdOrHash::Hash(to_id20(&id.0)?), delete_data)
                 .await
                 .map_err(internal)?;
+            remove_slot(&self.state, &id.0);
         } else {
-            let next = current.clone();
+            self.wait_initialized(&h).await?;
             self.session
                 .update_only_files(&h, &next)
                 .await
                 .map_err(internal)?;
+            slot.set_selection(next);
             if delete_data {
                 if let Some(p) = path {
-                    let _ = std::fs::remove_file(p);
+                    // Файл мог быть не создан (не скачивался): отсутствие — не ошибка.
+                    if let Err(e) = std::fs::remove_file(&p) {
+                        if e.kind() != std::io::ErrorKind::NotFound {
+                            return Err(EngineError::Storage(format!("{}: {e}", p.display())));
+                        }
+                    }
                 }
             }
         }
@@ -730,20 +1076,50 @@ impl TorrentEngine {
 
     /// Выбранные файлы торрента (для диагностики и тестов).
     pub async fn selected_files(&self, id: &TorrentHandleId) -> Vec<usize> {
-        let mut v: Vec<usize> = self
-            .selected
-            .lock()
-            .await
-            .get(&id.0)
-            .map(|s| s.iter().copied().collect())
-            .unwrap_or_default();
+        let mut v: Vec<usize> = self.selection_of(&id.0).into_iter().collect();
         v.sort_unstable();
         v
     }
 
-    /// Останавливает сессию (сохраняя persistence).
+    /// Сколько торрентов отслеживается слотами (диагностика и тесты: после неудачного добавления — 0).
+    pub fn tracked_torrents(&self) -> usize {
+        lock_std(&self.state).len()
+    }
+
+    /// Сколько фоновых задач движка ещё живо (после `shutdown` — 0).
+    pub fn background_tasks(&self) -> usize {
+        self.tasks.len()
+    }
+
+    /// Останавливает фоновые задачи и сессию (сохраняя persistence). Повторный вызов безопасен.
     pub async fn shutdown(&self) {
-        self.session.stop().await;
+        self.cancel.cancel();
+        self.tasks.close();
+        if tokio::time::timeout(SHUTDOWN_TASKS_WAIT, self.tasks.wait())
+            .await
+            .is_err()
+        {
+            tracing::warn!("background tasks did not stop in time");
+        }
+        if !self.stopped.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            self.session.stop().await;
+        }
+    }
+}
+
+/// Проходит торренты сессии по одному, беря `op` слота каждого (не дольше `BACKGROUND_LOCK_WAIT`).
+async fn for_each_torrent<F, Fut>(session: &Session, state: &SlotMap, f: F)
+where
+    F: Fn(ManagedTorrentHandle) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    for h in handles_of(session) {
+        let hash = to_hash(h.info_hash());
+        match lock_slot(state, &hash, true, BACKGROUND_LOCK_WAIT).await {
+            Ok(Some((_slot, _op))) => f(h).await,
+            Ok(None) => {}
+            Err(_) => tracing::warn!(info_hash = %hash, "torrent is busy, skipped"),
+        }
     }
 }
 
@@ -835,6 +1211,53 @@ mod tests {
             union_selection(&HashSet::new(), 2),
             Some(HashSet::from([2]))
         );
+    }
+
+    #[test]
+    fn ratio_hit_boundaries() {
+        // Нет лимита / не завершён / ничего не скачано — никогда.
+        assert!(!ratio_hit(true, 100, 1000, None));
+        assert!(!ratio_hit(false, 100, 1000, Some(1.0)));
+        assert!(!ratio_hit(true, 0, 1000, Some(1.0)));
+        // Граница: uploaded == ratio * downloaded — достигнут; на байт меньше — нет.
+        assert!(ratio_hit(true, 100, 100, Some(1.0)));
+        assert!(!ratio_hit(true, 100, 99, Some(1.0)));
+        assert!(ratio_hit(true, 100, 150, Some(1.5)));
+        assert!(!ratio_hit(true, 100, 149, Some(1.5)));
+        assert!(ratio_hit(true, 100, 0, Some(0.0)));
+    }
+
+    #[test]
+    fn ratio_encoding_roundtrips() {
+        assert_eq!(decode_ratio(encode_ratio(None)), None);
+        assert_eq!(decode_ratio(encode_ratio(Some(1.5))), Some(1.5));
+        assert_eq!(decode_ratio(encode_ratio(Some(0.0))), Some(0.0));
+    }
+
+    #[test]
+    fn storage_errors_are_recognised() {
+        assert!(is_storage_message(
+            "write failed: No space left on device (os error 28)"
+        ));
+        assert!(is_storage_message("Permission denied (os error 13)"));
+        assert!(is_storage_message("Read-only file system"));
+        assert!(is_storage_message("File exists (os error 17)"));
+        assert!(!is_storage_message("connection reset by peer"));
+        assert!(matches!(
+            add_error("creating output file: No space left on device"),
+            EngineError::Storage(_)
+        ));
+        assert!(matches!(
+            add_error("error: no way to discover torrent metainfo"),
+            EngineError::MetadataTimeout
+        ));
+        assert!(matches!(add_error("boom"), EngineError::Internal(_)));
+        assert!(matches!(
+            add_error("file id 99 is out of range"),
+            EngineError::InvalidFileIndex(99)
+        ));
+        assert_eq!(out_of_range_index("file id x is out of range"), None);
+        assert_eq!(out_of_range_index("file id 7 is fine"), None);
     }
 
     #[test]

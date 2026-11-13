@@ -121,9 +121,11 @@ async fn main() -> anyhow::Result<()> {
     #[allow(unused_mut)]
     let mut engine_cfg = EngineConfig::new(&config.data_dir, initial.storage.seeding);
     engine_cfg.seed_ratio = initial.storage.seed_ratio;
+    engine_cfg.listen_port = Some(config.torrent_port);
     #[cfg(feature = "test-fakes")]
     if let Some(f) = &fakes {
         engine_cfg.localhost_only = true;
+        engine_cfg.listen_port = None;
         engine_cfg.dht = false;
         engine_cfg.persistence = false;
         engine_cfg.initial_peers = vec![f.peer];

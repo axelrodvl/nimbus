@@ -32,6 +32,9 @@ pub struct Config {
     pub seeding: bool,
     /// NIMBUS_SEED_RATIO: лимит раздачи (по умолчанию 1.0; `0`/`none` — без лимита).
     pub seed_ratio: Option<f64>,
+    /// NIMBUS_TORRENT_PORT: порт входящих BitTorrent-соединений (TCP и UDP; по умолчанию 6881,
+    /// `0` — случайный). Если порт занят, движок стартует на случайном.
+    pub torrent_port: u16,
     pub api_token: Option<String>,
     /// NIMBUS_DEBUG: включает отладочные эндпоинты в release-сборке.
     pub debug: bool,
@@ -76,6 +79,14 @@ impl Config {
                     value: cache_raw.clone(),
                     reason: e.to_string(),
                 })?;
+        let port_raw = or("NIMBUS_TORRENT_PORT", "6881");
+        let torrent_port = port_raw
+            .parse::<u16>()
+            .map_err(|e: std::num::ParseIntError| ConfigError::Invalid {
+                name: "NIMBUS_TORRENT_PORT",
+                value: port_raw.clone(),
+                reason: e.to_string(),
+            })?;
         let parse_bool = |name: &'static str, default: bool| -> Result<bool, ConfigError> {
             match opt(name).map(|v| v.to_ascii_lowercase()).as_deref() {
                 None => Ok(default),
@@ -123,6 +134,7 @@ impl Config {
             cache_limit_gb,
             seeding: parse_bool("NIMBUS_SEEDING", true)?,
             seed_ratio,
+            torrent_port,
             api_token: opt("NIMBUS_API_TOKEN"),
             debug: parse_bool("NIMBUS_DEBUG", false)?,
         })
@@ -148,6 +160,7 @@ mod tests {
         assert_eq!(c.seed_ratio, Some(1.0));
         assert!(!c.debug);
         assert_eq!(c.cache_limit_gb, 50);
+        assert_eq!(c.torrent_port, 6881);
         assert!(c.torznab_url.is_none() && c.api_token.is_none());
     }
 
@@ -178,6 +191,30 @@ mod tests {
         assert!(!c.tpb_enabled && c.seeding);
         assert_eq!(c.cache_limit_gb, 7);
         assert_eq!(c.api_token.as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn torrent_port_is_configurable_and_validated() {
+        let mut m = base();
+        m.insert("NIMBUS_TORRENT_PORT", "51413");
+        assert_eq!(Config::from_map(&m).unwrap().torrent_port, 51413);
+        m.insert("NIMBUS_TORRENT_PORT", "0");
+        assert_eq!(Config::from_map(&m).unwrap().torrent_port, 0);
+        m.insert("NIMBUS_TORRENT_PORT", "");
+        assert_eq!(Config::from_map(&m).unwrap().torrent_port, 6881);
+        for bad in ["70000", "-1", "abc"] {
+            m.insert("NIMBUS_TORRENT_PORT", bad);
+            assert!(
+                matches!(
+                    Config::from_map(&m),
+                    Err(ConfigError::Invalid {
+                        name: "NIMBUS_TORRENT_PORT",
+                        ..
+                    })
+                ),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

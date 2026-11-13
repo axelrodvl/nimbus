@@ -380,6 +380,7 @@ pub(crate) fn map_engine_error(e: EngineError) -> ApiError {
             "no_peers",
             "no peers: torrent metadata was not received in time",
         ),
+        EngineError::Storage(m) => err(StatusCode::INSUFFICIENT_STORAGE, "storage_error", m),
         other => err(StatusCode::BAD_GATEWAY, "torrent_error", other.to_string()),
     }
 }
@@ -783,6 +784,39 @@ pub async fn reconcile_downloads(state: &AppState) -> Result<usize, sqlx::Error>
 mod tests {
     use super::*;
     use RangeSpec::*;
+
+    #[test]
+    fn engine_errors_map_to_http_statuses() {
+        let status = |e| map_engine_error(e).status;
+        assert_eq!(
+            status(EngineError::MetadataTimeout),
+            StatusCode::GATEWAY_TIMEOUT
+        );
+        assert_eq!(
+            status(EngineError::Storage("No space left on device".into())),
+            StatusCode::INSUFFICIENT_STORAGE
+        );
+        assert_eq!(status(EngineError::NotFound), StatusCode::BAD_GATEWAY);
+    }
+
+    #[test]
+    fn engine_errors_map_to_api_errors() {
+        let e = map_engine_error(EngineError::Storage("No space left on device".into()));
+        assert_eq!(
+            (e.status, e.code.as_str()),
+            (StatusCode::INSUFFICIENT_STORAGE, "storage_error")
+        );
+        let e = map_engine_error(EngineError::MetadataTimeout);
+        assert_eq!(
+            (e.status, e.code.as_str()),
+            (StatusCode::GATEWAY_TIMEOUT, "no_peers")
+        );
+        let e = map_engine_error(EngineError::NotFound);
+        assert_eq!(
+            (e.status, e.code.as_str()),
+            (StatusCode::BAD_GATEWAY, "torrent_error")
+        );
+    }
 
     #[test]
     fn range_forms() {

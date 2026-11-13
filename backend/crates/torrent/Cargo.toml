@@ -15,9 +15,14 @@ thiserror.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
+tokio-util = { workspace = true, features = ["rt"] }
 
 [dev-dependencies]
 rand = "0.9"
+nimbus-testkit.workspace = true
+tempfile = "3"
+# Тесты роя используют fake_swarm из этого же крейта.
+nimbus-torrent = { path = ".", features = ["test-fakes"] }
 
 [lints]
 workspace = true
