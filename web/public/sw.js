@@ -1,7 +1,7 @@
 // Кэш картинок на клиенте: обложки (Cover Art Archive / archive.org) и фото артистов (/api/artist-image/).
 // Стратегия cache-first: повторно картинка с сети не грузится, пока запись жива в кэше.
 const CACHE = 'nimbus-images-v1';
-const MAX_ENTRIES = 600;
+const MAX_ENTRIES = 2000;
 
 function isImageRequest(request) {
   if (request.method !== 'GET' || request.destination !== 'image') return false;
