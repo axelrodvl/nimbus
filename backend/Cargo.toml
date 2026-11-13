@@ -49,11 +49,3 @@ todo = "deny"
 unimplemented = "deny"
 print_stdout = "deny"
 print_stderr = "deny"
-
-# Диск: каждая пересборка тестов оставляет в target/ новый бинарник с хешем в имени, а cargo
-# старые не удаляет. Полная отладочная информация делала каждый бинарник ~365 МБ.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.test]
-debug = "line-tables-only"

@@ -24,6 +24,7 @@ openapi:
     cd backend && cargo run -q -p nimbus-api --bin nimbus -- --print-openapi > ../web/openapi.json
 
 backend-test:
+    ./scripts/prune-target.sh
     cd backend && cargo test --workspace
 
 backend-check:
@@ -32,6 +33,7 @@ backend-check:
 # Покрытие бэкенда: тесты + проверка порога из backend/coverage-threshold.txt (порог только растёт).
 # Исключены main.rs (сборка зависимостей) и тестовые двойники fakes.rs / fake_swarm.rs.
 backend-cov:
+    ./scripts/prune-target.sh
     cd backend && cargo llvm-cov --workspace --features nimbus-api/test-fakes \
       --ignore-filename-regex '(/main\.rs|/fakes\.rs|/fake_swarm\.rs)$' \
       --fail-under-lines "$(cat coverage-threshold.txt)" --summary-only
