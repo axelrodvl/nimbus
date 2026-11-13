@@ -1,3 +1,5 @@
+// Интеграционные тесты: unwrap в вспомогательных функциях допустим.
+#![allow(clippy::unwrap_used)]
 //! Локальный рой: сидер librqbit на 127.0.0.1 + движок Nimbus как клиент (без DHT и сети).
 
 use std::net::{Ipv4Addr, SocketAddr};

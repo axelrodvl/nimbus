@@ -39,6 +39,7 @@ http-body-util = "0.1"
 wiremock.workspace = true
 tokio-tungstenite = "0.26"
 rand = "0.9"
+nimbus-testkit.workspace = true
 async-trait.workspace = true
 
 [[bin]]
@@ -48,3 +49,6 @@ path = "src/main.rs"
 [lib]
 name = "nimbus_api"
 path = "src/lib.rs"
+
+[lints]
+workspace = true

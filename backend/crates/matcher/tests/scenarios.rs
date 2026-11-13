@@ -1,3 +1,5 @@
+// Интеграционные тесты: unwrap в вспомогательных функциях допустим.
+#![allow(clippy::unwrap_used)]
 //! Сценарии на реальных структурах раздач (`tests/fixtures/*.json`).
 
 use std::collections::HashMap;

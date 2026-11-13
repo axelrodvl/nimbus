@@ -49,7 +49,10 @@ impl Limiter {
                 continue;
             }
             let wait_until = {
-                let mut next = self.next.lock().unwrap();
+                let mut next = self
+                    .next
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 let now = Instant::now();
                 if *next <= now {
                     *next = now + self.interval;

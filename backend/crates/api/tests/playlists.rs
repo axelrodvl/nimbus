@@ -1,3 +1,5 @@
+// Интеграционные тесты: unwrap в вспомогательных функциях допустим.
+#![allow(clippy::unwrap_used)]
 mod common;
 
 use common::{delete, get_json, post_json, router, state};

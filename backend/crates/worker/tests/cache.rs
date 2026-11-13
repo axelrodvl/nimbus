@@ -1,3 +1,5 @@
+// Интеграционные тесты: unwrap в вспомогательных функциях допустим.
+#![allow(clippy::unwrap_used)]
 use std::path::PathBuf;
 use std::sync::Arc;
 

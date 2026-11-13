@@ -1,3 +1,5 @@
+// Интеграционные тесты: unwrap в вспомогательных функциях допустим.
+#![allow(clippy::unwrap_used)]
 mod common;
 
 use std::path::PathBuf;
@@ -597,14 +599,10 @@ async fn dropping_the_response_kills_ffmpeg(pool: PgPool) {
         .unwrap();
     assert!(std::path::Path::new(&format!("/proc/{pid}")).exists());
     drop(res); // клиент закрыл соединение
-    let gone = async {
-        while std::path::Path::new(&format!("/proc/{pid}")).exists() {
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        }
-    };
-    tokio::time::timeout(std::time::Duration::from_secs(5), gone)
-        .await
-        .expect("ffmpeg should be killed when the client disconnects");
+    nimbus_testkit::eventually(std::time::Duration::from_secs(5), || async {
+        !std::path::Path::new(&format!("/proc/{pid}")).exists()
+    })
+    .await; // ffmpeg должен быть убит при отключении клиента
     let _ = std::fs::remove_file(&f.path);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -958,14 +956,10 @@ async fn prefetch_registers_file_reads_head_and_protects_it(pool: PgPool) {
     assert_eq!(r.status, 202);
     assert!(String::from_utf8_lossy(&r.body).contains("started"));
     // Фоновая задача: ensure_file + open_stream, строка downloads создана.
-    let waited = async {
-        while fake.open_calls.load(Ordering::SeqCst) == 0 {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    };
-    tokio::time::timeout(Duration::from_secs(5), waited)
-        .await
-        .expect("prefetch should open the stream");
+    nimbus_testkit::eventually(Duration::from_secs(5), || async {
+        fake.open_calls.load(Ordering::SeqCst) > 0
+    })
+    .await; // prefetch должен открыть поток
     assert!(fake.ensure_calls.load(Ordering::SeqCst) >= 1);
     assert!(downloads::get(&pool, f.torrent_id, 0)
         .await

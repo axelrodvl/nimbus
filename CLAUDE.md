@@ -29,5 +29,6 @@
 - `just web` — запустить фронтенд
 - `just test` — все тесты
 - `just check` — fmt + clippy + lint + typecheck
+- `just cov` — покрытие бэкенда с проверкой порога (`backend/coverage-threshold.txt`)
 
 (Команды появляются по мере выполнения шагов; актуальный список — в `justfile`.)

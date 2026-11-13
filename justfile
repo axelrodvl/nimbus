@@ -27,7 +27,20 @@ backend-test:
     cd backend && cargo test --workspace
 
 backend-check:
-    cd backend && cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings
+    cd backend && cargo fmt --all -- --check && cargo clippy --workspace --all-targets --features nimbus-api/test-fakes -- -D warnings
+
+# Покрытие бэкенда: тесты + проверка порога из backend/coverage-threshold.txt (порог только растёт).
+# Исключены main.rs (сборка зависимостей) и тестовые двойники fakes.rs / fake_swarm.rs.
+backend-cov:
+    cd backend && cargo llvm-cov --workspace --features nimbus-api/test-fakes \
+      --ignore-filename-regex '(/main\.rs|/fakes\.rs|/fake_swarm\.rs)$' \
+      --fail-under-lines "$(cat coverage-threshold.txt)" --summary-only
+
+backend-cov-html:
+    cd backend && cargo llvm-cov --workspace --features nimbus-api/test-fakes \
+      --ignore-filename-regex '(/main\.rs|/fakes\.rs|/fake_swarm\.rs)$' --html
+
+cov: backend-cov
 
 web:
     cd web && pnpm dev

@@ -23,6 +23,10 @@ nimbus-matcher.workspace = true
 nimbus-torrent.workspace = true
 
 [dev-dependencies]
+nimbus-testkit.workspace = true
 sqlx.workspace = true
 encoding_rs = "0.8.44"
 serde_json.workspace = true
+
+[lints]
+workspace = true

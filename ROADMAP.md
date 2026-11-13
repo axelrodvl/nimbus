@@ -53,7 +53,7 @@
 
 | # | Статус | Шаг | Зависит от |
 |---|---|---|---|
-| 25 | [ ] | [Качество: линты, покрытие, храповик в CI](docs/roadmap/25-quality-gates.md) | — |
+| 25 | [x] | [Качество: линты, покрытие, храповик в CI](docs/roadmap/25-quality-gates.md) | — |
 
 ### Фаза 1 — бэкенд: надёжность, скорость, управление загрузками
 
@@ -189,6 +189,14 @@
 - Замечено: ... (постороннее, что стоит сделать позже)
 - Важно для следующих шагов: ...
 -->
+
+### 2026-11-13 — шаг 25
+- Сделано: `[workspace.lints]` (`unsafe_code = forbid`; `unwrap_used`, `dbg_macro`, `todo`, `unimplemented`, `print_*` = deny) + `[lints] workspace = true` во всех крейтах, `backend/clippy.toml`; три боевых `lock().unwrap()` (musicbrainz) → `unwrap_or_else(PoisonError::into_inner)`; `println!` в `main.rs` помечен `#[allow]`. Рецепты `backend-cov`, `backend-cov-html`, `cov`; `backend/coverage-threshold.txt`; CI считает покрытие вместо отдельного `cargo test` и пишет сводку в `$GITHUB_STEP_SUMMARY`; `docs/coverage.md`; крейт `nimbus-testkit` (`eventually`, `tempdir`, 3 теста), на него переведены 3 цикла ожидания (`api/tests/stream.rs` ×2, `downloads.rs`) и `wait_state` в `worker/tests/runner.rs`.
+- Отклонения: (1) в `tests/*.rs` добавлен `#![allow(clippy::unwrap_used)]` — `allow-unwrap-in-tests` не распространяется на вспомогательные функции интеграционных тестов. (2) `backend-check` в `justfile` теперь с `--features nimbus-api/test-fakes`, как в CI. (3) Тест `post_artist_is_accepted_and_import_job_adds_discography` падал ещё до шага (коммит 7c7cbbd сделал «только альбомы» значением по умолчанию, EP пропускается) — ожидания обновлены (1 альбом, 4 трека). (4) `testkit` входит в отчёт покрытия (43 строки, 97.7 %).
+- Цифры: покрытие бэкенда 89.38 % строк (порог 88); слабые места — `torrent` 73.1 %, `api` 82.4 %, `api/src/artist_image.rs` 0 %; полный список — `docs/coverage.md`.
+- Ревью: дифф просмотрен целиком, `just check` и `just cov` зелёные, OpenAPI не менялся. Замечаний нет.
+- Замечено: при первых прогонах `cargo test --workspace` Postgres из docker-compose (порт 5433) трижды падал («server process exited with exit code 2», recovery) прямо на старте тестов `api/tests/auth.rs`; на чистом `HEAD` и при последующих прогонах не воспроизвелось — причина не найдена, следить. `web/tests/library.spec.ts:161` — предупреждение линтера sort-keys (не относится к шагу).
+- Важно для следующих шагов: `cargo-llvm-cov` и `llvm-tools-preview` нужно ставить локально (`just cov`). Общие фейки класть в `crates/testkit`; для ожиданий использовать `nimbus_testkit::eventually`. Порог повышать только вверх.
 
 ### 2026-11-13 — план: нативные оболочки (фаза 4)
 - Сделано: решение по клиентам — один React-клиент; сначала PWA доводится до конца, затем тонкие нативные оболочки: Capacitor для iOS/Android, Tauri 2 для desktop. Добавлены шаг 50 (мобильная PWA на устройствах), фаза 4 (шаги 52–55); прежний шаг 50 «Финал» стал шагом 51.

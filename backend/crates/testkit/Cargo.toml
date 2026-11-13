@@ -1,0 +1,12 @@
+[package]
+name = "nimbus-testkit"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+tokio = { workspace = true, features = ["time"] }
+tempfile = "3"
+
+[lints]
+workspace = true

@@ -1,3 +1,5 @@
+// Интеграционные тесты: unwrap в вспомогательных функциях допустим.
+#![allow(clippy::unwrap_used)]
 mod common;
 
 use common::{delete, get_json, mb_client, post_json, router, state_with_mb};
@@ -388,12 +390,12 @@ async fn post_artist_is_accepted_and_import_job_adds_discography(pool: PgPool) {
         .collect();
     assert_eq!(
         titles,
-        ["OK Computer", "Airbag EP"],
-        "без Live, Compilation и чужих совместных релизов"
+        ["OK Computer"],
+        "по умолчанию только альбомы: без EP, Live, Compilation и чужих совместных релизов"
     );
     assert_eq!(
         count(&pool, "SELECT count(*) FROM albums WHERE in_library").await,
-        2
+        1
     );
     assert_eq!(
         count(
@@ -401,7 +403,7 @@ async fn post_artist_is_accepted_and_import_job_adds_discography(pool: PgPool) {
             "SELECT count(*) FROM tracks WHERE in_library AND status = 'adding'"
         )
         .await,
-        6
+        4
     );
     assert_eq!(
         count(&pool, "SELECT count(*) FROM artists").await,
@@ -428,18 +430,18 @@ async fn post_artist_is_accepted_and_import_job_adds_discography(pool: PgPool) {
             )
         })
         .count();
-    assert_eq!(album_events, 2);
+    assert_eq!(album_events, 1);
 
     let (_, l) = get_json(router.clone(), "/api/library/artists").await;
-    assert_eq!(l["items"][0]["album_count"], 2);
-    assert_eq!(l["items"][0]["track_count"], 6);
+    assert_eq!(l["items"][0]["album_count"], 1);
+    assert_eq!(l["items"][0]["track_count"], 4);
 
     // повторный импорт идемпотентен
     ImportArtistHandler
         .handle(Job::ImportArtist { artist_id }, &ctx)
         .await
         .unwrap();
-    assert_eq!(count(&pool, "SELECT count(*) FROM tracks").await, 6);
+    assert_eq!(count(&pool, "SELECT count(*) FROM tracks").await, 4);
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]

@@ -15,7 +15,11 @@ use tracing_subscriber::EnvFilter;
 async fn main() -> anyhow::Result<()> {
     // Разбор аргументов — до подключения к БД: `--print-openapi` работает без окружения.
     if std::env::args().skip(1).any(|a| a == "--print-openapi") {
-        println!("{}", nimbus_api::openapi::openapi().to_pretty_json()?);
+        // Вывод схемы в stdout — назначение флага, а не отладочная печать.
+        #[allow(clippy::print_stdout)]
+        {
+            println!("{}", nimbus_api::openapi::openapi().to_pretty_json()?);
+        }
         return Ok(());
     }
 

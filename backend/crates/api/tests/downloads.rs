@@ -1,3 +1,5 @@
+// Интеграционные тесты: unwrap в вспомогательных функциях допустим.
+#![allow(clippy::unwrap_used)]
 #![cfg(feature = "test-fakes")]
 mod common;
 
@@ -42,18 +44,14 @@ async fn list_pause_resume(pool: PgPool) {
 
     engine.ensure_file(&swarm.magnet, 0).await.unwrap();
     // Ждём завершения: торрент остаётся раздающим (seeding = true).
-    let mut seeding = false;
-    for _ in 0..100 {
+    nimbus_testkit::eventually(Duration::from_secs(10), || async {
         let (_, v) = get_json(app.clone(), "/api/downloads").await;
-        if v["torrents"][0]["state"] == "seeding" {
-            assert_eq!(v["torrents"][0]["info_hash"], swarm.info_hash);
-            assert_eq!(v["torrents"][0]["name"], "Album");
-            seeding = true;
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    assert!(seeding, "torrent did not reach seeding state");
+        v["torrents"][0]["state"] == "seeding"
+    })
+    .await; // торрент должен дойти до состояния seeding
+    let (_, v) = get_json(app.clone(), "/api/downloads").await;
+    assert_eq!(v["torrents"][0]["info_hash"], swarm.info_hash);
+    assert_eq!(v["torrents"][0]["name"], "Album");
 
     let base = format!("/api/downloads/{}", swarm.info_hash);
     let (status, _) = request_json(app.clone(), "POST", &format!("{base}/pause"), None).await;

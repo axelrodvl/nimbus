@@ -1,3 +1,5 @@
+// Интеграционные тесты: unwrap в вспомогательных функциях допустим.
+#![allow(clippy::unwrap_used)]
 use nimbus_matcher::*;
 
 fn tr(id: i64, title: &str, disc: i32, pos: i32) -> TrackInput {

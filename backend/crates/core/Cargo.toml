@@ -13,3 +13,6 @@ chrono.workspace = true
 serde_json.workspace = true
 tokio = { version = "1", features = ["sync"] }
 utoipa.workspace = true
+
+[lints]
+workspace = true

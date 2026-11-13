@@ -174,6 +174,9 @@ port, and CORS is opened for `NIMBUS_CORS_ORIGIN`.
 
 Commands: `just test` (backend tests), `just check` (fmt + clippy + lint + typecheck), `just e2e` (full compose stack
 with fake external services; needs Docker), `just web-gen-api` (regenerate API types from OpenAPI).
+Backend coverage: `just cov` (needs `cargo install cargo-llvm-cov --locked` and `rustup component add llvm-tools-preview`;
+runs the tests and fails below `backend/coverage-threshold.txt`, which may only go up); `just backend-cov-html` builds an
+HTML report. Current baseline: `docs/coverage.md`.
 JSON logs: `NIMBUS_LOG_FORMAT=json`. Health: `GET /api/health` (DB, engine, job queue).
 
 ## MusicBrainz and User-Agent

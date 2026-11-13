@@ -1,3 +1,5 @@
+// Интеграционные тесты: unwrap в вспомогательных функциях допустим.
+#![allow(clippy::unwrap_used)]
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -61,19 +63,19 @@ impl JobHandler for Flaky {
 }
 
 async fn wait_state(pool: &PgPool, id: i64, want: &str) -> nimbus_db::repo::jobs::JobRow {
-    for _ in 0..200 {
-        let row = jobs::list(pool, None, 50)
+    let get = || async {
+        jobs::list(pool, None, 50)
             .await
             .unwrap()
             .into_iter()
             .find(|r| r.id == id)
-            .unwrap();
-        if row.state == want {
-            return row;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    panic!("job {id} did not reach state {want}");
+            .unwrap()
+    };
+    nimbus_testkit::eventually(Duration::from_secs(5), || async {
+        get().await.state == want
+    })
+    .await; // задача должна дойти до нужного состояния
+    get().await
 }
 
 async fn run_flaky(

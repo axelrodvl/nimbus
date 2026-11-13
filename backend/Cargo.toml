@@ -35,4 +35,16 @@ nimbus-library = { path = "crates/library" }
 nimbus-trackers = { path = "crates/trackers" }
 nimbus-torrent = { path = "crates/torrent" }
 nimbus-matcher = { path = "crates/matcher" }
+nimbus-testkit = { path = "crates/testkit" }
 tokio-util = "0.7"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+print_stdout = "deny"
+print_stderr = "deny"

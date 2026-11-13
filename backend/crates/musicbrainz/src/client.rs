@@ -130,7 +130,11 @@ impl MbClient {
         }
 
         let flight = {
-            let mut map = self.inner.inflight.lock().unwrap();
+            let mut map = self
+                .inner
+                .inflight
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             match map.get(&key) {
                 Some(f) => f.clone(),
                 None => {
@@ -145,7 +149,11 @@ impl MbClient {
                         let r = inner
                             .fetch_and_cache(priority, &path, &owned_query, ttl, &k)
                             .await;
-                        inner.inflight.lock().unwrap().remove(&k);
+                        inner
+                            .inflight
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .remove(&k);
                         r.map(Arc::new)
                     }
                     .boxed()
