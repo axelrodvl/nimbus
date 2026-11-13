@@ -22,6 +22,7 @@ import { AudioQuality } from '@/components/audio-quality';
 import { QueuePanel } from '@/components/queue-panel';
 import { Cover } from '@/components/ui/cover';
 import { Marquee } from '@/components/ui/marquee';
+import { PlayerTrackMenu } from '@/features/playlists/components/player-track-menu';
 import { cn, formatDuration } from '@/lib/utils';
 import { useT } from '@/providers/i18n-provider';
 import { useTrackStatus } from '@/providers/live-library-provider';
@@ -190,6 +191,7 @@ export function NowPlayingBar() {
             <StatusLine />
           </div>
           <div className="hidden items-center justify-end gap-2 lg:flex">
+            {track ? <PlayerTrackMenu trackId={track.id} title={track.title} /> : null}
             <ToggleButton
               label={t('player.queue')}
               active={queueOpen}
@@ -700,6 +702,14 @@ function FullPlayer({ open, onClose, onOpenQueue }: { open: boolean; onClose: ()
           >
             <ChevronDown className="h-6 w-6" />
           </button>
+          {track ? (
+            <PlayerTrackMenu
+              trackId={track.id}
+              title={track.title}
+              className="p-2 text-black/70 hover:text-black dark:text-white/75 dark:hover:text-white"
+              iconClassName="h-6 w-6"
+            />
+          ) : null}
           <button
             type="button"
             onClick={onOpenQueue}

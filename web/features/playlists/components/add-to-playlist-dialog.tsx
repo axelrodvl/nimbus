@@ -21,8 +21,8 @@ export function AddToPlaylistDialog(props: Props) {
     <Ariakit.Dialog
       store={props.store}
       onClick={(e: React.MouseEvent) => e.stopPropagation()}
-      backdrop={<div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />}
-      className="border-divider dark:border-divider-dark fixed top-1/2 left-1/2 z-50 flex max-h-[80vh] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 flex-col gap-3 rounded-2xl border bg-white p-6 shadow-2xl outline-none dark:bg-black"
+      backdrop={<div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" style={{ zIndex: 65 }} />}
+      className="border-divider dark:border-divider-dark fixed top-1/2 left-1/2 z-[70] flex max-h-[80vh] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 flex-col gap-3 rounded-2xl border bg-white p-6 shadow-2xl outline-none dark:bg-black"
       unmountOnHide
     >
       <Ariakit.DialogHeading className="text-lg font-bold">{t('playlist.addTo')}</Ariakit.DialogHeading>
