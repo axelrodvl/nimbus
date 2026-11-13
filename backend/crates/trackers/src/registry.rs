@@ -150,8 +150,13 @@ impl Breaker {
 
     fn failure(&mut self, e: &ProviderError, now: Instant) {
         self.last_error = Some(e.to_string());
-        self.failures += 1;
         let was_probe = self.probing.take().is_some();
+        // Запросы, улетевшие до размыкания, возвращаются с ошибкой уже при разомкнутом
+        // предохранителе: это не новое срабатывание и паузу они не удлиняют.
+        if !was_probe && self.open_until.is_some_and(|u| now < u) {
+            return;
+        }
+        self.failures += 1;
         // Ошибки авторизации (RuTracker) размыкают сразу: повторы только злят сайт.
         if was_probe || self.failures >= BREAKER_THRESHOLD || matches!(e, ProviderError::Auth(_)) {
             let pause = BREAKER_PAUSES[(self.trips as usize).min(BREAKER_PAUSES.len() - 1)];

@@ -425,3 +425,30 @@ async fn parse_error_during_probe_does_not_block_following_probes() {
     assert!(search(&reg, "next").await.is_ok());
     assert_eq!(p.calls(), 5);
 }
+
+/// Параллельные запросы, начатые до размыкания, не удлиняют паузу (в бою было 60 → 120 → 300 с за 2 с).
+#[tokio::test(start_paused = true)]
+async fn in_flight_failures_do_not_escalate_the_pause() {
+    let p = Arc::new(Scripted {
+        source: TorrentSource::Rutracker,
+        calls: AtomicUsize::new(0),
+        script: Mutex::new(
+            (0..5)
+                .map(|_| Err(ProviderError::Auth("403".into())))
+                .collect(),
+        ),
+        delay: Duration::from_millis(100),
+    });
+    let reg = ProviderRegistry::new(vec![p.clone()]);
+    let q: Vec<_> = (0..3).map(|i| SearchQuery::text(format!("q{i}"))).collect();
+    let _ = futures::future::join_all(q.iter().map(|q| reg.search_all(q))).await;
+    assert_eq!(p.calls(), 3, "все три ушли до размыкания");
+
+    // Пауза — первая (60 с), а не 300: через минуту пробный запрос уже разрешён.
+    tokio::time::advance(BREAKER_PAUSES[0] + Duration::from_secs(1)).await;
+    assert!(matches!(
+        search(&reg, "probe").await,
+        Err(ProviderError::Auth(_))
+    ));
+    assert_eq!(p.calls(), 4);
+}
