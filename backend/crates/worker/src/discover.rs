@@ -10,10 +10,12 @@ use futures::StreamExt;
 use nimbus_core::events::{Event, JobStage};
 use nimbus_core::jobs::{Job, PRIORITY_BACKGROUND};
 use nimbus_core::model::{
-    Album, Artist, NewTorrent, NotFoundReason, Torrent, TorrentKind, TrackStatus,
+    Album, Artist, InfoHash, MetaStatus, NewTorrent, NotFoundReason, Torrent, TorrentKind,
+    TrackStatus,
 };
 use nimbus_db::repo::jobs::EnqueueOpts;
 use nimbus_db::repo::{album_torrents, albums, artists, jobs, torrents, tracks};
+use nimbus_torrent::parse_torrent_file;
 use nimbus_trackers::rank::{classify, score, FormatPrefs, RankInput};
 use nimbus_trackers::{
     build_magnet, build_queries, SearchQuery, TorrentCandidate, PUBLIC_TRACKERS,
@@ -238,7 +240,38 @@ async fn store(
         },
     )
     .await?;
+    // Провайдер уже скачал `.torrent`: сохраняем и сразу разбираем список файлов — verify такой
+    // раздачи не пойдёт в сеть.
+    let mut t = t;
+    if let Some(bytes) = cand.torrent_file.as_deref() {
+        if remember_torrent_file(ctx, &t, bytes).await? {
+            t = torrents::get(&ctx.db, t.id).await?.unwrap_or(t);
+        }
+    }
     Ok(Some(t))
+}
+
+/// Сохраняет `.torrent` кандидата и заполняет файлы раздачи (если они ещё неизвестны).
+/// `true` — состояние раздачи в БД изменилось. Битый, чужой или слишком большой файл — не ошибка
+/// задачи: раздача просто проверится через сеть.
+async fn remember_torrent_file(ctx: &JobCtx, t: &Torrent, bytes: &[u8]) -> Result<bool, JobError> {
+    let expected = InfoHash::parse(&t.info_hash).ok();
+    let meta = match parse_torrent_file(bytes, expected.as_ref()) {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::warn!(torrent_id = t.id, error = %e, "candidate torrent file is unusable, ignored");
+            return Ok(false);
+        }
+    };
+    let mut changed = false;
+    if !t.has_torrent_file {
+        changed = torrents::set_torrent_file(&ctx.db, t.id, bytes).await?;
+    }
+    if t.meta_status != MetaStatus::Ok {
+        crate::verify::store_files(ctx, t.id, &meta).await?;
+        changed = true;
+    }
+    Ok(changed)
 }
 
 async fn mark_not_found(

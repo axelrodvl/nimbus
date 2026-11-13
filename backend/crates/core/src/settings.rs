@@ -29,6 +29,10 @@ pub struct PerformanceSettings {
     pub verify_workers: u8,
     /// Одновременных импортов дискографий (`import_artist`).
     pub import_workers: u8,
+    /// Одновременных сетевых запросов метаданных торрента (DHT + пиры).
+    pub metadata_concurrency: u8,
+    /// Сколько секунд ждать метаданные торрента по magnet.
+    pub metadata_timeout_secs: u16,
 }
 
 impl Default for PerformanceSettings {
@@ -37,6 +41,8 @@ impl Default for PerformanceSettings {
             discover_workers: 8,
             verify_workers: 16,
             import_workers: 2,
+            metadata_concurrency: 16,
+            metadata_timeout_secs: 30,
         }
     }
 }
@@ -241,10 +247,14 @@ impl Settings {
             ("discover_workers", p.discover_workers),
             ("verify_workers", p.verify_workers),
             ("import_workers", p.import_workers),
+            ("metadata_concurrency", p.metadata_concurrency),
         ] {
             if !(1..=64).contains(&v) {
                 return Err(format!("performance.{name} must be between 1 and 64"));
             }
+        }
+        if !(5..=300).contains(&p.metadata_timeout_secs) {
+            return Err("performance.metadata_timeout_secs must be between 5 and 300".into());
         }
         if self.storage.cache_limit_gb == 0 {
             return Err("storage.cache_limit_gb must be at least 1".into());
@@ -380,16 +390,32 @@ mod tests {
             (p.discover_workers, p.verify_workers, p.import_workers),
             (8, 16, 2)
         );
+        assert_eq!((p.metadata_concurrency, p.metadata_timeout_secs), (16, 30));
         for bad in [0u8, 65] {
             let mut s = Settings::default();
             s.performance.import_workers = bad;
             assert!(s.validate().is_err(), "{bad}");
+            let mut s = Settings::default();
+            s.performance.metadata_concurrency = bad;
+            assert!(s.validate().is_err(), "{bad}");
+        }
+        for bad in [0u16, 4, 301, 5000] {
+            let mut s = Settings::default();
+            s.performance.metadata_timeout_secs = bad;
+            assert!(s.validate().is_err(), "{bad}");
+        }
+        for ok in [5u16, 30, 300] {
+            let mut s = Settings::default();
+            s.performance.metadata_timeout_secs = ok;
+            assert!(s.validate().is_ok(), "{ok}");
         }
         let s = Settings {
             performance: PerformanceSettings {
                 discover_workers: 1,
                 verify_workers: 64,
                 import_workers: 64,
+                metadata_concurrency: 64,
+                metadata_timeout_secs: 300,
             },
             ..Settings::default()
         };

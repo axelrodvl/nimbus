@@ -74,6 +74,7 @@ fn cand(title: &str, h: Option<u8>, seeders: u32) -> TorrentCandidate {
         leechers: Some(1),
         category: None,
         files_count: None,
+        torrent_file: None,
     }
 }
 
@@ -570,4 +571,88 @@ async fn discover_stops_with_cancelled_when_pool_is_shutting_down(pool: PgPool) 
     for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
         assert_eq!(t.status, TrackStatus::Adding);
     }
+}
+
+fn candidate_with_file(title: &str, bytes: Vec<u8>) -> TorrentCandidate {
+    let h = nimbus_torrent::parse_torrent_file(&bytes, None)
+        .unwrap()
+        .info_hash;
+    TorrentCandidate {
+        info_hash: Some(h.clone()),
+        magnet: Some(format!("magnet:?xt=urn:btih:{h}")),
+        torrent_file: Some(bytes),
+        ..cand(title, None, 50)
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn candidate_torrent_file_fills_files_before_verify(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 3, true).await;
+    let bytes = nimbus_testkit::torrent_file(
+        "Radiohead - OK Computer (1997) [FLAC]",
+        &[("01 - Airbag.flac", 1000), ("02 - Exit Music.flac", 2000)],
+    );
+    let wanted = bytes.clone();
+    let provider = Fake::new(move |_q| {
+        Ok(vec![candidate_with_file(
+            "Radiohead - OK Computer (1997) [FLAC]",
+            wanted.clone(),
+        )])
+    });
+    let (ctx, _) = ctx(&pool, Some(provider), 1, 5);
+
+    discover_album(&ctx, album_id).await.unwrap();
+
+    let linked = album_torrents::list_for_album(&pool, album_id)
+        .await
+        .unwrap();
+    assert_eq!(linked.len(), 1);
+    let t = &linked[0].torrent;
+    // Метаданные известны ещё до verify: файл сохранён, список файлов и статус заполнены.
+    assert!(t.has_torrent_file);
+    assert_eq!(t.meta_status, MetaStatus::Ok);
+    assert_eq!(
+        torrents::torrent_file(&pool, t.id).await.unwrap(),
+        Some(bytes)
+    );
+    let files = torrents::files(&pool, t.id).await.unwrap();
+    let got: Vec<(&str, i64)> = files
+        .iter()
+        .map(|f| (f.path.as_str(), f.size_bytes))
+        .collect();
+    assert_eq!(
+        got,
+        [("01 - Airbag.flac", 1000), ("02 - Exit Music.flac", 2000)]
+    );
+    assert_eq!(files[0].ext.as_deref(), Some("flac"));
+    assert_eq!(queued(&pool, "verify_torrent").await.len(), 1);
+
+    // Повторный поиск идемпотентен: файл и список остаются.
+    discover_album(&ctx, album_id).await.unwrap();
+    assert_eq!(torrents::files(&pool, t.id).await.unwrap().len(), 2);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn candidate_torrent_file_with_foreign_hash_is_ignored(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 3, true).await;
+    let bytes = nimbus_testkit::torrent_file("x", &[("01.flac", 10)]);
+    let provider = Fake::new(move |_q| {
+        let mut c = cand("Radiohead - OK Computer (1997) [FLAC]", Some(1), 50);
+        c.torrent_file = Some(bytes.clone()); // хеш байтов ≠ хеша кандидата
+        Ok(vec![c])
+    });
+    let (ctx, _) = ctx(&pool, Some(provider), 1, 5);
+
+    discover_album(&ctx, album_id).await.unwrap();
+
+    let linked = album_torrents::list_for_album(&pool, album_id)
+        .await
+        .unwrap();
+    assert_eq!(linked.len(), 1, "раздача всё равно сохранена");
+    let t = &linked[0].torrent;
+    assert!(!t.has_torrent_file);
+    assert_ne!(t.meta_status, MetaStatus::Ok);
+    assert!(torrents::files(&pool, t.id).await.unwrap().is_empty());
 }

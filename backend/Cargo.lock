@@ -2412,6 +2412,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bytes",
  "librqbit",
  "nimbus-core",
  "nimbus-testkit",
@@ -2454,6 +2455,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bytes",
  "chrono",
  "encoding_rs",
  "futures",

@@ -26,6 +26,8 @@ const OK: [&str; 4] = [
 
 enum Reply {
     Files(Vec<(&'static str, u64)>),
+    /// Файлы и готовый `.torrent`, который «получил» движок.
+    FilesWithFile(Vec<(&'static str, u64)>, Vec<u8>),
     Timeout,
     Invalid,
 }
@@ -69,6 +71,22 @@ impl MetadataFetcher for FakeFetcher {
                         size: *s,
                     })
                     .collect(),
+                torrent_file: None,
+            }),
+            Some(Reply::FilesWithFile(fs, file)) => Ok(TorrentMeta {
+                info_hash: hash,
+                name: "t".into(),
+                piece_length: 16384,
+                files: fs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (p, s))| FileEntry {
+                        index: i,
+                        path: p.to_string(),
+                        size: *s,
+                    })
+                    .collect(),
+                torrent_file: Some(nimbus_torrent::Bytes::from(file.clone())),
             }),
             Some(Reply::Timeout) => Err(EngineError::MetadataTimeout),
             Some(Reply::Invalid) => Err(EngineError::InvalidMagnet("bad".into())),
@@ -306,22 +324,23 @@ async fn timeouts_retry_then_dead_then_not_found_dead_torrents(pool: PgPool) {
     let (ctx, events) = ctx(&pool, fetcher);
     let mut rx = events.subscribe();
 
-    for attempt in 1..=2 {
+    // Расписание повторов: 1 мин, 5 мин, 30 мин.
+    for (attempt, secs) in [(1, 60), (2, 300), (3, 1800)] {
         match verify_torrent(&ctx, tid, s.album_id).await {
-            Err(JobError::Retry { after, .. }) => assert_eq!(after.as_secs(), 900 * attempt),
+            Err(JobError::Retry { after, .. }) => assert_eq!(after.as_secs(), secs),
             other => panic!("attempt {attempt}: expected Retry, got {other:?}"),
         }
         let t = torrents::get(&pool, tid).await.unwrap().unwrap();
         assert_eq!(
             (t.meta_status, t.meta_attempts),
-            (MetaStatus::Timeout, attempt as i32)
+            (MetaStatus::Timeout, attempt)
         );
         // Пока не проверена — треки ждут.
         for (st, _) in statuses(&pool, s.album_id).await {
             assert_eq!(st, TrackStatus::Adding);
         }
     }
-    // Третий таймаут → dead, раздача считается проверенной, треки not_found / dead_torrents.
+    // Четвёртый таймаут → dead, раздача считается проверенной, треки not_found / dead_torrents.
     verify_torrent(&ctx, tid, s.album_id).await.unwrap();
     let t = torrents::get(&pool, tid).await.unwrap().unwrap();
     assert_eq!(t.meta_status, MetaStatus::Dead);
@@ -768,4 +787,149 @@ async fn verify_job_that_times_out_to_exhaustion_leaves_no_adding_tracks(pool: P
     })
     .await;
     w.shutdown().await;
+}
+
+/// Торрент в БД с хешем, посчитанным по `.torrent` (иначе проверка хеша отклонит файл).
+async fn add_torrent_with_file(pool: &PgPool, album_id: i64, bytes: &[u8]) -> (i64, InfoHash) {
+    let h = nimbus_torrent::parse_torrent_file(bytes, None)
+        .unwrap()
+        .info_hash;
+    let t = torrents::upsert_by_info_hash(
+        pool,
+        &NewTorrent {
+            info_hash: h.clone(),
+            magnet: format!("magnet:?xt=urn:btih:{h}"),
+            source: TorrentSource::Torznab,
+            source_topic_id: None,
+            title: "with file".into(),
+            size_bytes: None,
+            seeders: Some(10),
+            leechers: None,
+            kind: TorrentKind::Album,
+        },
+    )
+    .await
+    .unwrap();
+    album_torrents::link(pool, album_id, t.id, "q", 0.9)
+        .await
+        .unwrap();
+    (t.id, h)
+}
+
+fn album_torrent_bytes() -> Vec<u8> {
+    let files: Vec<(String, u64)> = OK
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (format!("{:02} - {t}.flac", i + 1), 30_000_000))
+        .collect();
+    let refs: Vec<(&str, u64)> = files.iter().map(|(p, n)| (p.as_str(), *n)).collect();
+    nimbus_testkit::torrent_file("Radiohead - OK Computer (1997) [FLAC]", &refs)
+}
+
+fn ctx_without_fetcher(pool: &PgPool) -> JobCtx {
+    JobCtx::new(
+        pool.clone(),
+        EventBus::new(),
+        nimbus_musicbrainz::MbClient::new("NimbusTest/0.1 ( https://example.org )", None).unwrap(),
+        Arc::new(nimbus_trackers::ProviderRegistry::new(vec![])),
+    )
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn stored_torrent_file_verifies_without_the_network(pool: PgPool) {
+    let s = setup(&pool, &OK).await;
+    let bytes = album_torrent_bytes();
+    let (tid, _) = add_torrent_with_file(&pool, s.album_id, &bytes).await;
+    torrents::set_torrent_file(&pool, tid, &bytes)
+        .await
+        .unwrap();
+    // Fetcher'а в контексте нет вовсе: обратись verify в сеть — задача упала бы.
+    let ctx = ctx_without_fetcher(&pool);
+
+    verify_torrent(&ctx, tid, s.album_id).await.unwrap();
+
+    let t = torrents::get(&pool, tid).await.unwrap().unwrap();
+    assert_eq!(t.meta_status, MetaStatus::Ok);
+    assert_eq!(t.meta_attempts, 0, "сеть не трогали");
+    assert_eq!(torrents::files(&pool, tid).await.unwrap().len(), OK.len());
+    for (st, reason) in statuses(&pool, s.album_id).await {
+        assert_eq!((st, reason), (TrackStatus::Found, None));
+    }
+    for id in &s.track_ids {
+        assert_eq!(
+            track_sources::list_for_track(&pool, *id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn fetched_torrent_file_is_saved_to_the_database(pool: PgPool) {
+    let s = setup(&pool, &OK).await;
+    let tid = add_torrent(&pool, s.album_id, 1, 0.9).await;
+    let file = b"d4:infod4:name1:aee".to_vec();
+    let fetcher = FakeFetcher::new(vec![(
+        hash(1),
+        Reply::FilesWithFile(good_files(), file.clone()),
+    )]);
+    let (ctx, _) = ctx(&pool, fetcher.clone());
+
+    verify_torrent(&ctx, tid, s.album_id).await.unwrap();
+
+    assert_eq!(fetcher.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        torrents::torrent_file(&pool, tid).await.unwrap(),
+        Some(file)
+    );
+    assert!(
+        torrents::get(&pool, tid)
+            .await
+            .unwrap()
+            .unwrap()
+            .has_torrent_file
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn unusable_stored_torrent_file_falls_back_to_the_network(pool: PgPool) {
+    let s = setup(&pool, &OK).await;
+    // Битые байты, а затем файл с чужим info-hash: оба раза идём в сеть и заменяем файл.
+    for (n, bad) in [(1u8, b"garbage".to_vec()), (2, album_torrent_bytes())] {
+        let tid = add_torrent(&pool, s.album_id, n, 0.9).await;
+        torrents::set_torrent_file(&pool, tid, &bad).await.unwrap();
+        let fresh = b"fresh".to_vec();
+        let fetcher = FakeFetcher::new(vec![(
+            hash(n),
+            Reply::FilesWithFile(good_files(), fresh.clone()),
+        )]);
+        let (ctx, _) = ctx(&pool, fetcher.clone());
+
+        verify_torrent(&ctx, tid, s.album_id).await.unwrap();
+
+        assert_eq!(fetcher.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            torrents::torrent_file(&pool, tid).await.unwrap(),
+            Some(fresh)
+        );
+        assert_eq!(
+            torrents::get(&pool, tid)
+                .await
+                .unwrap()
+                .unwrap()
+                .meta_status,
+            MetaStatus::Ok
+        );
+    }
+}
+
+#[test]
+fn retry_delay_follows_the_schedule_and_saturates() {
+    use nimbus_worker::verify::{retry_delay, MAX_META_ATTEMPTS, RETRY_SCHEDULE};
+    let secs = |n| retry_delay(n).as_secs();
+    assert_eq!((secs(1), secs(2), secs(3)), (60, 300, 1800));
+    assert_eq!((secs(0), secs(-5), secs(99)), (60, 60, 1800));
+    assert_eq!(MAX_META_ATTEMPTS as usize, RETRY_SCHEDULE.len() + 1);
 }

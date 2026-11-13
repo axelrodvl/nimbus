@@ -281,6 +281,7 @@ mod tests {
             leechers: None,
             category: None,
             files_count: None,
+            torrent_file: None,
         }
     }
 

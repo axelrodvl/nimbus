@@ -21,6 +21,7 @@ nimbus-musicbrainz.workspace = true
 nimbus-trackers.workspace = true
 nimbus-matcher.workspace = true
 nimbus-torrent.workspace = true
+bytes.workspace = true
 
 [dev-dependencies]
 nimbus-testkit.workspace = true

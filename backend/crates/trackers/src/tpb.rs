@@ -85,6 +85,7 @@ impl TpbProvider {
             leechers: it.leechers.parse().ok(),
             category: Some(it.category),
             files_count: it.num_files.parse().ok().filter(|n| *n > 0),
+            torrent_file: None,
         })
     }
 }

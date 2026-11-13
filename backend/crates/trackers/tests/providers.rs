@@ -275,6 +275,7 @@ async fn torznab_resolve_downloads_torrent_and_hashes_info() {
     let mut torrent = b"d8:announce3:url4:info".to_vec();
     torrent.extend_from_slice(info);
     torrent.push(b'e');
+    let downloaded = torrent.clone();
     let expected: String = Sha1::digest(info)
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -299,9 +300,67 @@ async fn torznab_resolve_downloads_torrent_and_hashes_info() {
     let resolved = p.resolve(found[2].clone()).await.unwrap();
     assert_eq!(resolved.info_hash.as_ref().unwrap().as_str(), expected);
     assert!(resolved.magnet.unwrap().contains(&expected));
+    // Скачанный `.torrent` не выбрасывается, а кладётся в кандидата.
+    assert_eq!(resolved.torrent_file.as_deref(), Some(&downloaded[..]));
     // Кандидат с хешем не ходит в сеть.
     let same = p.resolve(found[0].clone()).await.unwrap();
     assert_eq!(same, found[0]);
+    assert!(found.iter().all(|c| c.torrent_file.is_none()));
+}
+
+#[tokio::test]
+async fn torznab_resolve_drops_oversized_torrent_file_but_keeps_the_hash() {
+    let info = b"d6:lengthi3e4:name1:a12:piece lengthi16384e6:pieces20:AAAAAAAAAAAAAAAAAAAAe";
+    // `comment` раздувает файл сверх лимита; info-hash от этого не зависит.
+    let filler = vec![b'x'; nimbus_core::model::MAX_TORRENT_FILE_BYTES + 1];
+    let mut torrent = format!("d7:comment{}:", filler.len()).into_bytes();
+    torrent.extend_from_slice(&filler);
+    torrent.extend_from_slice(b"4:info");
+    torrent.extend_from_slice(info);
+    torrent.push(b'e');
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/dl/big"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(torrent))
+        .mount(&server)
+        .await;
+    let xml = TZ_MUSIC.replace("__DL__", &format!("{}/dl/big", server.uri()));
+    Mock::given(method("GET"))
+        .and(path("/api"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(xml))
+        .mount(&server)
+        .await;
+
+    let p = torznab(&server);
+    let found = p.search(&music_query()).await.unwrap();
+    let resolved = p.resolve(found[2].clone()).await.unwrap();
+    assert!(resolved.info_hash.is_some() && resolved.magnet.is_some());
+    assert!(
+        resolved.torrent_file.is_none(),
+        "файл больше 8 МБ отбрасывается"
+    );
+}
+
+#[test]
+fn candidate_debug_does_not_dump_torrent_file_bytes() {
+    let c = TorrentCandidate {
+        source: TorrentSource::Torznab,
+        source_topic_id: None,
+        title: "t".into(),
+        info_hash: None,
+        magnet: None,
+        download_url: None,
+        size_bytes: None,
+        seeders: None,
+        leechers: None,
+        category: None,
+        files_count: None,
+        torrent_file: Some(vec![7u8; 4096]),
+    };
+    let dbg = format!("{c:?}");
+    assert!(dbg.contains("torrent_file_len: Some(4096)"), "{dbg}");
+    assert!(!dbg.contains("7, 7, 7"));
 }
 
 // ---------------------------------------------------------------- registry
@@ -332,6 +391,7 @@ impl TorrentProvider for Fake {
                 leechers: None,
                 category: None,
                 files_count: None,
+                torrent_file: None,
             }]),
             Behavior::Fail => Err(ProviderError::Blocked("down".into())),
             Behavior::Hang => {
@@ -627,6 +687,7 @@ mod rutracker {
             leechers: None,
             category: None,
             files_count: None,
+            torrent_file: None,
         }
     }
 

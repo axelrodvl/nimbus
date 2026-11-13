@@ -28,12 +28,14 @@ pub async fn list_for_album(
     db: impl PgExecutor<'_>,
     album_id: i64,
 ) -> sqlx::Result<Vec<RankedTorrent>> {
-    sqlx::query_as(
-        "SELECT t.*, at.query AS link_query, at.rank_score, at.verified
+    sqlx::query_as(concat!(
+        "SELECT ",
+        crate::torrent_cols!(),
+        ", at.query AS link_query, at.rank_score, at.verified
          FROM album_torrents at JOIN torrents t ON t.id = at.torrent_id
          WHERE at.album_id = $1
-         ORDER BY at.rank_score DESC, t.id",
-    )
+         ORDER BY at.rank_score DESC, t.id"
+    ))
     .bind(album_id)
     .fetch_all(db)
     .await
@@ -123,16 +125,18 @@ pub async fn list_with_counts(
     db: impl PgExecutor<'_>,
     album_id: i64,
 ) -> sqlx::Result<Vec<AlbumTorrentRow>> {
-    sqlx::query_as(
-        "SELECT t.*, at.rank_score, at.verified,
+    sqlx::query_as(concat!(
+        "SELECT ",
+        crate::torrent_cols!(),
+        ", at.rank_score, at.verified,
                 (SELECT count(*) FROM torrent_files f WHERE f.torrent_id = t.id) AS files_count,
                 (SELECT count(DISTINCT ts.track_id) FROM track_sources ts
                    JOIN tracks tr ON tr.id = ts.track_id
                   WHERE ts.torrent_id = t.id AND tr.album_id = at.album_id) AS matched_tracks
          FROM album_torrents at JOIN torrents t ON t.id = at.torrent_id
          WHERE at.album_id = $1
-         ORDER BY at.rank_score DESC, t.id",
-    )
+         ORDER BY at.rank_score DESC, t.id"
+    ))
     .bind(album_id)
     .fetch_all(db)
     .await

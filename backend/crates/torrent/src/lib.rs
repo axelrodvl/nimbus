@@ -25,9 +25,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use librqbit::api::TorrentIdOrHash;
+use librqbit::dht::DhtPersistenceConfig;
 use librqbit::{
-    AddTorrent, AddTorrentOptions, AddTorrentResponse, ListenerOptions, Magnet, ManagedTorrent,
-    Session, SessionOptions, SessionPersistenceConfig,
+    AddTorrent, AddTorrentOptions, AddTorrentResponse, DhtSessionConfig, ListenerOptions, Magnet,
+    ManagedTorrent, Session, SessionOptions, SessionPersistenceConfig,
 };
 use nimbus_core::model::InfoHash;
 use tokio::io::{AsyncRead, AsyncSeek};
@@ -39,8 +40,7 @@ use tracing::Instrument;
 
 type ManagedTorrentHandle = Arc<ManagedTorrent>;
 
-/// Одновременных `fetch_metadata` (каждый открывает DHT-поиск и соединения).
-const METADATA_CONCURRENCY: usize = 4;
+pub use bytes::Bytes;
 
 #[derive(Debug, Clone)]
 pub struct EngineConfig {
@@ -56,6 +56,10 @@ pub struct EngineConfig {
     /// паузу. `None` — раздаём без ограничений.
     pub seed_ratio: Option<f64>,
     pub metadata_timeout: Duration,
+    /// Одновременных сетевых `fetch_metadata` (каждый открывает DHT-поиск и соединения).
+    pub metadata_concurrency: usize,
+    /// Публичные трекеры, которые дополняют magnet без `tr=` (не меняя сохранённый magnet).
+    pub public_trackers: Vec<String>,
     /// Как часто проверять лимит раздачи (`seed_ratio`) у завершённых торрентов.
     pub ratio_check_interval: Duration,
     /// Включить DHT.
@@ -78,7 +82,9 @@ impl EngineConfig {
             listen_port: None,
             seeding,
             seed_ratio: None,
-            metadata_timeout: Duration::from_secs(45),
+            metadata_timeout: Duration::from_secs(30),
+            metadata_concurrency: 16,
+            public_trackers: vec![],
             ratio_check_interval: Duration::from_secs(30),
             dht: true,
             localhost_only: false,
@@ -103,6 +109,55 @@ pub struct TorrentMeta {
     pub name: String,
     pub files: Vec<FileEntry>,
     pub piece_length: u32,
+    /// Готовый `.torrent` (если известен): его стоит сохранить, чтобы не добывать метаданные снова.
+    pub torrent_file: Option<Bytes>,
+}
+
+/// Источник торрента для движка: magnet и, если уже есть, готовый `.torrent`. С байтами
+/// метаданные не нужны — торрент добавляется без сети.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TorrentRef {
+    pub magnet: String,
+    pub torrent_file: Option<Bytes>,
+}
+
+impl TorrentRef {
+    /// Только magnet: метаданные придётся добыть из сети.
+    pub fn magnet(magnet: impl Into<String>) -> Self {
+        Self {
+            magnet: magnet.into(),
+            torrent_file: None,
+        }
+    }
+
+    /// Magnet и готовый `.torrent` (`None` — как [`TorrentRef::magnet`]).
+    pub fn new(magnet: impl Into<String>, torrent_file: Option<Vec<u8>>) -> Self {
+        Self {
+            magnet: magnet.into(),
+            torrent_file: torrent_file.map(Bytes::from),
+        }
+    }
+}
+
+/// Разбирает `.torrent` без сети. `expected` — ожидаемый info-hash: не совпал — ошибка.
+pub fn parse_torrent_file(
+    bytes: &[u8],
+    expected: Option<&InfoHash>,
+) -> Result<TorrentMeta, EngineError> {
+    let parsed = librqbit::torrent_from_bytes(bytes)
+        .map_err(|e| EngineError::Internal(format!("invalid torrent file: {e:#}")))?;
+    let hash = to_hash(parsed.info_hash);
+    if expected.is_some_and(|e| *e != hash) {
+        return Err(EngineError::Internal("info-hash mismatch".into()));
+    }
+    let info = parsed
+        .info
+        .data
+        .validate()
+        .map_err(|e| EngineError::Internal(format!("invalid torrent file: {e:#}")))?;
+    let mut meta = meta_of(&hash, &info);
+    meta.torrent_file = Some(Bytes::copy_from_slice(bytes));
+    Ok(meta)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,20 +254,25 @@ impl MetadataFetcher for TorrentEngine {
 pub trait FileProvider: Send + Sync {
     async fn ensure_file(
         &self,
-        magnet: &str,
+        torrent: &TorrentRef,
         file_index: usize,
     ) -> Result<TorrentHandleId, EngineError>;
     /// Несколько файлов за один вызов (по умолчанию — цикл `ensure_file`).
     async fn ensure_files(
         &self,
-        magnet: &str,
+        torrent: &TorrentRef,
         file_indexes: &[usize],
     ) -> Result<TorrentHandleId, EngineError> {
         let mut id = None;
         for &i in file_indexes {
-            id = Some(self.ensure_file(magnet, i).await?);
+            id = Some(self.ensure_file(torrent, i).await?);
         }
         id.ok_or_else(|| EngineError::Internal("no files requested".into()))
+    }
+    /// `.torrent` торрента, добавленного в движок (после `ensure_file`): вызывающий сохраняет его,
+    /// если в БД файла ещё не было. По умолчанию — `None`.
+    fn torrent_file(&self, _id: &TorrentHandleId) -> Option<Bytes> {
+        None
     }
     async fn open_stream(
         &self,
@@ -227,17 +287,20 @@ pub trait FileProvider: Send + Sync {
 impl FileProvider for TorrentEngine {
     async fn ensure_file(
         &self,
-        magnet: &str,
+        torrent: &TorrentRef,
         file_index: usize,
     ) -> Result<TorrentHandleId, EngineError> {
-        TorrentEngine::ensure_file(self, magnet, file_index).await
+        TorrentEngine::ensure_file(self, torrent, file_index).await
     }
     async fn ensure_files(
         &self,
-        magnet: &str,
+        torrent: &TorrentRef,
         file_indexes: &[usize],
     ) -> Result<TorrentHandleId, EngineError> {
-        TorrentEngine::ensure_files(self, magnet, file_indexes).await
+        TorrentEngine::ensure_files(self, torrent, file_indexes).await
+    }
+    fn torrent_file(&self, id: &TorrentHandleId) -> Option<Bytes> {
+        TorrentEngine::torrent_file(self, id)
     }
     async fn open_stream(
         &self,
@@ -462,9 +525,6 @@ impl TorrentEngine {
             fastresume: cfg.persistence,
             ..SessionOptions::default()
         };
-        if !cfg.dht {
-            opts.dht = None;
-        }
         if cfg.persistence {
             std::fs::create_dir_all(&cfg.session_dir)?;
             opts.persistence = Some(SessionPersistenceConfig::Json {
@@ -491,6 +551,19 @@ impl TorrentEngine {
         if cfg.localhost_only {
             opts.disable_local_service_discovery = true;
         }
+        // Таблица маршрутизации DHT — в каталоге сессии (по умолчанию librqbit пишет в каталог ОС).
+        if cfg.dht {
+            opts.dht = Some(DhtSessionConfig {
+                persistence: cfg.persistence.then(|| DhtPersistenceConfig {
+                    dump_interval: None,
+                    config_filename: Some(cfg.session_dir.join("dht.json")),
+                }),
+                ..DhtSessionConfig::default()
+            });
+        } else {
+            opts.dht = None;
+        }
+        let metadata_slots = cfg.metadata_concurrency.max(1);
         let session = Session::new_with_opts(cfg.data_dir.clone(), opts)
             .await
             .map_err(internal)?;
@@ -502,7 +575,7 @@ impl TorrentEngine {
                 cfg.seed_ratio,
             ))),
             cfg,
-            metadata_slots: Semaphore::new(METADATA_CONCURRENCY),
+            metadata_slots: Semaphore::new(metadata_slots),
             state: Arc::new(std::sync::Mutex::new(HashMap::new())),
             tasks: TaskTracker::new(),
             cancel: CancellationToken::new(),
@@ -727,6 +800,67 @@ impl TorrentEngine {
         }
     }
 
+    /// Что отдать librqbit: готовый `.torrent` (с трекерами из magnet в опциях — в байтах их может
+    /// не быть) или magnet, дополненный публичными трекерами, если своих в нём нет.
+    #[allow(clippy::type_complexity)]
+    fn add_source(
+        &self,
+        torrent: &TorrentRef,
+        magnet: &Magnet,
+        hash: &InfoHash,
+    ) -> Result<(AddTorrent<'static>, Option<Vec<String>>), EngineError> {
+        let Some(bytes) = &torrent.torrent_file else {
+            let url = self.magnet_with_trackers(&torrent.magnet, magnet);
+            return Ok((AddTorrent::from_url(url), None));
+        };
+        // Байты проверяем заранее: чужой или битый `.torrent` не должен попасть в сессию.
+        let parsed = librqbit::torrent_from_bytes(bytes)
+            .map_err(|e| EngineError::Internal(format!("invalid torrent file: {e:#}")))?;
+        if to_hash(parsed.info_hash) != *hash {
+            return Err(EngineError::Internal("info-hash mismatch".into()));
+        }
+        let private = parsed.info.data.private;
+        let mut trackers = magnet.trackers.clone();
+        if trackers.is_empty() && !private {
+            trackers = self.cfg.public_trackers.clone();
+        }
+        Ok((
+            AddTorrent::from_bytes(bytes.clone()),
+            (!trackers.is_empty()).then_some(trackers),
+        ))
+    }
+
+    /// Magnet без `tr=` дополняется публичными трекерами (сохранённый magnet не меняется).
+    fn magnet_with_trackers(&self, raw: &str, magnet: &Magnet) -> String {
+        if !magnet.trackers.is_empty() || self.cfg.public_trackers.is_empty() {
+            return raw.to_string();
+        }
+        let mut out = raw.to_string();
+        for tr in &self.cfg.public_trackers {
+            out.push_str("&tr=");
+            out.push_str(&percent_encode(tr));
+        }
+        out
+    }
+
+    /// `.torrent` торрента, который сейчас в сессии (из метаданных librqbit).
+    pub fn torrent_file(&self, id: &TorrentHandleId) -> Option<Bytes> {
+        self.handle(id)?
+            .with_metadata(|m| m.torrent_bytes.clone())
+            .ok()
+    }
+
+    /// `.torrent` всех торрентов сессии с готовыми метаданными — для дозаполнения БД после обновления.
+    pub fn session_torrent_files(&self) -> Vec<(InfoHash, Bytes)> {
+        handles_of(&self.session)
+            .iter()
+            .filter_map(|h| {
+                let bytes = h.with_metadata(|m| m.torrent_bytes.clone()).ok()?;
+                Some((to_hash(h.info_hash()), bytes))
+            })
+            .collect()
+    }
+
     fn parse_magnet(magnet: &str) -> Result<(Magnet, InfoHash), EngineError> {
         let m = Magnet::parse(magnet).map_err(|e| EngineError::InvalidMagnet(e.to_string()))?;
         let id = m
@@ -737,17 +871,18 @@ impl TorrentEngine {
 
     /// Список файлов по magnet, без скачивания данных.
     pub async fn fetch_metadata(&self, magnet: &str) -> Result<TorrentMeta, EngineError> {
-        let (_, hash) = Self::parse_magnet(magnet)?;
+        let (parsed, hash) = Self::parse_magnet(magnet)?;
         async {
             // Торрент уже в сессии — сеть не нужна.
             if let Some(h) = self.handle(&TorrentHandleId(hash.clone())) {
-                if let Ok(meta) = h.with_metadata(|m| meta_of(&hash, &m.info)) {
+                if let Ok(meta) = h.with_metadata(|m| meta_with_file(&hash, m)) {
                     return Ok(meta);
                 }
             }
+            // Семафор — только на сетевой путь (разбор готового `.torrent` его не касается).
             let _permit = self.metadata_slots.acquire().await.map_err(internal)?;
             let fut = self.session.add_torrent(
-                AddTorrent::from_url(magnet.to_string()),
+                AddTorrent::from_url(self.magnet_with_trackers(magnet, &parsed)),
                 Some(self.add_options(None, true)),
             );
             let resp = tokio::time::timeout(self.cfg.metadata_timeout, fut)
@@ -755,9 +890,13 @@ impl TorrentEngine {
                 .map_err(|_| EngineError::MetadataTimeout)?
                 .map_err(add_error)?;
             match resp {
-                AddTorrentResponse::ListOnly(r) => Ok(meta_of(&hash, &r.info)),
+                AddTorrentResponse::ListOnly(r) => {
+                    let mut meta = meta_of(&hash, &r.info);
+                    meta.torrent_file = Some(r.torrent_bytes);
+                    Ok(meta)
+                }
                 AddTorrentResponse::Added(_, h) | AddTorrentResponse::AlreadyManaged(_, h) => h
-                    .with_metadata(|m| meta_of(&hash, &m.info))
+                    .with_metadata(|m| meta_with_file(&hash, m))
                     .map_err(internal),
             }
         }
@@ -768,26 +907,31 @@ impl TorrentEngine {
     /// Гарантирует, что торрент в сессии и среди скачиваемых есть `file_index`. Идемпотентно.
     pub async fn ensure_file(
         &self,
-        magnet: &str,
+        torrent: &TorrentRef,
         file_index: usize,
     ) -> Result<TorrentHandleId, EngineError> {
-        self.ensure_files(magnet, &[file_index]).await
+        self.ensure_files(torrent, &[file_index]).await
     }
 
     /// Гарантирует, что торрент в сессии и среди скачиваемых есть все `file_indexes`
     /// (один `update_only_files` на набор). Идемпотентно; параллельные вызовы для одного
     /// торрента выстраиваются по очереди, для разных — независимы.
+    ///
+    /// С готовым `.torrent` в `torrent` торрент добавляется без сети; иначе — по magnet
+    /// (получив метаданные, движок отдаёт байты через [`TorrentEngine::torrent_file`]).
     pub async fn ensure_files(
         &self,
-        magnet: &str,
+        torrent: &TorrentRef,
         file_indexes: &[usize],
     ) -> Result<TorrentHandleId, EngineError> {
-        let (_, hash) = Self::parse_magnet(magnet)?;
+        let (parsed, hash) = Self::parse_magnet(&torrent.magnet)?;
         let id = TorrentHandleId(hash.clone());
         if file_indexes.is_empty() {
             return Err(EngineError::Internal("no files requested".into()));
         }
         let want: HashSet<usize> = file_indexes.iter().copied().collect();
+        // Битый или чужой `.torrent` отклоняется до слота: после ошибки в сессии и слотах ничего нет.
+        let source = self.add_source(torrent, &parsed, &hash)?;
         async {
             let wait = self.cfg.metadata_timeout;
             let (slot, _op) = lock_slot(&self.state, &hash, true, wait)
@@ -810,10 +954,9 @@ impl TorrentEngine {
             // Новый торрент: сразу с `only_files`, чтобы никогда не качать всё.
             let mut only: Vec<usize> = want.iter().copied().collect();
             only.sort_unstable();
-            let fut = self.session.add_torrent(
-                AddTorrent::from_url(magnet.to_string()),
-                Some(self.add_options(Some(only), false)),
-            );
+            let mut opts = self.add_options(Some(only), false);
+            opts.trackers = source.1;
+            let fut = self.session.add_torrent(source.0, Some(opts));
             let added = match tokio::time::timeout(wait, fut).await {
                 Err(_) => Err(EngineError::MetadataTimeout),
                 Ok(Err(e)) => Err(add_error(e)),
@@ -1176,9 +1319,28 @@ fn check_index(h: &ManagedTorrentHandle, idx: usize) -> Result<(), EngineError> 
     }
 }
 
-fn meta_of(
+/// Percent-кодирование значения параметра magnet (всё, кроме unreserved-символов RFC 3986).
+fn percent_encode(s: &str) -> String {
+    use std::fmt::Write;
+    s.bytes().fold(String::new(), |mut out, b| {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(char::from(b));
+        } else {
+            let _ = write!(out, "%{b:02X}");
+        }
+        out
+    })
+}
+
+fn meta_with_file(hash: &InfoHash, m: &librqbit::TorrentMetadata) -> TorrentMeta {
+    let mut meta = meta_of(hash, &m.info);
+    meta.torrent_file = Some(m.torrent_bytes.clone());
+    meta
+}
+
+fn meta_of<B: AsRef<[u8]>>(
     hash: &InfoHash,
-    info: &librqbit::ValidatedTorrentMetaV1Info<librqbit::ByteBufOwned>,
+    info: &librqbit::ValidatedTorrentMetaV1Info<B>,
 ) -> TorrentMeta {
     let name = info.name().map(|n| n.into_owned()).unwrap_or_default();
     let files = info
@@ -1195,6 +1357,7 @@ fn meta_of(
         name,
         files,
         piece_length: info.lengths().default_piece_length(),
+        torrent_file: None,
     }
 }
 
@@ -1271,6 +1434,61 @@ mod tests {
         assert_eq!(join_path(&[], "single.mp3"), "single.mp3");
     }
 
+    #[test]
+    fn percent_encoding_keeps_unreserved_only() {
+        assert_eq!(percent_encode("abc-_.~XYZ019"), "abc-_.~XYZ019");
+        assert_eq!(
+            percent_encode("udp://tracker.example:1337/announce"),
+            "udp%3A%2F%2Ftracker.example%3A1337%2Fannounce"
+        );
+        assert_eq!(percent_encode("а"), "%D0%B0");
+    }
+
+    async fn engine_with_trackers(trackers: &[&str]) -> (TorrentEngine, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "nimbus-engine-tr-{}-{}",
+            std::process::id(),
+            trackers.len()
+        ));
+        let mut cfg = EngineConfig::new(&dir, false);
+        cfg.dht = false;
+        cfg.persistence = false;
+        cfg.localhost_only = true;
+        cfg.public_trackers = trackers.iter().map(|t| t.to_string()).collect();
+        (TorrentEngine::new(cfg).await.unwrap(), dir)
+    }
+
+    #[tokio::test]
+    async fn magnet_without_trackers_gets_public_ones_and_others_are_untouched() {
+        let hash = "ab".repeat(20);
+        let (e, dir) = engine_with_trackers(&["udp://t.example:80/announce"]).await;
+        let bare = format!("magnet:?xt=urn:btih:{hash}&dn=x");
+        let parsed = Magnet::parse(&bare).unwrap();
+        assert_eq!(
+            e.magnet_with_trackers(&bare, &parsed),
+            format!("{bare}&tr=udp%3A%2F%2Ft.example%3A80%2Fannounce")
+        );
+        // Результат остаётся корректным magnet с трекером.
+        let enriched = e.magnet_with_trackers(&bare, &parsed);
+        let again = Magnet::parse(&enriched).unwrap();
+        assert_eq!(
+            again.trackers,
+            vec!["udp://t.example:80/announce".to_string()]
+        );
+
+        let own = format!("{bare}&tr=http%3A%2F%2Fown.example%2Fa");
+        let parsed = Magnet::parse(&own).unwrap();
+        assert_eq!(e.magnet_with_trackers(&own, &parsed), own);
+        e.shutdown().await;
+        let _ = std::fs::remove_dir_all(dir);
+
+        let (e, dir) = engine_with_trackers(&[]).await;
+        let parsed = Magnet::parse(&bare).unwrap();
+        assert_eq!(e.magnet_with_trackers(&bare, &parsed), bare);
+        e.shutdown().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[tokio::test]
     async fn invalid_magnet_is_rejected() {
         let dir = std::env::temp_dir().join(format!("nimbus-engine-{}", std::process::id()));
@@ -1284,7 +1502,7 @@ mod tests {
             Err(EngineError::InvalidMagnet(_))
         ));
         assert!(matches!(
-            e.ensure_file("not a magnet", 0).await,
+            e.ensure_file(&TorrentRef::magnet("not a magnet"), 0).await,
             Err(EngineError::InvalidMagnet(_))
         ));
         e.shutdown().await;

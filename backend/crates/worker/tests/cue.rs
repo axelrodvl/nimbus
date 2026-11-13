@@ -10,7 +10,9 @@ use nimbus_core::model::*;
 use nimbus_db::repo::{
     album_torrents, albums, artists, cue_candidates, torrents, track_sources, tracks,
 };
-use nimbus_torrent::{AsyncReadSeek, EngineError, FileProgress, FileProvider, TorrentHandleId};
+use nimbus_torrent::{
+    AsyncReadSeek, EngineError, FileProgress, FileProvider, TorrentHandleId, TorrentRef,
+};
 use nimbus_worker::cue::ProcessCueHandler;
 use nimbus_worker::{JobCtx, JobError, JobHandler};
 use sqlx::PgPool;
@@ -19,12 +21,26 @@ use uuid::Uuid;
 /// «Движок»: CUE-файл уже лежит на диске.
 struct Fake {
     path: PathBuf,
+    /// Что получил `ensure_file`.
+    refs: std::sync::Mutex<Vec<TorrentRef>>,
+    /// `.torrent`, который «получил из сети» движок.
+    engine_file: Option<nimbus_torrent::Bytes>,
 }
 
 #[async_trait]
 impl FileProvider for Fake {
-    async fn ensure_file(&self, magnet: &str, _: usize) -> Result<TorrentHandleId, EngineError> {
-        Ok(TorrentHandleId(InfoHash::from_magnet(magnet).unwrap()))
+    async fn ensure_file(
+        &self,
+        torrent: &TorrentRef,
+        _: usize,
+    ) -> Result<TorrentHandleId, EngineError> {
+        self.refs.lock().unwrap().push(torrent.clone());
+        Ok(TorrentHandleId(
+            InfoHash::from_magnet(&torrent.magnet).unwrap(),
+        ))
+    }
+    fn torrent_file(&self, _: &TorrentHandleId) -> Option<nimbus_torrent::Bytes> {
+        self.engine_file.clone()
     }
     async fn open_stream(
         &self,
@@ -165,15 +181,29 @@ async fn world(pool: &PgPool) -> World {
 }
 
 fn ctx(pool: &PgPool, cue_bytes: &[u8]) -> JobCtx {
+    ctx_with(pool, cue_bytes, None).0
+}
+
+fn ctx_with(
+    pool: &PgPool,
+    cue_bytes: &[u8],
+    engine_file: Option<&'static [u8]>,
+) -> (JobCtx, Arc<Fake>) {
     let path = std::env::temp_dir().join(format!("nimbus-cue-{}.cue", Uuid::new_v4()));
     std::fs::write(&path, cue_bytes).unwrap();
-    JobCtx::new(
+    let fake = Arc::new(Fake {
+        path,
+        refs: Default::default(),
+        engine_file: engine_file.map(nimbus_torrent::Bytes::from_static),
+    });
+    let ctx = JobCtx::new(
         pool.clone(),
         EventBus::new(),
         nimbus_musicbrainz::MbClient::new("NimbusTest/0.1 ( https://example.org )", None).unwrap(),
         Arc::new(nimbus_trackers::ProviderRegistry::new(vec![])),
     )
-    .with_files(Arc::new(Fake { path }))
+    .with_files(fake.clone());
+    (ctx, fake)
 }
 
 fn job(w: &World) -> Job {
@@ -285,4 +315,50 @@ async fn unusable_cue_is_fatal_and_does_not_block_the_album(pool: PgPool) {
             TrackStatus::NotFound
         );
     }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn cue_download_uses_stored_torrent_file(pool: PgPool) {
+    let w = world(&pool).await;
+    torrents::set_torrent_file(&pool, w.torrent_id, b"stored")
+        .await
+        .unwrap();
+    let (ctx, fake) = ctx_with(&pool, CUE.as_bytes(), Some(b"engine"));
+
+    nimbus_worker::cue::process_cue(&ctx, w.torrent_id, w.album_id, 1)
+        .await
+        .unwrap();
+
+    {
+        let refs = fake.refs.lock().unwrap();
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].torrent_file.as_deref(), Some(&b"stored"[..]));
+    }
+    // Уже сохранённый файл байтами движка не заменяется.
+    assert_eq!(
+        torrents::torrent_file(&pool, w.torrent_id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(&b"stored"[..])
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn cue_download_saves_torrent_file_received_by_the_engine(pool: PgPool) {
+    let w = world(&pool).await;
+    let (ctx, fake) = ctx_with(&pool, CUE.as_bytes(), Some(b"engine"));
+
+    nimbus_worker::cue::process_cue(&ctx, w.torrent_id, w.album_id, 1)
+        .await
+        .unwrap();
+
+    assert_eq!(fake.refs.lock().unwrap()[0].torrent_file, None);
+    assert_eq!(
+        torrents::torrent_file(&pool, w.torrent_id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(&b"engine"[..])
+    );
 }

@@ -546,3 +546,145 @@ async fn jobs_dedup_index(pool: PgPool) {
         .unwrap();
     sqlx::query(ins).execute(&pool).await.unwrap();
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn torrent_file_is_stored_separately_from_the_model(pool: PgPool) {
+    let t = torrents::upsert_by_info_hash(&pool, &new_torrent(H1))
+        .await
+        .unwrap();
+    assert!(!t.has_torrent_file);
+    assert_eq!(torrents::torrent_file(&pool, t.id).await.unwrap(), None);
+    assert_eq!(torrents::torrent_file(&pool, 9999).await.unwrap(), None);
+
+    assert!(
+        torrents::set_torrent_file(&pool, t.id, b"d4:infod4:name1:aee")
+            .await
+            .unwrap()
+    );
+    // Флаг виден во всех запросах, возвращающих `Torrent`, а сам файл — только отдельным методом.
+    assert!(
+        torrents::get(&pool, t.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .has_torrent_file
+    );
+    assert_eq!(
+        torrents::torrent_file(&pool, t.id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(&b"d4:infod4:name1:aee"[..])
+    );
+    // Повторный upsert (новая выдача провайдера) не стирает файл и отражает флаг.
+    let again = torrents::upsert_by_info_hash(&pool, &new_torrent(H1))
+        .await
+        .unwrap();
+    assert!(again.has_torrent_file);
+    let after_meta = torrents::set_meta_status(&pool, t.id, MetaStatus::Ok, None)
+        .await
+        .unwrap();
+    assert!(after_meta.has_torrent_file);
+    assert_eq!(after_meta.meta_status, MetaStatus::Ok);
+
+    // Перезапись допустима (свежие байты от движка).
+    torrents::set_torrent_file(&pool, t.id, b"new")
+        .await
+        .unwrap();
+    assert_eq!(
+        torrents::torrent_file(&pool, t.id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(&b"new"[..])
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn has_torrent_file_in_album_listings(pool: PgPool) {
+    let (_, album) = seed_album(&pool).await;
+    let with = torrents::upsert_by_info_hash(&pool, &new_torrent(H1))
+        .await
+        .unwrap();
+    let without = torrents::upsert_by_info_hash(&pool, &new_torrent(H2))
+        .await
+        .unwrap();
+    torrents::set_torrent_file(&pool, with.id, b"x")
+        .await
+        .unwrap();
+    for t in [&with, &without] {
+        album_torrents::link(&pool, album.id, t.id, "q", 0.5)
+            .await
+            .unwrap();
+    }
+    let listed = album_torrents::list_for_album(&pool, album.id)
+        .await
+        .unwrap();
+    let flag = |id| {
+        listed
+            .iter()
+            .find(|r| r.torrent.id == id)
+            .unwrap()
+            .torrent
+            .has_torrent_file
+    };
+    assert!(flag(with.id));
+    assert!(!flag(without.id));
+    let counted = album_torrents::list_with_counts(&pool, album.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        counted
+            .iter()
+            .filter(|r| r.torrent.has_torrent_file)
+            .count(),
+        1
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn oversized_torrent_file_is_not_stored(pool: PgPool) {
+    let t = torrents::upsert_by_info_hash(&pool, &new_torrent(H1))
+        .await
+        .unwrap();
+    let big = vec![0u8; torrents::MAX_TORRENT_FILE_BYTES + 1];
+    assert!(!torrents::set_torrent_file(&pool, t.id, &big).await.unwrap());
+    assert!(!torrents::fill_torrent_file_by_hash(&pool, H1, &big)
+        .await
+        .unwrap());
+    assert!(
+        !torrents::get(&pool, t.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .has_torrent_file
+    );
+    // Ровно на границе — сохраняется.
+    let edge = vec![1u8; torrents::MAX_TORRENT_FILE_BYTES];
+    assert!(torrents::set_torrent_file(&pool, t.id, &edge)
+        .await
+        .unwrap());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn fill_torrent_file_by_hash_only_fills_empty_rows(pool: PgPool) {
+    let t = torrents::upsert_by_info_hash(&pool, &new_torrent(H1))
+        .await
+        .unwrap();
+    assert!(torrents::fill_torrent_file_by_hash(&pool, H1, b"first")
+        .await
+        .unwrap());
+    assert!(!torrents::fill_torrent_file_by_hash(&pool, H1, b"second")
+        .await
+        .unwrap());
+    assert!(!torrents::fill_torrent_file_by_hash(&pool, H2, b"unknown")
+        .await
+        .unwrap());
+    assert_eq!(
+        torrents::torrent_file(&pool, t.id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(&b"first"[..])
+    );
+}

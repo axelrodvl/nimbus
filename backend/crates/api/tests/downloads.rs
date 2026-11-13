@@ -42,7 +42,10 @@ async fn list_pause_resume(pool: PgPool) {
         (200, Some(0))
     );
 
-    engine.ensure_file(&swarm.magnet, 0).await.unwrap();
+    engine
+        .ensure_file(&nimbus_torrent::TorrentRef::magnet(&swarm.magnet), 0)
+        .await
+        .unwrap();
     // Ждём завершения: торрент остаётся раздающим (seeding = true).
     nimbus_testkit::eventually(Duration::from_secs(10), || async {
         let (_, v) = get_json(app.clone(), "/api/downloads").await;

@@ -20,7 +20,9 @@ use nimbus_api::AppState;
 use nimbus_core::events::Event;
 use nimbus_core::model::*;
 use nimbus_db::repo::{albums, artists, downloads, torrents, track_sources, tracks};
-use nimbus_torrent::{AsyncReadSeek, EngineError, FileProgress, FileProvider, TorrentHandleId};
+use nimbus_torrent::{
+    AsyncReadSeek, Bytes, EngineError, FileProgress, FileProvider, TorrentHandleId, TorrentRef,
+};
 use rand::RngCore;
 use sqlx::PgPool;
 use tokio::io::{AsyncRead, AsyncSeek, ReadBuf};
@@ -43,6 +45,10 @@ struct Fake {
     open_calls: AtomicUsize,
     finished: AtomicBool,
     bytes_done: AtomicU64,
+    /// Что получил `ensure_file` (проверка: `.torrent` из БД доходит до движка).
+    refs: std::sync::Mutex<Vec<TorrentRef>>,
+    /// `.torrent`, который «движок получил из сети» при добавлении по magnet.
+    engine_file: std::sync::Mutex<Option<Bytes>>,
 }
 
 impl Fake {
@@ -54,6 +60,8 @@ impl Fake {
             open_calls: AtomicUsize::new(0),
             finished: AtomicBool::new(false),
             bytes_done: AtomicU64::new(0),
+            refs: Default::default(),
+            engine_file: Default::default(),
         })
     }
 }
@@ -109,12 +117,22 @@ impl AsyncSeek for Hang {
 
 #[async_trait]
 impl FileProvider for Fake {
-    async fn ensure_file(&self, magnet: &str, _idx: usize) -> Result<TorrentHandleId, EngineError> {
+    async fn ensure_file(
+        &self,
+        torrent: &TorrentRef,
+        _idx: usize,
+    ) -> Result<TorrentHandleId, EngineError> {
         self.ensure_calls.fetch_add(1, Ordering::SeqCst);
+        self.refs.lock().unwrap().push(torrent.clone());
         if self.mode == Mode::EnsureTimeout {
             return Err(EngineError::MetadataTimeout);
         }
-        Ok(TorrentHandleId(InfoHash::from_magnet(magnet).unwrap()))
+        Ok(TorrentHandleId(
+            InfoHash::from_magnet(&torrent.magnet).unwrap(),
+        ))
+    }
+    fn torrent_file(&self, _id: &TorrentHandleId) -> Option<Bytes> {
+        self.engine_file.lock().unwrap().clone()
     }
     async fn open_stream(
         &self,
@@ -979,6 +997,114 @@ async fn prefetch_registers_file_reads_head_and_protects_it(pool: PgPool) {
     for p in [&f.path, &a.path, &done.path] {
         let _ = std::fs::remove_file(p);
     }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn stream_hands_the_stored_torrent_file_to_the_engine(pool: PgPool) {
+    let f = fixture(pool.clone(), "flac", TrackStatus::Found).await;
+    let fake = Fake::new(f.path.clone(), Mode::Normal);
+    let st = app(&f, &fake);
+    let uri = format!("/api/tracks/{}/stream", f.track_id);
+
+    // В БД `.torrent` нет — движок получает только magnet.
+    assert_eq!(call(&st, "GET", &uri, Some("bytes=0-9")).await.status, 206);
+    let first = fake.refs.lock().unwrap()[0].clone();
+    assert_eq!(first.torrent_file, None);
+    assert!(first.magnet.starts_with("magnet:?xt=urn:btih:"));
+
+    // `.torrent` сохранён — тот же запрос передаёт байты (метаданные из сети не нужны).
+    torrents::set_torrent_file(&pool, f.torrent_id, b"stored-torrent")
+        .await
+        .unwrap();
+    assert_eq!(call(&st, "GET", &uri, Some("bytes=0-9")).await.status, 206);
+    let second = fake.refs.lock().unwrap()[1].clone();
+    assert_eq!(second.torrent_file.as_deref(), Some(&b"stored-torrent"[..]));
+    assert_eq!(second.magnet, first.magnet);
+    let _ = std::fs::remove_file(&f.path);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn torrent_file_received_by_the_engine_is_saved_once(pool: PgPool) {
+    let f = fixture(pool.clone(), "flac", TrackStatus::Found).await;
+    let fake = Fake::new(f.path.clone(), Mode::Normal);
+    *fake.engine_file.lock().unwrap() = Some(Bytes::from_static(b"from-engine"));
+    let st = app(&f, &fake);
+    let uri = format!("/api/tracks/{}/stream", f.track_id);
+
+    assert_eq!(call(&st, "GET", &uri, Some("bytes=0-9")).await.status, 206);
+    assert_eq!(
+        torrents::torrent_file(&pool, f.torrent_id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(&b"from-engine"[..])
+    );
+    assert!(
+        torrents::get(&pool, f.torrent_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .has_torrent_file
+    );
+
+    // Файл уже есть в БД — байты движка его не перезаписывают.
+    *fake.engine_file.lock().unwrap() = Some(Bytes::from_static(b"other"));
+    assert_eq!(call(&st, "GET", &uri, Some("bytes=0-9")).await.status, 206);
+    assert_eq!(
+        torrents::torrent_file(&pool, f.torrent_id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(&b"from-engine"[..])
+    );
+    let _ = std::fs::remove_file(&f.path);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn prefetch_uses_and_saves_the_torrent_file(pool: PgPool) {
+    let f = fixture(pool.clone(), "flac", TrackStatus::Found).await;
+    torrents::set_torrent_file(&pool, f.torrent_id, b"stored")
+        .await
+        .unwrap();
+    let fake = Fake::new(f.path.clone(), Mode::Normal);
+    let st = app(&f, &fake);
+    let r = post(&st, &format!("/api/tracks/{}/prefetch", f.track_id)).await;
+    assert_eq!(r.status, 202);
+    nimbus_testkit::eventually(Duration::from_secs(5), || async {
+        fake.open_calls.load(Ordering::SeqCst) > 0
+    })
+    .await;
+    assert_eq!(
+        fake.refs.lock().unwrap()[0].torrent_file.as_deref(),
+        Some(&b"stored"[..])
+    );
+
+    let _ = std::fs::remove_file(&f.path);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn prefetch_saves_the_torrent_file_received_by_the_engine(pool: PgPool) {
+    let g = fixture(pool.clone(), "flac", TrackStatus::Found).await;
+    let fake2 = Fake::new(g.path.clone(), Mode::Normal);
+    *fake2.engine_file.lock().unwrap() = Some(Bytes::from_static(b"prefetched"));
+    let st2 = app(&g, &fake2);
+    let r = post(&st2, &format!("/api/tracks/{}/prefetch", g.track_id)).await;
+    assert_eq!(r.status, 202);
+    nimbus_testkit::eventually(Duration::from_secs(5), || async {
+        torrents::torrent_file(&pool, g.torrent_id)
+            .await
+            .unwrap()
+            .is_some()
+    })
+    .await;
+    assert_eq!(
+        torrents::torrent_file(&pool, g.torrent_id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(&b"prefetched"[..])
+    );
+    let _ = std::fs::remove_file(&g.path);
 }
 
 #[test]

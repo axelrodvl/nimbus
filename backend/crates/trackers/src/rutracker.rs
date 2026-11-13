@@ -329,6 +329,7 @@ impl RutrackerProvider {
                     leechers: count(row.select(&leech).next()),
                     category,
                     files_count: None,
+                    torrent_file: None,
                 })
             })
             .collect()

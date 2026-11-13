@@ -154,6 +154,7 @@ impl TorznabProvider {
             leechers,
             category: attrs.get("category").map(|c| c.to_string()),
             files_count: num("files"),
+            torrent_file: None,
         }
     }
 }
@@ -190,6 +191,12 @@ impl TorrentProvider for TorznabProvider {
         let bytes = check_status(resp)?.bytes().await?;
         let hash = info_hash_of_torrent(&bytes)
             .ok_or_else(|| ProviderError::Parse("not a valid .torrent file".into()))?;
+        // Готовый `.torrent` кладём в кандидата: список файлов будет известен без сети.
+        if bytes.len() <= nimbus_core::model::MAX_TORRENT_FILE_BYTES {
+            c.torrent_file = Some(bytes.to_vec());
+        } else {
+            tracing::warn!(size = bytes.len(), "torrent file is too large, not kept");
+        }
         c.magnet = Some(crate::magnet::build_magnet(
             &hash,
             &c.title,

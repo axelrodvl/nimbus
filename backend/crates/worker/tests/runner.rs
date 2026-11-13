@@ -597,6 +597,7 @@ async fn handlers_use_worker_counts_from_settings(pool: PgPool) {
         discover_workers: 3,
         verify_workers: 5,
         import_workers: 7,
+        ..Default::default()
     };
     let counts: Vec<(Vec<&str>, usize)> = nimbus_worker::handlers::handlers(&perf)
         .iter()

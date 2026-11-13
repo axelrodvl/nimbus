@@ -261,7 +261,7 @@ pub(crate) async fn resolve_input(
             "torrent engine is not running",
         )
     })?;
-    crate::stream::register_download(state, &torrent.magnet, source, size).await?;
+    crate::stream::register_download(state, torrent, source, size).await?;
     Ok(format!(
         "{base}/api/internal/raw/{}/{}",
         source.torrent_id, source.file_index

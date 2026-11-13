@@ -17,6 +17,8 @@ pub struct FakeSwarm {
     pub magnet: String,
     pub info_hash: String,
     pub addr: SocketAddr,
+    /// Готовый `.torrent` раздачи.
+    pub torrent_file: bytes::Bytes,
 }
 
 impl FakeSwarm {
@@ -89,6 +91,7 @@ pub async fn start(
     )
     .await?;
     let bytes = created.as_bytes()?;
+    let torrent_file = bytes.clone();
     let seeder = Session::new_with_opts(
         root.join("seeder-session"),
         SessionOptions {
@@ -123,5 +126,6 @@ pub async fn start(
         seeder,
         magnet: format!("magnet:?xt=urn:btih:{info_hash}&dn={name}"),
         info_hash,
+        torrent_file,
     })
 }

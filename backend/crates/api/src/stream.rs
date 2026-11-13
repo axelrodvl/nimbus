@@ -10,10 +10,11 @@ use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::Response;
 use nimbus_core::events::Event;
-use nimbus_core::model::{InfoHash, NewDownload, TrackSource, TrackStatus};
+use nimbus_core::model::{InfoHash, NewDownload, Torrent, TrackSource, TrackStatus};
 use nimbus_db::helpers::set_track_status_and_publish;
 use nimbus_db::repo::{downloads, torrents, track_sources, tracks};
 use nimbus_torrent::{AsyncReadSeek, EngineError, TorrentHandleId};
+use nimbus_worker::torrent_file;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::ReaderStream;
 
@@ -288,7 +289,7 @@ async fn serve_file(
     let guard = state
         .activity
         .begin_stream(source.torrent_id, source.file_index);
-    let reader = open_reader(state, &torrent.magnet, source, size).await?;
+    let reader = open_reader(state, torrent, source, size).await?;
     downloads::touch_played(&state.db, source.torrent_id, source.file_index).await?;
     let body = body_from(state, track_id, source, reader, start, len).await?;
     let body = Body::from_stream(Guarded {
@@ -320,7 +321,7 @@ type Reader = Box<dyn AsyncReadSeek + Send + Unpin>;
 /// Файл с диска, если загрузка завершена и файл на месте; иначе — поток из движка.
 async fn open_reader(
     state: &AppState,
-    magnet: &str,
+    torrent: &Torrent,
     source: &TrackSource,
     size: u64,
 ) -> Result<Reader, ApiError> {
@@ -345,13 +346,15 @@ async fn open_reader(
         )
     })?;
     let idx = source.file_index as usize;
-    let handle = match files.ensure_file(magnet, idx).await {
+    let tref = torrent_file::torrent_ref(&state.db, torrent).await?;
+    let handle = match files.ensure_file(&tref, idx).await {
         Ok(h) => h,
         Err(e) => {
             failover(state, source).await;
             return Err(map_engine_error(e));
         }
     };
+    torrent_file::remember_engine_file(&state.db, files.as_ref(), &handle, torrent).await;
     if existing.is_none() {
         if let Some(path) = files.file_path(&handle, idx) {
             downloads::upsert(
@@ -477,7 +480,7 @@ impl<S: futures::Stream + Unpin> futures::Stream for Guarded<S> {
 /// Регистрирует файл в движке и строку `downloads` (если её ещё нет); возвращает handle торрента.
 pub(crate) async fn register_download(
     state: &AppState,
-    magnet: &str,
+    torrent: &Torrent,
     source: &TrackSource,
     size: u64,
 ) -> Result<nimbus_torrent::TorrentHandleId, ApiError> {
@@ -489,10 +492,12 @@ pub(crate) async fn register_download(
         )
     })?;
     let idx = source.file_index as usize;
+    let tref = torrent_file::torrent_ref(&state.db, torrent).await?;
     let handle = files
-        .ensure_file(magnet, idx)
+        .ensure_file(&tref, idx)
         .await
         .map_err(map_engine_error)?;
+    torrent_file::remember_engine_file(&state.db, files.as_ref(), &handle, torrent).await;
     if downloads::get(&state.db, source.torrent_id, source.file_index)
         .await?
         .is_none()
@@ -577,7 +582,7 @@ pub async fn prefetch_track(
         .mark_prefetched(source.torrent_id, source.file_index);
     let bg = state.clone();
     tokio::spawn(async move {
-        if let Err(e) = prefetch_head(&bg, &torrent.magnet, &source, size).await {
+        if let Err(e) = prefetch_head(&bg, &torrent, &source, size).await {
             tracing::debug!(track_id = source.track_id, error = ?e.message, "prefetch failed");
         }
     });
@@ -587,11 +592,11 @@ pub async fn prefetch_track(
 /// Регистрирует файл в движке и читает его начало; файл продолжает докачиваться в фоне.
 async fn prefetch_head(
     state: &AppState,
-    magnet: &str,
+    torrent: &Torrent,
     source: &TrackSource,
     size: u64,
 ) -> Result<(), ApiError> {
-    let handle = register_download(state, magnet, source, size).await?;
+    let handle = register_download(state, torrent, source, size).await?;
     let files = state.files.as_ref().ok_or_else(ApiError::internal)?;
     let mut reader = files
         .open_stream(&handle, source.file_index as usize)

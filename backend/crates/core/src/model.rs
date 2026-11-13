@@ -264,6 +264,9 @@ pub struct Track {
     pub updated_at: DateTime<Utc>,
 }
 
+/// `.torrent` больше этого размера не сохраняется (защита БД и памяти от гигантских файлов).
+pub const MAX_TORRENT_FILE_BYTES: usize = 8 * 1024 * 1024;
+
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct Torrent {
     pub id: i64,
@@ -280,6 +283,8 @@ pub struct Torrent {
     pub meta_attempts: i32,
     pub meta_error: Option<String>,
     pub fetched_at: Option<DateTime<Utc>>,
+    /// В БД сохранён `.torrent` (сам файл в модель не загружается).
+    pub has_torrent_file: bool,
     pub created_at: DateTime<Utc>,
 }
 

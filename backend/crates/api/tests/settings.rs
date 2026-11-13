@@ -248,7 +248,10 @@ async fn performance_defaults_are_exposed(pool: PgPool) {
     let (_, body) = get_json(router(state(pool)), "/api/settings").await;
     assert_eq!(
         body["performance"],
-        json!({"discover_workers": 8, "verify_workers": 16, "import_workers": 2})
+        json!({
+            "discover_workers": 8, "verify_workers": 16, "import_workers": 2,
+            "metadata_concurrency": 16, "metadata_timeout_secs": 30
+        })
     );
 }
 
@@ -262,8 +265,28 @@ async fn performance_is_validated(pool: PgPool) {
     }
     let (code, _) = put(app.clone(), json!({"performance": {"verify_workers": -1}})).await;
     assert_eq!(code, 400, "отрицательное не помещается в u8");
-    let (code, _) = put(app, json!({"performance": {"import_workers": 64}})).await;
+    let (code, _) = put(app.clone(), json!({"performance": {"import_workers": 64}})).await;
     assert_eq!(code, 200);
+    // Метаданные торрентов: concurrency 1..=64, timeout 5..=300 с.
+    for (field, bad) in [
+        ("metadata_concurrency", 0),
+        ("metadata_concurrency", 65),
+        ("metadata_timeout_secs", 4),
+        ("metadata_timeout_secs", 301),
+    ] {
+        let (code, body) = put(app.clone(), json!({"performance": {field: bad}})).await;
+        assert_eq!(code, 400, "{field}={bad}: {body}");
+        assert_eq!(body["error"]["code"], "invalid_settings");
+    }
+    let (code, body) = put(
+        app,
+        json!({"performance": {"metadata_concurrency": 64, "metadata_timeout_secs": 300}}),
+    )
+    .await;
+    assert_eq!(code, 200);
+    assert_eq!(body["performance"]["metadata_concurrency"], 64);
+    assert_eq!(body["performance"]["metadata_timeout_secs"], 300);
+    assert_eq!(body["restart_required"], true);
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]

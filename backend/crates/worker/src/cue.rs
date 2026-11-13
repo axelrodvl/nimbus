@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use nimbus_core::jobs::Job;
-use nimbus_core::model::{NewTrackSource, TrackStatus};
+use nimbus_core::model::{NewTrackSource, Torrent, TrackStatus};
 use nimbus_db::helpers::set_track_status_and_publish;
 use nimbus_db::repo::{albums, artists, cue_candidates, torrents, track_sources, tracks};
 use nimbus_matcher::cue::{match_cue, parse_cue};
@@ -58,10 +58,15 @@ impl JobHandler for ProcessCueHandler {
 }
 
 /// Скачивает CUE-файл и возвращает его байты.
-async fn fetch_cue(ctx: &JobCtx, magnet: &str, cue_file_index: usize) -> Result<Vec<u8>, JobError> {
+async fn fetch_cue(
+    ctx: &JobCtx,
+    torrent: &Torrent,
+    cue_file_index: usize,
+) -> Result<Vec<u8>, JobError> {
     let files = ctx.files()?;
+    let tref = crate::torrent_file::torrent_ref(&ctx.db, torrent).await?;
     let handle = ctx
-        .run(files.ensure_file(magnet, cue_file_index))
+        .run(files.ensure_file(&tref, cue_file_index))
         .await?
         .map_err(|e| match e {
             EngineError::MetadataTimeout => JobError::Retry {
@@ -70,6 +75,7 @@ async fn fetch_cue(ctx: &JobCtx, magnet: &str, cue_file_index: usize) -> Result<
             },
             other => JobError::Unexpected(other.to_string()),
         })?;
+    crate::torrent_file::remember_engine_file(&ctx.db, files.as_ref(), &handle, torrent).await;
     let wait = async {
         loop {
             if files
@@ -129,7 +135,7 @@ pub async fn process_cue(
         .ok_or_else(|| JobError::Fatal(format!("artist {} not found", album.artist_id)))?;
     let files = torrents::files(&ctx.db, torrent_id).await?;
 
-    let bytes = fetch_cue(ctx, &torrent.magnet, cue_file_index as usize).await?;
+    let bytes = fetch_cue(ctx, &torrent, cue_file_index as usize).await?;
     let sheet = match parse_cue(&bytes) {
         Ok(s) => s,
         Err(e) => {

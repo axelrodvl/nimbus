@@ -61,8 +61,17 @@
 - **Исчерпание попыток.** Когда задача окончательно стала `failed` (в том числе `Fatal` и потерянная воркером),
   вызывается `JobHandler::on_exhausted` — он приводит данные в согласованное состояние (раздача помечается
   проверенной, треки без источников — `not_found`, кандидат CUE закрывается, UI получает `library.changed`).
-- **Параллелизм** — `settings.performance` (`discover_workers`, `verify_workers`, `import_workers`, 1–64);
+- **Параллелизм** — `settings.performance` (`discover_workers`, `verify_workers`, `import_workers`,
+  `metadata_concurrency`, 1–64; `metadata_timeout_secs`, 5–300);
   читается при старте, `PUT /api/settings` возвращает `restart_required`. Пул БД: `10 + воркеры`, не меньше 20.
+- **Метаданные торрентов** (шаг 28). Готовый `.torrent` хранится в `torrents.torrent_file` (BYTEA, ≤ 8 МБ; в модель
+  `Torrent` не грузится — только флаг `has_torrent_file`). Источники байтов: Torznab (`resolve` уже скачал файл),
+  `fetch_metadata` движка (`ListOnly.torrent_bytes`), торрент, добавленный в движок по magnet (`FileProvider::torrent_file`),
+  дозаполнение из сессии librqbit при старте. С байтами `verify` разбирает список файлов без сети
+  (`parse_torrent_file`), а воспроизведение добавляет торрент по `TorrentRef { magnet, torrent_file }` без ожидания
+  DHT. Сетевой путь ограничен семафором `metadata_concurrency`; повторы после таймаута — через 1, 5 и 30 минут,
+  следующая неудача — `dead`. Magnet без `tr=` дополняется публичными трекерами при добавлении в движок (в БД не
+  меняется); таблица маршрутизации DHT лежит в `{data_dir}/session/dht.json`.
 - **API**: `GET /api/jobs`, `POST /api/jobs/{id}/retry` (см. `docs/api.md`).
 
 ## Авторизация

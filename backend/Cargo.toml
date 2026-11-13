@@ -37,6 +37,7 @@ nimbus-torrent = { path = "crates/torrent" }
 nimbus-matcher = { path = "crates/matcher" }
 nimbus-testkit = { path = "crates/testkit" }
 tokio-util = "0.7"
+bytes = "1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -122,6 +122,13 @@ async fn main() -> anyhow::Result<()> {
     let mut engine_cfg = EngineConfig::new(&config.data_dir, initial.storage.seeding);
     engine_cfg.seed_ratio = initial.storage.seed_ratio;
     engine_cfg.listen_port = Some(config.torrent_port);
+    engine_cfg.metadata_concurrency = usize::from(initial.performance.metadata_concurrency);
+    engine_cfg.metadata_timeout =
+        std::time::Duration::from_secs(u64::from(initial.performance.metadata_timeout_secs));
+    engine_cfg.public_trackers = nimbus_trackers::magnet::PUBLIC_TRACKERS
+        .iter()
+        .map(ToString::to_string)
+        .collect();
     #[cfg(feature = "test-fakes")]
     if let Some(f) = &fakes {
         engine_cfg.localhost_only = true;
@@ -135,6 +142,21 @@ async fn main() -> anyhow::Result<()> {
             .await
             .context("cannot start torrent engine")?,
     );
+    // Дозаполнение `.torrent` для торрентов, добавленных до шага 28. Одноразовая короткая задача:
+    // не блокирует запуск; при остановке процесса просто прерывается (повтор на следующем старте).
+    let backfill = {
+        let (db, engine) = (db.clone(), engine.clone());
+        tokio::spawn(async move {
+            let n = nimbus_worker::torrent_file::fill_torrent_files(
+                &db,
+                engine.session_torrent_files(),
+            )
+            .await;
+            if n > 0 {
+                tracing::info!(count = n, "stored .torrent files of session torrents");
+            }
+        })
+    };
     let providers = Arc::new(ProviderRegistry::new(vec![]));
     providers
         .reload(&initial.providers)
@@ -186,6 +208,7 @@ async fn main() -> anyhow::Result<()> {
     .with_graceful_shutdown(shutdown_signal())
     .await?;
     watcher.abort();
+    backfill.abort();
     workers.shutdown().await;
     engine.shutdown().await;
     tracing::info!("shutdown complete");

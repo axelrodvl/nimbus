@@ -22,7 +22,7 @@ impl SearchQuery {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TorrentCandidate {
     pub source: TorrentSource,
     pub source_topic_id: Option<String>,
@@ -37,6 +37,32 @@ pub struct TorrentCandidate {
     pub leechers: Option<u32>,
     pub category: Option<String>,
     pub files_count: Option<u32>,
+    /// Готовый `.torrent`, если провайдер его уже скачал (Torznab при `resolve`): по нему список
+    /// файлов известен без сети. Не больше `MAX_TORRENT_FILE_BYTES`.
+    pub torrent_file: Option<Vec<u8>>,
+}
+
+// Содержимое `.torrent` в логи не попадает: только размер.
+impl std::fmt::Debug for TorrentCandidate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TorrentCandidate")
+            .field("source", &self.source)
+            .field("source_topic_id", &self.source_topic_id)
+            .field("title", &self.title)
+            .field("info_hash", &self.info_hash)
+            .field("magnet", &self.magnet)
+            .field("download_url", &self.download_url)
+            .field("size_bytes", &self.size_bytes)
+            .field("seeders", &self.seeders)
+            .field("leechers", &self.leechers)
+            .field("category", &self.category)
+            .field("files_count", &self.files_count)
+            .field(
+                "torrent_file_len",
+                &self.torrent_file.as_ref().map(Vec::len),
+            )
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, thiserror::Error)]

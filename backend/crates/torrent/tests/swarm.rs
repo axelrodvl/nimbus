@@ -171,9 +171,17 @@ async fn stream_seek_reads_exact_bytes_and_only_selected_file_downloads() {
     let other = index_of(&meta, NAMES[0]);
     let expected = &swarm.contents[1];
 
-    let id = e.ensure_file(swarm.magnet(), idx).await.unwrap();
+    let id = e
+        .ensure_file(&TorrentRef::magnet(swarm.magnet()), idx)
+        .await
+        .unwrap();
     assert_eq!(e.selected_files(&id).await, [idx]);
-    assert_eq!(e.ensure_file(swarm.magnet(), idx).await.unwrap(), id);
+    assert_eq!(
+        e.ensure_file(&TorrentRef::magnet(swarm.magnet()), idx)
+            .await
+            .unwrap(),
+        id
+    );
 
     // Чтение с начала.
     let mut s = e.open_stream(&id, idx).await.unwrap();
@@ -232,12 +240,17 @@ async fn selection_grows_and_paused_torrent_resumes() {
     let meta = e.fetch_metadata(swarm.magnet()).await.unwrap();
     let (a, b) = (index_of(&meta, NAMES[0]), index_of(&meta, NAMES[2]));
 
-    let id = e.ensure_file(swarm.magnet(), a).await.unwrap();
+    let id = e
+        .ensure_file(&TorrentRef::magnet(swarm.magnet()), a)
+        .await
+        .unwrap();
     wait_finished(&e, &id, a).await;
     wait_state(&e, &id, TorrentState::Paused).await;
 
     // Второй файл — набор объединяется, торрент снимается с паузы и докачивает.
-    e.ensure_file(swarm.magnet(), b).await.unwrap();
+    e.ensure_file(&TorrentRef::magnet(swarm.magnet()), b)
+        .await
+        .unwrap();
     let mut sorted = vec![a, b];
     sorted.sort_unstable();
     assert_eq!(e.selected_files(&id).await, sorted);
@@ -284,13 +297,16 @@ async fn deaf_torrent_does_not_block_a_live_one() {
     let started = Instant::now();
     let slow = {
         let e = e.clone();
-        tokio::spawn(async move { e.ensure_file(&deaf, 0).await })
+        tokio::spawn(async move { e.ensure_file(&TorrentRef::magnet(&deaf), 0).await })
     };
     tokio::time::sleep(Duration::from_millis(200)).await; // глухой уже держит свой слот
 
     let first = ix(&e, &swarm).await[0];
     let live = Instant::now();
-    let id = e.ensure_file(swarm.magnet(), first).await.unwrap();
+    let id = e
+        .ensure_file(&TorrentRef::magnet(swarm.magnet()), first)
+        .await
+        .unwrap();
     let mut s = e.open_stream(&id, first).await.unwrap();
     let mut buf = vec![0u8; 4096];
     tokio::time::timeout(Duration::from_secs(10), s.read_exact(&mut buf))
@@ -319,7 +335,7 @@ async fn timeout_cleans_up_session_and_slot() {
     let (e, _base, _hole) = engine_with_blackhole(&swarm, Duration::from_secs(1), false).await;
     let deaf = fake_swarm::deaf_magnet();
     assert!(matches!(
-        e.ensure_file(&deaf, 0).await,
+        e.ensure_file(&TorrentRef::magnet(&deaf), 0).await,
         Err(EngineError::MetadataTimeout)
     ));
     assert!(
@@ -328,7 +344,9 @@ async fn timeout_cleans_up_session_and_slot() {
     );
     assert_eq!(e.tracked_torrents(), 0, "слот должен быть убран");
     // Движок работоспособен: живой торрент добавляется как обычно.
-    e.ensure_file(swarm.magnet(), 0).await.unwrap();
+    e.ensure_file(&TorrentRef::magnet(swarm.magnet()), 0)
+        .await
+        .unwrap();
     assert_eq!(e.tracked_torrents(), 1);
 }
 
@@ -344,7 +362,9 @@ async fn concurrent_ensure_file_on_one_torrent_merges_selection() {
     let mut tasks = vec![];
     for i in 0..10 {
         let (e, magnet) = (e.clone(), swarm.magnet().to_string());
-        tasks.push(tokio::spawn(async move { e.ensure_file(&magnet, i).await }));
+        tasks.push(tokio::spawn(async move {
+            e.ensure_file(&TorrentRef::magnet(&magnet), i).await
+        }));
     }
     let mut ids = vec![];
     for t in tasks {
@@ -362,10 +382,18 @@ async fn concurrent_ensure_file_on_one_torrent_merges_selection() {
 async fn repeated_ensure_file_is_a_fast_noop() {
     let swarm = start_swarm().await;
     let (e, _base) = engine(&swarm, true).await;
-    let id = e.ensure_file(swarm.magnet(), 1).await.unwrap();
+    let id = e
+        .ensure_file(&TorrentRef::magnet(swarm.magnet()), 1)
+        .await
+        .unwrap();
     let t = Instant::now();
     for _ in 0..20 {
-        assert_eq!(e.ensure_file(swarm.magnet(), 1).await.unwrap(), id);
+        assert_eq!(
+            e.ensure_file(&TorrentRef::magnet(swarm.magnet()), 1)
+                .await
+                .unwrap(),
+            id
+        );
     }
     assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
     assert_eq!(e.selected_files(&id).await, [1]);
@@ -376,7 +404,7 @@ async fn invalid_file_index_for_new_torrent_removes_it_from_session() {
     let swarm = start_swarm().await;
     let (e, _base) = engine(&swarm, true).await;
     assert!(matches!(
-        e.ensure_file(swarm.magnet(), 99).await,
+        e.ensure_file(&TorrentRef::magnet(swarm.magnet()), 99).await,
         Err(EngineError::InvalidFileIndex(99))
     ));
     assert!(e.list_torrents().is_empty());
@@ -387,9 +415,12 @@ async fn invalid_file_index_for_new_torrent_removes_it_from_session() {
 async fn invalid_file_index_for_added_torrent_keeps_it() {
     let swarm = start_swarm().await;
     let (e, _base) = engine(&swarm, true).await;
-    let id = e.ensure_file(swarm.magnet(), 0).await.unwrap();
+    let id = e
+        .ensure_file(&TorrentRef::magnet(swarm.magnet()), 0)
+        .await
+        .unwrap();
     assert!(matches!(
-        e.ensure_file(swarm.magnet(), 99).await,
+        e.ensure_file(&TorrentRef::magnet(swarm.magnet()), 99).await,
         Err(EngineError::InvalidFileIndex(99))
     ));
     assert!(matches!(
@@ -405,7 +436,8 @@ async fn empty_file_set_is_rejected() {
     let swarm = start_swarm().await;
     let (e, _base) = engine(&swarm, true).await;
     assert!(matches!(
-        e.ensure_files(swarm.magnet(), &[]).await,
+        e.ensure_files(&TorrentRef::magnet(swarm.magnet()), &[])
+            .await,
         Err(EngineError::Internal(_))
     ));
     assert!(e.list_torrents().is_empty());
@@ -417,7 +449,7 @@ async fn ensure_files_downloads_the_set_and_nothing_else() {
     let (e, _base) = engine(&swarm, true).await;
     let ix = ix(&e, &swarm).await;
     let id = e
-        .ensure_files(swarm.magnet(), &[ix[0], ix[2]])
+        .ensure_files(&TorrentRef::magnet(swarm.magnet()), &[ix[0], ix[2]])
         .await
         .unwrap();
     let mut chosen = vec![ix[0], ix[2]];
@@ -443,7 +475,7 @@ async fn ensure_files_downloads_the_set_and_nothing_else() {
         Err(EngineError::NotFound)
     ));
     // Добавление к существующему торренту — одним вызовом.
-    e.ensure_files(swarm.magnet(), &[ix[1], ix[2]])
+    e.ensure_files(&TorrentRef::magnet(swarm.magnet()), &[ix[1], ix[2]])
         .await
         .unwrap();
     assert_eq!(e.selected_files(&id).await, [0, 1, 2]);
@@ -453,7 +485,10 @@ async fn ensure_files_downloads_the_set_and_nothing_else() {
 async fn release_file_shrinks_selection_and_removes_last_torrent() {
     let swarm = start_swarm().await;
     let (e, _base) = engine(&swarm, true).await;
-    let id = e.ensure_files(swarm.magnet(), &[0, 1]).await.unwrap();
+    let id = e
+        .ensure_files(&TorrentRef::magnet(swarm.magnet()), &[0, 1])
+        .await
+        .unwrap();
     wait_finished(&e, &id, 0).await;
     wait_finished(&e, &id, 1).await;
     let p0 = e.file_path(&id, 0).unwrap();
@@ -481,7 +516,10 @@ async fn release_file_shrinks_selection_and_removes_last_torrent() {
 async fn release_file_with_delete_data_removes_file_of_a_still_selected_torrent() {
     let swarm = start_swarm().await;
     let (e, _base) = engine(&swarm, true).await;
-    let id = e.ensure_files(swarm.magnet(), &[0, 1]).await.unwrap();
+    let id = e
+        .ensure_files(&TorrentRef::magnet(swarm.magnet()), &[0, 1])
+        .await
+        .unwrap();
     wait_finished(&e, &id, 0).await;
     let p0 = e.file_path(&id, 0).unwrap();
     e.release_file(&id, 0, true).await.unwrap();
@@ -505,7 +543,10 @@ async fn seeding_policy_pauses_and_resumes_finished_torrents() {
     let swarm = start_swarm().await;
     let (e, _base) = engine(&swarm, false).await;
     let ix = ix(&e, &swarm).await;
-    let id = e.ensure_file(swarm.magnet(), ix[0]).await.unwrap();
+    let id = e
+        .ensure_file(&TorrentRef::magnet(swarm.magnet()), ix[0])
+        .await
+        .unwrap();
     wait_finished(&e, &id, ix[0]).await;
     // seeding = false: после завершения — пауза.
     wait_state(&e, &id, TorrentState::Paused).await;
@@ -516,7 +557,9 @@ async fn seeding_policy_pauses_and_resumes_finished_torrents() {
     wait_state(&e, &id, TorrentState::Paused).await;
 
     // Новый файл в завершённом торренте на паузе → возобновляется и докачивает.
-    e.ensure_file(swarm.magnet(), ix[2]).await.unwrap();
+    e.ensure_file(&TorrentRef::magnet(swarm.magnet()), ix[2])
+        .await
+        .unwrap();
     assert_eq!(read_all(&e, &id, ix[2]).await, swarm.contents[2]);
     wait_state(&e, &id, TorrentState::Paused).await;
 }
@@ -529,7 +572,10 @@ async fn ratio_watcher_pauses_torrent_at_the_limit_and_resume_follows_limit_chan
     cfg.seed_ratio = Some(0.0); // любой завершённый торрент уже «достиг» лимита
     cfg.ratio_check_interval = Duration::from_millis(50);
     let e = TorrentEngine::new(cfg).await.unwrap();
-    let id = e.ensure_file(swarm.magnet(), 0).await.unwrap();
+    let id = e
+        .ensure_file(&TorrentRef::magnet(swarm.magnet()), 0)
+        .await
+        .unwrap();
     wait_finished(&e, &id, 0).await;
     wait_state(&e, &id, TorrentState::Paused).await;
 
@@ -546,7 +592,10 @@ async fn ratio_watcher_pauses_torrent_at_the_limit_and_resume_follows_limit_chan
 async fn pause_and_resume_torrent_change_state() {
     let swarm = start_swarm().await;
     let (e, _base) = engine(&swarm, true).await;
-    let id = e.ensure_file(swarm.magnet(), 0).await.unwrap();
+    let id = e
+        .ensure_file(&TorrentRef::magnet(swarm.magnet()), 0)
+        .await
+        .unwrap();
     wait_finished(&e, &id, 0).await;
     wait_state(&e, &id, TorrentState::Seeding).await;
 
@@ -572,7 +621,10 @@ async fn list_torrents_and_stats_report_the_session() {
     let swarm = start_swarm().await;
     let (e, _base) = engine(&swarm, true).await;
     assert_eq!(e.stats().torrents, 0);
-    let id = e.ensure_file(swarm.magnet(), 0).await.unwrap();
+    let id = e
+        .ensure_file(&TorrentRef::magnet(swarm.magnet()), 0)
+        .await
+        .unwrap();
     wait_finished(&e, &id, 0).await;
     let list = e.list_torrents();
     assert_eq!(list.len(), 1);
@@ -586,9 +638,16 @@ async fn one_pause_task_per_torrent() {
     let swarm = start_swarm().await;
     // seeding = false: каждая операция заводит «паузу по завершении».
     let (e, _base) = engine(&swarm, false).await;
-    let id = e.ensure_file(swarm.magnet(), 0).await.unwrap();
-    e.ensure_file(swarm.magnet(), 1).await.unwrap();
-    e.ensure_file(swarm.magnet(), 2).await.unwrap();
+    let id = e
+        .ensure_file(&TorrentRef::magnet(swarm.magnet()), 0)
+        .await
+        .unwrap();
+    e.ensure_file(&TorrentRef::magnet(swarm.magnet()), 1)
+        .await
+        .unwrap();
+    e.ensure_file(&TorrentRef::magnet(swarm.magnet()), 2)
+        .await
+        .unwrap();
     // Ratio-watcher + не больше одной задачи на торрент.
     eventually(Duration::from_secs(5), || async {
         e.background_tasks() <= 2
@@ -615,7 +674,10 @@ async fn selection_and_data_survive_restart_and_read_without_network() {
         .await
         .unwrap();
     let one = ix(&e, &swarm).await[1];
-    let id = e.ensure_file(swarm.magnet(), one).await.unwrap();
+    let id = e
+        .ensure_file(&TorrentRef::magnet(swarm.magnet()), one)
+        .await
+        .unwrap();
     wait_finished(&e, &id, one).await;
     e.shutdown().await;
     drop(e);
@@ -636,7 +698,9 @@ async fn selection_and_data_survive_restart_and_read_without_network() {
 async fn shutdown_stops_background_tasks_and_is_idempotent() {
     let swarm = start_swarm().await;
     let (e, _base) = engine(&swarm, false).await;
-    e.ensure_file(swarm.magnet(), 0).await.unwrap();
+    e.ensure_file(&TorrentRef::magnet(swarm.magnet()), 0)
+        .await
+        .unwrap();
     assert!(e.background_tasks() >= 1);
     e.shutdown().await;
     assert_eq!(e.background_tasks(), 0);
@@ -679,7 +743,10 @@ async fn disk_error_on_add_is_a_storage_error_and_leaves_nothing_behind() {
     let e = TorrentEngine::new(cfg).await.unwrap();
     // На месте папки раздачи лежит обычный файл: создать файлы торрента невозможно.
     std::fs::write(data.join("Album"), b"not a directory").unwrap();
-    let err = e.ensure_file(swarm.magnet(), 0).await.unwrap_err();
+    let err = e
+        .ensure_file(&TorrentRef::magnet(swarm.magnet()), 0)
+        .await
+        .unwrap_err();
     assert!(matches!(err, EngineError::Storage(_)), "{err:?}");
     assert!(e.list_torrents().is_empty());
     assert_eq!(e.tracked_torrents(), 0);
@@ -695,9 +762,12 @@ async fn engine_works_through_the_provider_traits() {
     assert_eq!(meta.files.len(), 3);
 
     let files: &dyn FileProvider = &e;
-    let id = files.ensure_file(swarm.magnet(), ix[0]).await.unwrap();
+    let id = files
+        .ensure_file(&TorrentRef::magnet(swarm.magnet()), ix[0])
+        .await
+        .unwrap();
     let same = files
-        .ensure_files(swarm.magnet(), &[ix[0], ix[1]])
+        .ensure_files(&TorrentRef::magnet(swarm.magnet()), &[ix[0], ix[1]])
         .await
         .unwrap();
     assert_eq!(id, same);
@@ -714,7 +784,9 @@ async fn engine_works_through_the_provider_traits() {
 async fn metadata_of_a_torrent_already_in_the_session_needs_no_network() {
     let swarm = start_swarm().await;
     let (e, _base) = engine(&swarm, true).await;
-    e.ensure_file(swarm.magnet(), 0).await.unwrap();
+    e.ensure_file(&TorrentRef::magnet(swarm.magnet()), 0)
+        .await
+        .unwrap();
     // Сидер остановлен: метаданные берутся из сессии.
     swarm.swarm.stop().await;
     let meta = e.fetch_metadata(swarm.magnet()).await.unwrap();
@@ -725,12 +797,226 @@ async fn metadata_of_a_torrent_already_in_the_session_needs_no_network() {
 async fn ensure_file_on_finished_paused_torrent_keeps_it_paused() {
     let swarm = start_swarm().await;
     let (e, _base) = engine(&swarm, false).await;
-    let id = e.ensure_file(swarm.magnet(), 0).await.unwrap();
+    let id = e
+        .ensure_file(&TorrentRef::magnet(swarm.magnet()), 0)
+        .await
+        .unwrap();
     wait_finished(&e, &id, 0).await;
     wait_state(&e, &id, TorrentState::Paused).await;
     // Файл уже скачан: повторный запрос не возобновляет торрент.
-    e.ensure_file(swarm.magnet(), 0).await.unwrap();
+    e.ensure_file(&TorrentRef::magnet(swarm.magnet()), 0)
+        .await
+        .unwrap();
     assert_eq!(state_of(&e, &id), Some(TorrentState::Paused));
+}
+
+fn with_file(swarm: &Swarm) -> TorrentRef {
+    TorrentRef {
+        magnet: swarm.magnet().to_string(),
+        torrent_file: Some(swarm.swarm.torrent_file.clone()),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fetch_metadata_returns_torrent_file_that_parses_to_the_same_meta() {
+    let swarm = start_swarm().await;
+    let (e, _base) = engine(&swarm, false).await;
+    let fetched = e.fetch_metadata(swarm.magnet()).await.unwrap();
+    let bytes = fetched
+        .torrent_file
+        .clone()
+        .expect("torrent_file is returned");
+
+    let parsed = parse_torrent_file(&bytes, Some(&fetched.info_hash)).unwrap();
+    assert_eq!(parsed.info_hash, fetched.info_hash);
+    assert_eq!(parsed.name, fetched.name);
+    assert_eq!(parsed.files, fetched.files);
+    assert_eq!(parsed.piece_length, fetched.piece_length);
+    assert_eq!(parsed.piece_length, 32 * 1024);
+    assert_eq!(parsed.torrent_file.as_deref(), Some(&bytes[..]));
+    // Оригинальный .torrent сидера даёт те же метаданные.
+    let original = parse_torrent_file(&swarm.swarm.torrent_file, None).unwrap();
+    assert_eq!(original.files, fetched.files);
+}
+
+#[tokio::test]
+async fn parse_torrent_file_rejects_garbage_and_foreign_hash() {
+    assert!(matches!(
+        parse_torrent_file(b"definitely not bencode", None),
+        Err(EngineError::Internal(m)) if m.contains("invalid torrent file")
+    ));
+    assert!(matches!(
+        parse_torrent_file(b"", None),
+        Err(EngineError::Internal(_))
+    ));
+    let swarm = start_swarm().await;
+    let other = nimbus_core::model::InfoHash::parse(&"cd".repeat(20)).unwrap();
+    assert!(matches!(
+        parse_torrent_file(&swarm.swarm.torrent_file, Some(&other)),
+        Err(EngineError::Internal(m)) if m == "info-hash mismatch"
+    ));
+    let own = nimbus_core::model::InfoHash::parse(&swarm.swarm.info_hash).unwrap();
+    assert!(parse_torrent_file(&swarm.swarm.torrent_file, Some(&own)).is_ok());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ensure_file_with_torrent_file_works_when_metadata_is_unreachable() {
+    let swarm = start_swarm().await;
+    let base = tempdir();
+    let mut cfg = base_cfg(base.path(), vec![swarm.addr()], false);
+    cfg.metadata_timeout = Duration::from_secs(1);
+    let e = TorrentEngine::new(cfg).await.unwrap();
+    swarm.swarm.stop().await;
+
+    // Без байтов метаданные недоступны — таймаут (и ничего не остаётся в сессии).
+    assert!(matches!(
+        e.ensure_file(&TorrentRef::magnet(swarm.magnet()), 0).await,
+        Err(EngineError::MetadataTimeout)
+    ));
+    assert_eq!(e.tracked_torrents(), 0);
+
+    // С байтами торрент добавляется сразу, без сети.
+    let started = Instant::now();
+    let id = e.ensure_file(&with_file(&swarm), 1).await.unwrap();
+    assert!(started.elapsed() < Duration::from_millis(900));
+    assert_eq!(e.selected_files(&id).await, vec![1]);
+    assert_eq!(e.tracked_torrents(), 1);
+    assert_eq!(e.list_torrents().len(), 1);
+    assert!(e.torrent_file(&id).is_some());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stream_with_torrent_file_reads_correct_data() {
+    let swarm = start_swarm().await;
+    let (e, _base) = engine(&swarm, false).await;
+    let meta = parse_torrent_file(&swarm.swarm.torrent_file, None).unwrap();
+    let idx = index_of(&meta, NAMES[1]);
+    let id = e.ensure_file(&with_file(&swarm), idx).await.unwrap();
+    assert_eq!(read_all(&e, &id, idx).await, swarm.contents[1]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ensure_file_rejects_foreign_or_broken_torrent_file_without_leaks() {
+    let swarm = start_swarm().await;
+    let (e, _base) = engine(&swarm, false).await;
+    let foreign = TorrentRef {
+        magnet: format!("magnet:?xt=urn:btih:{}", "ab".repeat(20)),
+        torrent_file: Some(swarm.swarm.torrent_file.clone()),
+    };
+    assert!(matches!(
+        e.ensure_file(&foreign, 0).await,
+        Err(EngineError::Internal(m)) if m == "info-hash mismatch"
+    ));
+    let broken = TorrentRef {
+        magnet: swarm.magnet().to_string(),
+        torrent_file: Some(Bytes::from_static(b"garbage")),
+    };
+    assert!(matches!(
+        e.ensure_file(&broken, 0).await,
+        Err(EngineError::Internal(m)) if m.contains("invalid torrent file")
+    ));
+    assert_eq!(e.tracked_torrents(), 0);
+    assert!(e.list_torrents().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn engine_exposes_torrent_file_of_added_torrents() {
+    let swarm = start_swarm().await;
+    let (e, _base) = engine(&swarm, false).await;
+    assert!(e.session_torrent_files().is_empty());
+    let id = e
+        .ensure_file(&TorrentRef::magnet(swarm.magnet()), 0)
+        .await
+        .unwrap();
+    // Добавили по magnet — движок отдаёт байты, которые можно сохранить.
+    let bytes = e.torrent_file(&id).expect("bytes after add by magnet");
+    parse_torrent_file(&bytes, Some(&id.0)).unwrap();
+    let all = e.session_torrent_files();
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].0, id.0);
+    assert!(e
+        .torrent_file(&TorrentHandleId(
+            nimbus_core::model::InfoHash::parse(&"ef".repeat(20)).unwrap()
+        ))
+        .is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fetch_metadata_concurrency_is_limited_by_config() {
+    let hole = fake_swarm::blackhole().await.unwrap();
+    let base = tempdir();
+    let mut cfg = base_cfg(base.path(), vec![hole.addr], false);
+    cfg.metadata_concurrency = 2;
+    cfg.metadata_timeout = Duration::from_millis(300);
+    let e = std::sync::Arc::new(TorrentEngine::new(cfg).await.unwrap());
+
+    let started = Instant::now();
+    let mut tasks = vec![];
+    for _ in 0..5 {
+        let e = e.clone();
+        let magnet = fake_swarm::deaf_magnet();
+        tasks.push(tokio::spawn(async move { e.fetch_metadata(&magnet).await }));
+    }
+    for t in tasks {
+        assert!(matches!(
+            t.await.unwrap(),
+            Err(EngineError::MetadataTimeout)
+        ));
+    }
+    // 5 запросов по 300 мс при двух слотах — три «волны» (2 + 2 + 1).
+    let took = started.elapsed();
+    assert!(
+        took >= Duration::from_millis(900),
+        "слишком быстро: {took:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn parsing_a_torrent_file_does_not_take_a_metadata_slot() {
+    // Движок с одним слотом, занятым «глухим» торрентом: разбор готового файла не ждёт.
+    let hole = fake_swarm::blackhole().await.unwrap();
+    let base = tempdir();
+    let mut cfg = base_cfg(base.path(), vec![hole.addr], false);
+    cfg.metadata_concurrency = 1;
+    cfg.metadata_timeout = Duration::from_secs(2);
+    let e = std::sync::Arc::new(TorrentEngine::new(cfg).await.unwrap());
+    let busy = {
+        let e = e.clone();
+        let magnet = fake_swarm::deaf_magnet();
+        tokio::spawn(async move { e.fetch_metadata(&magnet).await })
+    };
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let swarm = start_swarm().await;
+    let started = Instant::now();
+    parse_torrent_file(&swarm.swarm.torrent_file, None).unwrap();
+    assert!(started.elapsed() < Duration::from_millis(500));
+    assert!(matches!(
+        busy.await.unwrap(),
+        Err(EngineError::MetadataTimeout)
+    ));
+}
+
+/// Измерение для журнала: от `ensure_file` до первого байта потока — с `.torrent` и без.
+#[tokio::test(flavor = "multi_thread")]
+#[allow(clippy::print_stderr)]
+async fn first_byte_latency_with_and_without_torrent_file() {
+    async fn first_byte(e: &TorrentEngine, t: &TorrentRef, idx: usize) -> Duration {
+        let started = Instant::now();
+        let id = e.ensure_file(t, idx).await.unwrap();
+        let mut s = e.open_stream(&id, idx).await.unwrap();
+        let mut b = [0u8; 1];
+        tokio::time::timeout(Duration::from_secs(30), s.read_exact(&mut b))
+            .await
+            .unwrap()
+            .unwrap();
+        started.elapsed()
+    }
+    let swarm = start_swarm().await;
+    let (e1, _b1) = engine(&swarm, false).await;
+    let (e2, _b2) = engine(&swarm, false).await;
+    let without = first_byte(&e1, &TorrentRef::magnet(swarm.magnet()), 0).await;
+    let with = first_byte(&e2, &with_file(&swarm), 0).await;
+    eprintln!("first byte: by magnet {without:?}, with .torrent {with:?}");
 }
 
 /// Трейт-метод по умолчанию: `ensure_files` через цикл `ensure_file` (так работают фейки).
@@ -738,7 +1024,7 @@ struct Recorder(std::sync::Mutex<Vec<usize>>);
 
 #[async_trait::async_trait]
 impl FileProvider for Recorder {
-    async fn ensure_file(&self, _: &str, i: usize) -> Result<TorrentHandleId, EngineError> {
+    async fn ensure_file(&self, _: &TorrentRef, i: usize) -> Result<TorrentHandleId, EngineError> {
         self.0.lock().unwrap().push(i);
         Ok(TorrentHandleId(
             nimbus_core::model::InfoHash::parse(&"ab".repeat(20)).unwrap(),
@@ -762,10 +1048,12 @@ impl FileProvider for Recorder {
 #[tokio::test]
 async fn default_ensure_files_loops_over_ensure_file() {
     let r = Recorder(Default::default());
-    r.ensure_files("m", &[3, 1, 2]).await.unwrap();
+    r.ensure_files(&TorrentRef::magnet("m"), &[3, 1, 2])
+        .await
+        .unwrap();
     assert_eq!(*r.0.lock().unwrap(), [3, 1, 2]);
     assert!(matches!(
-        r.ensure_files("m", &[]).await,
+        r.ensure_files(&TorrentRef::magnet("m"), &[]).await,
         Err(EngineError::Internal(_))
     ));
 }

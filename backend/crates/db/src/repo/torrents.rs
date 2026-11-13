@@ -1,16 +1,35 @@
 use nimbus_core::model::{MetaStatus, NewTorrent, NewTorrentFile, Torrent, TorrentFile};
 use sqlx::{PgExecutor, PgPool};
 
+/// Колонки модели `Torrent` для запросов с псевдонимом `t`: перечислены явно, чтобы не тянуть
+/// `torrent_file` (мегабайты) в каждый запрос; вместо него — флаг `has_torrent_file`.
+#[macro_export]
+macro_rules! torrent_cols {
+    () => {
+        "t.id, t.info_hash, t.magnet, t.source, t.source_topic_id, t.title, t.size_bytes, \
+         t.seeders, t.leechers, t.kind, t.meta_status, t.meta_attempts, t.meta_error, \
+         t.fetched_at, (t.torrent_file IS NOT NULL) AS has_torrent_file, t.created_at"
+    };
+}
+
+pub use nimbus_core::model::MAX_TORRENT_FILE_BYTES;
+
 /// Upsert по info_hash. При конфликте обновляются только seeders/leechers/title.
 pub async fn upsert_by_info_hash(db: impl PgExecutor<'_>, t: &NewTorrent) -> sqlx::Result<Torrent> {
     sqlx::query_as(
-        "INSERT INTO torrents (info_hash, magnet, source, source_topic_id, title, size_bytes, seeders, leechers, kind)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         ON CONFLICT (info_hash) DO UPDATE SET
-            seeders = COALESCE(EXCLUDED.seeders, torrents.seeders),
-            leechers = COALESCE(EXCLUDED.leechers, torrents.leechers),
-            title = EXCLUDED.title
-         RETURNING *",
+        concat!(
+            "WITH t AS (
+                INSERT INTO torrents (info_hash, magnet, source, source_topic_id, title, size_bytes, seeders, leechers, kind)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                ON CONFLICT (info_hash) DO UPDATE SET
+                   seeders = COALESCE(EXCLUDED.seeders, torrents.seeders),
+                   leechers = COALESCE(EXCLUDED.leechers, torrents.leechers),
+                   title = EXCLUDED.title
+                RETURNING *)
+             SELECT ",
+            crate::torrent_cols!(),
+            " FROM t"
+        ),
     )
     .bind(t.info_hash.as_str())
     .bind(&t.magnet)
@@ -26,10 +45,14 @@ pub async fn upsert_by_info_hash(db: impl PgExecutor<'_>, t: &NewTorrent) -> sql
 }
 
 pub async fn get(db: impl PgExecutor<'_>, id: i64) -> sqlx::Result<Option<Torrent>> {
-    sqlx::query_as("SELECT * FROM torrents WHERE id = $1")
-        .bind(id)
-        .fetch_optional(db)
-        .await
+    sqlx::query_as(concat!(
+        "SELECT ",
+        crate::torrent_cols!(),
+        " FROM torrents t WHERE t.id = $1"
+    ))
+    .bind(id)
+    .fetch_optional(db)
+    .await
 }
 
 /// Меняет `meta_status`. `fetching` увеличивает `meta_attempts`, `ok` выставляет `fetched_at`.
@@ -39,14 +62,18 @@ pub async fn set_meta_status(
     status: MetaStatus,
     error: Option<&str>,
 ) -> sqlx::Result<Torrent> {
-    sqlx::query_as(
-        "UPDATE torrents SET
-            meta_status = $2,
-            meta_error = $3,
-            meta_attempts = meta_attempts + CASE WHEN $2 = 'fetching' THEN 1 ELSE 0 END,
-            fetched_at = CASE WHEN $2 = 'ok' THEN now() ELSE fetched_at END
-         WHERE id = $1 RETURNING *",
-    )
+    sqlx::query_as(concat!(
+        "WITH t AS (
+            UPDATE torrents SET
+               meta_status = $2,
+               meta_error = $3,
+               meta_attempts = meta_attempts + CASE WHEN $2 = 'fetching' THEN 1 ELSE 0 END,
+               fetched_at = CASE WHEN $2 = 'ok' THEN now() ELSE fetched_at END
+            WHERE id = $1 RETURNING *)
+         SELECT ",
+        crate::torrent_cols!(),
+        " FROM t"
+    ))
     .bind(id)
     .bind(status)
     .bind(error)
@@ -116,4 +143,56 @@ pub async fn files_with_match(
     .bind(torrent_id)
     .fetch_all(db)
     .await
+}
+
+/// Сохраняет `.torrent` раздачи. `false` — файл больше [`MAX_TORRENT_FILE_BYTES`] и не сохранён.
+pub async fn set_torrent_file(
+    db: impl PgExecutor<'_>,
+    id: i64,
+    bytes: &[u8],
+) -> sqlx::Result<bool> {
+    if bytes.len() > MAX_TORRENT_FILE_BYTES {
+        tracing::warn!(
+            torrent_id = id,
+            size = bytes.len(),
+            "torrent file is too large, not stored"
+        );
+        return Ok(false);
+    }
+    sqlx::query("UPDATE torrents SET torrent_file = $2 WHERE id = $1")
+        .bind(id)
+        .bind(bytes)
+        .execute(db)
+        .await?;
+    Ok(true)
+}
+
+/// Сохранённый `.torrent` раздачи, если есть.
+pub async fn torrent_file(db: impl PgExecutor<'_>, id: i64) -> sqlx::Result<Option<Vec<u8>>> {
+    let row: Option<(Option<Vec<u8>>,)> =
+        sqlx::query_as("SELECT torrent_file FROM torrents WHERE id = $1")
+            .bind(id)
+            .fetch_optional(db)
+            .await?;
+    Ok(row.and_then(|(f,)| f))
+}
+
+/// Сохраняет `.torrent` по info-hash, если у раздачи его ещё нет (дозаполнение из сессии движка).
+/// `true` — записано.
+pub async fn fill_torrent_file_by_hash(
+    db: impl PgExecutor<'_>,
+    info_hash: &str,
+    bytes: &[u8],
+) -> sqlx::Result<bool> {
+    if bytes.len() > MAX_TORRENT_FILE_BYTES {
+        return Ok(false);
+    }
+    let r = sqlx::query(
+        "UPDATE torrents SET torrent_file = $2 WHERE info_hash = $1 AND torrent_file IS NULL",
+    )
+    .bind(info_hash)
+    .bind(bytes)
+    .execute(db)
+    .await?;
+    Ok(r.rows_affected() > 0)
 }

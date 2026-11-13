@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use nimbus_core::events::{Event, JobStage};
 use nimbus_core::jobs::{Job, PRIORITY_BACKGROUND};
 use nimbus_core::model::{
-    MetaStatus, NewTorrentFile, NewTrackSource, NotFoundReason, Torrent, TrackStatus,
+    InfoHash, MetaStatus, NewTorrentFile, NewTrackSource, NotFoundReason, Torrent, TrackStatus,
 };
 use nimbus_db::helpers::set_track_status_and_publish;
 use nimbus_db::repo::jobs::EnqueueOpts;
@@ -14,14 +14,25 @@ use nimbus_db::repo::{
     album_torrents, albums, artists, cue_candidates, jobs, torrents, track_sources, tracks,
 };
 use nimbus_matcher::{match_album, AlbumInput, FileInput, MatchConfig, TrackInput};
-use nimbus_torrent::EngineError;
+use nimbus_torrent::{parse_torrent_file, EngineError, TorrentMeta};
 
 use crate::runner::{JobCtx, JobError, JobHandler};
 
-/// Сколько раз пробуем получить метаданные, прежде чем считать раздачу мёртвой.
-pub const MAX_META_ATTEMPTS: i32 = 3;
-/// Пауза перед повтором после таймаута: `RETRY_STEP * meta_attempts`.
-pub const RETRY_STEP: Duration = Duration::from_secs(15 * 60);
+/// Паузы перед повторами после таймаута метаданных: после 1-й, 2-й и 3-й неудачи.
+pub const RETRY_SCHEDULE: [Duration; 3] = [
+    Duration::from_secs(60),
+    Duration::from_secs(5 * 60),
+    Duration::from_secs(30 * 60),
+];
+/// Сколько раз пробуем получить метаданные, прежде чем считать раздачу мёртвой:
+/// первая попытка и по одной на каждую паузу [`RETRY_SCHEDULE`]; следующая неудача — `dead`.
+pub const MAX_META_ATTEMPTS: i32 = RETRY_SCHEDULE.len() as i32 + 1;
+
+/// Пауза перед повтором после `attempts`-й неудачной попытки (нумерация с 1).
+pub fn retry_delay(attempts: i32) -> Duration {
+    let i = usize::try_from(attempts.max(1) - 1).unwrap_or(0);
+    RETRY_SCHEDULE[i.min(RETRY_SCHEDULE.len() - 1)]
+}
 
 pub struct VerifyHandler;
 
@@ -65,7 +76,29 @@ impl JobHandler for VerifyHandler {
 
 struct FileList(Vec<nimbus_core::model::TorrentFile>);
 
-/// Файлы раздачи: из БД (`meta_status = ok`) или через fetcher. Пустой список — «проверено, ничего нет».
+/// Записывает список файлов раздачи и `meta_status = ok`.
+pub(crate) async fn store_files(
+    ctx: &JobCtx,
+    torrent_id: i64,
+    meta: &TorrentMeta,
+) -> Result<(), JobError> {
+    let new: Vec<NewTorrentFile> = meta
+        .files
+        .iter()
+        .map(|f| NewTorrentFile {
+            file_index: f.index as i32,
+            ext: nimbus_matcher::filename::extension(&f.path),
+            path: f.path.clone(),
+            size_bytes: i64::try_from(f.size).unwrap_or(i64::MAX),
+        })
+        .collect();
+    torrents::replace_files(&ctx.db, torrent_id, &new).await?;
+    torrents::set_meta_status(&ctx.db, torrent_id, MetaStatus::Ok, None).await?;
+    Ok(())
+}
+
+/// Файлы раздачи: из БД (`meta_status = ok`), из сохранённого `.torrent` (без сети) или через
+/// fetcher (тогда `.torrent` сохраняется). Пустой список — «проверено, ничего нет».
 async fn load_files(ctx: &JobCtx, torrent: &Torrent) -> Result<FileList, JobError> {
     match torrent.meta_status {
         MetaStatus::Ok => {
@@ -79,29 +112,39 @@ async fn load_files(ctx: &JobCtx, torrent: &Torrent) -> Result<FileList, JobErro
         _ => {}
     }
 
+    // Готовый `.torrent` в БД — сеть не нужна. Неразбираемый файл не фатален: идём в сеть.
+    if torrent.has_torrent_file {
+        if let Some(bytes) = torrents::torrent_file(&ctx.db, torrent.id).await? {
+            let expected = InfoHash::parse(&torrent.info_hash).ok();
+            match parse_torrent_file(&bytes, expected.as_ref()) {
+                Ok(meta) => {
+                    store_files(ctx, torrent.id, &meta).await?;
+                    return Ok(FileList(torrents::files(&ctx.db, torrent.id).await?));
+                }
+                Err(e) => tracing::warn!(
+                    torrent_id = torrent.id,
+                    error = %e,
+                    "stored torrent file is unusable, fetching metadata from the network"
+                ),
+            }
+        }
+    }
+
     let fetcher = ctx.fetcher()?;
     let t = torrents::set_meta_status(&ctx.db, torrent.id, MetaStatus::Fetching, None).await?;
     match ctx.run(fetcher.fetch_metadata(&t.magnet)).await? {
         Ok(meta) => {
-            let new: Vec<NewTorrentFile> = meta
-                .files
-                .iter()
-                .map(|f| NewTorrentFile {
-                    file_index: f.index as i32,
-                    ext: nimbus_matcher::filename::extension(&f.path),
-                    path: f.path.clone(),
-                    size_bytes: i64::try_from(f.size).unwrap_or(i64::MAX),
-                })
-                .collect();
-            torrents::replace_files(&ctx.db, t.id, &new).await?;
-            torrents::set_meta_status(&ctx.db, t.id, MetaStatus::Ok, None).await?;
+            store_files(ctx, t.id, &meta).await?;
+            if let Some(bytes) = &meta.torrent_file {
+                torrents::set_torrent_file(&ctx.db, t.id, bytes).await?;
+            }
             Ok(FileList(torrents::files(&ctx.db, t.id).await?))
         }
         Err(EngineError::MetadataTimeout) => {
             if t.meta_attempts < MAX_META_ATTEMPTS {
                 torrents::set_meta_status(&ctx.db, t.id, MetaStatus::Timeout, None).await?;
                 Err(JobError::Retry {
-                    after: RETRY_STEP * t.meta_attempts.max(1) as u32,
+                    after: retry_delay(t.meta_attempts),
                     reason: format!("metadata timeout (attempt {})", t.meta_attempts),
                 })
             } else {
