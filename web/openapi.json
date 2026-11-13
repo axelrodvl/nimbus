@@ -952,6 +952,251 @@
         }
       }
     },
+    "/api/playlists": {
+      "get": {
+        "tags": [
+          "playlists"
+        ],
+        "operationId": "list_playlists",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistList"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "playlists"
+        ],
+        "operationId": "create_playlist",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePlaylistRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/playlists/{id}": {
+      "get": {
+        "tags": [
+          "playlists"
+        ],
+        "operationId": "get_playlist",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "`favorites` или ID плейлиста",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "playlists"
+        ],
+        "operationId": "delete_playlist",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Favorites удалить нельзя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/playlists/{id}/tracks": {
+      "post": {
+        "tags": [
+          "playlists"
+        ],
+        "operationId": "add_track",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTrackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Трек добавлен (повторное добавление — без дубля), плейлист поднят в списке"
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "В Favorites вручную не добавляют",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/playlists/{id}/tracks/{track_id}": {
+      "delete": {
+        "tags": [
+          "playlists"
+        ],
+        "operationId": "remove_track",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "track_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/search": {
       "get": {
         "tags": [
@@ -1279,6 +1524,49 @@
           },
           "409": {
             "description": "Трек не играбелен (`track_not_playable`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tracks/{id}/played": {
+      "post": {
+        "tags": [
+          "playlists"
+        ],
+        "summary": "Засчитывает прослушивание трека (плеер зовёт, когда прослушана заметная часть).",
+        "operationId": "record_play",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID трека",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayCountResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1727,6 +2015,18 @@
           }
         }
       },
+      "AddTrackRequest": {
+        "type": "object",
+        "required": [
+          "track_id"
+        ],
+        "properties": {
+          "track_id": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "AlbumDetailDto": {
         "type": "object",
         "required": [
@@ -2137,6 +2437,17 @@
           }
         }
       },
+      "CreatePlaylistRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "DebugMetadataRequest": {
         "type": "object",
         "required": [
@@ -2529,12 +2840,110 @@
           "error"
         ]
       },
+      "PlayCountResponse": {
+        "type": "object",
+        "required": [
+          "play_count"
+        ],
+        "properties": {
+          "play_count": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "PlaybackMode": {
         "type": "string",
         "enum": [
           "direct",
           "transcode"
         ]
+      },
+      "PlaylistDetail": {
+        "type": "object",
+        "required": [
+          "playlist",
+          "tracks"
+        ],
+        "properties": {
+          "playlist": {
+            "$ref": "#/components/schemas/PlaylistDto"
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrackDto"
+            }
+          }
+        }
+      },
+      "PlaylistDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "track_count"
+        ],
+        "properties": {
+          "cover_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "description": "`favorites` или числовой ID плейлиста (строкой) — подходит для пути `/api/playlists/{id}`."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PlaylistKind"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Последнее добавление трека."
+          },
+          "name": {
+            "type": "string"
+          },
+          "track_count": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "PlaylistKind": {
+        "type": "string",
+        "enum": [
+          "user",
+          "favorites"
+        ]
+      },
+      "PlaylistList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlaylistDto"
+            },
+            "description": "Favorites идёт первым, затем плейлисты пользователя: недавно использованные — выше."
+          }
+        }
       },
       "PrefetchResponse": {
         "type": "object",
@@ -2864,7 +3273,8 @@
           "status",
           "in_library",
           "needs_confirmation",
-          "playback"
+          "playback",
+          "play_count"
         ],
         "properties": {
           "album_id": {
@@ -2912,6 +3322,11 @@
           "needs_confirmation": {
             "type": "boolean",
             "description": "Primary-источник трека сомнительный: его стоит проверить или подтвердить."
+          },
+          "play_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Сколько раз трек прослушан."
           },
           "playback": {
             "$ref": "#/components/schemas/PlaybackMode",
@@ -3112,6 +3527,10 @@
     {
       "name": "downloads",
       "description": "Менеджер загрузок: торренты движка, пауза и запуск"
+    },
+    {
+      "name": "playlists",
+      "description": "Плейлисты, динамический Favorites и счётчик прослушиваний"
     },
     {
       "name": "library",

@@ -70,6 +70,8 @@ pub struct TrackView {
     pub needs_confirmation: bool,
     /// Primary-источник нужно перекодировать (CUE-образ или формат, который не играет браузер).
     pub transcode: bool,
+    /// Сколько раз трек прослушан.
+    pub play_count: i32,
 }
 
 const ARTIST_SELECT: &str = "
@@ -111,7 +113,8 @@ const TRACK_SELECT: &str = "
                             OR lower(COALESCE(f.ext, '')) NOT IN ('flac','mp3','m4a','aac','alac','ogg','opus','wav')
                        FROM track_sources ts
                        JOIN torrent_files f ON f.torrent_id = ts.torrent_id AND f.file_index = ts.file_index
-                      WHERE ts.track_id = t.id AND ts.is_primary), FALSE) AS transcode
+                      WHERE ts.track_id = t.id AND ts.is_primary), FALSE) AS transcode,
+           COALESCE((SELECT tp.play_count FROM track_plays tp WHERE tp.track_id = t.id), 0) AS play_count
     FROM tracks t
     JOIN albums al ON al.id = t.album_id
     JOIN artists ar ON ar.id = t.artist_id";
@@ -270,6 +273,32 @@ pub async fn tracks_for_album(
         "{TRACK_SELECT} WHERE t.album_id = $1 ORDER BY t.disc_no, t.position"
     ))
     .bind(album_id)
+    .fetch_all(db)
+    .await
+}
+
+/// Треки плейлиста в порядке добавления.
+pub async fn playlist_tracks(
+    db: impl PgExecutor<'_>,
+    playlist_id: i64,
+) -> sqlx::Result<Vec<TrackView>> {
+    sqlx::query_as(&format!(
+        "{TRACK_SELECT} JOIN playlist_tracks pt ON pt.track_id = t.id
+          WHERE pt.playlist_id = $1 ORDER BY pt.id"
+    ))
+    .bind(playlist_id)
+    .fetch_all(db)
+    .await
+}
+
+/// Динамический плейлист Favorites: самые прослушиваемые треки.
+pub async fn favorite_tracks(db: impl PgExecutor<'_>, limit: i64) -> sqlx::Result<Vec<TrackView>> {
+    sqlx::query_as(&format!(
+        "{TRACK_SELECT} JOIN track_plays tp ON tp.track_id = t.id
+          WHERE tp.play_count > 0
+          ORDER BY tp.play_count DESC, tp.last_played_at DESC, t.id LIMIT $1"
+    ))
+    .bind(limit)
     .fetch_all(db)
     .await
 }

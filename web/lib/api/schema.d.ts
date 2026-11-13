@@ -340,6 +340,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/playlists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_playlists"];
+        put?: never;
+        post: operations["create_playlist"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/playlists/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_playlist"];
+        put?: never;
+        post?: never;
+        delete: operations["delete_playlist"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/playlists/{id}/tracks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["add_track"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/playlists/{id}/tracks/{track_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["remove_track"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/search": {
         parameters: {
             query?: never;
@@ -462,6 +526,23 @@ export interface paths {
         get: operations["audio_info"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tracks/{id}/played": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Засчитывает прослушивание трека (плеер зовёт, когда прослушана заметная часть). */
+        post: operations["record_play"];
         delete?: never;
         options?: never;
         head?: never;
@@ -611,6 +692,10 @@ export interface components {
             status: components["schemas"]["AddStatus"];
             type: components["schemas"]["LibraryKind"];
         };
+        AddTrackRequest: {
+            /** Format: int64 */
+            track_id: number;
+        };
         AlbumDetailDto: {
             album: components["schemas"]["AlbumDto"];
             artist: components["schemas"]["ArtistDto"];
@@ -754,6 +839,9 @@ export interface components {
             /** @description Играет через перекодирование на лету (в браузер уходит FLAC). */
             transcoded: boolean;
         };
+        CreatePlaylistRequest: {
+            name: string;
+        };
         DebugMetadataRequest: {
             magnet: string;
         };
@@ -881,8 +969,38 @@ export interface components {
         };
         /** @enum {string} */
         MetaStatus: "pending" | "fetching" | "ok" | "timeout" | "dead" | "error";
+        PlayCountResponse: {
+            /** Format: int32 */
+            play_count: number;
+        };
         /** @enum {string} */
         PlaybackMode: "direct" | "transcode";
+        PlaylistDetail: {
+            playlist: components["schemas"]["PlaylistDto"];
+            tracks: components["schemas"]["TrackDto"][];
+        };
+        PlaylistDto: {
+            cover_url?: string | null;
+            /** Format: date-time */
+            created_at?: string | null;
+            /** @description `favorites` или числовой ID плейлиста (строкой) — подходит для пути `/api/playlists/{id}`. */
+            id: string;
+            kind: components["schemas"]["PlaylistKind"];
+            /**
+             * Format: date-time
+             * @description Последнее добавление трека.
+             */
+            last_used_at?: string | null;
+            name: string;
+            /** Format: int64 */
+            track_count: number;
+        };
+        /** @enum {string} */
+        PlaylistKind: "user" | "favorites";
+        PlaylistList: {
+            /** @description Favorites идёт первым, затем плейлисты пользователя: недавно использованные — выше. */
+            items: components["schemas"]["PlaylistDto"][];
+        };
         PrefetchResponse: {
             /** @description `started` — предзагрузка запущена, `ready` — файл уже на диске, `skipped` — нечего грузить. */
             state: string;
@@ -1006,6 +1124,11 @@ export interface components {
             mbid_recording: string;
             /** @description Primary-источник трека сомнительный: его стоит проверить или подтвердить. */
             needs_confirmation: boolean;
+            /**
+             * Format: int32
+             * @description Сколько раз трек прослушан.
+             */
+            play_count: number;
             /** @description Как играть: `direct` — файл отдаётся с Range, `transcode` — перекодируется на лету (без Range, перемотка через `?t=`). */
             playback: components["schemas"]["PlaybackMode"];
             /** Format: int32 */
@@ -1786,6 +1909,199 @@ export interface operations {
             };
         };
     };
+    list_playlists: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaylistList"];
+                };
+            };
+        };
+    };
+    create_playlist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePlaylistRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaylistDto"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_playlist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description `favorites` или ID плейлиста */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaylistDetail"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_playlist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Favorites удалить нельзя */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    add_track: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddTrackRequest"];
+            };
+        };
+        responses: {
+            /** @description Трек добавлен (повторное добавление — без дубля), плейлист поднят в списке */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description В Favorites вручную не добавляют */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    remove_track: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                track_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     search: {
         parameters: {
             query?: {
@@ -2042,6 +2358,36 @@ export interface operations {
             };
             /** @description Трек не играбелен (`track_not_playable`) */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    record_play: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID трека */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlayCountResponse"];
+                };
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

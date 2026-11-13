@@ -8,6 +8,7 @@ pub mod extract;
 pub mod fakes;
 pub mod library;
 pub mod openapi;
+pub mod playlists;
 pub mod routes;
 pub mod search;
 pub mod settings;

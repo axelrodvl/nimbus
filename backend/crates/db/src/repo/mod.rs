@@ -8,6 +8,7 @@ pub mod cue_candidates;
 pub mod downloads;
 pub mod jobs;
 pub mod mb_cache;
+pub mod playlists;
 pub mod torrents;
 pub mod track_sources;
 pub mod tracks;

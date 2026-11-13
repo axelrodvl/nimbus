@@ -195,6 +195,8 @@ pub struct TrackDto {
     pub needs_confirmation: bool,
     /// Как играть: `direct` — файл отдаётся с Range, `transcode` — перекодируется на лету (без Range, перемотка через `?t=`).
     pub playback: PlaybackMode,
+    /// Сколько раз трек прослушан.
+    pub play_count: i32,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, ToSchema, PartialEq, Eq)]
@@ -286,6 +288,7 @@ impl From<TrackView> for TrackDto {
             status_reason: t.status_reason,
             in_library: t.in_library,
             needs_confirmation: t.needs_confirmation,
+            play_count: t.play_count,
             playback: if t.transcode {
                 PlaybackMode::Transcode
             } else {
