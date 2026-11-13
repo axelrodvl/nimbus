@@ -62,8 +62,13 @@ i18n и темы без Next.js, unit- и e2e-тесты, покрытие с п
 7. **i18n без сервера.** Скопировать `messages/*.ts`, `config.ts`, `translate.ts`. Язык: `localStorage['nimbus:locale']` → иначе подбор по `navigator.languages`
    (переиспользуй `negotiateLocale`) → `en`. Словарь `en` — в основном бандле, остальные — `import()` по требованию; до загрузки показывается `en`.
    `I18nProvider`, `useT()`, `useLocale()`, `setLocale()`; атрибут `lang` на `<html>` обновляется. Тест-свойство: во всех словарях одинаковый набор ключей.
-8. **API-слой.** `src/lib/api/client.ts`: `openapi-fetch` с базовым URL `''` (тот же origin), `credentials: 'include'`; `ApiError { status, code, message }`
+8. **API-слой.** `src/lib/api/client.ts`: `openapi-fetch` с базовым URL из `apiBase()` (в PWA — `''`, тот же origin), `credentials: 'include'`; `ApiError { status, code, message }`
    из тела ошибки бэкенда (смотри `web/lib/api/errors.ts`); общий обработчик 401 (колбэк `onUnauthorized`, подключит шаг 38). `schema.d.ts` — сгенерирован, не редактируется, исключён из линта и покрытия.
+8a. **Платформенный слой (`src/lib/platform/`)** — задел под нативные оболочки фазы 4; в PWA всё работает как обычный веб.
+   - `platform.ts`: `platform(): 'web' | 'ios' | 'android' | 'desktop'` (пока всегда `'web'`), `isNative()`.
+   - `urls.ts`: `apiBase()`, `apiUrl(path)` (HTTP), `wsUrl(path)` (WebSocket: схема `ws/wss` от `apiBase()` или `location`). **Единственное** место, где строятся адреса бэкенда: адрес потока, WebSocket, картинки артистов, `download=1` — всё через эти функции. Относительная строка `'/api/…'` вне `src/lib/platform` и `src/lib/api` запрещена правилом линта (`no-restricted-syntax` по литералам, начинающимся с `/api/`).
+   - `auth-transport.ts`: `authHeaders(): Record<string, string>` (в PWA — пустой объект; авторизация cookie). Все запросы (`client.ts`, воркер скачивания, WebSocket) получают заголовки отсюда — шаг 52 добавит токен, не трогая вызовы.
+   Тесты: `apiUrl`/`wsUrl` для пустой базы и для абсолютной (`https://music.example.com`), правило линта ловит литерал `'/api/x'` в компоненте.
 9. **Приложение-заглушка.** `router.tsx` с одним маршрутом `/`, показывающим логотип, название и `ThemeToggle` (оболочку делает шаг 38). `QueryClientProvider` и `I18nProvider` подключены в `app.tsx`.
 10. **Unit-тесты.** `vitest.config.ts`: окружение `happy-dom`, `setupFiles: src/test/setup.ts` (jest-dom, `fake-indexeddb/auto`, очистка `localStorage`),
     покрытие v8 по `src/**` с исключениями (`schema.d.ts`, `main.tsx`, `test/**`, `lib/i18n/messages/**`).

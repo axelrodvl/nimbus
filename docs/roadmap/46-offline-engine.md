@@ -15,12 +15,14 @@
   Трек в статусе `found` (ещё не скачан на сервер) отдаётся по мере загрузки торрента — медленно, с таймаутом простоя 120 с.
 - Данные: IndexedDB `nimbus` версии 1 (шаг 37), store библиотеки, `onLogout`-обработчики (шаг 45), `useOnline` (шаг 45).
 
-## Решения (контракт для шага 47)
+## Решения (контракт для шагов 47 и 54)
 
 - **Файлы** — в Origin Private File System: каталог `tracks/`, файл `<trackId>` (без расширения). Метаданные — в IndexedDB.
 - **Запись** — в выделенном Web Worker через `createSyncAccessHandle` (работает во всех целевых браузерах, включая Safari; `createWritable` в основном потоке — нет).
 - **Воспроизведение** — без service worker: `URL.createObjectURL(file)` от `FileSystemFileHandle.getFile()`. Такой Blob ссылается на файл на диске (в память не читается) и поддерживает перемотку.
   Офлайн-трек всегда играет как обычный файл (режим `direct`), даже если на сервере он перекодируется, — сохранён уже перекодированный результат.
+- **Платформенная граница.** Менеджер (закрепления, сверка, очередь, повторы, лимит места) — общий для всех платформ. От платформы зависят только две вещи, и они за интерфейсами:
+  `OfflineStorage` (где лежат файлы и как получить источник для плеера) и `Downloader` (кто качает файл). В PWA — OPFS + Web Worker; в нативных оболочках шаг 54 подставит файловую систему приложения и фоновые загрузки ОС, не меняя менеджер, интерфейс и схему IndexedDB.
 - **Закрепления (pins)** — что пользователь попросил хранить: трек, альбом или плейлист. Набор нужных треков вычисляется из закреплений и текущей библиотеки; файлы приводятся к этому набору автоматически (новый трек в закреплённом плейлисте скачается сам, убранный — удалится, если не нужен другому закреплению).
 
 ## Что сделать
@@ -28,9 +30,29 @@
 1. **Схема IndexedDB, версия 2** (миграция в `openDb`; данные версии 1 сохраняются):
    - `offline_pins`: ключ `"<kind>:<id>"`, поля `kind: 'track' | 'album' | 'playlist'`, `id`, `created_at`;
    - `offline_files`: ключ `track_id`, поля `state: 'queued' | 'downloading' | 'done' | 'failed'`, `bytes_done`, `bytes_total | null`, `mime`, `etag | null`, `resumable: boolean`, `attempts`, `error | null`, `next_attempt_at | null`, `completed_at | null`.
-2. **`src/lib/offline/opfs.ts`** — тонкая обёртка: `isSupported()`, `fileHandle(trackId, { create })`, `getFile(trackId)`, `remove(trackId)`, `list() -> trackId[]`, `usage() -> { bytes, quota }` (`navigator.storage.estimate()`).
-   Всё за интерфейсом `OfflineStorage`, чтобы в тестах подменять реализацией в памяти.
-3. **`src/lib/offline/download.worker.ts`** — воркер скачивания одного файла. Сообщения: `start { trackId, url, offset, etag }` → `progress { trackId, bytesDone, bytesTotal }` (не чаще 4 раз в секунду) → `done { trackId, bytes, mime, etag }` | `error { trackId, code, retryable }`; `abort { trackId }`.
+2. **`src/lib/offline/storage.ts` — интерфейс `OfflineStorage`** и его реализации:
+   ```ts
+   interface OfflineStorage {
+     isSupported(): boolean;
+     list(): Promise<string[]>;                         // trackId
+     size(trackId: string): Promise<number | null>;     // null — файла нет
+     remove(trackId: string): Promise<void>;
+     usage(): Promise<{ bytes: number; quota: number | null }>;
+     source(trackId: string, mime: string): Promise<AudioSource>; // для плеера (шаг 41)
+     release(trackId: string): void;                    // освободить источник (web — revokeObjectURL)
+   }
+   interface Downloader {
+     start(p: { trackId: string; url: string; headers: Record<string, string>; offset: number; etag: string | null }): void;
+     abort(trackId: string): void;
+     on(handler: (m: DownloadMessage) => void): () => void; // progress | done | error — форматы из п. 3
+     readonly background: boolean;                      // продолжает ли качать, когда приложение в фоне/закрыто
+   }
+   ```
+   - `opfs-storage.ts` — OPFS (`tracks/<trackId>`), `source` = объектный URL от `getFile()` (см. «Решения»), `usage` — `navigator.storage.estimate()`;
+   - `worker-downloader.ts` — обёртка над воркером п. 3, `background = false`;
+   - `memory-storage.ts` (в `src/test/`) — реализация в памяти для unit-тестов.
+   Выбор — фабрика по `platform()` (шаг 36). Менеджер и плеер работают только через интерфейсы; прямой доступ к `navigator.storage`/OPFS вне `opfs-storage.ts` и воркера запрещён.
+3. **`src/lib/offline/download.worker.ts`** — воркер скачивания одного файла. Сообщения: `start { trackId, url, headers, offset, etag }` → `progress { trackId, bytesDone, bytesTotal }` (не чаще 4 раз в секунду) → `done { trackId, bytes, mime, etag }` | `error { trackId, code, retryable }`; `abort { trackId }`.
    Логика (вынеси в чистую функцию `downloadTo(sink, fetch, params)`, тестируемую без воркера):
    - запрос `GET <url>` с `credentials: 'include'`; при `offset > 0` — `Range: bytes=<offset>-` и `If-Range: <etag>`;
    - ответ `206` → дописывать с `offset`; `200` → писать с нуля (усечь файл); `416` → файл уже полный, проверить размер;
@@ -48,14 +70,15 @@
    - **очередь:** одновременно `concurrency` загрузок (настройка устройства, по умолчанию 3, 1…6); порядок — по времени закрепления, затем по позиции в альбоме;
      берутся только треки со статусом `found|ready` (трек `adding/not_found` ждёт — запись остаётся `queued` и пробуется снова, когда статус изменится);
    - **повторы:** повторяемая ошибка → `attempts += 1`, пауза 5 с → 30 с → 2 мин → 10 мин → 1 ч (далее раз в час), докачка с `bytes_done`, если `resumable`; после 8 попыток → `failed` (вручную — `retry(trackId)`);
+   - если `downloader.background === true`, менеджер не прерывает загрузки при уходе в фон и при старте сверяет состояние с тем, что докачала ОС (заготовка под шаг 54; в PWA ветка не исполняется, но покрыта unit-тестом с фейковым загрузчиком);
    - **условия:** очередь стоит, если нет связи с сервером (`useOnline`-логика шага 45), включена пауза (`setPaused`), превышен лимит места (п. 6) или (если включено «только Wi-Fi» и `navigator.connection.type` доступен) сеть сотовая;
    - **целостность при старте:** запись `done`, а файла нет или размер не совпал → `queued`; файл есть, записи нет → удалить файл; запись `downloading` → `queued` (с сохранённым `bytes_done`, если `resumable`);
    - **API для интерфейса:** store `offlineStatus` (zustand): `files: Map<trackId, { state, bytesDone, bytesTotal }>`, `pins: Set<string>`, `usage { bytes, quota, limit }`, `paused`, `queueLength`, `activeCount`; селекторы `trackOfflineState(id)`, `albumOfflineState(id)` (`none | partial | queued | downloading(progress) | done`), `playlistOfflineState(id)`;
    - `removeAll()`, `clear()` (зарегистрировать в `onLogout`).
 5. **Подключение к плееру.**
-   - `resolveStreamUrl`: если `offline_files[track].state === 'done'` → объектный URL файла (создаётся при запуске трека, отзывается `URL.revokeObjectURL` при смене трека; кэш на один текущий и один следующий трек); иначе — сетевой адрес. Для сетевого трека результат синхронный (требование шага 41 для iOS).
+   - `resolveStreamUrl`: если `offline_files[track].state === 'done'` → `storage.source(trackId, mime)` (в PWA — объектный URL; создаётся при запуске трека, освобождается `storage.release` при смене трека; кэш на один текущий и один следующий трек); иначе — сетевой источник. Для сетевого трека результат синхронный (требование шага 41 для iOS).
      Чтобы и офлайн-трек запускался внутри жеста на iOS: при постановке трека в очередь плеера и для следующего трека URL готовится **заранее** (`prepare(trackId)`), и к моменту клика он уже есть; если не успел — допускается асинхронный запуск.
-   - режим воспроизведения офлайн-трека — всегда `direct` (перемотка через `currentTime`, не через `?t=`); `mime` из записи передаётся в `Blob` (`new Blob([file], { type: mime })` — без копирования данных);
+   - режим воспроизведения офлайн-трека — всегда `direct` (перемотка через `seek`, не через `?t=`); в OPFS-реализации `mime` из записи передаётся в `Blob` (`new Blob([file], { type: mime })` — без копирования данных);
    - `canPlay(track)` = офлайн-файл готов **или** (есть связь и статус `found|ready`);
    - без связи плеер пропускает недоступные треки очереди; предзагрузка следующего (`prefetch`) для офлайн-трека не вызывается; ошибка воспроизведения офлайн-файла → пометить запись `queued` (файл повреждён) и попробовать сетевой поток.
 6. **Место.** Настройки устройства в `localStorage['nimbus:offline-settings']`: `limitBytes` (по умолчанию — 50 % квоты, но не более 20 ГБ), `concurrency`, `wifiOnly`.
@@ -73,6 +96,7 @@ Unit (хранилище в памяти, фейковый `fetch`, fake timers;
 - повторы: расписание пауз, докачка с места обрыва, `failed` после 8 попыток, ручной `retry`;
 - условия: нет связи → очередь стоит и продолжает при появлении; пауза; лимит места → `quota`, после увеличения лимита продолжает;
 - целостность при старте: все четыре случая из п. 4;
+- менеджер с фейковым `Downloader { background: true }`: загрузка, завершённая «пока приложение было закрыто», при старте становится `done` без перекачки;
 - плеер: готовый трек → объектный URL и режим `direct`, URL отозван при смене трека; неготовый → сетевой адрес; без связи недоступные треки пропускаются; повреждённый файл → возврат к сети и перекачка;
 - `clear()` удаляет файлы, записи и закрепления; `onLogout` его вызывает;
 - миграция IndexedDB 1 → 2 сохраняет библиотеку и курсор.
@@ -90,7 +114,7 @@ E2E (Chromium — OPFS и воркеры поддерживаются; инте�
 just client-check && just client-test && just client-cov && just client-build && just client-e2e
 ```
 
-В Журнал: скорость скачивания в e2e (МБ/с на моке), поведение в WebKit (`npx playwright test --project=webkit` для сценариев этого шага, если движок установлен в среде; если нет — записать, что проверка на Safari/iOS остаётся ручной для шага 49).
+В Журнал: скорость скачивания в e2e (МБ/с на моке), поведение в WebKit (`npx playwright test --project=webkit` для сценариев этого шага, если движок установлен в среде; если нет — записать, что проверка на Safari/iOS остаётся ручной для шага 50).
 
 ## Не входит в шаг
 
