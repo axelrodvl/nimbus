@@ -186,6 +186,24 @@ Set `NIMBUS_MB_USER_AGENT` to your own contact (e.g. `Nimbus/0.1 ( you@example.o
 MusicBrainz often replies `503 throttled`, slowing down search and discography import. Imports are not lost: they are
 retried with growing delays (up to 8 attempts), and the status is shown on the artist page.
 
+The public server allows about **1 request per second per IP**; Nimbus keeps to that (short bursts of 3 requests for
+interactive search, rate halved automatically after a `503`/`429`), fetches a discography in batches of ~25 releases with
+tracklists, and serves expired cache entries if MusicBrainz is unavailable. Don't raise the limits for `musicbrainz.org`:
+it risks an IP/User-Agent ban.
+
+### Your own MusicBrainz mirror
+
+With a self-hosted mirror ([musicbrainz-docker](https://github.com/metabrainz/musicbrainz-docker)) the limit is gone and
+the import runs in parallel. Set the `musicbrainz` section via `PUT /api/settings` (UI comes later):
+
+```json
+{"musicbrainz": {"base_url": "http://mb.lan:5000/ws/2/"}}
+```
+
+For a non-`musicbrainz.org` address with the other fields left at their defaults Nimbus uses `rate_per_sec = 0`
+(unlimited) and `max_concurrent = 8`. To tune it, set the fields explicitly: `rate_per_sec` (0 or 0.1–100), `burst`
+(1–20), `max_concurrent` (1–32). Changes apply immediately, without a restart. `NIMBUS_MB_USER_AGENT` is still used.
+
 ## Torrent providers
 
 Configured in `.env` or in the UI (*Settings → Sources*, each has a "Test" button).

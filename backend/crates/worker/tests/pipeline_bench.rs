@@ -175,7 +175,7 @@ async fn add_artist_with_30_albums_until_all_tracks_found(test_pool: PgPool) {
     let mut cfg = MbConfig::new("NimbusBench/0.1 ( https://example.org )");
     cfg.base = format!("{}/ws/2/", server.uri()).parse().unwrap();
     cfg.lb_base = None;
-    cfg.min_interval = Duration::from_millis(1);
+    cfg.limits = nimbus_musicbrainz::MbLimits::unlimited(8);
     let mb = MbClient::with_config(cfg, None).unwrap();
 
     let events = EventBus::new();

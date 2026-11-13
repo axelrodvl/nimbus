@@ -180,6 +180,14 @@ pub(crate) struct RawRelease {
     pub country: Option<String>,
     #[serde(default)]
     pub media: Vec<RawMedium>,
+    /// Только при `inc=release-groups`: к какой группе относится релиз.
+    #[serde(default, rename = "release-group")]
+    pub release_group: Option<RawGroupId>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct RawGroupId {
+    pub id: Uuid,
 }
 
 #[derive(Debug, Deserialize)]
@@ -344,6 +352,17 @@ pub(crate) struct RawReleaseFull {
     pub id: Uuid,
     #[serde(default)]
     pub media: Vec<RawMedium>,
+}
+
+impl RawRelease {
+    /// Все ли дорожки на месте (browse с `recordings` может отдать носитель не целиком).
+    pub(crate) fn has_complete_tracklist(&self) -> bool {
+        !self.media.is_empty()
+            && self
+                .media
+                .iter()
+                .all(|m| m.tracks.len() as u32 == m.track_count)
+    }
 }
 
 impl From<RawReleaseFull> for ReleaseTracklist {

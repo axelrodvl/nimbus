@@ -11,6 +11,23 @@ pub async fn get(db: impl PgExecutor<'_>, key: &str) -> sqlx::Result<Option<Valu
         .await
 }
 
+/// Запись кэша вместе с признаком «просрочена».
+#[derive(Debug, Clone, PartialEq)]
+pub struct CacheEntry {
+    pub value: Value,
+    pub expired: bool,
+}
+
+/// Запись, в том числе просроченная (для stale-if-error: при отказе MusicBrainz лучше старый ответ, чем ошибка).
+pub async fn get_entry(db: impl PgExecutor<'_>, key: &str) -> sqlx::Result<Option<CacheEntry>> {
+    let row: Option<(Value, bool)> =
+        sqlx::query_as("SELECT response, expires_at <= now() FROM mb_cache WHERE key = $1")
+            .bind(key)
+            .fetch_optional(db)
+            .await?;
+    Ok(row.map(|(value, expired)| CacheEntry { value, expired }))
+}
+
 pub async fn put(
     db: impl PgExecutor<'_>,
     key: &str,
@@ -30,10 +47,14 @@ pub async fn put(
     Ok(())
 }
 
-/// Удаляет истёкшие записи, возвращает их количество.
-pub async fn purge_expired(db: impl PgExecutor<'_>) -> sqlx::Result<u64> {
+/// Сколько просроченная запись остаётся пригодной как запасной ответ, прежде чем её удалят.
+pub const STALE_GRACE: Duration = Duration::from_secs(30 * 24 * 3600);
+
+/// Удаляет записи, просроченные дольше `grace`, возвращает их количество.
+pub async fn purge_expired(db: impl PgExecutor<'_>, grace: Duration) -> sqlx::Result<u64> {
     Ok(
-        sqlx::query("DELETE FROM mb_cache WHERE expires_at <= now()")
+        sqlx::query("DELETE FROM mb_cache WHERE expires_at <= now() - make_interval(secs => $1)")
+            .bind(grace.as_secs_f64())
             .execute(db)
             .await?
             .rows_affected(),

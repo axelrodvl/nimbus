@@ -1,8 +1,10 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use futures::future::{BoxFuture, FutureExt, Shared};
+use futures::stream::{self, StreamExt};
+use nimbus_core::settings::MusicbrainzSettings;
 use nimbus_db::repo::mb_cache;
 use nimbus_db::PgPool;
 use reqwest::{StatusCode, Url};
@@ -12,7 +14,7 @@ use uuid::Uuid;
 
 use crate::canonical::pick_canonical;
 use crate::error::{MbError, Result};
-use crate::limiter::Limiter;
+use crate::limiter::{Limiter, MbLimits};
 use crate::lucene::search_query;
 use crate::model::*;
 
@@ -21,6 +23,9 @@ pub const LOOKUP_TTL: Duration = Duration::from_secs(7 * 24 * 3600);
 
 const MAX_RETRIES: u32 = 3;
 const PAGE_LIMIT: usize = 100;
+/// Размер страницы browse релизов с `inc=recordings`: для «тяжёлых» запросов MusicBrainz
+/// ограничивает `limit` (документация — 25). Листаем по фактически полученному числу.
+const RELEASE_BROWSE_LIMIT: usize = 25;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Priority {
@@ -34,8 +39,8 @@ pub enum Priority {
 pub struct MbConfig {
     pub base: Url,
     pub user_agent: String,
-    /// Минимальный интервал между запросами (по правилам MB — ~1 с; с запасом 1.1 с).
-    pub min_interval: Duration,
+    /// Темп, burst и параллелизм (по умолчанию — правила публичного сервера: 1 запрос/с).
+    pub limits: MbLimits,
     /// Пауза перед повтором при 503/429, если нет `Retry-After`.
     pub retry_delay: Duration,
     pub timeout: Duration,
@@ -48,7 +53,7 @@ impl MbConfig {
         Self {
             base: Url::parse("https://musicbrainz.org/ws/2/").expect("valid url"),
             user_agent: user_agent.into(),
-            min_interval: Duration::from_millis(1100),
+            limits: MbLimits::public(),
             retry_delay: Duration::from_secs(2),
             timeout: Duration::from_secs(15),
             lb_base: Some(Url::parse("https://api.listenbrainz.org/1/").expect("valid url")),
@@ -58,10 +63,29 @@ impl MbConfig {
 
 type Flight = Shared<BoxFuture<'static, Result<Arc<Value>>>>;
 
+/// Результат пакетного импорта дискографии.
+#[derive(Debug, Clone)]
+pub struct BulkGroup {
+    pub group: ReleaseGroupHit,
+    /// Выбранный каноничный релиз.
+    pub release: Uuid,
+    pub tracklist: ReleaseTracklist,
+}
+
+/// Группы, не получившие пригодного релиза, возвращаются отдельно: вызывающий решает, что с ними делать.
+#[derive(Debug, Clone, Default)]
+pub struct BulkReleases {
+    pub groups: Vec<BulkGroup>,
+    /// Группы без пригодного релиза/треклиста в MusicBrainz.
+    pub unavailable: Vec<ReleaseGroupHit>,
+}
+
 struct Inner {
     http: reqwest::Client,
     cfg: MbConfig,
-    limiter: Limiter,
+    /// Текущая база и лимитер: заменяются `reconfigure`; запросы в полёте доживают на прежних.
+    base: RwLock<Url>,
+    limiter: RwLock<Arc<Limiter>>,
     cache: Option<PgPool>,
     inflight: Mutex<HashMap<String, Flight>>,
 }
@@ -89,13 +113,36 @@ impl MbClient {
         Ok(Self {
             inner: Arc::new(Inner {
                 http,
-                limiter: Limiter::new(cfg.min_interval),
+                base: RwLock::new(cfg.base.clone()),
+                limiter: RwLock::new(Arc::new(Limiter::new(cfg.limits))),
                 cfg,
                 cache,
                 inflight: Mutex::new(HashMap::new()),
             }),
             priority: Priority::Interactive,
         })
+    }
+
+    /// Применяет адрес и лимиты из настроек (с учётом профиля зеркала, `effective()`) на лету.
+    /// HTTP-клиент и кэш те же; запросы в полёте завершаются на прежних значениях.
+    pub fn reconfigure(&self, settings: &MusicbrainzSettings) -> Result<()> {
+        let eff = settings.effective();
+        let base: Url = eff
+            .base_url
+            .parse()
+            .map_err(|e| MbError::Transport(format!("bad musicbrainz.base_url: {e}")))?;
+        *self
+            .inner
+            .base
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = base;
+        *self
+            .inner
+            .limiter
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Arc::new(Limiter::new(MbLimits::from(&eff)));
+        Ok(())
     }
 
     /// Клон с фоновым приоритетом (для массовых lookup'ов из задач).
@@ -121,9 +168,12 @@ impl MbClient {
     ) -> Result<Value> {
         let key = cache_key(path, query);
 
+        // Просроченный ответ не отдаём сразу, но запоминаем: при отказе MusicBrainz он лучше ошибки.
+        let mut stale = None;
         if let Some(pool) = &self.inner.cache {
-            match mb_cache::get(pool, &key).await {
-                Ok(Some(v)) => return Ok(v),
+            match mb_cache::get_entry(pool, &key).await {
+                Ok(Some(e)) if !e.expired => return Ok(e.value),
+                Ok(Some(e)) => stale = Some(e.value),
                 Ok(None) => {}
                 Err(e) => tracing::warn!(error = %e, "mb_cache read failed"),
             }
@@ -163,7 +213,17 @@ impl MbClient {
                 }
             }
         };
-        flight.await.map(|v| (*v).clone())
+        match flight.await {
+            Ok(v) => Ok((*v).clone()),
+            Err(e) if is_transient(&e) => match stale {
+                Some(v) => {
+                    tracing::warn!(%path, error = %e, "MusicBrainz unavailable, serving stale cache entry");
+                    Ok(v)
+                }
+                None => Err(e),
+            },
+            Err(e) => Err(e),
+        }
     }
 
     async fn get_typed<T: DeserializeOwned>(
@@ -400,36 +460,162 @@ impl MbClient {
             .await
         {
             Ok(page) if !page.releases.is_empty() && page.count <= page.releases.len() => {
-                let briefs: Vec<_> = page.releases.iter().map(|r| r.brief()).collect();
-                if let Some(best) = pick_canonical(&briefs).map(|r| r.mbid) {
-                    if let Some(r) = page.releases.into_iter().find(|r| r.id == best) {
-                        if r.media
-                            .iter()
-                            .all(|m| m.tracks.len() as u32 == m.track_count)
-                        {
-                            let full = RawReleaseFull {
-                                id: r.id,
-                                media: r.media,
-                            };
-                            return Ok((best, full.into()));
-                        }
-                    }
+                if let Some(found) = complete_canonical(page.releases) {
+                    return Ok(found);
                 }
             }
             Ok(_) => {}
             // Сеть/лимиты — не повод тратить ещё два запроса: пусть решает вызывающий (повтор задачи).
-            Err(e @ (MbError::RateLimited | MbError::Transport(_))) => return Err(e),
-            Err(MbError::Http { status, .. }) if status >= 500 => {
-                return Err(MbError::Http {
-                    status,
-                    body: String::new(),
-                })
-            }
+            Err(e) if is_transient(&e) => return Err(e),
             Err(_) => {}
         }
         let release = self.pick_canonical_release(release_group).await?;
         let tracklist = self.release_tracklist(release).await?;
         Ok((release, tracklist))
+    }
+
+    /// Все официальные релизы артиста указанных типов вместе с треклистами, сгруппированные по
+    /// release group (см. `artist_releases_bulk_filtered`).
+    pub async fn artist_releases_bulk(&self, artist: Uuid, types: &[&str]) -> Result<BulkReleases> {
+        self.artist_releases_bulk_filtered(artist, types, |_| true)
+            .await
+    }
+
+    /// Дискография артиста пачками: список групп + страницы browse релизов сразу с треклистами
+    /// (по ~25 релизов на запрос вместо запроса на каждую группу). Каноничный релиз выбирается той же
+    /// `pick_canonical`, что и у `canonical_release_with_tracklist`. Группы, для которых полный
+    /// треклист не пришёл (нет официальных релизов, неполный носитель, формат ответа не тот),
+    /// добираются по одной, параллельно (`max_concurrent`). `keep` отсеивает группы до добора —
+    /// лишних запросов для них не будет.
+    pub async fn artist_releases_bulk_filtered(
+        &self,
+        artist: Uuid,
+        types: &[&str],
+        keep: impl Fn(&ReleaseGroupHit) -> bool,
+    ) -> Result<BulkReleases> {
+        let groups: Vec<ReleaseGroupHit> = self
+            .artist_release_groups(artist, types)
+            .await?
+            .into_iter()
+            .filter(|g| keep(g))
+            .collect();
+        if groups.is_empty() {
+            return Ok(BulkReleases::default());
+        }
+        let mut by_group = match self
+            .browse_artist_releases(artist, types, groups.len())
+            .await
+        {
+            Ok(m) => m,
+            // Сеть/лимиты — не повод тратить ещё запросы: пусть решает вызывающий (повтор задачи).
+            Err(e) if is_transient(&e) => return Err(e),
+            Err(e) => {
+                tracing::warn!(error = %e, "bulk release browse unusable, falling back to per-group requests");
+                HashMap::new()
+            }
+        };
+
+        let mut ready: Vec<Option<BulkGroup>> = Vec::with_capacity(groups.len());
+        let mut missing: Vec<(usize, ReleaseGroupHit)> = Vec::new();
+        for (i, group) in groups.into_iter().enumerate() {
+            match by_group.remove(&group.mbid).and_then(complete_canonical) {
+                Some((release, tracklist)) => ready.push(Some(BulkGroup {
+                    group,
+                    release,
+                    tracklist,
+                })),
+                None => {
+                    ready.push(None);
+                    missing.push((i, group));
+                }
+            }
+        }
+
+        let concurrency = self.inner.limiter().max_concurrent();
+        let fetched: Vec<_> = stream::iter(missing)
+            .map(|(i, group)| async move {
+                let r = self.canonical_release_with_tracklist(group.mbid).await;
+                (i, group, r)
+            })
+            .buffer_unordered(concurrency)
+            .collect()
+            .await;
+        let mut unavailable = Vec::new();
+        let mut fetched_ok = Vec::new();
+        for (i, group, r) in fetched {
+            match r {
+                Ok((release, tracklist)) => fetched_ok.push((
+                    i,
+                    BulkGroup {
+                        group,
+                        release,
+                        tracklist,
+                    },
+                )),
+                Err(MbError::NotFound) => unavailable.push((i, group)),
+                Err(e) => return Err(e),
+            }
+        }
+        for (i, b) in fetched_ok {
+            ready[i] = Some(b);
+        }
+        unavailable.sort_by_key(|(i, _)| *i);
+        Ok(BulkReleases {
+            groups: ready.into_iter().flatten().collect(),
+            unavailable: unavailable.into_iter().map(|(_, g)| g).collect(),
+        })
+    }
+
+    /// Официальные релизы артиста с треклистами, сгруппированные по release group.
+    /// Листает по фактически полученному числу, дедуплицирует по `id`. Если релизов столько, что
+    /// страниц больше, чем групп (по запросу на группу выйдет дешевле), — пустая карта.
+    async fn browse_artist_releases(
+        &self,
+        artist: Uuid,
+        types: &[&str],
+        group_count: usize,
+    ) -> Result<HashMap<Uuid, Vec<RawRelease>>> {
+        let artist_s = artist.to_string();
+        let types_s = types.join("|");
+        let limit = RELEASE_BROWSE_LIMIT.to_string();
+        let mut out: HashMap<Uuid, Vec<RawRelease>> = HashMap::new();
+        let mut seen = HashSet::new();
+        let mut offset = 0usize;
+        loop {
+            let off = offset.to_string();
+            let mut query = vec![
+                ("artist", artist_s.as_str()),
+                ("status", "official"),
+                ("inc", "release-groups media recordings artist-credits"),
+                ("limit", limit.as_str()),
+                ("offset", off.as_str()),
+            ];
+            if !types_s.is_empty() {
+                query.push(("type", types_s.as_str()));
+            }
+            let page: BrowseReleases = self.get_typed("release", &query, LOOKUP_TTL).await?;
+            if offset == 0 && page.count > group_count.saturating_mul(RELEASE_BROWSE_LIMIT) {
+                return Ok(HashMap::new());
+            }
+            let got = page.releases.len();
+            for r in page.releases {
+                if !seen.insert(r.id) {
+                    continue;
+                }
+                let Some(group) = r.release_group.as_ref().map(|g| g.id) else {
+                    return Err(MbError::Parse(format!(
+                        "release {} has no release-group (inc=release-groups unsupported?)",
+                        r.id
+                    )));
+                };
+                out.entry(group).or_default().push(r);
+            }
+            offset += got;
+            if got == 0 || offset >= page.count {
+                break;
+            }
+        }
+        Ok(out)
     }
 
     pub async fn release_tracklist(&self, release: Uuid) -> Result<ReleaseTracklist> {
@@ -462,15 +648,25 @@ impl Inner {
         Ok(value)
     }
 
+    fn limiter(&self) -> Arc<Limiter> {
+        self.limiter
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
     async fn fetch(
         &self,
         priority: Priority,
         path: &str,
         query: &[(String, String)],
     ) -> Result<Value> {
-        let mut url = self
-            .cfg
+        let base = self
             .base
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let mut url = base
             .join(path)
             .map_err(|e| MbError::Transport(format!("bad url: {e}")))?;
         {
@@ -483,7 +679,9 @@ impl Inner {
 
         let mut attempt = 0;
         loop {
-            self.limiter.acquire(priority).await;
+            // Лимитер берём заново на каждой попытке: `reconfigure` действует и на повторы.
+            let limiter = self.limiter();
+            let permit = limiter.acquire(priority).await;
             let resp = self
                 .http
                 .get(url.clone())
@@ -493,20 +691,25 @@ impl Inner {
             let status = resp.status();
             match status {
                 s if s.is_success() => {
-                    return resp.json().await.map_err(|e| MbError::Parse(e.to_string()));
+                    let body = resp.json().await.map_err(|e| MbError::Parse(e.to_string()));
+                    drop(permit);
+                    limiter.on_success();
+                    return body;
                 }
                 StatusCode::NOT_FOUND => return Err(MbError::NotFound),
                 StatusCode::SERVICE_UNAVAILABLE | StatusCode::TOO_MANY_REQUESTS => {
+                    drop(permit);
+                    // `Retry-After: 0` (или его отсутствие) не повод долбить сервер сразу: пауза растёт 1×, 2×, 4×…
+                    let wait = retry_after(&resp)
+                        .filter(|d| !d.is_zero())
+                        .unwrap_or_else(|| self.cfg.retry_delay * 2u32.pow(attempt.min(8)));
+                    // Темп снижается, пауза действует на всех (в том числе на параллельные запросы).
+                    limiter.on_throttled(Some(wait));
                     if attempt >= MAX_RETRIES {
                         return Err(MbError::RateLimited);
                     }
                     attempt += 1;
-                    // `Retry-After: 0` (или его отсутствие) не повод долбить сервер сразу: пауза растёт 1×, 2×, 4×…
-                    let wait = retry_after(&resp)
-                        .filter(|d| !d.is_zero())
-                        .unwrap_or_else(|| self.cfg.retry_delay * 2u32.pow(attempt - 1));
                     tracing::warn!(%status, ?wait, attempt, "MusicBrainz throttled, retrying");
-                    tokio::time::sleep(wait).await;
                 }
                 other => {
                     let body = resp.text().await.unwrap_or_default();
@@ -518,6 +721,27 @@ impl Inner {
             }
         }
     }
+}
+
+/// Лучший релиз группы с полным треклистом (тот же выбор, что у `canonical_release_with_tracklist`).
+fn complete_canonical(releases: Vec<RawRelease>) -> Option<(Uuid, ReleaseTracklist)> {
+    let briefs: Vec<_> = releases.iter().map(RawRelease::brief).collect();
+    let best = pick_canonical(&briefs)?.mbid;
+    let r = releases.into_iter().find(|r| r.id == best)?;
+    if !r.has_complete_tracklist() {
+        return None;
+    }
+    let full = RawReleaseFull {
+        id: r.id,
+        media: r.media,
+    };
+    Some((best, full.into()))
+}
+
+/// Отказ сервиса/сети, а не «такого нет» или «ответ не тот»: повод отдать запасной ответ из кэша.
+fn is_transient(e: &MbError) -> bool {
+    matches!(e, MbError::RateLimited | MbError::Transport(_))
+        || matches!(e, MbError::Http { status, .. } if *status >= 500)
 }
 
 fn retry_after(resp: &reqwest::Response) -> Option<Duration> {

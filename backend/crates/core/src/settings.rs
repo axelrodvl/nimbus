@@ -17,6 +17,93 @@ pub struct Settings {
     pub playback: PlaybackSettings,
     pub storage: StorageSettings,
     pub performance: PerformanceSettings,
+    pub musicbrainz: MusicbrainzSettings,
+}
+
+/// Адрес и лимиты MusicBrainz. Применяются на лету (`MbClient::reconfigure`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MusicbrainzSettings {
+    /// База Web Service v2: `http(s)://…/`, оканчивается на `/`.
+    pub base_url: String,
+    /// Запросов в секунду (0 — без ограничения темпа). Публичному серверу — не больше 1.
+    pub rate_per_sec: f64,
+    /// Размер «ведра»: сколько запросов подряд проходят без ожидания.
+    pub burst: u8,
+    /// Одновременных HTTP-запросов.
+    pub max_concurrent: u8,
+}
+
+/// Адрес публичного MusicBrainz.
+pub const PUBLIC_MB_BASE: &str = "https://musicbrainz.org/ws/2/";
+
+impl Default for MusicbrainzSettings {
+    fn default() -> Self {
+        Self {
+            base_url: PUBLIC_MB_BASE.into(),
+            rate_per_sec: 1.0,
+            burst: 3,
+            max_concurrent: 2,
+        }
+    }
+}
+
+impl MusicbrainzSettings {
+    /// Указывает ли `base_url` на публичный `musicbrainz.org` (его лимит — 1 запрос/с с IP).
+    pub fn is_public(&self) -> bool {
+        host_of(&self.base_url)
+            .is_some_and(|h| h == "musicbrainz.org" || h.ends_with(".musicbrainz.org"))
+    }
+
+    /// Значения, которые реально применяются. Для своего зеркала, если пользователь не менял
+    /// остальные поля (они равны значениям по умолчанию), лимит снимается и параллелизм — 8:
+    /// публичные правила на частное зеркало не распространяются.
+    pub fn effective(&self) -> Self {
+        let d = Self::default();
+        let untouched = self.rate_per_sec == d.rate_per_sec
+            && self.burst == d.burst
+            && self.max_concurrent == d.max_concurrent;
+        if !self.is_public() && untouched {
+            return Self {
+                rate_per_sec: 0.0,
+                max_concurrent: 8,
+                ..self.clone()
+            };
+        }
+        self.clone()
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        let host = host_of(&self.base_url);
+        if host.is_none() || !self.base_url.ends_with('/') {
+            return Err("musicbrainz.base_url must be an http(s) URL ending with \"/\"".into());
+        }
+        if !(self.rate_per_sec == 0.0 || (0.1..=100.0).contains(&self.rate_per_sec)) {
+            return Err("musicbrainz.rate_per_sec must be 0 or between 0.1 and 100".into());
+        }
+        if !(1..=20).contains(&self.burst) {
+            return Err("musicbrainz.burst must be between 1 and 20".into());
+        }
+        if !(1..=32).contains(&self.max_concurrent) {
+            return Err("musicbrainz.max_concurrent must be between 1 and 32".into());
+        }
+        Ok(())
+    }
+}
+
+/// Хост из `http(s)://host[:port]/…`; `None`, если схема другая или хоста нет.
+fn host_of(url: &str) -> Option<String> {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let authority = authority.rsplit('@').next()?;
+    let host = if let Some(v6) = authority.strip_prefix('[') {
+        v6.split(']').next()?
+    } else {
+        authority.split(':').next()?
+    };
+    (!host.is_empty()).then(|| host.to_ascii_lowercase())
 }
 
 /// Параллелизм фоновых воркеров. Читается при старте: изменение требует перезапуска.
@@ -256,6 +343,7 @@ impl Settings {
         if !(5..=300).contains(&p.metadata_timeout_secs) {
             return Err("performance.metadata_timeout_secs must be between 5 and 300".into());
         }
+        self.musicbrainz.validate()?;
         if self.storage.cache_limit_gb == 0 {
             return Err("storage.cache_limit_gb must be at least 1".into());
         }
@@ -520,5 +608,103 @@ mod tests {
         assert_eq!((s.storage.cache_limit_gb, s.storage.seeding), (7, true));
         assert_eq!(s.providers.torznab.unwrap().url, "http://tz");
         assert_eq!(s.providers.rutracker.unwrap().cookie.as_deref(), Some("c"));
+    }
+
+    fn mb(f: impl FnOnce(&mut MusicbrainzSettings)) -> MusicbrainzSettings {
+        let mut m = MusicbrainzSettings::default();
+        f(&mut m);
+        m
+    }
+
+    #[test]
+    fn musicbrainz_defaults_and_validation() {
+        let d = MusicbrainzSettings::default();
+        assert_eq!(
+            (
+                d.base_url.as_str(),
+                d.rate_per_sec,
+                d.burst,
+                d.max_concurrent
+            ),
+            ("https://musicbrainz.org/ws/2/", 1.0, 3, 2)
+        );
+        assert!(Settings::default().validate().is_ok());
+        let bad = [
+            mb(|m| m.base_url = "ftp://x/".into()),
+            mb(|m| m.base_url = "http://mirror".into()),
+            mb(|m| m.base_url = "https:///".into()),
+            mb(|m| m.base_url = "not a url/".into()),
+            mb(|m| m.rate_per_sec = 0.05),
+            mb(|m| m.rate_per_sec = 101.0),
+            mb(|m| m.rate_per_sec = -1.0),
+            mb(|m| m.burst = 0),
+            mb(|m| m.burst = 21),
+            mb(|m| m.max_concurrent = 0),
+            mb(|m| m.max_concurrent = 33),
+        ];
+        for b in bad {
+            let s = Settings {
+                musicbrainz: b.clone(),
+                ..Settings::default()
+            };
+            assert!(s.validate().is_err(), "{b:?}");
+        }
+        let ok = [
+            mb(|m| m.rate_per_sec = 0.0),
+            mb(|m| m.rate_per_sec = 0.1),
+            mb(|m| m.rate_per_sec = 100.0),
+            mb(|m| m.burst = 20),
+            mb(|m| m.max_concurrent = 32),
+            mb(|m| m.base_url = "http://localhost:5000/ws/2/".into()),
+        ];
+        for o in ok {
+            let s = Settings {
+                musicbrainz: o.clone(),
+                ..Settings::default()
+            };
+            assert!(s.validate().is_ok(), "{o:?}");
+        }
+    }
+
+    #[test]
+    fn musicbrainz_effective_uses_mirror_profile_only_when_untouched() {
+        let public = MusicbrainzSettings::default();
+        assert!(public.is_public());
+        assert_eq!(public.effective(), public);
+
+        let mirror = mb(|m| m.base_url = "http://mb.lan:5000/ws/2/".into());
+        assert!(!mirror.is_public());
+        let e = mirror.effective();
+        assert_eq!((e.rate_per_sec, e.burst, e.max_concurrent), (0.0, 3, 8));
+        assert_eq!(e.base_url, mirror.base_url);
+
+        // Явно заданные значения не переопределяются.
+        let tuned = mb(|m| {
+            m.base_url = "http://mb.lan/ws/2/".into();
+            m.rate_per_sec = 5.0;
+        });
+        assert_eq!(tuned.effective(), tuned);
+
+        // Поддомен musicbrainz.org — тоже публичный сервер; обманный хост — нет.
+        assert!(mb(|m| m.base_url = "https://beta.musicbrainz.org/ws/2/".into()).is_public());
+        assert!(
+            !mb(|m| m.base_url = "https://musicbrainz.org.evil.example/ws/2/".into()).is_public()
+        );
+        assert!(
+            !mb(|m| m.base_url = "https://user@evil.example/musicbrainz.org/".into()).is_public()
+        );
+        assert!(!mb(|m| m.base_url = "garbage".into()).is_public());
+    }
+
+    #[test]
+    fn host_parsing() {
+        assert_eq!(host_of("http://[::1]:5000/x").as_deref(), Some("::1"));
+        assert_eq!(
+            host_of("https://Host.Example:8080/").as_deref(),
+            Some("host.example")
+        );
+        assert_eq!(host_of("https://u:p@h/").as_deref(), Some("h"));
+        assert_eq!(host_of("https://h?x#y").as_deref(), Some("h"));
+        assert_eq!(host_of("file:///x"), None);
     }
 }

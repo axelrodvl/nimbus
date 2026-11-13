@@ -4,7 +4,8 @@ use nimbus_core::model::{Album, Artist, NewAlbum, NewArtist, NewTrack, Track, Tr
 use nimbus_db::repo::jobs::{EnqueueOpts, ImportPhase, ImportProgress};
 use nimbus_db::repo::{albums, artists, jobs, tracks};
 use nimbus_db::PgPool;
-use nimbus_musicbrainz::{cover_url, MbClient, ReleaseGroupHit};
+use nimbus_musicbrainz::{cover_url, BulkGroup, MbClient, ReleaseGroupHit, ReleaseTracklist};
+use std::sync::{Mutex, PoisonError};
 use std::time::Instant;
 use uuid::Uuid;
 
@@ -133,6 +134,17 @@ impl LibraryService {
         rg_mbid: Uuid,
         hint: Option<ReleaseGroupHit>,
     ) -> Result<(Album, Vec<Track>)> {
+        self.ensure_album_with(rg_mbid, hint, None).await
+    }
+
+    /// `ensure_album`, но если альбома с треками в БД нет, а `prefetched` задан, берёт релиз и
+    /// треклист оттуда (пакетный импорт уже получил их из MusicBrainz) — без обращения к сети.
+    async fn ensure_album_with(
+        &self,
+        rg_mbid: Uuid,
+        hint: Option<ReleaseGroupHit>,
+        prefetched: Option<(Uuid, ReleaseTracklist)>,
+    ) -> Result<(Album, Vec<Track>)> {
         if let Some(album) = albums::get_by_rg_mbid(&self.db, rg_mbid).await? {
             let existing = tracks::list_by_album(&self.db, album.id).await?;
             if !existing.is_empty() {
@@ -144,9 +156,23 @@ impl LibraryService {
             Some(h) => h,
             None => self.mb.release_group(rg_mbid).await?,
         };
-        let artist = self.ensure_artist(rg.artist_mbid).await?;
-        let (release, tracklist) = self.mb.canonical_release_with_tracklist(rg_mbid).await?;
+        let (release, tracklist) = match prefetched {
+            Some(p) => p,
+            None => self.mb.canonical_release_with_tracklist(rg_mbid).await?,
+        };
+        self.ensure_album_from(rg, release, &tracklist).await
+    }
 
+    /// Записывает альбом и его треки из уже полученных данных MusicBrainz (без сети, кроме
+    /// случая, когда артиста нет в БД). Идемпотентно: повторный вызов обновляет те же строки.
+    pub async fn ensure_album_from(
+        &self,
+        rg: ReleaseGroupHit,
+        release: Uuid,
+        tracklist: &ReleaseTracklist,
+    ) -> Result<(Album, Vec<Track>)> {
+        let rg_mbid = rg.mbid;
+        let artist = self.ensure_artist(rg.artist_mbid).await?;
         let mut tx = self.db.begin().await?;
         let album = albums::upsert_by_rg_mbid(
             &mut *tx,
@@ -189,7 +215,7 @@ impl LibraryService {
 
     /// Добавляет альбом целиком и ставит `discover_album`.
     pub async fn add_album(&self, rg_mbid: Uuid) -> Result<AddOutcome> {
-        self.add_album_inner(rg_mbid, None, Some(PRIORITY_INTERACTIVE))
+        self.add_album_inner(rg_mbid, None, Some(PRIORITY_INTERACTIVE), None)
             .await
     }
 
@@ -198,8 +224,9 @@ impl LibraryService {
         rg_mbid: Uuid,
         hint: Option<ReleaseGroupHit>,
         discover: Option<i16>,
+        prefetched: Option<(Uuid, ReleaseTracklist)>,
     ) -> Result<AddOutcome> {
-        let (album, _) = self.ensure_album(rg_mbid, hint).await?;
+        let (album, _) = self.ensure_album_with(rg_mbid, hint, prefetched).await?;
         if album.in_library {
             return Ok(AddOutcome::Exists { id: album.id });
         }
@@ -352,66 +379,102 @@ impl LibraryService {
         let started = Instant::now();
         let mut progress = ImportProgress::new();
         progress.log(format!(
-            "Requesting the release list for {} from MusicBrainz (it allows ~1 request per second)",
+            "Requesting the release list and tracklists for {} from MusicBrainz (batched: ~25 releases per request)",
             artist.name
         ));
         self.save_progress(artist_id, &progress).await;
-        let groups = self
-            .mb
-            .artist_release_groups(artist.mbid, &["album", "ep"])
-            .await?;
 
-        progress.phase = ImportPhase::Albums;
-        progress.total = u32::try_from(groups.len()).unwrap_or(u32::MAX);
-        progress.log(format!(
-            "Found {} release groups (albums and EPs) in {:.1}s",
-            groups.len(),
-            started.elapsed().as_secs_f32()
-        ));
-        self.save_progress(artist_id, &progress).await;
+        // Отсеянные группы (тип, чужой артист) в MusicBrainz за треклистами не ходят.
+        let skipped_groups = Mutex::new(Vec::<(String, String)>::new());
+        let bulk = self
+            .mb
+            .artist_releases_bulk_filtered(artist.mbid, &["album", "ep"], |group| {
+                let excluded = group
+                    .primary_type
+                    .iter()
+                    .chain(group.secondary_types.iter())
+                    .find(|t| skip_secondary_types.iter().any(|s| s == *t));
+                // Совместные релизы, где первым указан другой артист, не добавляем: иначе в библиотеку
+                // попал бы и он.
+                let reason = match excluded {
+                    Some(t) => Some(format!("type {t}")),
+                    None if group.artist_mbid != artist.mbid => {
+                        Some("credited to another artist".to_string())
+                    }
+                    None => None,
+                };
+                match reason {
+                    Some(r) => {
+                        skipped_groups
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .push((group.title.clone(), r));
+                        false
+                    }
+                    None => true,
+                }
+            })
+            .await?;
+        let skipped_groups = skipped_groups
+            .into_inner()
+            .unwrap_or_else(PoisonError::into_inner);
 
         let mut summary = ImportSummary::default();
-        for group in groups {
-            let excluded = group
-                .primary_type
-                .iter()
-                .chain(group.secondary_types.iter())
-                .find(|t| skip_secondary_types.iter().any(|s| s == *t))
-                .cloned();
+        progress.phase = ImportPhase::Albums;
+        progress.total =
+            u32::try_from(bulk.groups.len() + bulk.unavailable.len() + skipped_groups.len())
+                .unwrap_or(u32::MAX);
+        progress.log(format!(
+            "Found {} release groups (albums and EPs), {} with tracklists, in {:.1}s",
+            progress.total,
+            bulk.groups.len(),
+            started.elapsed().as_secs_f32()
+        ));
+        for (title, reason) in skipped_groups {
+            summary.skipped += 1;
+            progress.skipped += 1;
+            progress.done += 1;
+            progress.log(format!("Skipped \"{title}\": {reason}"));
+        }
+        for group in bulk.unavailable {
+            tracing::warn!(release_group = %group.mbid, title = %group.title, "release group has no usable release, skipped");
+            summary.skipped += 1;
+            progress.skipped += 1;
+            progress.done += 1;
+            progress.log(format!(
+                "Skipped \"{}\": no usable release in MusicBrainz",
+                group.title
+            ));
+        }
+        self.save_progress(artist_id, &progress).await;
+
+        for BulkGroup {
+            group,
+            release,
+            tracklist,
+        } in bulk.groups
+        {
             let title = group.title.clone();
-            // Совместные релизы, где первым указан другой артист, не добавляем: иначе в библиотеку
-            // попал бы и он.
-            if excluded.is_some() || group.artist_mbid != artist.mbid {
-                summary.skipped += 1;
-                progress.skipped += 1;
-                progress.done += 1;
-                progress.log(match excluded {
-                    Some(t) => format!("Skipped \"{title}\": type {t}"),
-                    None => format!("Skipped \"{title}\": credited to another artist"),
-                });
-                self.save_progress(artist_id, &progress).await;
-                continue;
-            }
             progress.current = Some(title.clone());
             self.save_progress(artist_id, &progress).await;
-            let (rg, album_started) = (group.mbid, Instant::now());
+            let album_started = Instant::now();
+            // Запись в БД и постановка `DiscoverAlbum` — сразу, без сети (контракт шага 29).
             let outcome = self
-                .add_album_inner(rg, Some(group), Some(PRIORITY_NORMAL))
+                .add_album_inner(
+                    group.mbid,
+                    Some(group),
+                    Some(PRIORITY_NORMAL),
+                    Some((release, tracklist)),
+                )
                 .await;
-            let took = album_started.elapsed().as_secs_f32();
             progress.done += 1;
             match outcome {
                 Ok(_) => {
                     summary.imported += 1;
                     progress.imported += 1;
-                    progress.log(format!("Added \"{title}\" ({took:.1}s)"));
-                }
-                Err(LibraryError::MbNotFound) => {
-                    tracing::warn!(release_group = %rg, %title, "release group has no usable release, skipped");
-                    summary.skipped += 1;
-                    progress.skipped += 1;
                     progress.log(format!(
-                        "Skipped \"{title}\": no usable release in MusicBrainz"
+                        "Added \"{title}\" ({:.1}s)",
+                        album_started.elapsed().as_secs_f32()
                     ));
                 }
                 Err(e) => {

@@ -943,3 +943,179 @@ async fn import_streams_discovery_without_delays(pool: PgPool) {
         assert_eq!(j.priority, 0);
     }
 }
+
+// ------------------------------------------------------------------ пакетный импорт (шаг 30)
+
+fn bulk_release(rg: &str, release: &str, title: &str) -> serde_json::Value {
+    json!({
+        "id": release, "date": "1997-05-21", "country": "XW",
+        "release-group": {"id": rg},
+        "media": [{"position": 1, "format": "Digital Media", "track-count": 1,
+            "tracks": [{"id": Uuid::new_v4(), "position": 1, "title": title, "length": 1000,
+                "recording": {"id": Uuid::new_v4(), "length": 1000}}]}]
+    })
+}
+
+/// MB, где пакетный browse (`release?artist=`) работает: по запросу на группу ходить не нужно.
+async fn bulk_mb_server() -> MockServer {
+    let s = mb_server().await;
+    Mock::given(method("GET"))
+        .and(path("/ws/2/release"))
+        .and(query_param("artist", RADIOHEAD))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "release-count": 2,
+            "releases": [
+                bulk_release(OK_COMPUTER, R_OKC, "Airbag"),
+                bulk_release(EP_RG, R_EP, "EP Song"),
+            ]
+        })))
+        .mount(&s)
+        .await;
+    s
+}
+
+/// Запросы релизов по конкретным группам (`release?release-group=…`).
+async fn per_group_release_requests(server: &MockServer, groups: &[&str]) -> usize {
+    server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .filter(|r| {
+            r.url.path() == "/ws/2/release"
+                && r.url
+                    .query_pairs()
+                    .any(|(k, v)| k == "release-group" && groups.contains(&v.as_ref()))
+        })
+        .count()
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn bulk_import_creates_albums_and_tracks_without_per_group_requests(pool: PgPool) {
+    let server = bulk_mb_server().await;
+    let lib = nimbus_library::LibraryService::new(
+        pool.clone(),
+        mb_client(&server),
+        nimbus_core::events::EventBus::new(),
+    );
+    let artist = lib
+        .ensure_artist(Uuid::parse_str(RADIOHEAD).unwrap())
+        .await
+        .unwrap();
+    lib.enqueue_import(artist.id).await.unwrap();
+
+    let summary = lib.import_artist_skipping(artist.id, &[]).await.unwrap();
+    // Пропущены: чужой артист и две группы без релизов (Live, Compilation) в фикстуре.
+    assert_eq!((summary.imported, summary.skipped), (2, 3));
+    assert_eq!(
+        per_group_release_requests(&server, &[OK_COMPUTER, EP_RG]).await,
+        0
+    );
+
+    let albums = albums::list_by_artist(&pool, artist.id).await.unwrap();
+    assert_eq!(albums.len(), 2);
+    let okc = albums
+        .iter()
+        .find(|a| a.mbid_release_group.to_string() == OK_COMPUTER)
+        .unwrap();
+    assert_eq!(
+        okc.mbid_release.map(|r| r.to_string()).as_deref(),
+        Some(R_OKC)
+    );
+    assert!(okc.in_library);
+    let ts = tracks::list_by_album(&pool, okc.id).await.unwrap();
+    assert_eq!(ts.len(), 1);
+    assert_eq!(ts[0].title, "Airbag");
+    assert_eq!(ts[0].status, TrackStatus::Adding);
+
+    // Прогресс записан в задачу импорта.
+    let progress: serde_json::Value =
+        sqlx::query_scalar("SELECT progress FROM jobs WHERE kind = 'import_artist'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(progress["imported"], 2);
+    assert_eq!(progress["total"], 5);
+    assert_eq!(progress["done"], 5);
+    assert_eq!(progress["skipped"], 3);
+    let log = progress["log"].to_string();
+    assert!(log.contains("Added") && log.contains("batched"), "{log}");
+
+    // Повторный импорт идемпотентен.
+    let again = lib.import_artist_skipping(artist.id, &[]).await.unwrap();
+    assert_eq!(again.imported, 2);
+    assert_eq!(
+        albums::list_by_artist(&pool, artist.id)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(count_tracks(&pool).await, 2);
+}
+
+async fn count_tracks(pool: &PgPool) -> i64 {
+    count(pool, "SELECT count(*) FROM tracks").await
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn bulk_import_filters_types_and_foreign_artists(pool: PgPool) {
+    let server = bulk_mb_server().await;
+    let lib = nimbus_library::LibraryService::new(
+        pool.clone(),
+        mb_client(&server),
+        nimbus_core::events::EventBus::new(),
+    );
+    let artist = lib
+        .ensure_artist(Uuid::parse_str(RADIOHEAD).unwrap())
+        .await
+        .unwrap();
+    lib.enqueue_import(artist.id).await.unwrap();
+
+    // Пропуск по типу: EP не импортируется и в сеть за ним не ходим.
+    let summary = lib
+        .import_artist_skipping(artist.id, &["EP".to_string()])
+        .await
+        .unwrap();
+    assert_eq!((summary.imported, summary.skipped), (1, 4));
+    assert_eq!(per_group_release_requests(&server, &[EP_RG]).await, 0);
+    let progress: serde_json::Value =
+        sqlx::query_scalar("SELECT progress FROM jobs WHERE kind = 'import_artist'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        progress["log"].to_string().contains("Skipped")
+            && progress["log"].to_string().contains("type EP"),
+        "{progress}"
+    );
+
+    // Совместный релиз, где первым указан другой артист, пропущен и записан в журнал.
+    assert!(
+        progress["log"]
+            .to_string()
+            .contains("credited to another artist"),
+        "{progress}"
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn import_falls_back_when_bulk_browse_is_unsupported(pool: PgPool) {
+    // `mb_server()` без пакетного ответа: browse по артисту → 404, импорт идёт по группам.
+    let server = mb_server().await;
+    let lib = nimbus_library::LibraryService::new(
+        pool.clone(),
+        mb_client(&server),
+        nimbus_core::events::EventBus::new(),
+    );
+    let artist = lib
+        .ensure_artist(Uuid::parse_str(RADIOHEAD).unwrap())
+        .await
+        .unwrap();
+    let summary = lib.import_artist_skipping(artist.id, &[]).await.unwrap();
+    assert_eq!(summary.imported, 2);
+    assert!(
+        per_group_release_requests(&server, &[OK_COMPUTER]).await >= 1,
+        "по запросу на группу, как до пакетного пути"
+    );
+}

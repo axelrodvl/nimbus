@@ -402,6 +402,13 @@ async fn maintenance_loop(
             if let Err(e) = jobs::purge_done(db, cfg.done_retention).await {
                 tracing::error!(error = %e, "purge_done failed");
             }
+            // Просроченные ответы MusicBrainz живут ещё `STALE_GRACE` как запасной вариант при отказах.
+            if let Err(e) =
+                nimbus_db::repo::mb_cache::purge_expired(db, nimbus_db::repo::mb_cache::STALE_GRACE)
+                    .await
+            {
+                tracing::error!(error = %e, "mb_cache purge failed");
+            }
         }
         if cfg
             .evict_interval

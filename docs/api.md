@@ -18,6 +18,7 @@
 - `POST /api/jobs/{id}/retry` — только для `failed`: попытки обнуляются, приоритет интерактивный. `404` — нет задачи,
   `409 not_failed` — задача не `failed`, `409 duplicate` — уже есть активная такая же.
 - `PUT /api/settings` дополнительно возвращает `restart_required: true`, если изменился раздел `performance` (в том числе `metadata_concurrency` 1–64 и `metadata_timeout_secs` 5–300)
+- Раздел `musicbrainz` (`base_url` — `http(s)://…/`, `rate_per_sec` 0 или 0.1–100, `burst` 1–20, `max_concurrent` 1–32) применяется на лету; для чужого адреса с неизменёнными остальными полями действует профиль зеркала (без лимита, 8 параллельных).
   (число воркеров применяется после перезапуска).
 
 ## WebSocket `/api/ws`

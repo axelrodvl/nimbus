@@ -100,16 +100,6 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    #[allow(unused_mut)]
-    let mut mb_cfg = nimbus_musicbrainz::MbConfig::new(&config.mb_user_agent);
-    #[cfg(feature = "test-fakes")]
-    if let Some(f) = &fakes {
-        mb_cfg.base = f.mb_base.parse().context("fake MB url")?;
-        mb_cfg.min_interval = std::time::Duration::from_millis(5);
-        mb_cfg.lb_base = None;
-    }
-    let mb = MbClient::with_config(mb_cfg, Some(db.clone()))
-        .context("cannot create MusicBrainz client")?;
     // Настройки из БД поверх env-дефолтов.
     let settings = nimbus_db::settings::SettingsStore::load(
         db.clone(),
@@ -117,7 +107,25 @@ async fn main() -> anyhow::Result<()> {
     )
     .await
     .context("cannot load settings")?;
+    // Адрес и лимиты MusicBrainz — из настроек (профиль зеркала — `effective()`);
+    // User-Agent по-прежнему из env.
     let initial = settings.get();
+    let mb_settings = initial.musicbrainz.effective();
+    #[allow(unused_mut)]
+    let mut mb_cfg = nimbus_musicbrainz::MbConfig::new(&config.mb_user_agent);
+    mb_cfg.base = mb_settings
+        .base_url
+        .parse()
+        .context("invalid musicbrainz.base_url")?;
+    mb_cfg.limits = (&mb_settings).into();
+    #[cfg(feature = "test-fakes")]
+    if let Some(f) = &fakes {
+        mb_cfg.base = f.mb_base.parse().context("fake MB url")?;
+        mb_cfg.limits = nimbus_musicbrainz::MbLimits::unlimited(8);
+        mb_cfg.lb_base = None;
+    }
+    let mb = MbClient::with_config(mb_cfg, Some(db.clone()))
+        .context("cannot create MusicBrainz client")?;
     #[allow(unused_mut)]
     let mut engine_cfg = EngineConfig::new(&config.data_dir, initial.storage.seeding);
     engine_cfg.seed_ratio = initial.storage.seed_ratio;

@@ -19,8 +19,20 @@ use crate::error::{ApiError, ErrorResponse};
 use crate::extract::ApiJson;
 use crate::state::AppState;
 
-/// Применяет настройки к работающим компонентам: провайдеры и политика раздачи.
-pub async fn apply_settings(state: &AppState, settings: &Settings) -> Result<(), ApiError> {
+/// Применяет настройки к работающим компонентам: провайдеры, политика раздачи, адрес и лимиты MusicBrainz.
+/// `prev` — настройки до изменения: MusicBrainz перенастраивается, только если его раздел изменился
+/// (иначе любое сохранение сбрасывало бы, например, адрес режима фейков).
+pub async fn apply_settings(
+    state: &AppState,
+    prev: &Settings,
+    settings: &Settings,
+) -> Result<(), ApiError> {
+    if prev.musicbrainz != settings.musicbrainz {
+        state
+            .mb
+            .reconfigure(&settings.musicbrainz)
+            .map_err(|e| ApiError::bad_request("invalid_settings", format!("musicbrainz: {e}")))?;
+    }
     state
         .providers
         .reload(&settings.providers)
@@ -67,11 +79,12 @@ pub async fn put_settings(
         .map_err(|e| ApiError::bad_request("invalid_settings", e))?;
     build_providers(&merged.providers)
         .map_err(|e| ApiError::bad_request("invalid_settings", format!("providers: {e}")))?;
+    let previous = state.settings.get();
     let saved = state.settings.update(&patch).await.map_err(|e| match e {
         SettingsError::Invalid(m) => ApiError::bad_request("invalid_settings", m),
         SettingsError::Db(e) => e.into(),
     })?;
-    apply_settings(&state, &saved).await?;
+    apply_settings(&state, &previous, &saved).await?;
     let mut out = mask_secrets(&saved);
     // Параллелизм воркеров читается при старте: перезапуск нужен, пока значения отличаются от стартовых.
     if let Some(o) = out.as_object_mut() {

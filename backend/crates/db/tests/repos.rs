@@ -489,7 +489,31 @@ async fn mb_cache_ttl(pool: PgPool) {
         .await
         .unwrap();
     assert!(mb_cache::get(&pool, "k2").await.unwrap().is_none());
-    assert_eq!(mb_cache::purge_expired(&pool).await.unwrap(), 1);
+    // …но остаётся как запасной ответ, пока не прошёл срок хранения
+    let stale = mb_cache::get_entry(&pool, "k2").await.unwrap().unwrap();
+    assert_eq!(stale.value, json!({"b": 2}));
+    assert!(stale.expired);
+    let fresh = mb_cache::get_entry(&pool, "k1").await.unwrap().unwrap();
+    assert!(!fresh.expired);
+    assert!(mb_cache::get_entry(&pool, "nope").await.unwrap().is_none());
+    assert_eq!(
+        mb_cache::purge_expired(&pool, mb_cache::STALE_GRACE)
+            .await
+            .unwrap(),
+        0,
+        "свежепросроченное не удаляется"
+    );
+    sqlx::query("UPDATE mb_cache SET expires_at = now() - interval '31 days' WHERE key = 'k2'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        mb_cache::purge_expired(&pool, mb_cache::STALE_GRACE)
+            .await
+            .unwrap(),
+        1
+    );
+    assert!(mb_cache::get_entry(&pool, "k2").await.unwrap().is_none());
     assert!(mb_cache::get(&pool, "k1").await.unwrap().is_some());
 }
 

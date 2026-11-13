@@ -3,7 +3,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use nimbus_musicbrainz::{cover_url, MbClient, MbConfig, MbError, Priority};
+use nimbus_musicbrainz::{cover_url, MbClient, MbConfig, MbError, MbLimits, Priority};
 use sqlx::PgPool;
 use uuid::Uuid;
 use wiremock::matchers::{header, method, path, query_param, query_param_is_missing};
@@ -32,7 +32,7 @@ fn uuid(s: &str) -> Uuid {
 fn cfg(server: &MockServer) -> MbConfig {
     let mut c = MbConfig::new(UA);
     c.base = format!("{}/ws/2/", server.uri()).parse().unwrap();
-    c.min_interval = Duration::from_millis(1);
+    c.limits = MbLimits::unlimited(8);
     c.retry_delay = Duration::from_millis(10);
     c
 }
@@ -436,7 +436,7 @@ async fn limiter_spaces_requests() {
         .mount(&server)
         .await;
     let mut c = cfg(&server);
-    c.min_interval = Duration::from_millis(200);
+    c.limits = MbLimits::paced(5.0);
     let client = MbClient::with_config(c, None).unwrap();
     let start = Instant::now();
     for q in ["aaa", "bbb", "ccc"] {
@@ -457,7 +457,7 @@ async fn interactive_requests_jump_the_background_queue() {
         .mount(&server)
         .await;
     let mut c = cfg(&server);
-    c.min_interval = Duration::from_millis(150);
+    c.limits = MbLimits::paced(1000.0 / 150.0);
     let client = MbClient::with_config(c, None).unwrap();
     assert_eq!(client.priority(), Priority::Interactive);
     assert_eq!(client.background().priority(), Priority::Background);
@@ -505,6 +505,22 @@ async fn live_search_radiohead() {
     let client = MbClient::new(&ua, None).unwrap();
     let hits = client.search_artists("radiohead", 5).await.unwrap();
     assert!(hits.iter().any(|h| h.mbid == uuid(RADIOHEAD)), "{hits:?}");
+}
+
+/// Живой тест пакетного импорта (проверяет реальный предел `limit` для browse с `inc=recordings`).
+#[tokio::test]
+#[ignore]
+async fn live_bulk_releases_for_artist() {
+    let ua = std::env::var("NIMBUS_MB_USER_AGENT")
+        .unwrap_or_else(|_| "Nimbus/0.1 ( https://github.com/your/nimbus )".into());
+    let client = MbClient::new(&ua, None).unwrap();
+    let out = client
+        .artist_releases_bulk_filtered(uuid(RADIOHEAD), &["album"], |g| {
+            g.secondary_types.is_empty()
+        })
+        .await
+        .unwrap();
+    assert!(out.groups.iter().any(|b| b.group.mbid == uuid(OK_COMPUTER)));
 }
 
 // ---- реальные ответы MusicBrainz (tests/fixtures/real_*.json, записаны 2026-11-11) ----
@@ -610,4 +626,687 @@ async fn recording_lookup_picks_album_release_group() {
     assert_eq!(hit.artist_mbid, uuid(RADIOHEAD));
     assert_eq!(hit.duration_ms, Some(387_000));
     assert_eq!(hit.release_group_mbid, Some(uuid(OK_COMPUTER)));
+}
+
+// ------------------------------------------------------------------ пакетный импорт дискографии
+
+fn n_uuid(kind: u128, n: usize) -> Uuid {
+    Uuid::from_u128(kind << 64 | n as u128)
+}
+
+fn rg_json(n: usize, ty: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": n_uuid(1, n), "title": format!("Album {n}"), "primary-type": ty,
+        "secondary-types": [], "first-release-date": format!("{}-01-01", 1990 + n),
+        "artist-credit": [{"name": "Radiohead", "artist": {"id": RADIOHEAD, "name": "Radiohead"}}]
+    })
+}
+
+/// Релиз группы `group`; `tracks` — сколько дорожек реально пришло (может быть меньше `track_count`).
+fn release_json(
+    group: usize,
+    k: usize,
+    format: &str,
+    country: &str,
+    track_count: usize,
+    tracks: usize,
+) -> serde_json::Value {
+    let id = n_uuid(2, group * 100 + k);
+    let tracks: Vec<_> = (1..=tracks)
+        .map(|p| {
+            serde_json::json!({
+                "id": n_uuid(3, group * 10_000 + k * 100 + p), "position": p,
+                "title": format!("G{group} K{k} T{p}"), "length": 200_000 + p,
+                "recording": {"id": n_uuid(4, group * 100 + p), "length": 200_000 + p}
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "id": id, "date": format!("{}-06-01", 1990 + group + k), "country": country,
+        "release-group": {"id": n_uuid(1, group)},
+        "media": [{"position": 1, "format": format, "track-count": track_count, "tracks": tracks}]
+    })
+}
+
+/// Два релиза на группу: CD (GB) и Digital Media (XW) — каноничным выбирается второй.
+fn group_releases(group: usize) -> Vec<serde_json::Value> {
+    vec![
+        release_json(group, 1, "CD", "GB", 10, 10),
+        release_json(group, 2, "Digital Media", "XW", 10, 10),
+    ]
+}
+
+fn canonical_id(group: usize) -> Uuid {
+    n_uuid(2, group * 100 + 2)
+}
+
+fn page(count: usize, key: &str, items: Vec<serde_json::Value>) -> ResponseTemplate {
+    ResponseTemplate::new(200).set_body_json(serde_json::json!({
+        "release-count": count, "release-group-count": count, key: items
+    }))
+}
+
+async fn mount_groups(server: &MockServer, groups: &[usize]) {
+    Mock::given(path("/ws/2/release-group"))
+        .and(query_param("artist", RADIOHEAD))
+        .respond_with(page(
+            groups.len(),
+            "release-groups",
+            groups.iter().map(|g| rg_json(*g, "Album")).collect(),
+        ))
+        .mount(server)
+        .await;
+}
+
+async fn count_for(server: &MockServer, p: &str) -> usize {
+    server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .filter(|r| r.url.path() == p)
+        .count()
+}
+
+#[tokio::test]
+async fn bulk_one_page_needs_few_requests_where_per_group_path_needs_many() {
+    let groups: Vec<usize> = (1..=12).collect();
+    let all: Vec<_> = groups.iter().flat_map(|g| group_releases(*g)).collect();
+
+    // Пакетный путь: список групп + одна страница релизов.
+    let bulk = MockServer::start().await;
+    mount_groups(&bulk, &groups).await;
+    Mock::given(path("/ws/2/release"))
+        .and(query_param("artist", RADIOHEAD))
+        .and(query_param("status", "official"))
+        .and(query_param("type", "album|ep"))
+        .and(query_param(
+            "inc",
+            "release-groups media recordings artist-credits",
+        ))
+        .respond_with(page(all.len(), "releases", all.clone()))
+        .mount(&bulk)
+        .await;
+    let out = client(&bulk)
+        .artist_releases_bulk(uuid(RADIOHEAD), &["album", "ep"])
+        .await
+        .unwrap();
+    let bulk_requests = bulk.received_requests().await.unwrap().len();
+    assert_eq!(out.groups.len(), 12);
+    assert!(out.unavailable.is_empty());
+    assert!(bulk_requests <= 3, "запросов: {bulk_requests}");
+    for (i, b) in out.groups.iter().enumerate() {
+        let g = i + 1;
+        assert_eq!(b.group.mbid, n_uuid(1, g), "порядок групп сохраняется");
+        assert_eq!(b.group.artist_mbid, uuid(RADIOHEAD));
+        assert_eq!(b.release, canonical_id(g));
+        assert_eq!(b.tracklist.release_mbid, canonical_id(g));
+        assert_eq!(b.tracklist.tracks.len(), 10);
+        assert_eq!(b.tracklist.tracks[0].title, format!("G{g} K2 T1"));
+    }
+
+    // Прежний путь: список групп + по запросу на группу.
+    let old = MockServer::start().await;
+    mount_groups(&old, &groups).await;
+    for g in &groups {
+        Mock::given(path("/ws/2/release"))
+            .and(query_param("release-group", n_uuid(1, *g).to_string()))
+            .respond_with(page(2, "releases", group_releases(*g)))
+            .mount(&old)
+            .await;
+    }
+    let c = client(&old);
+    let rgs = c
+        .artist_release_groups(uuid(RADIOHEAD), &["album", "ep"])
+        .await
+        .unwrap();
+    for g in rgs {
+        c.canonical_release_with_tracklist(g.mbid).await.unwrap();
+    }
+    let old_requests = old.received_requests().await.unwrap().len();
+    assert!(old_requests >= 13, "запросов: {old_requests}");
+}
+
+#[tokio::test]
+async fn bulk_pages_by_received_count_and_dedups_on_page_boundary() {
+    let groups: Vec<usize> = (1..=13).collect();
+    let all: Vec<_> = groups.iter().flat_map(|g| group_releases(*g)).collect(); // 26 релизов
+    let server = MockServer::start().await;
+    mount_groups(&server, &groups).await;
+    // Сервер отдаёт по 20 (меньше запрошенных 25): листаем по фактически полученному числу.
+    // Релиз на границе приходит дважды.
+    let first: Vec<_> = all[..20].to_vec();
+    let mut second: Vec<_> = all[19..].to_vec();
+    second.truncate(7);
+    for (offset, items) in [("0", first), ("20", second)] {
+        Mock::given(path("/ws/2/release"))
+            .and(query_param("artist", RADIOHEAD))
+            .and(query_param("offset", offset))
+            .respond_with(page(26, "releases", items))
+            .mount(&server)
+            .await;
+    }
+    let out = client(&server)
+        .artist_releases_bulk(uuid(RADIOHEAD), &["album"])
+        .await
+        .unwrap();
+    assert_eq!(out.groups.len(), 13);
+    // Группа 10 разрезана границей страниц (релизы 19 и 20): выбор по обоим.
+    assert_eq!(out.groups[9].release, canonical_id(10));
+    assert_eq!(
+        count_for(&server, "/ws/2/release").await,
+        2,
+        "две страницы релизов и ни одного запроса на группу"
+    );
+}
+
+#[tokio::test]
+async fn bulk_incomplete_tracklist_is_fetched_per_group() {
+    let groups = [1usize, 2];
+    let server = MockServer::start().await;
+    mount_groups(&server, &groups).await;
+    // У группы 2 выбранный релиз пришёл без части дорожек (носитель 10, дорожек 4).
+    let mut releases = group_releases(1);
+    releases.push(release_json(2, 1, "CD", "GB", 10, 10));
+    releases.push(release_json(2, 2, "Digital Media", "XW", 10, 4));
+    Mock::given(path("/ws/2/release"))
+        .and(query_param("artist", RADIOHEAD))
+        .respond_with(page(releases.len(), "releases", releases))
+        .mount(&server)
+        .await;
+    // Добор по группе: прежний путь отдаёт полный релиз.
+    Mock::given(path("/ws/2/release"))
+        .and(query_param("release-group", n_uuid(1, 2).to_string()))
+        .respond_with(page(
+            2,
+            "releases",
+            vec![
+                release_json(2, 1, "CD", "GB", 10, 10),
+                release_json(2, 2, "Digital Media", "XW", 10, 10),
+            ],
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = client(&server)
+        .artist_releases_bulk(uuid(RADIOHEAD), &["album"])
+        .await
+        .unwrap();
+    assert_eq!(out.groups.len(), 2);
+    assert_eq!(out.groups[0].tracklist.tracks.len(), 10);
+    assert_eq!(out.groups[1].release, canonical_id(2));
+    assert_eq!(
+        out.groups[1].tracklist.tracks.len(),
+        10,
+        "добрано по группе"
+    );
+}
+
+#[tokio::test]
+async fn bulk_unsupported_response_falls_back_to_per_group_requests() {
+    for bulk_response in [
+        ResponseTemplate::new(400).set_body_string("unsupported inc"),
+        // Страница без `release-group`: `inc=release-groups` проигнорирован.
+        page(
+            2,
+            "releases",
+            vec![serde_json::json!({"id": n_uuid(2, 1), "media": []}); 1]
+                .into_iter()
+                .chain(vec![serde_json::json!({"id": n_uuid(2, 2), "media": []})])
+                .collect(),
+        ),
+    ] {
+        let groups = [1usize, 2, 3];
+        let server = MockServer::start().await;
+        mount_groups(&server, &groups).await;
+        Mock::given(path("/ws/2/release"))
+            .and(query_param("artist", RADIOHEAD))
+            .respond_with(bulk_response)
+            .mount(&server)
+            .await;
+        for g in groups {
+            Mock::given(path("/ws/2/release"))
+                .and(query_param("release-group", n_uuid(1, g).to_string()))
+                .respond_with(page(2, "releases", group_releases(g)))
+                .expect(1)
+                .mount(&server)
+                .await;
+        }
+        let out = client(&server)
+            .artist_releases_bulk(uuid(RADIOHEAD), &["album"])
+            .await
+            .unwrap();
+        assert_eq!(out.groups.len(), 3);
+        assert_eq!(out.groups[2].release, canonical_id(3));
+    }
+}
+
+#[tokio::test]
+async fn bulk_groups_without_official_release_are_unavailable_or_fall_back_to_unofficial() {
+    let groups = [1usize, 2, 3];
+    let server = MockServer::start().await;
+    mount_groups(&server, &groups).await;
+    Mock::given(path("/ws/2/release"))
+        .and(query_param("artist", RADIOHEAD))
+        .respond_with(page(2, "releases", group_releases(1)))
+        .mount(&server)
+        .await;
+    // Группа 2 — совсем без релизов; у группы 3 только неофициальные (прежний путь их берёт).
+    Mock::given(path("/ws/2/release"))
+        .and(query_param("release-group", n_uuid(1, 2).to_string()))
+        .respond_with(page(0, "releases", vec![]))
+        .mount(&server)
+        .await;
+    Mock::given(path("/ws/2/release"))
+        .and(query_param("release-group", n_uuid(1, 3).to_string()))
+        .and(query_param("status", "official"))
+        .respond_with(page(0, "releases", vec![]))
+        .mount(&server)
+        .await;
+    Mock::given(path("/ws/2/release"))
+        .and(query_param("release-group", n_uuid(1, 3).to_string()))
+        .and(query_param_is_missing("status"))
+        .respond_with(page(
+            1,
+            "releases",
+            vec![release_json(3, 1, "CD", "GB", 10, 10)],
+        ))
+        .mount(&server)
+        .await;
+    Mock::given(path(format!("/ws/2/release/{}", n_uuid(2, 301))))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": n_uuid(2, 301),
+            "media": release_json(3, 1, "CD", "GB", 10, 10)["media"].clone()
+        })))
+        .mount(&server)
+        .await;
+    let out = client(&server)
+        .artist_releases_bulk(uuid(RADIOHEAD), &["album"])
+        .await
+        .unwrap();
+    assert_eq!(
+        out.groups.iter().map(|b| b.group.mbid).collect::<Vec<_>>(),
+        vec![n_uuid(1, 1), n_uuid(1, 3)]
+    );
+    assert_eq!(
+        out.unavailable.iter().map(|g| g.mbid).collect::<Vec<_>>(),
+        vec![n_uuid(1, 2)]
+    );
+}
+
+#[tokio::test]
+async fn bulk_filter_skips_requests_for_dropped_groups() {
+    let groups = [1usize, 2, 3];
+    let server = MockServer::start().await;
+    mount_groups(&server, &groups).await;
+    // Релизов нет вовсе: без фильтра пошёл бы добор по каждой группе.
+    Mock::given(path("/ws/2/release"))
+        .respond_with(page(0, "releases", vec![]))
+        .mount(&server)
+        .await;
+    let out = client(&server)
+        .artist_releases_bulk_filtered(uuid(RADIOHEAD), &["album"], |_| false)
+        .await
+        .unwrap();
+    assert!(out.groups.is_empty() && out.unavailable.is_empty());
+    assert_eq!(count_for(&server, "/ws/2/release").await, 0);
+}
+
+#[tokio::test]
+async fn bulk_falls_back_when_per_group_requests_are_cheaper() {
+    // 1 группа, а релизов столько, что страниц больше одной на группу → пакетный путь не выгоден.
+    let server = MockServer::start().await;
+    mount_groups(&server, &[1]).await;
+    Mock::given(path("/ws/2/release"))
+        .and(query_param("artist", RADIOHEAD))
+        .respond_with(page(26, "releases", group_releases(1)))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(path("/ws/2/release"))
+        .and(query_param("release-group", n_uuid(1, 1).to_string()))
+        .respond_with(page(2, "releases", group_releases(1)))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = client(&server)
+        .artist_releases_bulk(uuid(RADIOHEAD), &["album"])
+        .await
+        .unwrap();
+    assert_eq!(out.groups.len(), 1);
+}
+
+#[tokio::test]
+async fn bulk_propagates_throttling_instead_of_falling_back() {
+    let server = MockServer::start().await;
+    mount_groups(&server, &[1, 2]).await;
+    Mock::given(path("/ws/2/release"))
+        .respond_with(ResponseTemplate::new(503))
+        .mount(&server)
+        .await;
+    let r = client(&server)
+        .artist_releases_bulk(uuid(RADIOHEAD), &["album"])
+        .await;
+    assert!(matches!(r, Err(MbError::RateLimited)), "{r:?}");
+}
+
+#[tokio::test]
+async fn bulk_per_group_errors_other_than_not_found_fail_the_import() {
+    let server = MockServer::start().await;
+    mount_groups(&server, &[1]).await;
+    Mock::given(path("/ws/2/release"))
+        .and(query_param("artist", RADIOHEAD))
+        .respond_with(page(0, "releases", vec![]))
+        .mount(&server)
+        .await;
+    Mock::given(path("/ws/2/release"))
+        .and(query_param("release-group", n_uuid(1, 1).to_string()))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+    let r = client(&server)
+        .artist_releases_bulk(uuid(RADIOHEAD), &["album"])
+        .await;
+    assert!(matches!(r, Err(MbError::Http { status: 500, .. })), "{r:?}");
+}
+
+#[tokio::test]
+async fn bulk_choice_equals_canonical_release_with_tracklist_on_real_data() {
+    let server = MockServer::start().await;
+    Mock::given(path("/ws/2/release-group"))
+        .and(query_param("artist", RADIOHEAD))
+        .respond_with(page(
+            1,
+            "release-groups",
+            vec![serde_json::json!({
+                "id": OK_COMPUTER, "title": "OK Computer", "primary-type": "Album",
+                "secondary-types": [], "first-release-date": "1997-05-21",
+                "artist-credit": [{"name": "Radiohead", "artist": {"id": RADIOHEAD, "name": "Radiohead"}}]
+            })],
+        ))
+        .mount(&server)
+        .await;
+    // Та же реальная страница отвечает и на пакетный запрос, и на запрос по группе.
+    Mock::given(path("/ws/2/release"))
+        .respond_with(json("real_releases_by_artist"))
+        .mount(&server)
+        .await;
+    let c = client(&server);
+    let bulk = c
+        .artist_releases_bulk(uuid(RADIOHEAD), &["album"])
+        .await
+        .unwrap();
+    let (release, tracklist) = c
+        .canonical_release_with_tracklist(uuid(OK_COMPUTER))
+        .await
+        .unwrap();
+    assert_eq!(bulk.groups.len(), 1);
+    assert_eq!(bulk.groups[0].release, release);
+    assert_eq!(bulk.groups[0].tracklist, tracklist);
+    assert_eq!(tracklist.tracks.len(), 12);
+}
+
+// ------------------------------------------------------------------ stale-if-error
+
+async fn expire(pool: &PgPool) {
+    sqlx::query("UPDATE mb_cache SET expires_at = now() - interval '1 hour'")
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn stale_cache_entry_is_served_on_503_and_refreshed_by_a_good_response(pool: PgPool) {
+    let server = MockServer::start().await;
+    let p = format!("/ws/2/artist/{RADIOHEAD}");
+    Mock::given(path(p.clone()))
+        .respond_with(json("artist"))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    let c = MbClient::with_config(cfg(&server), Some(pool.clone())).unwrap();
+    assert_eq!(c.artist(uuid(RADIOHEAD)).await.unwrap().name, "Radiohead");
+    expire(&pool).await;
+
+    // Сервис недоступен: отдаём просроченную запись.
+    Mock::given(path(p.clone()))
+        .respond_with(ResponseTemplate::new(503))
+        .up_to_n_times(10)
+        .mount(&server)
+        .await;
+    assert_eq!(c.artist(uuid(RADIOHEAD)).await.unwrap().name, "Radiohead");
+
+    // Сервис ожил: запись обновляется свежим ответом.
+    server.reset().await;
+    Mock::given(path(p))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": RADIOHEAD, "name": "Radiohead (updated)"
+        })))
+        .mount(&server)
+        .await;
+    assert_eq!(
+        c.artist(uuid(RADIOHEAD)).await.unwrap().name,
+        "Radiohead (updated)"
+    );
+    let fresh: bool = sqlx::query_scalar("SELECT expires_at > now() FROM mb_cache")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(fresh);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn stale_cache_entry_is_served_on_network_error(pool: PgPool) {
+    let server = MockServer::start().await;
+    Mock::given(path(format!("/ws/2/artist/{RADIOHEAD}")))
+        .respond_with(json("artist"))
+        .mount(&server)
+        .await;
+    let c = MbClient::with_config(cfg(&server), Some(pool.clone())).unwrap();
+    c.artist(uuid(RADIOHEAD)).await.unwrap();
+    expire(&pool).await;
+    drop(server); // порт закрыт → ошибка соединения
+    assert_eq!(c.artist(uuid(RADIOHEAD)).await.unwrap().name, "Radiohead");
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn stale_entry_is_not_used_for_not_found_or_without_entry(pool: PgPool) {
+    let server = MockServer::start().await;
+    Mock::given(path(format!("/ws/2/artist/{RADIOHEAD}")))
+        .respond_with(json("artist"))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    let c = MbClient::with_config(cfg(&server), Some(pool.clone())).unwrap();
+    c.artist(uuid(RADIOHEAD)).await.unwrap();
+    expire(&pool).await;
+    // 404 — это ответ, а не отказ: запасная запись не подставляется.
+    server.reset().await;
+    Mock::given(path(format!("/ws/2/artist/{RADIOHEAD}")))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&server)
+        .await;
+    assert!(matches!(
+        c.artist(uuid(RADIOHEAD)).await,
+        Err(MbError::NotFound)
+    ));
+    // Нет записи — нет и запасного ответа.
+    server.reset().await;
+    Mock::given(path("/ws/2/artist/b1392450-e666-3926-a536-22c65f834433"))
+        .respond_with(ResponseTemplate::new(503))
+        .mount(&server)
+        .await;
+    assert!(matches!(
+        c.artist(uuid(OK_COMPUTER)).await,
+        Err(MbError::RateLimited)
+    ));
+}
+
+// ------------------------------------------------------------------ reconfigure, burst
+
+fn mb_settings(server: &MockServer) -> nimbus_core::settings::MusicbrainzSettings {
+    nimbus_core::settings::MusicbrainzSettings {
+        base_url: format!("{}/ws/2/", server.uri()),
+        ..Default::default()
+    }
+}
+
+#[tokio::test]
+async fn reconfigure_switches_base_url_and_limits_without_new_client() {
+    let (a, b) = (MockServer::start().await, MockServer::start().await);
+    for s in [&a, &b] {
+        Mock::given(path(format!("/ws/2/artist/{RADIOHEAD}")))
+            .respond_with(json("artist"))
+            .mount(s)
+            .await;
+    }
+    let mut c = cfg(&a);
+    c.limits = MbLimits::paced(0.5); // один запрос в 2 с, burst 1
+    let client = MbClient::with_config(c, None).unwrap();
+    client.artist(uuid(RADIOHEAD)).await.unwrap();
+    assert_eq!(a.received_requests().await.unwrap().len(), 1);
+
+    // Зеркало (`effective()`: без лимита) — следующий запрос идёт на новый адрес и без ожидания.
+    client.reconfigure(&mb_settings(&b)).unwrap();
+    let t = Instant::now();
+    for _ in 0..3 {
+        client
+            .search_artists(&format!("q{}", t.elapsed().as_nanos()), 5)
+            .await
+            .ok();
+    }
+    assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
+    assert_eq!(a.received_requests().await.unwrap().len(), 1);
+    assert_eq!(b.received_requests().await.unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn reconfigure_lets_in_flight_requests_finish_on_the_old_server() {
+    let (slow, fast) = (MockServer::start().await, MockServer::start().await);
+    Mock::given(path(format!("/ws/2/artist/{RADIOHEAD}")))
+        .respond_with(json("artist").set_delay(Duration::from_millis(300)))
+        .mount(&slow)
+        .await;
+    Mock::given(path(format!("/ws/2/artist/{RADIOHEAD}")))
+        .respond_with(json("artist"))
+        .mount(&fast)
+        .await;
+    let client = MbClient::with_config(cfg(&slow), None).unwrap();
+    let in_flight = {
+        let c = client.clone();
+        tokio::spawn(async move { c.artist(uuid(RADIOHEAD)).await })
+    };
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    client.reconfigure(&mb_settings(&fast)).unwrap();
+    assert_eq!(in_flight.await.unwrap().unwrap().name, "Radiohead");
+    assert_eq!(slow.received_requests().await.unwrap().len(), 1);
+    assert_eq!(fast.received_requests().await.unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn reconfigure_rejects_unparsable_base_url() {
+    let server = MockServer::start().await;
+    let client = client(&server);
+    let mut s = mb_settings(&server);
+    s.base_url = "not a url".into();
+    assert!(matches!(client.reconfigure(&s), Err(MbError::Transport(_))));
+}
+
+#[tokio::test]
+async fn warm_bucket_lets_an_interactive_search_through_without_waiting() {
+    let server = MockServer::start().await;
+    for p in ["artist", "release-group", "recording"] {
+        Mock::given(path(format!("/ws/2/{p}")))
+            .respond_with(json(match p {
+                "artist" => "search_artist",
+                "release-group" => "search_release_group",
+                _ => "search_recording",
+            }))
+            .mount(&server)
+            .await;
+    }
+    let mut c = cfg(&server);
+    c.limits = MbLimits::public(); // 1 запрос/с, burst 3 — как у публичного сервера
+    let client = MbClient::with_config(c, None).unwrap();
+    let t = Instant::now();
+    let (a, g, r) = tokio::join!(
+        client.search_artists("radiohead", 5),
+        client.search_release_groups("radiohead", 5),
+        client.search_recordings("radiohead", 5),
+    );
+    assert!(a.is_ok() && g.is_ok() && r.is_ok());
+    assert!(
+        t.elapsed() < Duration::from_millis(500),
+        "три запроса поиска должны уйти разом: {:?}",
+        t.elapsed()
+    );
+    // Ведро опустошено: четвёртый ждёт ~1 с.
+    let t = Instant::now();
+    client.search_artists("another", 5).await.unwrap();
+    assert!(
+        t.elapsed() >= Duration::from_millis(800),
+        "{:?}",
+        t.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn throttling_slows_the_client_down_for_subsequent_requests() {
+    let server = MockServer::start().await;
+    Mock::given(path("/ws/2/artist"))
+        .respond_with(ResponseTemplate::new(503))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(path("/ws/2/artist"))
+        .respond_with(json("search_artist"))
+        .mount(&server)
+        .await;
+    let mut c = cfg(&server);
+    c.limits = MbLimits {
+        rate_per_sec: 20.0,
+        burst: 1,
+        max_concurrent: 1,
+    };
+    let client = MbClient::with_config(c, None).unwrap();
+    let t = Instant::now();
+    client.search_artists("aaa", 5).await.unwrap();
+    client.search_artists("bbb", 5).await.unwrap();
+    // 503 → пауза retry_delay (10 мс) и темп 20 → 10 запросов/с: второй запрос ≥ 100 мс после повтора.
+    assert!(
+        t.elapsed() >= Duration::from_millis(100),
+        "{:?}",
+        t.elapsed()
+    );
+}
+
+/// Измерение шага 30: артист с 30 альбомами (по 2 релиза на альбом), число HTTP-запросов.
+/// На публичном лимите (1 запрос/с, burst 3) время ≈ `max(0, запросов − 3)` секунд.
+#[tokio::test]
+async fn request_budget_for_an_artist_with_30_albums() {
+    let groups: Vec<usize> = (1..=30).collect();
+    let all: Vec<_> = groups.iter().flat_map(|g| group_releases(*g)).collect(); // 60 релизов
+    let server = MockServer::start().await;
+    mount_groups(&server, &groups).await;
+    for (i, chunk) in all.chunks(25).enumerate() {
+        Mock::given(path("/ws/2/release"))
+            .and(query_param("artist", RADIOHEAD))
+            .and(query_param("offset", (i * 25).to_string()))
+            .respond_with(page(all.len(), "releases", chunk.to_vec()))
+            .mount(&server)
+            .await;
+    }
+    let t = Instant::now();
+    let out = client(&server)
+        .artist_releases_bulk(uuid(RADIOHEAD), &["album", "ep"])
+        .await
+        .unwrap();
+    let requests = server.received_requests().await.unwrap().len();
+    eprintln!(
+        "30 альбомов: {requests} запросов (было 31), {:?} без лимита; на публичном лимите ≈ {} с",
+        t.elapsed(),
+        requests.saturating_sub(3)
+    );
+    assert_eq!(out.groups.len(), 30);
+    assert_eq!(requests, 1 + 3, "список групп + 3 страницы по 25 релизов");
 }

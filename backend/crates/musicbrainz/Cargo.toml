@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+nimbus-core.workspace = true
 nimbus-db.workspace = true
 reqwest.workspace = true
 serde.workspace = true
@@ -16,6 +17,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 wiremock.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 sqlx.workspace = true
 
 [lints]

@@ -28,7 +28,7 @@ pub fn mb_client(server: &MockServer) -> MbClient {
     let mut c = MbConfig::new("NimbusTest/0.1 ( https://example.org/test )");
     c.base = format!("{}/ws/2/", server.uri()).parse().unwrap();
     c.lb_base = None;
-    c.min_interval = Duration::from_millis(1);
+    c.limits = nimbus_musicbrainz::MbLimits::unlimited(8);
     c.retry_delay = Duration::from_millis(5);
     MbClient::with_config(c, None).unwrap()
 }

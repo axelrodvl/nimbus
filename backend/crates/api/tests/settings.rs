@@ -304,3 +304,68 @@ async fn restart_required_only_when_performance_changes(pool: PgPool) {
     let (_, body) = put(app, json!({"performance": {"discover_workers": 8}})).await;
     assert_eq!(body["restart_required"], false);
 }
+
+// ------------------------------------------------------------------ MusicBrainz (шаг 30)
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn musicbrainz_defaults_are_exposed_and_validated(pool: PgPool) {
+    let app = router(state(pool));
+    let (_, body) = get_json(app.clone(), "/api/settings").await;
+    assert_eq!(
+        body["musicbrainz"]["base_url"],
+        "https://musicbrainz.org/ws/2/"
+    );
+    assert_eq!(body["musicbrainz"]["rate_per_sec"], 1.0);
+    assert_eq!(body["musicbrainz"]["burst"], 3);
+    assert_eq!(body["musicbrainz"]["max_concurrent"], 2);
+    for bad in [
+        json!({"base_url": "ftp://x/"}),
+        json!({"base_url": "http://mirror"}),
+        json!({"rate_per_sec": 500.0}),
+        json!({"burst": 0}),
+        json!({"max_concurrent": 33}),
+    ] {
+        let (code, body) = put(app.clone(), json!({"musicbrainz": bad})).await;
+        assert_eq!(code, 400, "{bad}");
+        assert_eq!(body["error"]["code"], "invalid_settings");
+    }
+    let (_, body) = get_json(app, "/api/settings").await;
+    assert_eq!(
+        body["musicbrainz"]["burst"], 3,
+        "некорректное не сохранилось"
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn musicbrainz_settings_apply_on_the_fly(pool: PgPool) {
+    let mirror = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/ws/2/artist"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"artists": []})))
+        .mount(&mirror)
+        .await;
+    let st = state(pool); // MB по умолчанию смотрит в никуда (порт 9)
+    let app = router(st.clone());
+    assert!(st.mb.search_artists("radiohead", 5).await.is_err());
+
+    // Адрес зеркала (профиль зеркала: без лимита) — следующий запрос идёт уже туда.
+    let (code, body) = put(
+        app.clone(),
+        json!({"musicbrainz": {"base_url": format!("{}/ws/2/", mirror.uri())}}),
+    )
+    .await;
+    assert_eq!(code, 200, "{body}");
+    assert!(st
+        .mb
+        .search_artists("radiohead", 5)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(mirror.received_requests().await.unwrap().len(), 1);
+
+    // Посторонние настройки MusicBrainz не трогают.
+    let (code, _) = put(app, json!({"storage": {"cache_limit_gb": 9}})).await;
+    assert_eq!(code, 200);
+    assert!(st.mb.search_artists("radiohead again", 5).await.is_ok());
+    assert_eq!(mirror.received_requests().await.unwrap().len(), 2);
+}
