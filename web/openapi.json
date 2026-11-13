@@ -2749,7 +2749,8 @@
           "status",
           "db",
           "version",
-          "jobs"
+          "jobs",
+          "providers"
         ],
         "properties": {
           "db": {
@@ -2768,6 +2769,13 @@
           },
           "jobs": {
             "$ref": "#/components/schemas/JobsHealth"
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProviderHealthDto"
+            },
+            "description": "Провайдеры торрентов и состояние их предохранителей."
           },
           "status": {
             "type": "string"
@@ -3173,6 +3181,38 @@
           "state": {
             "type": "string",
             "description": "`started` — предзагрузка запущена, `ready` — файл уже на диске, `skipped` — нечего грузить."
+          }
+        }
+      },
+      "ProviderHealthDto": {
+        "type": "object",
+        "required": [
+          "source",
+          "state"
+        ],
+        "properties": {
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Последняя ошибка провайдера (сбрасывается первым успешным запросом)."
+          },
+          "open_until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "До какого момента предохранитель разомкнут (только при `state = \"open\"`)."
+          },
+          "source": {
+            "type": "string",
+            "description": "`tpb`, `torznab` или `rutracker`."
+          },
+          "state": {
+            "type": "string",
+            "description": "`ok` или `open` (после серии неудач запросы временно не отправляются)."
           }
         }
       },

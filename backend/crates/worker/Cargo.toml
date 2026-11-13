@@ -28,6 +28,7 @@ nimbus-testkit.workspace = true
 sqlx.workspace = true
 encoding_rs = "0.8.44"
 serde_json.workspace = true
+wiremock.workspace = true
 
 [lints]
 workspace = true

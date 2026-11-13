@@ -2430,10 +2430,10 @@ name = "nimbus-trackers"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "deunicode",
  "encoding_rs",
  "futures",
- "governor",
  "nimbus-core",
  "percent-encoding",
  "quick-xml 0.42.0",
@@ -2474,6 +2474,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+ "wiremock",
 ]
 
 [[package]]

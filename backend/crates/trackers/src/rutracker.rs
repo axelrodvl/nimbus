@@ -18,6 +18,7 @@
 //!
 //! Страницы приходят в cp1251; запросы и форма логина кодируются в cp1251 вручную.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -31,7 +32,7 @@ use scraper::{Html, Selector};
 use serde::Deserialize;
 use tokio::sync::Mutex;
 
-use crate::limiter::{Limiter, DEFAULT_INTERVAL};
+use crate::limiter::{Limiter, RUTRACKER_CONCURRENCY, RUTRACKER_INTERVAL};
 use crate::magnet::build_magnet;
 use crate::types::*;
 
@@ -93,6 +94,9 @@ pub struct RutrackerProvider {
     limiter: Limiter,
     /// Сериализует вход, чтобы параллельные поиски не логинились по нескольку раз.
     login_lock: Mutex<()>,
+    /// Растёт после каждого успешного входа: параллельный запрос, увидевший разлогин, не логинится
+    /// повторно, если за время ожидания блокировки вход уже выполнил другой.
+    login_gen: AtomicU64,
 }
 
 /// Кодирует строку в cp1251 и percent-кодирует байты.
@@ -142,8 +146,8 @@ impl RutrackerProvider {
                 "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) \
                  Chrome/124.0 Safari/537.36",
             )
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(20));
+            .connect_timeout(crate::registry::CONNECT_TIMEOUT)
+            .timeout(crate::registry::PROVIDER_TIMEOUT);
         if let Some(proxy) = opts.proxy.as_deref() {
             let proxy = reqwest::Proxy::all(proxy)
                 .map_err(|e| ProviderError::Parse(format!("bad NIMBUS_RUTRACKER_PROXY: {e}")))?;
@@ -162,8 +166,12 @@ impl RutrackerProvider {
             has_cookie_only: opts.cookie.is_some() && opts.username.is_none(),
             username: opts.username,
             password: opts.password,
-            limiter: Limiter::new(opts.min_interval.unwrap_or(DEFAULT_INTERVAL)),
+            limiter: Limiter::new(
+                opts.min_interval.unwrap_or(RUTRACKER_INTERVAL),
+                RUTRACKER_CONCURRENCY,
+            ),
             login_lock: Mutex::new(()),
+            login_gen: AtomicU64::new(0),
         })
     }
 
@@ -186,7 +194,7 @@ impl RutrackerProvider {
     }
 
     async fn get_html(&self, rel: &str) -> Result<(String, reqwest::Url), ProviderError> {
-        self.limiter.wait().await;
+        let _permit = self.limiter.acquire().await;
         let resp = self
             .http
             .get(self.url(rel))
@@ -205,7 +213,7 @@ impl RutrackerProvider {
                 "RuTracker session expired: update NIMBUS_RUTRACKER_COOKIE".into(),
             ));
         };
-        self.limiter.wait().await;
+        let _permit = self.limiter.acquire().await;
         let body = format!(
             "login_username={}&login_password={}&login={}",
             encode_cp1251(user),
@@ -233,6 +241,7 @@ impl RutrackerProvider {
                 "RuTracker login failed: wrong username or password".into(),
             ));
         }
+        self.login_gen.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
@@ -252,6 +261,7 @@ impl RutrackerProvider {
     async fn get_authed(&self, rel: &str) -> Result<String, ProviderError> {
         self.ensure_session().await?;
         for attempt in 0..2 {
+            let seen_gen = self.login_gen.load(Ordering::SeqCst);
             let (html, url) = self.get_html(rel).await?;
             if !is_logged_out(&html, &url) {
                 return Ok(html);
@@ -264,7 +274,10 @@ impl RutrackerProvider {
                 }));
             }
             let _guard = self.login_lock.lock().await;
-            self.login().await?;
+            // Пока ждали блокировку, другой запрос уже перелогинился — просто повторяем.
+            if self.login_gen.load(Ordering::SeqCst) == seen_gen {
+                self.login().await?;
+            }
         }
         unreachable!()
     }
@@ -428,7 +441,7 @@ impl TorrentProvider for RutrackerProvider {
 
 impl RutrackerProvider {
     async fn resolve_via_api(&self, topic: &str) -> Result<Option<ApiTopic>, ProviderError> {
-        self.limiter.wait().await;
+        let _permit = self.limiter.acquire().await;
         let resp = self
             .http
             .get(format!("{}/v1/get_tor_topic_data", self.api_url))

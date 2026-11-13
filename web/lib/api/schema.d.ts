@@ -935,6 +935,8 @@ export interface components {
             db: boolean;
             engine?: null | components["schemas"]["EngineHealth"];
             jobs: components["schemas"]["JobsHealth"];
+            /** @description Провайдеры торрентов и состояние их предохранителей. */
+            providers: components["schemas"]["ProviderHealthDto"][];
             status: string;
             version: string;
         };
@@ -1072,6 +1074,19 @@ export interface components {
         };
         PrefetchResponse: {
             /** @description `started` — предзагрузка запущена, `ready` — файл уже на диске, `skipped` — нечего грузить. */
+            state: string;
+        };
+        ProviderHealthDto: {
+            /** @description Последняя ошибка провайдера (сбрасывается первым успешным запросом). */
+            last_error?: string | null;
+            /**
+             * Format: date-time
+             * @description До какого момента предохранитель разомкнут (только при `state = "open"`).
+             */
+            open_until?: string | null;
+            /** @description `tpb`, `torznab` или `rutracker`. */
+            source: string;
+            /** @description `ok` или `open` (после серии неудач запросы временно не отправляются). */
             state: string;
         };
         /** @enum {string} */

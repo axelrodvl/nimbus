@@ -933,3 +933,94 @@ fn retry_delay_follows_the_schedule_and_saturates() {
     assert_eq!((secs(0), secs(-5), secs(99)), (60, 60, 1800));
     assert_eq!(MAX_META_ATTEMPTS as usize, RETRY_SCHEDULE.len() + 1);
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn active_discover_artist_blocks_not_found_until_it_finishes(pool: PgPool) {
+    let s = setup(&pool, &OK).await;
+    let album = albums::get(&pool, s.album_id).await.unwrap().unwrap();
+    artists::set_in_library(&pool, album.artist_id, true)
+        .await
+        .unwrap();
+    let t = add_torrent(&pool, s.album_id, 1, 0.9).await;
+    jobs::enqueue(
+        &pool,
+        &Job::DiscoverArtist {
+            artist_id: album.artist_id,
+        },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap();
+    let fetcher = FakeFetcher::new(vec![(hash(1), Reply::Files(vec![("x/readme.txt", 1)]))]);
+    let (ctx, _) = ctx(&pool, fetcher);
+
+    // Раздача проверена и ничего не дала, но дискографии артиста ещё ищутся.
+    verify_torrent(&ctx, t, s.album_id).await.unwrap();
+    for (st, _) in statuses(&pool, s.album_id).await {
+        assert_eq!(st, TrackStatus::Adding, "discover_artist ещё в очереди");
+    }
+
+    // Поиск артиста завершается (ничего не нашёл) и сам финализирует его альбомы.
+    sqlx::query("UPDATE jobs SET state = 'running' WHERE kind = 'discover_artist'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    nimbus_worker::discover::discover_artist(&ctx, album.artist_id)
+        .await
+        .unwrap();
+    for (st, reason) in statuses(&pool, s.album_id).await {
+        assert_eq!(
+            (st, reason.as_deref()),
+            (TrackStatus::NotFound, Some("no_match"))
+        );
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn reverifying_the_same_torrent_adds_no_duplicates_and_keeps_primary(pool: PgPool) {
+    let s = setup(&pool, &OK).await;
+    let a = add_torrent(&pool, s.album_id, 1, 0.9).await;
+    let fetcher = FakeFetcher::new(vec![(hash(1), Reply::Files(good_files()))]);
+    let (ctx, _) = ctx(&pool, fetcher);
+    verify_torrent(&ctx, a, s.album_id).await.unwrap();
+    let before: Vec<_> = {
+        let mut v = vec![];
+        for id in &s.track_ids {
+            v.extend(track_sources::list_for_track(&pool, *id).await.unwrap());
+        }
+        v
+    };
+    assert_eq!(before.len(), OK.len());
+
+    verify_torrent(&ctx, a, s.album_id).await.unwrap();
+    for id in &s.track_ids {
+        let srcs = track_sources::list_for_track(&pool, *id).await.unwrap();
+        assert_eq!(srcs.len(), 1);
+        let old = before.iter().find(|b| b.track_id == *id).unwrap();
+        assert_eq!((srcs[0].id, srcs[0].is_primary), (old.id, true));
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn batched_verify_publishes_one_status_event_per_found_track(pool: PgPool) {
+    let s = setup(&pool, &OK).await;
+    let a = add_torrent(&pool, s.album_id, 1, 0.9).await;
+    let fetcher = FakeFetcher::new(vec![(hash(1), Reply::Files(good_files()))]);
+    let (ctx, events) = ctx(&pool, fetcher);
+    let mut rx = events.subscribe();
+    verify_torrent(&ctx, a, s.album_id).await.unwrap();
+    verify_torrent(&ctx, a, s.album_id).await.unwrap();
+    let found = drain(&mut rx)
+        .into_iter()
+        .filter(|e| {
+            matches!(
+                e,
+                Event::TrackStatus {
+                    status: TrackStatus::Found,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(found, OK.len(), "повторный verify статусы не публикует");
+}

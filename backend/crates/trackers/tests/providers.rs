@@ -674,6 +674,36 @@ mod rutracker {
         assert!(matches!(err, ProviderError::Auth(_)));
     }
 
+    #[tokio::test]
+    async fn parallel_logged_out_searches_relogin_once() {
+        let server = MockServer::start().await;
+        // Два параллельных поиска оба видят разлогин (лимит провайдера — 2 запроса одновременно).
+        Mock::given(method("GET"))
+            .and(path("/forum/tracker.php"))
+            .respond_with(html(LOGGED_OUT).set_delay(Duration::from_millis(100)))
+            .up_to_n_times(2)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/forum/tracker.php"))
+            .respond_with(html(SEARCH))
+            .with_priority(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/forum/login.php"))
+            .respond_with(login_ok())
+            .expect(2) // первичный вход + один общий повторный (а не по одному на запрос)
+            .mount(&server)
+            .await;
+        let p = provider(&server, true, None);
+        let q = SearchQuery::text("x");
+        let (a, b) = tokio::join!(p.search(&q), p.search(&q));
+        assert_eq!(a.unwrap().len(), 2);
+        assert_eq!(b.unwrap().len(), 2);
+    }
+
     fn candidate() -> TorrentCandidate {
         TorrentCandidate {
             source: TorrentSource::Rutracker,

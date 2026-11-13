@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use nimbus_core::model::{InfoHash, TorrentSource};
 use serde::Deserialize;
 
-use crate::limiter::{Limiter, FAST_INTERVAL};
+use crate::limiter::{Limiter, TPB_CONCURRENCY, TPB_INTERVAL};
 use crate::magnet::{build_magnet, PUBLIC_TRACKERS};
 use crate::types::*;
 
@@ -47,12 +47,12 @@ impl TpbProvider {
         Self {
             http,
             base_url: base_url.trim_end_matches('/').to_string(),
-            limiter: Limiter::new(FAST_INTERVAL),
+            limiter: Limiter::new(TPB_INTERVAL, TPB_CONCURRENCY),
         }
     }
 
     pub fn with_min_interval(mut self, interval: Duration) -> Self {
-        self.limiter = Limiter::new(interval);
+        self.limiter = Limiter::new(interval, TPB_CONCURRENCY);
         self
     }
 
@@ -97,7 +97,7 @@ impl TorrentProvider for TpbProvider {
     }
 
     async fn search(&self, q: &SearchQuery) -> Result<Vec<TorrentCandidate>, ProviderError> {
-        self.limiter.wait().await;
+        let _permit = self.limiter.acquire().await;
         let resp = self
             .http
             .get(format!("{}/q.php", self.base_url))

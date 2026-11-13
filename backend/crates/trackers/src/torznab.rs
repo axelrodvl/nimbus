@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use nimbus_core::model::{InfoHash, TorrentSource};
 use serde::Deserialize;
 
-use crate::limiter::{Limiter, FAST_INTERVAL};
+use crate::limiter::{Limiter, TORZNAB_CONCURRENCY, TORZNAB_INTERVAL};
 use crate::torrent_file::info_hash_of_torrent;
 use crate::types::*;
 
@@ -69,17 +69,17 @@ impl TorznabProvider {
             http,
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key: api_key.to_string(),
-            limiter: Limiter::new(FAST_INTERVAL),
+            limiter: Limiter::new(TORZNAB_INTERVAL, TORZNAB_CONCURRENCY),
         }
     }
 
     pub fn with_min_interval(mut self, interval: Duration) -> Self {
-        self.limiter = Limiter::new(interval);
+        self.limiter = Limiter::new(interval, TORZNAB_CONCURRENCY);
         self
     }
 
     async fn fetch(&self, params: &[(&str, &str)]) -> Result<Vec<TorrentCandidate>, ProviderError> {
-        self.limiter.wait().await;
+        let _permit = self.limiter.acquire().await;
         let mut query: Vec<(&str, &str)> = params.to_vec();
         query.push(("apikey", &self.api_key));
         query.push(("extended", "1"));
@@ -186,7 +186,7 @@ impl TorrentProvider for TorznabProvider {
         let Some(url) = c.download_url.clone() else {
             return Ok(c);
         };
-        self.limiter.wait().await;
+        let _permit = self.limiter.acquire().await;
         let resp = self.http.get(&url).send().await?;
         let bytes = check_status(resp)?.bytes().await?;
         let hash = info_hash_of_torrent(&bytes)

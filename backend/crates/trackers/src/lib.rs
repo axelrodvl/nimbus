@@ -1,6 +1,6 @@
 //! Провайдеры торрентов: общий trait, TPB (apibay), Torznab.
 
-mod limiter;
+pub mod limiter;
 pub mod magnet;
 pub mod query;
 pub mod rank;

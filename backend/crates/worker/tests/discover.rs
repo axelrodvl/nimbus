@@ -8,7 +8,7 @@ use nimbus_core::jobs::Job;
 use nimbus_core::model::*;
 use nimbus_db::repo::{album_torrents, albums, artists, jobs, torrents, tracks};
 use nimbus_trackers::*;
-use nimbus_worker::discover::{discover_album, discover_artist, DiscoverHandler};
+use nimbus_worker::discover::{discover_album, discover_artist, DiscoverHandler, EARLY_WAVE};
 use nimbus_worker::{JobCtx, JobError, JobHandler};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -390,6 +390,9 @@ async fn nothing_to_search_does_not_touch_providers(pool: PgPool) {
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn artist_links_discography_to_all_library_albums(pool: PgPool) {
     let artist_id = artist(&pool, "Radiohead").await;
+    artists::set_in_library(&pool, artist_id, true)
+        .await
+        .unwrap();
     let a1 = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
     let a2 = album(&pool, artist_id, "Kid A", 2000, 2, true).await;
     let outside = album(&pool, artist_id, "Pablo Honey", 1993, 2, false).await;
@@ -429,14 +432,142 @@ async fn artist_links_discography_to_all_library_albums(pool: PgPool) {
         .unwrap()
         .is_empty());
 
-    // DiscoverAlbum поставлен для каждого альбома библиотеки с нарастающей задержкой.
-    let jobs_q = queued(&pool, "discover_album").await;
-    assert_eq!(jobs_q.len(), 2);
-    let delta = jobs_q[1].run_after - jobs_q[0].run_after;
-    assert!(
-        delta.num_seconds() >= 4 && delta.num_seconds() <= 6,
-        "{delta}"
-    );
+    // DiscoverAlbum больше не ставится: альбомы ищутся по мере импорта.
+    assert!(queued(&pool, "discover_album").await.is_empty());
+    // Для каждой пары (дискография, альбом библиотеки) — своя проверка, без отсрочек.
+    let verifies = queued(&pool, "verify_torrent").await;
+    let mut albums_verified: Vec<i64> = verifies
+        .iter()
+        .map(|j| j.payload["album_id"].as_i64().unwrap())
+        .collect();
+    albums_verified.sort_unstable();
+    assert_eq!(albums_verified, [a1, a2]);
+    assert!(verifies
+        .iter()
+        .all(|j| j.run_after <= chrono::Utc::now() && j.priority == 1));
+}
+
+fn discography_provider() -> Arc<Fake> {
+    Fake::new(|_| {
+        Ok(vec![cand(
+            "Radiohead - Discography 1993-2016 (MP3 320)",
+            Some(1),
+            40,
+        )])
+    })
+}
+
+/// Порядок «альбом уже есть → дискография найдена» проверен выше; здесь обратный:
+/// дискография найдена раньше, чем альбом попал в библиотеку.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn album_imported_after_artist_discovery_gets_discography_and_verify(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    artists::set_in_library(&pool, artist_id, true)
+        .await
+        .unwrap();
+    let (c, _) = ctx(&pool, Some(discography_provider()), 1, 5);
+    // В библиотеке альбомов ещё нет: дискография всё равно находится и запоминается.
+    discover_artist(&c, artist_id).await.unwrap();
+    assert!(queued(&pool, "verify_torrent").await.is_empty());
+
+    let late = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    let (c2, _) = ctx(&pool, Some(Fake::new(|_| Ok(vec![]))), 1, 5);
+    discover_album(&c2, late).await.unwrap();
+
+    let linked = album_torrents::list_for_album(&pool, late).await.unwrap();
+    assert_eq!(linked.len(), 1);
+    assert_eq!(linked[0].torrent.kind, TorrentKind::Discography);
+    let verifies = queued(&pool, "verify_torrent").await;
+    assert_eq!(verifies.len(), 1);
+    assert_eq!(verifies[0].payload["album_id"], late);
+    assert_eq!(verifies[0].payload["torrent_id"], linked[0].torrent.id);
+    // Поиск ничего не нашёл сам, но дискография есть — альбом не объявляется ненайденным.
+    for t in tracks::list_by_album(&pool, late).await.unwrap() {
+        assert_eq!(t.status, TrackStatus::Adding);
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn discover_artist_skips_artists_outside_the_library(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let provider = discography_provider();
+    let (c, _) = ctx(&pool, Some(provider.clone()), 1, 5);
+    discover_artist(&c, artist_id).await.unwrap();
+    assert!(provider.queries.lock().unwrap().is_empty());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn album_does_not_reverify_already_verified_discography(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    artists::set_in_library(&pool, artist_id, true)
+        .await
+        .unwrap();
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    let (c, _) = ctx(&pool, Some(discography_provider()), 1, 5);
+    discover_artist(&c, artist_id).await.unwrap();
+    let t = album_torrents::list_for_album(&pool, album_id)
+        .await
+        .unwrap()[0]
+        .torrent
+        .id;
+    album_torrents::mark_verified(&pool, album_id, t)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM jobs WHERE kind = 'verify_torrent'")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let (c2, _) = ctx(&pool, Some(Fake::new(|_| Ok(vec![]))), 1, 5);
+    discover_album(&c2, album_id).await.unwrap();
+    assert!(queued(&pool, "verify_torrent").await.is_empty());
+}
+
+/// Первые `EARLY_WAVE` раздач проверяются с приоритетом выше остальных, без отсрочек.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn verify_priority_first_wave_is_higher(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    let provider = Fake::new(|_| {
+        Ok((1..=5u8)
+            .map(|n| {
+                cand(
+                    &format!("Radiohead - OK Computer (1997) [FLAC] {n}"),
+                    Some(n),
+                    10 + u32::from(n),
+                )
+            })
+            .collect())
+    });
+    let (c, _) = ctx(&pool, Some(provider), 1, 5);
+    discover_album(&c, album_id).await.unwrap();
+
+    let rows = queued(&pool, "verify_torrent").await;
+    assert_eq!(rows.len(), 5);
+    let high = rows.iter().filter(|j| j.priority == c.priority + 1).count();
+    let normal = rows.iter().filter(|j| j.priority == c.priority).count();
+    assert_eq!((high, normal), (EARLY_WAVE, 5 - EARLY_WAVE));
+    assert!(rows.iter().all(|j| j.run_after <= chrono::Utc::now()));
+}
+
+/// Когда все треки уже найдены, остальные раздачи — резерв с фоновым приоритетом.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn backup_verifies_are_background_when_all_tracks_found(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    artists::set_in_library(&pool, artist_id, true)
+        .await
+        .unwrap();
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    sqlx::query("UPDATE tracks SET status = 'found' WHERE album_id = $1")
+        .bind(album_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (c, _) = ctx(&pool, Some(discography_provider()), 1, 5);
+    discover_artist(&c, artist_id).await.unwrap();
+    let rows = queued(&pool, "verify_torrent").await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].priority, nimbus_core::jobs::PRIORITY_BACKGROUND);
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
@@ -655,4 +786,59 @@ async fn candidate_torrent_file_with_foreign_hash_is_ignored(pool: PgPool) {
     assert!(!t.has_torrent_file);
     assert_ne!(t.meta_status, MetaStatus::Ok);
     assert!(torrents::files(&pool, t.id).await.unwrap().is_empty());
+}
+
+/// Альбом ничего не нашёл сам, а поиск дискографий артиста ещё идёт: решение откладывается
+/// до его завершения (иначе статус «не найден» мигнул бы, а потом стал «найден»).
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn album_without_candidates_waits_for_active_discover_artist(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    artists::set_in_library(&pool, artist_id, true)
+        .await
+        .unwrap();
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    jobs::enqueue(
+        &pool,
+        &Job::DiscoverArtist { artist_id },
+        nimbus_db::repo::jobs::EnqueueOpts::default(),
+    )
+    .await
+    .unwrap();
+
+    let (c, _) = ctx(&pool, Some(Fake::new(|_| Ok(vec![]))), 1, 5);
+    discover_album(&c, album_id).await.unwrap();
+    for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
+        assert_eq!(t.status, TrackStatus::Adding);
+    }
+
+    // Поиск артиста завершается пустым: альбом получает `no_torrents`.
+    sqlx::query("UPDATE jobs SET state = 'running' WHERE kind = 'discover_artist'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    discover_artist(&c, artist_id).await.unwrap();
+    for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
+        assert_eq!(
+            (t.status, t.status_reason.as_deref()),
+            (TrackStatus::NotFound, Some("no_torrents"))
+        );
+    }
+}
+
+/// Исчерпанный `discover_artist` не оставляет альбомы в вечном `adding`.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn exhausted_discover_artist_finalizes_its_albums(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    artists::set_in_library(&pool, artist_id, true)
+        .await
+        .unwrap();
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    let (c, _) = ctx(&pool, None, 5, 5);
+    DiscoverHandler
+        .on_exhausted(&Job::DiscoverArtist { artist_id }, &c, "boom")
+        .await
+        .unwrap();
+    for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
+        assert_eq!(t.status, TrackStatus::NotFound);
+    }
 }

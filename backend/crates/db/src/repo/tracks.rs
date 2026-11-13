@@ -59,6 +59,18 @@ pub async fn set_status(
     .await
 }
 
+/// Треки из `ids` в статусе `adding`/`not_found` → `found` одним запросом; возвращает изменённые.
+pub async fn mark_found(db: impl PgExecutor<'_>, ids: &[i64]) -> sqlx::Result<Vec<Track>> {
+    sqlx::query_as(
+        "UPDATE tracks SET status = 'found', status_reason = NULL, updated_at = now()
+         WHERE id = ANY($1) AND status IN ('adding', 'not_found')
+         RETURNING *",
+    )
+    .bind(ids)
+    .fetch_all(db)
+    .await
+}
+
 /// Переводит треки альбома из любого статуса в `from` в статус `to`; возвращает изменённые.
 pub async fn set_status_for_album(
     db: impl PgExecutor<'_>,

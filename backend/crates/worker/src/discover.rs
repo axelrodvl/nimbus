@@ -5,7 +5,6 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::Utc;
 use futures::StreamExt;
 use nimbus_core::events::{Event, JobStage};
 use nimbus_core::jobs::{Job, PRIORITY_BACKGROUND};
@@ -30,12 +29,9 @@ pub const RETRY_AFTER: Duration = Duration::from_secs(10 * 60);
 pub const DISCOGRAPHY_MIN_SCORE: f32 = 0.2;
 /// Небольшой бонус к баллу дискографии при привязке к альбомам.
 pub const DISCOGRAPHY_LINK_BONUS: f32 = 0.05;
-/// Смещение запуска `VerifyTorrent` по рангу раздачи (только чтобы лучшие взялись первыми).
-pub const VERIFY_STAGGER: Duration = Duration::from_millis(200);
-/// Пауза между постановкой `DiscoverAlbum` для альбомов артиста.
-pub const ALBUM_JOB_STAGGER: Duration = Duration::from_secs(5);
-/// Сколько лучших раздач отдаём на проверку сразу; остальные резолвятся и ставятся позже.
-const EARLY_WAVE: usize = 3;
+/// Сколько лучших раздач отдаём на проверку первыми: их `VerifyTorrent` идёт с приоритетом
+/// на единицу выше (порядок проверки задаёт приоритет очереди, а не искусственные паузы).
+pub const EARLY_WAVE: usize = 3;
 /// Сколько вариантов запроса используем для альбома (запросы 1–3 из `build_queries`).
 const ALBUM_QUERY_COUNT: usize = 3;
 
@@ -55,11 +51,16 @@ impl JobHandler for DiscoverHandler {
         }
     }
 
-    /// Поиск окончательно не удался: если у альбома нет ни одной раздачи — его треки
-    /// `adding → not_found` (`search_failed`), иначе альбом финализируется по найденному.
+    /// Поиск окончательно не удался. Альбом: если нет ни одной раздачи — его треки
+    /// `adding → not_found` (`search_failed`), иначе он финализируется по найденному.
+    /// Артист: его альбомы финализируются (их финализация ждала окончания этой задачи).
     async fn on_exhausted(&self, job: &Job, ctx: &JobCtx, _reason: &str) -> Result<(), JobError> {
-        let Job::DiscoverAlbum { album_id } = job else {
-            return Ok(());
+        let album_id = match job {
+            Job::DiscoverAlbum { album_id } => album_id,
+            Job::DiscoverArtist { artist_id } => {
+                return finalize_artist_albums(ctx, *artist_id, None).await;
+            }
+            _ => return Ok(()),
         };
         if album_torrents::list_for_album(&ctx.db, *album_id)
             .await?
@@ -70,6 +71,25 @@ impl JobHandler for DiscoverHandler {
             finalize_album(ctx, *album_id).await
         }
     }
+}
+
+/// Финализирует все альбомы артиста из библиотеки (`own_key` — `dedup_key` вызывающей задачи).
+async fn finalize_artist_albums(
+    ctx: &JobCtx,
+    artist_id: i64,
+    own_key: Option<&str>,
+) -> Result<(), JobError> {
+    for a in albums::list_by_artist(&ctx.db, artist_id)
+        .await?
+        .into_iter()
+        .filter(|a| a.in_library)
+    {
+        match own_key {
+            Some(key) => finalize_album_from_discover(ctx, a.id, key).await?,
+            None => finalize_album(ctx, a.id).await?,
+        }
+    }
+    Ok(())
 }
 
 struct Scored {
@@ -321,6 +341,17 @@ pub async fn discover_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError>
         return Ok(());
     }
 
+    // Дискографии артиста, найденные `discover_artist` до импорта этого альбома, привязываем сразу.
+    // Так не важно, в каком порядке завершились импорт альбома и поиск дискографий.
+    let own_key = format!("discover_album:{album_id}");
+    let mut queued_verify: HashSet<i64> = HashSet::new();
+    if !album_torrents::link_artist_discographies(&ctx.db, album_id)
+        .await?
+        .is_empty()
+    {
+        enqueue_verifies(ctx, album_id, &mut queued_verify, ctx.priority).await?;
+    }
+
     let queries: Vec<SearchQuery> = build_queries(&artist.name, &album.title, album.year)
         .into_iter()
         .filter(|q| !q.broad)
@@ -347,12 +378,12 @@ pub async fn discover_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError>
         .ranked
         .split_at(EARLY_WAVE.min(outcome.ranked.len()));
 
-    // Волна 1: лучшие кандидаты уходят на проверку сразу, не дожидаясь резолва остальных.
-    let mut queued_verify: HashSet<i64> = HashSet::new();
+    // Волна 1: лучшие кандидаты уходят на проверку сразу (приоритет выше), не дожидаясь
+    // резолва остальных.
     for (s, t) in ctx.run(persist_all(ctx, first, kind_of)).await?? {
         album_torrents::link(&ctx.db, album_id, t.id, &s.query, s.score).await?;
     }
-    enqueue_verifies(ctx, album_id, &mut queued_verify, ctx.priority).await?;
+    enqueue_verifies(ctx, album_id, &mut queued_verify, ctx.priority + 1).await?;
 
     // Волна 2: остальные. Если треки уже найдены волной 1 — это лишь резервные источники.
     for (s, t) in ctx.run(persist_all(ctx, rest, kind_of)).await?? {
@@ -378,12 +409,18 @@ pub async fn discover_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError>
                 ),
             });
         }
+        // Поиск дискографий артиста ещё идёт: он может привязать раздачу к этому альбому.
+        // Решение (`not_found`) примет финализация по его завершении.
+        if jobs::has_queued_discover(&ctx.db, album_id, Some(&own_key)).await? {
+            tracing::debug!(album_id, "no candidates yet, waiting for discover_artist");
+            return Ok(());
+        }
         mark_not_found(ctx, album_id, NotFoundReason::NoTorrents).await?;
         return Ok(());
     }
     tracing::info!(album_id, torrents = linked.len(), "discovery done");
     // Проверки первой волны могли закончиться, пока мы искали остальных.
-    finalize_album_from_discover(ctx, album_id).await
+    finalize_album_from_discover(ctx, album_id, &own_key).await
 }
 
 /// Все ли треки альбома из библиотеки уже найдены/скачаны.
@@ -395,8 +432,8 @@ async fn library_tracks_found(ctx: &JobCtx, album_id: i64) -> Result<bool, JobEr
         .all(|t| matches!(t.status, TrackStatus::Found | TrackStatus::Ready)))
 }
 
-/// Ставит `VerifyTorrent` для прилинкованных раздач, которых ещё не ставили в этом запуске.
-/// Список отсортирован по рангу: лучший стартует первым, остальные — со смещением.
+/// Ставит `VerifyTorrent` для прилинкованных и ещё не проверенных раздач, которых не ставили
+/// в этом запуске. Все с одним приоритетом; повторная постановка пары безопасна (`dedup_key`).
 async fn enqueue_verifies(
     ctx: &JobCtx,
     album_id: i64,
@@ -404,43 +441,47 @@ async fn enqueue_verifies(
     priority: i16,
 ) -> Result<(), JobError> {
     let linked = album_torrents::list_for_album(&ctx.db, album_id).await?;
-    let now = Utc::now();
-    let fresh: Vec<_> = linked
+    let fresh: Vec<i64> = linked
         .iter()
-        .filter(|t| !queued.contains(&t.torrent.id))
+        .filter(|t| !t.verified && !queued.contains(&t.torrent.id))
+        .map(|t| t.torrent.id)
         .collect();
-    for (i, t) in fresh.into_iter().enumerate() {
-        let at = now + chrono::Duration::from_std(VERIFY_STAGGER * i as u32).unwrap_or_default();
-        jobs::enqueue(
-            &ctx.db,
-            &Job::VerifyTorrent {
-                torrent_id: t.torrent.id,
-                album_id,
-            },
-            EnqueueOpts {
-                run_after: Some(at),
-                priority,
-                ..EnqueueOpts::default()
-            },
-        )
-        .await?;
-        queued.insert(t.torrent.id);
+    for torrent_id in fresh {
+        enqueue_verify(ctx, torrent_id, album_id, priority).await?;
+        queued.insert(torrent_id);
     }
     Ok(())
 }
 
+async fn enqueue_verify(
+    ctx: &JobCtx,
+    torrent_id: i64,
+    album_id: i64,
+    priority: i16,
+) -> Result<(), JobError> {
+    jobs::enqueue(
+        &ctx.db,
+        &Job::VerifyTorrent {
+            torrent_id,
+            album_id,
+        },
+        EnqueueOpts::priority(priority),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Поиск дискографий артиста. Идёт параллельно импорту альбомов: найденное запоминается за
+/// артистом (`artist_torrents`), привязывается к альбомам, уже лежащим в библиотеке, а к тем,
+/// что появятся позже, его привяжет `discover_album`. Альбомные раздачи ищет `discover_album`.
 pub async fn discover_artist(ctx: &JobCtx, artist_id: i64) -> Result<(), JobError> {
     let artist = artists::get(&ctx.db, artist_id)
         .await?
         .ok_or_else(|| JobError::Fatal(format!("artist {artist_id} not found")))?;
-    let lib_albums: Vec<Album> = albums::list_by_artist(&ctx.db, artist_id)
-        .await?
-        .into_iter()
-        .filter(|a| a.in_library)
-        .collect();
-    if lib_albums.is_empty() {
+    if !artist.in_library {
         return Ok(());
     }
+    let own_key = format!("discover_artist:{artist_id}");
 
     let name = artist.name.trim();
     let queries: Vec<SearchQuery> = [
@@ -478,31 +519,46 @@ pub async fn discover_artist(ctx: &JobCtx, artist_id: i64) -> Result<(), JobErro
         .await??;
     for (s, t) in &stored {
         let rank = (s.score + DISCOGRAPHY_LINK_BONUS).min(1.0);
-        for a in &lib_albums {
-            album_torrents::link(&ctx.db, a.id, t.id, &s.query, rank).await?;
-        }
+        album_torrents::remember_artist_discography(&ctx.db, artist_id, t.id, &s.query, rank)
+            .await?;
     }
 
-    // Альбомные раздачи ищет DiscoverAlbum; растягиваем по времени, чтобы не долбить трекеры.
-    let now = Utc::now();
-    for (i, a) in lib_albums.iter().enumerate() {
-        let at = now + chrono::Duration::from_std(ALBUM_JOB_STAGGER * i as u32).unwrap_or_default();
-        jobs::enqueue(
-            &ctx.db,
-            &Job::DiscoverAlbum { album_id: a.id },
-            EnqueueOpts {
-                run_after: Some(at),
-                priority: ctx.priority,
-                ..EnqueueOpts::default()
-            },
-        )
-        .await?;
+    // Привязка к альбомам, уже находящимся в библиотеке, и проверка новых связей.
+    // Лучшие раздачи (первая волна) проверяются с приоритетом выше; для альбомов, у которых
+    // всё уже найдено, дискография — лишь резерв.
+    let rank_of: HashMap<i64, usize> = stored
+        .iter()
+        .enumerate()
+        .map(|(i, (_, t))| (t.id, i))
+        .collect();
+    let lib_albums: Vec<Album> = albums::list_by_artist(&ctx.db, artist_id)
+        .await?
+        .into_iter()
+        .filter(|a| a.in_library)
+        .collect();
+    for a in &lib_albums {
+        let fresh = album_torrents::link_artist_discographies(&ctx.db, a.id).await?;
+        if fresh.is_empty() {
+            continue;
+        }
+        let backup = library_tracks_found(ctx, a.id).await?;
+        for torrent_id in fresh {
+            let priority = if backup {
+                PRIORITY_BACKGROUND
+            } else if rank_of.get(&torrent_id).is_some_and(|i| *i < EARLY_WAVE) {
+                ctx.priority + 1
+            } else {
+                ctx.priority
+            };
+            enqueue_verify(ctx, torrent_id, a.id, priority).await?;
+        }
     }
     tracing::info!(
         artist_id,
-        discographies = outcome.ranked.len(),
+        discographies = stored.len(),
         albums = lib_albums.len(),
         "artist discovery done"
     );
-    Ok(())
+    // Пока шёл поиск дискографий, финализация альбомов откладывалась — делаем её сейчас.
+    finalize_artist_albums(ctx, artist_id, Some(&own_key)).await
 }

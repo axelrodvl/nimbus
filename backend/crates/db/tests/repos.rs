@@ -688,3 +688,320 @@ async fn fill_torrent_file_by_hash_only_fills_empty_rows(pool: PgPool) {
         Some(&b"first"[..])
     );
 }
+
+// ------------------------------------------------ шаг 29: пакетные записи и дискографии
+
+async fn seed_tracks(pool: &PgPool, artist: &Artist, album: &Album, n: i32) -> Vec<i64> {
+    let mut ids = vec![];
+    for p in 1..=n {
+        ids.push(
+            tracks::upsert_by_mbid_track(pool, &new_track(artist, album, p, Uuid::new_v4()))
+                .await
+                .unwrap()
+                .id,
+        );
+    }
+    ids
+}
+
+fn src(
+    track_id: i64,
+    torrent_id: i64,
+    file_index: i32,
+    score: f32,
+    confirm: bool,
+) -> NewTrackSource {
+    NewTrackSource {
+        track_id,
+        torrent_id,
+        file_index,
+        match_score: score,
+        needs_confirmation: confirm,
+        cue_start_ms: None,
+        cue_end_ms: None,
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn insert_many_is_batched_idempotent_and_keeps_existing_rows(pool: PgPool) {
+    let (artist, album) = seed_album(&pool).await;
+    let ts = seed_tracks(&pool, &artist, &album, 3).await;
+    let t = torrents::upsert_by_info_hash(&pool, &new_torrent(H1))
+        .await
+        .unwrap();
+
+    assert_eq!(track_sources::insert_many(&pool, &[]).await.unwrap(), 0);
+    let batch: Vec<_> = ts
+        .iter()
+        .map(|id| src(*id, t.id, *id as i32, 0.9, false))
+        .collect();
+    assert_eq!(track_sources::insert_many(&pool, &batch).await.unwrap(), 3);
+    // Повтор с другими оценками ничего не добавляет и не меняет.
+    let again: Vec<_> = ts
+        .iter()
+        .map(|id| src(*id, t.id, *id as i32, 0.1, true))
+        .collect();
+    assert_eq!(track_sources::insert_many(&pool, &again).await.unwrap(), 0);
+    let kept = track_sources::list_for_track(&pool, ts[0]).await.unwrap();
+    assert_eq!(kept.len(), 1);
+    assert!((kept[0].match_score - 0.9).abs() < 1e-6 && !kept[0].needs_confirmation);
+    assert!(kept[0].cue_start_ms.is_none());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn ensure_primaries_picks_best_and_never_replaces_existing(pool: PgPool) {
+    let (artist, album) = seed_album(&pool).await;
+    let ts = seed_tracks(&pool, &artist, &album, 3).await;
+    let a = torrents::upsert_by_info_hash(&pool, &new_torrent(H1))
+        .await
+        .unwrap();
+    let b = torrents::upsert_by_info_hash(&pool, &new_torrent(H2))
+        .await
+        .unwrap();
+    // Трек 0: уверенный 0.6 лучше неуверенного 0.95; трек 1: оценка решает; трек 2: уже есть primary.
+    track_sources::insert_many(
+        &pool,
+        &[
+            src(ts[0], a.id, 0, 0.95, true),
+            src(ts[0], b.id, 0, 0.6, false),
+            src(ts[1], a.id, 1, 0.5, false),
+            src(ts[1], b.id, 1, 0.8, false),
+            src(ts[2], a.id, 2, 0.4, false),
+            src(ts[2], b.id, 2, 0.99, false),
+        ],
+    )
+    .await
+    .unwrap();
+    let existing = track_sources::find_pair(&pool, ts[2], a.id, 2)
+        .await
+        .unwrap()
+        .unwrap();
+    track_sources::set_primary(&pool, ts[2], existing.id)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        track_sources::ensure_primaries(&pool, &[]).await.unwrap(),
+        0
+    );
+    assert_eq!(
+        track_sources::ensure_primaries(&pool, &ts).await.unwrap(),
+        2
+    );
+    let primary = |t: i64| {
+        let pool = pool.clone();
+        async move {
+            track_sources::primary_for_track(&pool, t)
+                .await
+                .unwrap()
+                .unwrap()
+        }
+    };
+    assert_eq!(primary(ts[0]).await.torrent_id, b.id);
+    assert_eq!(primary(ts[1]).await.torrent_id, b.id);
+    assert_eq!(
+        primary(ts[2]).await.id,
+        existing.id,
+        "существующий primary не заменён"
+    );
+    // Повтор ничего не меняет.
+    assert_eq!(
+        track_sources::ensure_primaries(&pool, &ts).await.unwrap(),
+        0
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn mark_found_changes_only_adding_and_not_found(pool: PgPool) {
+    let (artist, album) = seed_album(&pool).await;
+    let ts = seed_tracks(&pool, &artist, &album, 4).await;
+    tracks::set_status(
+        &pool,
+        ts[1],
+        TrackStatus::NotFound,
+        Some(NotFoundReason::NoMatch),
+    )
+    .await
+    .unwrap();
+    tracks::set_status(&pool, ts[2], TrackStatus::Ready, None)
+        .await
+        .unwrap();
+    tracks::set_status(&pool, ts[3], TrackStatus::Found, None)
+        .await
+        .unwrap();
+
+    let changed = tracks::mark_found(&pool, &ts).await.unwrap();
+    let mut ids: Vec<i64> = changed.iter().map(|t| t.id).collect();
+    ids.sort_unstable();
+    assert_eq!(ids, [ts[0], ts[1]]);
+    assert!(changed
+        .iter()
+        .all(|t| t.status == TrackStatus::Found && t.status_reason.is_none()));
+    assert_eq!(
+        tracks::get(&pool, ts[2]).await.unwrap().unwrap().status,
+        TrackStatus::Ready
+    );
+    assert!(tracks::mark_found(&pool, &[]).await.unwrap().is_empty());
+}
+
+async fn second_album(pool: &PgPool, artist: &Artist, title: &str) -> Album {
+    albums::upsert_by_rg_mbid(
+        pool,
+        &NewAlbum {
+            mbid_release_group: Uuid::new_v4(),
+            mbid_release: None,
+            artist_id: artist.id,
+            title: title.into(),
+            primary_type: Some("Album".into()),
+            secondary_types: vec![],
+            year: None,
+            cover_url: None,
+        },
+    )
+    .await
+    .unwrap()
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn artist_discographies_link_to_any_album_of_the_artist(pool: PgPool) {
+    let (artist, album) = seed_album(&pool).await;
+    let later = second_album(&pool, &artist, "Later").await;
+    let (other_artist, other_album) = {
+        let a = artists::upsert_by_mbid(
+            &pool,
+            &NewArtist {
+                mbid: Uuid::new_v4(),
+                name: "Other".into(),
+                sort_name: None,
+                disambiguation: None,
+            },
+        )
+        .await
+        .unwrap();
+        let al = second_album(&pool, &a, "Elsewhere").await;
+        (a, al)
+    };
+    let mut disco = new_torrent(H1);
+    disco.kind = TorrentKind::Discography;
+    let disco = torrents::upsert_by_info_hash(&pool, &disco).await.unwrap();
+    let plain = torrents::upsert_by_info_hash(&pool, &new_torrent(H2))
+        .await
+        .unwrap();
+    album_torrents::remember_artist_discography(&pool, artist.id, disco.id, "q", 0.3)
+        .await
+        .unwrap();
+    // Повтор сохраняет максимальный ранг; обычная (не дискография) раздача не привязывается.
+    album_torrents::remember_artist_discography(&pool, artist.id, disco.id, "q", 0.5)
+        .await
+        .unwrap();
+    album_torrents::remember_artist_discography(&pool, artist.id, plain.id, "q", 0.9)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        album_torrents::link_artist_discographies(&pool, later.id)
+            .await
+            .unwrap(),
+        [disco.id]
+    );
+    let linked = album_torrents::list_for_album(&pool, later.id)
+        .await
+        .unwrap();
+    assert_eq!(linked.len(), 1);
+    assert!((linked[0].rank_score - 0.5).abs() < 1e-6);
+    // Повторный вызов — ничего нового.
+    assert!(album_torrents::link_artist_discographies(&pool, later.id)
+        .await
+        .unwrap()
+        .is_empty());
+    // Чужие артисты не затронуты.
+    assert!(
+        album_torrents::link_artist_discographies(&pool, other_album.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let _ = (album, other_artist);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn has_queued_discover_sees_album_and_artist_jobs_and_honours_ignore_key(pool: PgPool) {
+    use nimbus_core::jobs::Job;
+    let (artist, album) = seed_album(&pool).await;
+    let key_album = format!("discover_album:{}", album.id);
+    let key_artist = format!("discover_artist:{}", artist.id);
+    assert!(!jobs::has_queued_discover(&pool, album.id, None)
+        .await
+        .unwrap());
+
+    jobs::enqueue(
+        &pool,
+        &Job::DiscoverArtist {
+            artist_id: artist.id,
+        },
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    assert!(jobs::has_queued_discover(&pool, album.id, None)
+        .await
+        .unwrap());
+    assert!(
+        !jobs::has_queued_discover(&pool, album.id, Some(&key_artist))
+            .await
+            .unwrap()
+    );
+
+    jobs::enqueue(
+        &pool,
+        &Job::DiscoverAlbum { album_id: album.id },
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    // Артистская задача игнорируется, но альбомная — нет, и наоборот.
+    assert!(
+        jobs::has_queued_discover(&pool, album.id, Some(&key_artist))
+            .await
+            .unwrap()
+    );
+    assert!(jobs::has_queued_discover(&pool, album.id, Some(&key_album))
+        .await
+        .unwrap());
+    sqlx::query("UPDATE jobs SET state = 'done'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!jobs::has_queued_discover(&pool, album.id, None)
+        .await
+        .unwrap());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn migration_backfills_artist_torrents_from_linked_discographies(pool: PgPool) {
+    // Данные «до миграции»: дискография привязана к альбому, строки в artist_torrents нет.
+    let (artist, album) = seed_album(&pool).await;
+    let mut disco = new_torrent(H1);
+    disco.kind = TorrentKind::Discography;
+    let disco = torrents::upsert_by_info_hash(&pool, &disco).await.unwrap();
+    album_torrents::link(&pool, album.id, disco.id, "q", 0.4)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM artist_torrents")
+        .execute(&pool)
+        .await
+        .unwrap();
+    // Выполняем backfill-часть миграции повторно: она идемпотентна по смыслу (нет конфликта после очистки).
+    let sql = include_str!("../../../migrations/0009_artist_torrents.sql");
+    let backfill = &sql[sql.find("INSERT INTO artist_torrents").unwrap()..];
+    sqlx::query(backfill).execute(&pool).await.unwrap();
+    let n: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM artist_torrents WHERE artist_id = $1 AND torrent_id = $2",
+    )
+    .bind(artist.id)
+    .bind(disco.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(n, 1);
+}

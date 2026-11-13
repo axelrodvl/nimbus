@@ -5,7 +5,9 @@
 - Ошибки: `{ "error": { "code": "...", "message": "..." } }`.
 - Авторизация (если задан `NIMBUS_API_TOKEN`): `Authorization: Bearer <token>` или cookie `nimbus_token`
   (`POST /api/auth/login {"token": "..."}` → `204` + cookie; `POST /api/auth/logout`). Без токена — `401 unauthorized`.
-  `GET /api/health` открыт всегда и возвращает `db`, `engine {torrents, down_bps, up_bps}` и `jobs {queued, running, failed_24h}`.
+  `GET /api/health` открыт всегда и возвращает `db`, `engine {torrents, down_bps, up_bps}`, `jobs {queued, running, failed_24h}` и
+  `providers [{ source, state: "ok"|"open", last_error, open_until }]` (`open` — предохранитель провайдера разомкнут:
+  запросы к нему временно не отправляются до `open_until`).
 
 ## Очередь задач
 

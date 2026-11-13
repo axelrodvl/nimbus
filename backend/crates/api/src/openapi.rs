@@ -61,6 +61,7 @@ use crate::{library, routes, search, sources};
         routes::HealthResponse,
         routes::EngineHealth,
         routes::JobsHealth,
+        routes::ProviderHealthDto,
         crate::auth::LoginRequest,
         routes::DebugMetadataRequest,
         crate::error::ErrorResponse,

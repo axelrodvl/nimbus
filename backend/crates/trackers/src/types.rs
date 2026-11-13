@@ -79,6 +79,9 @@ pub enum ProviderError {
     RateLimited,
     #[error("provider timed out")]
     Timeout,
+    /// Предохранитель разомкнут: провайдер недавно подряд отказывал, запрос не отправлялся.
+    #[error("provider is temporarily disabled after repeated failures")]
+    CircuitOpen,
 }
 
 impl From<reqwest::Error> for ProviderError {

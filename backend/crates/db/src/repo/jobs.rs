@@ -377,12 +377,26 @@ pub async fn demote_queued_verifies(
     .rows_affected())
 }
 
-/// Есть ли у альбома ожидающая (`queued`) или выполняющаяся (`running`) задача `discover_album`.
-pub async fn has_queued_discover(db: impl PgExecutor<'_>, album_id: i64) -> sqlx::Result<bool> {
+/// Есть ли у альбома ожидающая (`queued`) или выполняющаяся (`running`) задача поиска:
+/// `discover_album` самого альбома или `discover_artist` его артиста (дискографии привязываются
+/// к альбому только после её завершения). `ignore_key` — `dedup_key` задачи, которая спрашивает
+/// о себе (её собственная запись ещё `running`).
+pub async fn has_queued_discover(
+    db: impl PgExecutor<'_>,
+    album_id: i64,
+    ignore_key: Option<&str>,
+) -> sqlx::Result<bool> {
     sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM jobs WHERE state IN ('queued','running') AND dedup_key = $1)",
+        "SELECT EXISTS (
+            SELECT 1 FROM jobs
+            WHERE state IN ('queued','running')
+              AND dedup_key IN (
+                  'discover_album:' || $1::text,
+                  'discover_artist:' || (SELECT artist_id::text FROM albums WHERE id = $1))
+              AND dedup_key IS DISTINCT FROM $2)",
     )
-    .bind(format!("discover_album:{album_id}"))
+    .bind(album_id)
+    .bind(ignore_key)
     .fetch_one(db)
     .await
 }

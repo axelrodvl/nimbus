@@ -8,7 +8,6 @@ use nimbus_core::jobs::{Job, PRIORITY_BACKGROUND};
 use nimbus_core::model::{
     InfoHash, MetaStatus, NewTorrentFile, NewTrackSource, NotFoundReason, Torrent, TrackStatus,
 };
-use nimbus_db::helpers::set_track_status_and_publish;
 use nimbus_db::repo::jobs::EnqueueOpts;
 use nimbus_db::repo::{
     album_torrents, albums, artists, cue_candidates, jobs, torrents, track_sources, tracks,
@@ -230,52 +229,41 @@ pub async fn verify_torrent(ctx: &JobCtx, torrent_id: i64, album_id: i64) -> Res
             },
         );
 
-        for m in &outcome.matches {
-            track_sources::insert(
-                &ctx.db,
-                &NewTrackSource {
-                    track_id: m.track_id,
-                    torrent_id,
-                    file_index: m.file_index as i32,
-                    match_score: m.score,
-                    needs_confirmation: m.needs_confirmation,
-                    cue_start_ms: None,
-                    cue_end_ms: None,
-                },
-            )
+        // Все записи — пакетом и в одной транзакции под блокировкой альбома: параллельные verify
+        // одного альбома не гоняются за primary.
+        let sources: Vec<NewTrackSource> = outcome
+            .matches
+            .iter()
+            .map(|m| NewTrackSource {
+                track_id: m.track_id,
+                torrent_id,
+                file_index: m.file_index as i32,
+                match_score: m.score,
+                needs_confirmation: m.needs_confirmation,
+                cue_start_ms: None,
+                cue_end_ms: None,
+            })
+            .collect();
+        let mut track_ids: Vec<i64> = sources.iter().map(|s| s.track_id).collect();
+        track_ids.sort_unstable();
+        track_ids.dedup();
+        let mut tx = ctx.db.begin().await?;
+        sqlx::query("SELECT id FROM albums WHERE id = $1 FOR UPDATE")
+            .bind(album_id)
+            .fetch_optional(&mut *tx)
             .await?;
-            // Primary: лучший источник (сначала уверенные, затем по оценке); существующий не меняем.
-            if track_sources::primary_for_track(&ctx.db, m.track_id)
-                .await?
-                .is_none()
-            {
-                let best = track_sources::list_for_track(&ctx.db, m.track_id)
-                    .await?
-                    .into_iter()
-                    .min_by(|a, b| {
-                        a.needs_confirmation
-                            .cmp(&b.needs_confirmation)
-                            .then(b.match_score.total_cmp(&a.match_score))
-                            .then(a.id.cmp(&b.id))
-                    });
-                if let Some(best) = best {
-                    track_sources::set_primary(&ctx.db, m.track_id, best.id).await?;
-                }
-            }
-            let status = album_tracks
-                .iter()
-                .find(|t| t.id == m.track_id)
-                .map(|t| t.status);
-            if matches!(status, Some(TrackStatus::Adding | TrackStatus::NotFound)) {
-                set_track_status_and_publish(
-                    &ctx.db,
-                    &ctx.events,
-                    m.track_id,
-                    TrackStatus::Found,
-                    None,
-                )
-                .await?;
-            }
+        track_sources::insert_many(&mut *tx, &sources).await?;
+        // Primary — лучший источник (сначала уверенные, затем по оценке); существующий не меняется.
+        track_sources::ensure_primaries(&mut *tx, &track_ids).await?;
+        let found = tracks::mark_found(&mut *tx, &track_ids).await?;
+        tx.commit().await?;
+        for t in found {
+            ctx.events.publish(Event::TrackStatus {
+                track_id: t.id,
+                album_id: t.album_id,
+                status: t.status,
+                reason: t.status_reason.clone(),
+            });
         }
         for c in &outcome.cue_candidates {
             tracing::info!(torrent_id, album_id, dir = %c.dir, "cue image candidate");
@@ -336,19 +324,21 @@ async fn publish_progress(ctx: &JobCtx, album_id: i64) -> Result<(), JobError> {
 /// Если все раздачи альбома проверены, оставшиеся `adding` → `not_found`.
 /// Транзакция с блокировкой строки альбома: параллельные verify не конфликтуют.
 pub(crate) async fn finalize_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError> {
-    finalize(ctx, album_id, false).await
+    finalize(ctx, album_id, None).await
 }
 
-/// То же, но вызывается самой задачей `discover_album` перед завершением: её собственная
-/// запись ещё `running`, поэтому проверку «идёт discover» пропускаем.
+/// То же, но вызывается самой задачей поиска (`discover_album`/`discover_artist`) перед
+/// завершением: её собственная запись (`own_key` — её `dedup_key`) ещё `running`, поэтому её
+/// при проверке «идёт поиск» не учитываем; другой поиск этого альбома или артиста — учитываем.
 pub(crate) async fn finalize_album_from_discover(
     ctx: &JobCtx,
     album_id: i64,
+    own_key: &str,
 ) -> Result<(), JobError> {
-    finalize(ctx, album_id, true).await
+    finalize(ctx, album_id, Some(own_key)).await
 }
 
-async fn finalize(ctx: &JobCtx, album_id: i64, from_discover: bool) -> Result<(), JobError> {
+async fn finalize(ctx: &JobCtx, album_id: i64, own_key: Option<&str>) -> Result<(), JobError> {
     let mut tx = ctx.db.begin().await?;
     sqlx::query("SELECT id FROM albums WHERE id = $1 FOR UPDATE")
         .bind(album_id)
@@ -356,7 +346,7 @@ async fn finalize(ctx: &JobCtx, album_id: i64, from_discover: bool) -> Result<()
         .await?;
     if album_torrents::count_unverified(&mut *tx, album_id).await? > 0
         || cue_candidates::count_pending(&mut *tx, album_id).await? > 0
-        || (!from_discover && jobs::has_queued_discover(&mut *tx, album_id).await?)
+        || jobs::has_queued_discover(&mut *tx, album_id, own_key).await?
     {
         tx.commit().await?;
         return Ok(());
@@ -369,7 +359,9 @@ async fn finalize(ctx: &JobCtx, album_id: i64, from_discover: bool) -> Result<()
                 MetaStatus::Timeout | MetaStatus::Dead | MetaStatus::Error
             )
         });
-    let reason = if all_dead {
+    let reason = if linked.is_empty() {
+        NotFoundReason::NoTorrents
+    } else if all_dead {
         NotFoundReason::DeadTorrents
     } else {
         NotFoundReason::NoMatch

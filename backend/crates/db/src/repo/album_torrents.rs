@@ -24,6 +24,50 @@ pub async fn link(
     .await
 }
 
+/// Запоминает раздачу-дискографию артиста (повтор сохраняет максимальный ранг).
+pub async fn remember_artist_discography(
+    db: impl PgExecutor<'_>,
+    artist_id: i64,
+    torrent_id: i64,
+    query: &str,
+    rank_score: f32,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO artist_torrents (artist_id, torrent_id, query, rank_score)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (artist_id, torrent_id) DO UPDATE SET
+            rank_score = GREATEST(artist_torrents.rank_score, EXCLUDED.rank_score)",
+    )
+    .bind(artist_id)
+    .bind(torrent_id)
+    .bind(query)
+    .bind(rank_score)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Привязывает к альбому все известные раздачи-дискографии его артиста (найденные
+/// `discover_artist`) и возвращает id раздач, привязанных **впервые** (уже имевшиеся связи
+/// не меняются).
+pub async fn link_artist_discographies(
+    db: impl PgExecutor<'_>,
+    album_id: i64,
+) -> sqlx::Result<Vec<i64>> {
+    sqlx::query_scalar(
+        "INSERT INTO album_torrents (album_id, torrent_id, query, rank_score)
+         SELECT $1, ar.torrent_id, ar.query, ar.rank_score
+         FROM artist_torrents ar
+           JOIN torrents t ON t.id = ar.torrent_id AND t.kind = 'discography'
+         WHERE ar.artist_id = (SELECT artist_id FROM albums WHERE id = $1)
+         ON CONFLICT (album_id, torrent_id) DO NOTHING
+         RETURNING torrent_id",
+    )
+    .bind(album_id)
+    .fetch_all(db)
+    .await
+}
+
 pub async fn list_for_album(
     db: impl PgExecutor<'_>,
     album_id: i64,

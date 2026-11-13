@@ -119,6 +119,20 @@ pub struct HealthResponse {
     /// Торрент-движок (`null`, если не запущен).
     pub engine: Option<EngineHealth>,
     pub jobs: JobsHealth,
+    /// Провайдеры торрентов и состояние их предохранителей.
+    pub providers: Vec<ProviderHealthDto>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ProviderHealthDto {
+    /// `tpb`, `torznab` или `rutracker`.
+    pub source: String,
+    /// `ok` или `open` (после серии неудач запросы временно не отправляются).
+    pub state: String,
+    /// Последняя ошибка провайдера (сбрасывается первым успешным запросом).
+    pub last_error: Option<String>,
+    /// До какого момента предохранитель разомкнут (только при `state = "open"`).
+    pub open_until: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -170,6 +184,17 @@ pub async fn health(State(state): State<AppState>) -> Result<Json<HealthResponse
             running,
             failed_24h,
         },
+        providers: state
+            .providers
+            .health()
+            .into_iter()
+            .map(|h| ProviderHealthDto {
+                source: h.source.as_str().to_string(),
+                state: if h.open { "open" } else { "ok" }.into(),
+                last_error: h.last_error,
+                open_until: h.open_until,
+            })
+            .collect(),
     }))
 }
 

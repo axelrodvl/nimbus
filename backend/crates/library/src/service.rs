@@ -189,14 +189,15 @@ impl LibraryService {
 
     /// Добавляет альбом целиком и ставит `discover_album`.
     pub async fn add_album(&self, rg_mbid: Uuid) -> Result<AddOutcome> {
-        self.add_album_inner(rg_mbid, None, true).await
+        self.add_album_inner(rg_mbid, None, Some(PRIORITY_INTERACTIVE))
+            .await
     }
 
     async fn add_album_inner(
         &self,
         rg_mbid: Uuid,
         hint: Option<ReleaseGroupHit>,
-        discover: bool,
+        discover: Option<i16>,
     ) -> Result<AddOutcome> {
         let (album, _) = self.ensure_album(rg_mbid, hint).await?;
         if album.in_library {
@@ -215,16 +216,17 @@ impl LibraryService {
             None,
         )
         .await?;
-        tx.commit().await?;
-
-        if discover {
+        // Поиск ставится в той же транзакции: иначе `discover_artist` мог бы увидеть альбом
+        // в библиотеке без задачи поиска и объявить его треки ненайденными.
+        if let Some(priority) = discover {
             jobs::enqueue(
-                &self.db,
+                &mut *tx,
                 &Job::DiscoverAlbum { album_id: album.id },
-                EnqueueOpts::priority(PRIORITY_INTERACTIVE),
+                EnqueueOpts::priority(priority),
             )
             .await?;
         }
+        tx.commit().await?;
         for t in reset {
             self.events.publish(Event::TrackStatus {
                 track_id: t.id,
@@ -320,7 +322,7 @@ impl LibraryService {
     }
 
     /// Тело задачи `ImportArtist`: альбомы и EP артиста, кроме отключённых типов,
-    /// каждый добавляется без `discover_album`; в конце — `discover_artist`.
+    /// `discover_artist` ставится в начале (параллельно импорту), `discover_album` — сразу после каждого альбома.
     /// Группы без релизов в MB пропускаются; сетевые ошибки возвращаются (задача повторится,
     /// импорт идемпотентен).
     pub async fn import_artist(&self, artist_id: i64) -> Result<ImportSummary> {
@@ -340,6 +342,13 @@ impl LibraryService {
         let artist = artists::get(&self.db, artist_id)
             .await?
             .ok_or(LibraryError::NotFound("artist"))?;
+        // Поиск дискографий идёт параллельно импорту альбомов из MusicBrainz.
+        jobs::enqueue(
+            &self.db,
+            &Job::DiscoverArtist { artist_id },
+            EnqueueOpts::priority(PRIORITY_NORMAL),
+        )
+        .await?;
         let started = Instant::now();
         let mut progress = ImportProgress::new();
         progress.log(format!(
@@ -386,7 +395,9 @@ impl LibraryService {
             progress.current = Some(title.clone());
             self.save_progress(artist_id, &progress).await;
             let (rg, album_started) = (group.mbid, Instant::now());
-            let outcome = self.add_album_inner(rg, Some(group), false).await;
+            let outcome = self
+                .add_album_inner(rg, Some(group), Some(PRIORITY_NORMAL))
+                .await;
             let took = album_started.elapsed().as_secs_f32();
             progress.done += 1;
             match outcome {
@@ -414,18 +425,12 @@ impl LibraryService {
         progress.phase = ImportPhase::Discover;
         progress.current = None;
         progress.log(format!(
-            "Albums imported: {}, skipped: {}. Queued the source search ({:.0}s total)",
+            "Albums imported: {}, skipped: {} ({:.0}s total)",
             summary.imported,
             summary.skipped,
             started.elapsed().as_secs_f32()
         ));
         self.save_progress(artist_id, &progress).await;
-        jobs::enqueue(
-            &self.db,
-            &Job::DiscoverArtist { artist_id },
-            EnqueueOpts::default(),
-        )
-        .await?;
         self.changed(Entity::Artist, artist_id);
         Ok(summary)
     }

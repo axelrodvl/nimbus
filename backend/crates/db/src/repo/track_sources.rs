@@ -140,3 +140,52 @@ pub async fn confirm(
     .fetch_optional(db)
     .await
 }
+
+/// Пакетная вставка источников одним запросом. Уже существующие `(track, torrent, file)` не меняются.
+/// Возвращает число реально добавленных строк.
+pub async fn insert_many(db: impl PgExecutor<'_>, items: &[NewTrackSource]) -> sqlx::Result<u64> {
+    if items.is_empty() {
+        return Ok(0);
+    }
+    Ok(sqlx::query(
+        "INSERT INTO track_sources (track_id, torrent_id, file_index, match_score, needs_confirmation,
+                                    cue_start_ms, cue_end_ms)
+         SELECT * FROM UNNEST($1::bigint[], $2::bigint[], $3::int[], $4::real[], $5::bool[],
+                              $6::int[], $7::int[])
+         ON CONFLICT (track_id, torrent_id, file_index) DO NOTHING",
+    )
+    .bind(items.iter().map(|s| s.track_id).collect::<Vec<_>>())
+    .bind(items.iter().map(|s| s.torrent_id).collect::<Vec<_>>())
+    .bind(items.iter().map(|s| s.file_index).collect::<Vec<_>>())
+    .bind(items.iter().map(|s| s.match_score).collect::<Vec<_>>())
+    .bind(items.iter().map(|s| s.needs_confirmation).collect::<Vec<_>>())
+    .bind(items.iter().map(|s| s.cue_start_ms).collect::<Vec<_>>())
+    .bind(items.iter().map(|s| s.cue_end_ms).collect::<Vec<_>>())
+    .execute(db)
+    .await?
+    .rows_affected())
+}
+
+/// Одним запросом назначает primary тем из `track_ids`, у кого его ещё нет: лучший источник по
+/// `(needs_confirmation, match_score DESC, id)`. Существующий primary не трогается.
+/// Возвращает число назначенных.
+pub async fn ensure_primaries(db: impl PgExecutor<'_>, track_ids: &[i64]) -> sqlx::Result<u64> {
+    if track_ids.is_empty() {
+        return Ok(0);
+    }
+    Ok(sqlx::query(
+        "UPDATE track_sources ts SET is_primary = TRUE
+         FROM (
+            SELECT DISTINCT ON (track_id) id FROM track_sources
+            WHERE track_id = ANY($1)
+              AND track_id NOT IN (
+                  SELECT track_id FROM track_sources WHERE track_id = ANY($1) AND is_primary)
+            ORDER BY track_id, needs_confirmation, match_score DESC, id
+         ) best
+         WHERE ts.id = best.id",
+    )
+    .bind(track_ids)
+    .execute(db)
+    .await?
+    .rows_affected())
+}

@@ -422,7 +422,7 @@ async fn post_artist_is_accepted_and_import_job_adds_discography(pool: PgPool) {
         .map(|j| j.kind)
         .collect();
     assert!(kinds.contains(&"discover_artist".to_string()), "{kinds:?}");
-    assert!(!kinds.contains(&"discover_album".to_string()), "{kinds:?}");
+    assert!(kinds.contains(&"discover_album".to_string()), "{kinds:?}");
     let album_events = drain(&mut rx)
         .into_iter()
         .filter(|e| {
@@ -911,4 +911,35 @@ async fn artist_import_status_follows_the_job_and_can_be_retried(pool: PgPool) {
     // Артиста вне библиотеки или несуществующего повторять нельзя.
     let (s, _) = post_json(router, "/api/artists/99999/import", json!({})).await;
     assert_eq!(s, 404);
+}
+
+/// Импорт идёт «потоком»: поиск дискографий ставится до первого альбома, поиск альбома — сразу
+/// после его добавления, и ни одна задача не отложена на будущее (никаких искусственных пауз).
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn import_streams_discovery_without_delays(pool: PgPool) {
+    let server = mb_server().await;
+    let events = nimbus_core::events::EventBus::new();
+    let lib = nimbus_library::LibraryService::new(pool.clone(), mb_client(&server), events);
+    let artist = lib
+        .ensure_artist(Uuid::parse_str(RADIOHEAD).unwrap())
+        .await
+        .unwrap();
+
+    // Без пропускаемых типов импортируются и альбом, и EP.
+    let summary = lib.import_artist_skipping(artist.id, &[]).await.unwrap();
+    assert_eq!(summary.imported, 2);
+
+    let mut rows = jobs::list(&pool, Some("queued"), 20).await.unwrap();
+    rows.sort_by_key(|j| j.id);
+    let kinds: Vec<&str> = rows.iter().map(|j| j.kind.as_str()).collect();
+    assert_eq!(
+        kinds,
+        ["discover_artist", "discover_album", "discover_album"],
+        "поиск дискографий — до альбомов, затем по задаче на каждый альбом"
+    );
+    let now = chrono::Utc::now();
+    for j in &rows {
+        assert!(j.run_after <= now, "{} отложена: {}", j.kind, j.run_after);
+        assert_eq!(j.priority, 0);
+    }
 }
