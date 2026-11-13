@@ -219,7 +219,7 @@ const messages: Messages = {
   'queue.noMore': 'Nessun altro brano in coda',
   'queue.nowPlaying': 'In riproduzione',
   'queue.remove': 'Rimuovi dalla coda: {title}',
-  'remove.button': 'Rimuovi dalla libreria',
+  'remove.button': 'Rimuovi',
   'remove.confirm': 'Rimuovi',
   'remove.description': '«{title}» sparirà dalla libreria. Le fonti trovate vengono conservate.',
   'remove.title': 'Rimuovere dalla libreria?',

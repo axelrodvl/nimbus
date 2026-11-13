@@ -219,7 +219,7 @@ const messages: Messages = {
   'queue.noMore': 'No hay más pistas en la cola',
   'queue.nowPlaying': 'Reproduciendo ahora',
   'queue.remove': 'Quitar de la cola: {title}',
-  'remove.button': 'Quitar de la biblioteca',
+  'remove.button': 'Quitar',
   'remove.confirm': 'Quitar',
   'remove.description': '«{title}» desaparecerá de la biblioteca. Las fuentes encontradas se conservan.',
   'remove.title': '¿Quitar de la biblioteca?',

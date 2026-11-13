@@ -221,7 +221,7 @@ const messages: Messages = {
   'queue.noMore': 'Більше треків у черзі немає',
   'queue.nowPlaying': 'Зараз грає',
   'queue.remove': 'Прибрати з черги: {title}',
-  'remove.button': 'Видалити з бібліотеки',
+  'remove.button': 'Видалити',
   'remove.confirm': 'Видалити',
   'remove.description': '«{title}» зникне з бібліотеки. Знайдені джерела збережуться.',
   'remove.title': 'Видалити з бібліотеки?',

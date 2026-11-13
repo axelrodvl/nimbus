@@ -220,7 +220,7 @@ const messages: Messages = {
   'queue.noMore': 'Keine weiteren Titel in der Warteschlange',
   'queue.nowPlaying': 'Läuft gerade',
   'queue.remove': 'Aus der Warteschlange entfernen: {title}',
-  'remove.button': 'Aus der Bibliothek entfernen',
+  'remove.button': 'Entfernen',
   'remove.confirm': 'Entfernen',
   'remove.description': '„{title}“ verschwindet aus der Bibliothek. Gefundene Quellen bleiben erhalten.',
   'remove.title': 'Aus der Bibliothek entfernen?',

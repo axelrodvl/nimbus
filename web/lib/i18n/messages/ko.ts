@@ -218,7 +218,7 @@ const messages: Messages = {
   'queue.noMore': '대기열에 더 이상 곡이 없습니다',
   'queue.nowPlaying': '지금 재생 중',
   'queue.remove': '대기열에서 제거: {title}',
-  'remove.button': '라이브러리에서 삭제',
+  'remove.button': '삭제',
   'remove.confirm': '삭제',
   'remove.description': '“{title}”이(가) 라이브러리에서 사라집니다. 찾은 소스는 유지됩니다.',
   'remove.title': '라이브러리에서 삭제할까요?',

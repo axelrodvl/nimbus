@@ -216,7 +216,7 @@ const messages: Messages = {
   'queue.noMore': 'Kuyrukta başka parça yok',
   'queue.nowPlaying': 'Şimdi çalıyor',
   'queue.remove': 'Kuyruktan kaldır: {title}',
-  'remove.button': 'Kitaplıktan kaldır',
+  'remove.button': 'Kaldır',
   'remove.confirm': 'Kaldır',
   'remove.description': '“{title}” kitaplıktan kaybolacak. Bulunan kaynaklar korunur.',
   'remove.title': 'Kitaplıktan kaldırılsın mı?',

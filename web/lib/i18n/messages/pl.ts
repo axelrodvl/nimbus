@@ -222,7 +222,7 @@ const messages: Messages = {
   'queue.noMore': 'Nie ma więcej utworów w kolejce',
   'queue.nowPlaying': 'Teraz odtwarzane',
   'queue.remove': 'Usuń z kolejki: {title}',
-  'remove.button': 'Usuń z biblioteki',
+  'remove.button': 'Usuń',
   'remove.confirm': 'Usuń',
   'remove.description': '„{title}” zniknie z biblioteki. Znalezione źródła zostaną zachowane.',
   'remove.title': 'Usunąć z biblioteki?',

@@ -217,7 +217,7 @@ const messages: Messages = {
   'queue.noMore': 'कतार में और ट्रैक नहीं हैं',
   'queue.nowPlaying': 'अभी चल रहा है',
   'queue.remove': 'कतार से हटाएँ: {title}',
-  'remove.button': 'लाइब्रेरी से हटाएँ',
+  'remove.button': 'हटाएँ',
   'remove.confirm': 'हटाएँ',
   'remove.description': '“{title}” लाइब्रेरी से हट जाएगा। मिले हुए स्रोत सुरक्षित रहेंगे।',
   'remove.title': 'लाइब्रेरी से हटाएँ?',

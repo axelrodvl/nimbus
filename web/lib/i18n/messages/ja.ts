@@ -219,7 +219,7 @@ const messages: Messages = {
   'queue.noMore': 'キューにこれ以上曲はありません',
   'queue.nowPlaying': '再生中',
   'queue.remove': 'キューから削除：{title}',
-  'remove.button': 'ライブラリから削除',
+  'remove.button': '削除',
   'remove.confirm': '削除',
   'remove.description': '「{title}」はライブラリから消えます。見つかったソースは保持されます。',
   'remove.title': 'ライブラリから削除しますか？',

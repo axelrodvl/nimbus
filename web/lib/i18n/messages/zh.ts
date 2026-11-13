@@ -215,7 +215,7 @@ const messages: Messages = {
   'queue.noMore': '队列中没有更多曲目',
   'queue.nowPlaying': '正在播放',
   'queue.remove': '从队列中移除：{title}',
-  'remove.button': '从音乐库移除',
+  'remove.button': '移除',
   'remove.confirm': '移除',
   'remove.description': '“{title}”将从音乐库中消失。已找到的来源会保留。',
   'remove.title': '从音乐库移除？',

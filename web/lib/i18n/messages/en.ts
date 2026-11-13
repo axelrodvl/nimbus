@@ -216,7 +216,7 @@ export const en = {
   'queue.noMore': 'No more tracks in the queue',
   'queue.nowPlaying': 'Now playing',
   'queue.remove': 'Remove from queue: {title}',
-  'remove.button': 'Remove from library',
+  'remove.button': 'Remove',
   'remove.confirm': 'Remove',
   'remove.description': '“{title}” will disappear from the library. Found sources are kept.',
   'remove.title': 'Remove from the library?',

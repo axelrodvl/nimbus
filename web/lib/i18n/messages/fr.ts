@@ -220,7 +220,7 @@ const messages: Messages = {
   'queue.noMore': 'Plus de morceaux dans la file',
   'queue.nowPlaying': 'En cours de lecture',
   'queue.remove': 'Retirer de la file : {title}',
-  'remove.button': 'Retirer de la bibliothèque',
+  'remove.button': 'Retirer',
   'remove.confirm': 'Retirer',
   'remove.description': '« {title} » disparaîtra de la bibliothèque. Les sources trouvées sont conservées.',
   'remove.title': 'Retirer de la bibliothèque ?',

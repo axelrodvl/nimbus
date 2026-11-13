@@ -219,7 +219,7 @@ const messages: Messages = {
   'queue.noMore': 'Não há mais faixas na fila',
   'queue.nowPlaying': 'Tocando agora',
   'queue.remove': 'Remover da fila: {title}',
-  'remove.button': 'Remover da biblioteca',
+  'remove.button': 'Remover',
   'remove.confirm': 'Remover',
   'remove.description': '“{title}” vai sumir da biblioteca. As fontes encontradas são mantidas.',
   'remove.title': 'Remover da biblioteca?',
