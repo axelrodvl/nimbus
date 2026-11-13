@@ -221,7 +221,7 @@ const messages: Messages = {
   'queue.noMore': 'Больше треков в очереди нет',
   'queue.nowPlaying': 'Сейчас играет',
   'queue.remove': 'Убрать из очереди: {title}',
-  'remove.button': 'Удалить из библиотеки',
+  'remove.button': 'Удалить',
   'remove.confirm': 'Удалить',
   'remove.description': '«{title}» исчезнет из библиотеки. Найденные источники сохранятся.',
   'remove.title': 'Удалить из библиотеки?',

@@ -158,7 +158,7 @@ test('страница артиста: сводка и сетка альбомо
 test('удаление альбома из библиотеки с подтверждением', async ({ page }) => {
   await page.goto('/album/101');
   await expect(page.getByRole('heading', { name: 'Kid A' })).toBeVisible();
-  await page.getByRole('button', { name: 'Удалить из библиотеки' }).click();
+  await page.getByRole('button', { name: 'Удалить', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Удалить' }).click();
