@@ -1,5 +1,6 @@
 import { MobileTabBar } from '@/components/mobile-nav';
 import { NowPlayingBar } from '@/components/now-playing-bar';
+import { RegisterServiceWorker } from '@/components/scripts/register-sw';
 import { SeedNavLinks } from '@/components/scripts/seed-nav-links';
 import { Sidebar } from '@/components/sidebar';
 import { OptimisticNavigationProvider } from '@/components/ui/nav-link';
@@ -24,6 +25,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <NowPlayingBar />
               <MobileTabBar />
               <SeedNavLinks />
+              <RegisterServiceWorker />
             </CommandPaletteProvider>
           </OptimisticNavigationProvider>
         </PlayerProvider>
