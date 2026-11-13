@@ -7,12 +7,16 @@ import { Cover } from '@/components/ui/cover';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState } from '@/components/ui/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
+import { toPlayerTrack } from '@/features/library/to-player-track';
 import { AddToLibraryButton, InLibraryBadge } from '@/features/search/components/add-to-library-button';
 import { ArtistAvatar } from '@/features/search/components/artist-avatar';
 import type { SearchStatus, SearchResponse } from '@/hooks/use-search';
+import { api } from '@/lib/api/client';
 import type { Schemas } from '@/lib/api/client';
+import { unwrap } from '@/lib/api/errors';
 import { cn, formatDuration } from '@/lib/utils';
 import { useT } from '@/providers/i18n-provider';
+import { usePlayer } from '@/providers/player-provider';
 import type { Route } from 'next';
 
 type Artist = Schemas['ArtistResult'];
@@ -260,8 +264,28 @@ function AlbumCard({ album }: { album: Album }) {
 }
 
 function TrackRow({ track }: { track: Track }) {
+  const player = usePlayer();
   const [albumId, setAlbumId] = useState<number | null>(track.album_library_id ?? null);
-  const inLibrary = track.library_id != null || albumId != null;
+  const trackId = track.library_id ?? null;
+  const inLibrary = trackId != null || albumId != null;
+  const canPlay = trackId != null && (track.status == null || track.status === 'found' || track.status === 'ready');
+
+  // Клик по тексту трека в библиотеке — воспроизведение (а не переход к альбому).
+  async function play() {
+    if (trackId == null) return;
+    if (player.track?.id === trackId) {
+      if (player.isPlaying) player.pause();
+      else player.resume();
+      return;
+    }
+    try {
+      const dto = unwrap(await api.GET('/api/tracks/{id}', { params: { path: { id: trackId } } }));
+      player.play(toPlayerTrack(dto));
+    } catch {
+      // Трек недоступен — ничего не делаем.
+    }
+  }
+
   const info = (
     <>
       <Cover src={track.cover_url} alt={track.album_title ?? track.title} size="sm" />
@@ -280,7 +304,11 @@ function TrackRow({ track }: { track: Track }) {
   const infoClass = 'flex min-w-0 flex-1 items-center gap-3';
   return (
     <div className="hover:bg-card/60 dark:hover:bg-card-dark/60 flex items-center gap-3 rounded-md px-3 py-2 transition-colors">
-      {albumId != null ? (
+      {canPlay ? (
+        <button type="button" onClick={play} className={cn(infoClass, 'cursor-pointer text-left')}>
+          {info}
+        </button>
+      ) : albumId != null ? (
         <Link href={albumHref(albumId)} className={infoClass}>
           {info}
         </Link>
@@ -294,7 +322,9 @@ function TrackRow({ track }: { track: Track }) {
           type="track"
           mbid={track.mbid}
           albumMbid={track.album_mbid}
-          onAdded={r => setAlbumId(r.albumId ?? null)}
+          onAdded={r => {
+            setAlbumId(r.albumId ?? null);
+          }}
         />
       )}
     </div>
