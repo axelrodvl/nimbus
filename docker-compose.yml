@@ -1,3 +1,7 @@
+# Полный стек Nimbus. Собирать — ./scripts/build.sh, запускать — ./scripts/start.sh, останавливать — ./scripts/stop.sh.
+# Фиксированное имя проекта: имена образов (nimbus-backend, nimbus-web) не зависят от имени каталога.
+name: nimbus
+
 services:
   db:
     image: postgres:17

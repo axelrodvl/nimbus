@@ -29,20 +29,34 @@ A self-hosted web music player: metadata from [MusicBrainz](https://musicbrainz.
 ## Quick start (Linux / macOS)
 
 Requirements: [Docker](https://docs.docker.com/get-docker/) with the Compose v2 plugin (on macOS: Docker Desktop;
-on Linux: Docker Engine, and your user in the `docker` group). Nothing else is needed — everything builds in containers.
+on Linux: Docker Engine, and your user in the `docker` group). Nothing else is needed: Rust, Node and pnpm are only
+used inside the build containers, never on your machine.
 
 ```sh
 git clone https://github.com/axelrodvl/nimbus.git nimbus
 cd nimbus
-./scripts/start.sh
+./scripts/build.sh   # build all images (inside containers)
+./scripts/start.sh   # start the stack
 ```
 
-The script creates `.env` from `.env.example` on first run, builds the images and starts the stack.
 Then open **http://localhost:8000**.
 
-- Stop: `./scripts/stop.sh` (add `--purge` to also delete the database volume)
-- Logs: `docker compose logs -f`
-- Data (torrents, cache) lives in `./data`; the database lives in the `pgdata` Docker volume.
+### Scripts
+
+| Script | What it does |
+|---|---|
+| `./scripts/build.sh` | Builds the `nimbus-backend` and `nimbus-web` images (the Rust and Next.js builds run inside Docker) and pre-pulls Postgres and Caddy. The first build takes several minutes; later builds reuse the BuildKit cache (cargo registry/`target`, pnpm store, Next cache). Arguments go to `docker compose build`, e.g. `--no-cache` or a service name: `./scripts/build.sh web`. |
+| `./scripts/start.sh` | Starts the stack (Postgres, backend, web, Caddy) from the built images and waits until every service is healthy. Builds nothing; if the images are missing it asks you to run `build.sh`. |
+| `./scripts/stop.sh` | Stops and removes the containers. Images, the database and `./data` are kept. `--purge` also deletes the database volume. |
+
+`build.sh` and `start.sh` create `.env` from `.env.example` if it does not exist yet. Shortcuts if you have
+[just](https://github.com/casey/just): `just build`, `just start`, `just stop`, `just up` (build + start).
+
+To update: `git pull && ./scripts/build.sh && ./scripts/start.sh` (`start.sh` recreates only the containers whose
+images changed).
+
+- Logs: `docker compose logs -f` (or `just logs`)
+- Data (torrents, cache) lives in `./data`; the database lives in the `nimbus_pgdata` Docker volume.
 - Port `6881` (TCP/UDP) is published for incoming BitTorrent connections.
 
 Before the first run you may want to edit `.env`:
@@ -53,6 +67,8 @@ Before the first run you may want to edit `.env`:
 | `NIMBUS_MB_USER_AGENT` | Your contact, e.g. `Nimbus/0.1 ( you@example.org )` — see [MusicBrainz](#musicbrainz-and-user-agent) |
 | `NIMBUS_PORT` | Public port (default `8000`) |
 | `NIMBUS_CACHE_LIMIT_GB` | Torrent cache limit (default `50`) |
+
+Changes to `.env` take effect after `./scripts/start.sh`; no rebuild is needed.
 
 ## Run from prebuilt images (no build)
 
@@ -117,6 +133,7 @@ Pick one:
 cd ~
 git clone https://github.com/axelrodvl/nimbus.git nimbus
 cd nimbus
+./scripts/build.sh
 ./scripts/start.sh
 ```
 
@@ -141,6 +158,7 @@ Without a token everything is open; the backend warns at startup if it listens o
 
 ## Development without Docker
 
+Only needed to work on the code with hot reload; to just build and run Nimbus use the [scripts](#scripts) above.
 Requirements: Rust (stable), Node 22+ with pnpm, [just](https://github.com/casey/just), Docker (for PostgreSQL), ffmpeg.
 
 ```sh

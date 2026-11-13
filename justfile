@@ -44,11 +44,19 @@ web-check:
 openapi-check:
     cd backend && cargo run -q -p nimbus-api --bin nimbus -- --print-openapi | diff -q - ../web/openapi.json || (echo 'web/openapi.json устарел: выполните just web-gen-api' && exit 1)
 
-up:
-    docker compose up -d --build
+# Полный стек в контейнерах (сборка тоже в контейнерах): см. scripts/.
+build *args:
+    ./scripts/build.sh {{args}}
 
-down:
-    docker compose down
+start:
+    ./scripts/start.sh
+
+stop *args:
+    ./scripts/stop.sh {{args}}
+
+up: build start
+
+down: stop
 
 logs:
     docker compose logs -f --tail=100

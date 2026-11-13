@@ -1,10 +1,15 @@
+# syntax=docker/dockerfile:1
+# Сборка фронтенда целиком в контейнере: на хосте не нужны ни Node, ни pnpm.
 FROM node:22-alpine AS base
+ENV PNPM_HOME=/pnpm COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable
 WORKDIR /app
 
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
+# Хранилище пакетов pnpm — в кэше BuildKit: при изменении lockfile качается только разница.
+RUN --mount=type=cache,id=nimbus-pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --store-dir /pnpm/store
 
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
@@ -12,7 +17,8 @@ COPY . .
 # NEXT_PUBLIC_* вшивается в клиентский бандл при сборке; пусто — тот же origin (за caddy).
 ARG NEXT_PUBLIC_BACKEND_URL=""
 ENV NEXT_PUBLIC_BACKEND_URL=$NEXT_PUBLIC_BACKEND_URL NEXT_TELEMETRY_DISABLED=1
-RUN pnpm build
+RUN --mount=type=cache,id=nimbus-next-cache,target=/app/.next/cache \
+    pnpm build
 
 FROM node:22-alpine AS run
 WORKDIR /app

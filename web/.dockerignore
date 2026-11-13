@@ -3,3 +3,7 @@ node_modules
 test-results
 playwright-report
 tsconfig.tsbuildinfo
+# Локальные dev-настройки не должны попадать в образ (иначе Next подхватит их при сборке).
+.env
+.env.*
+!.env.example

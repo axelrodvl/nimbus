@@ -1,38 +1,31 @@
 #!/usr/bin/env bash
-# Start the full Nimbus stack (Postgres, backend, web, Caddy) with Docker Compose.
-# Works on Linux, macOS and Windows (inside WSL2). Usage: ./scripts/start.sh
+# Start the Nimbus stack (Postgres, backend, web, Caddy) from images built by ./scripts/build.sh.
+# Does not build anything. Usage: ./scripts/start.sh
 set -euo pipefail
+source "$(dirname "$0")/common.sh"
 
-cd "$(dirname "$0")/.."
+require_docker
+ensure_env
 
-if ! command -v docker >/dev/null 2>&1; then
-  echo "error: docker is not installed or not in PATH." >&2
-  echo "  Linux: https://docs.docker.com/engine/install/" >&2
-  echo "  macOS: install Docker Desktop (https://www.docker.com/products/docker-desktop/)" >&2
-  echo "  Windows: see the WSL section in README.md" >&2
+missing=()
+for image in $(built_images); do
+  docker image inspect "$image" >/dev/null 2>&1 || missing+=("$image")
+done
+if [ ${#missing[@]} -gt 0 ]; then
+  echo "error: images not built: ${missing[*]}" >&2
+  echo "Run ./scripts/build.sh first." >&2
   exit 1
-fi
-
-if ! docker compose version >/dev/null 2>&1; then
-  echo "error: the 'docker compose' plugin (Compose v2) is required." >&2
-  exit 1
-fi
-
-if ! docker info >/dev/null 2>&1; then
-  echo "error: cannot talk to the Docker daemon. Is it running? (Linux: 'sudo systemctl start docker'," >&2
-  echo "       macOS/Windows: start Docker Desktop; you may also need to be in the 'docker' group)." >&2
-  exit 1
-fi
-
-if [ ! -f .env ]; then
-  cp .env.example .env
-  echo "Created .env from .env.example (edit it to set NIMBUS_API_TOKEN, NIMBUS_MB_USER_AGENT, ...)."
 fi
 
 mkdir -p data
 
-echo "Building and starting Nimbus (the first build takes a few minutes)..."
-docker compose up -d --build --wait
+echo "Starting Nimbus..."
+if ! docker compose up -d --no-build --wait; then
+  echo >&2
+  docker compose ps >&2
+  echo "error: some services did not become healthy. Logs: docker compose logs --tail=100" >&2
+  exit 1
+fi
 
 port="$(grep -E '^NIMBUS_PORT=' .env 2>/dev/null | tail -n1 | cut -d= -f2 || true)"
 echo

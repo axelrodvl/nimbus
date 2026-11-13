@@ -1,3 +1,5 @@
 target
 data
 *.whl
+.env
+.env.*

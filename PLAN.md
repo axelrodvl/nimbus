@@ -116,6 +116,7 @@ nimbus/
     crates/{api,core,db,musicbrainz,trackers,matcher,torrent,worker}
     migrations/
   web/                  ← Next.js (форк next-beats)
+  scripts/              ← build.sh / start.sh / stop.sh: сборка и запуск стека в Docker
   docker-compose.yml
   .env.example
   justfile
@@ -172,6 +173,10 @@ Web — порт `3000`, backend — `8080`, Postgres — `5432`.
 - Отклонения: ...
 - Важно для следующих шагов: ...
 -->
+
+### 2026-11-13 — вне плана: скрипты сборки и запуска
+- Сделано: `scripts/build.sh` (только сборка образов `nimbus-backend`/`nimbus-web` + pull postgres/caddy), `scripts/start.sh` (только `up --no-build --wait`; без образов — ошибка с подсказкой), `scripts/stop.sh` (`down`, `--purge` — с томом БД); общие проверки в `scripts/common.sh`. Dockerfile'ы используют BuildKit cache mounts (cargo registry/target, pnpm store, `.next/cache`). В `docker-compose.yml` зафиксировано `name: nimbus`. `.env*` исключены из контекста сборки (раньше `web/.env.local` попадал в образ). Рецепты `just build/start/stop`, `up` = build + start.
+- Важно: сборка/запуск не требуют на хосте ничего, кроме Docker; dev-режим (`just backend`/`just web`) по-прежнему требует Rust/Node.
 
 ### 2026-11-12 — вне плана: локализация интерфейса (i18n)
 - Сделано: интерфейс переведён на 14 языков (en, ru, es, fr, de, zh, pt, it, ja, ko, uk, pl, tr, hi); выбор языка — в «Настройки → Язык интерфейса» и на странице входа. Без смены URL: язык в cookie `nimbus_locale`, по умолчанию `Accept-Language`, иначе `en`. Свой лёгкий слой вместо библиотеки: `lib/i18n/{config,translate,messages,server}.ts`, `providers/i18n-provider.tsx` (`useT`), `getT()` для серверных компонентов, словари `lib/i18n/messages/*.ts` (263 ключа; множественное число — формы `one/few/many/other` по `Intl.PluralRules`). Server Functions отдают ошибки на языке интерфейса (`lib/api/action-errors.ts`); ошибки плеера хранят только код (`playerErrorText`). Корневой layout: содержимое внутри `<Suspense>` (язык зависит от запроса), `<html lang>` обновляется на клиенте.

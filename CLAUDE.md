@@ -18,6 +18,9 @@
 
 ## Полезные команды
 
+- `./scripts/build.sh` — собрать все образы (сборка Rust и Next.js идёт внутри контейнеров; на хосте нужен только Docker)
+- `./scripts/start.sh` — поднять весь стек из собранных образов (http://localhost:8000)
+- `./scripts/stop.sh` — опустить контейнеры (`--purge` — ещё и том БД)
 - `just db-up` — поднять Postgres (docker compose)
 - `just backend` — запустить бэкенд
 - `just web` — запустить фронтенд
