@@ -51,3 +51,8 @@ export function artistImageUrl(mbid: string): string {
 export function streamUrl(trackId: number, startSeconds = 0): string {
   return apiUrl(`/api/tracks/${trackId}/stream${startSeconds > 0 ? `?t=${startSeconds.toFixed(3)}` : ''}`);
 }
+
+/** Полный файл трека для скачивания на устройство (`/api/tracks/{id}/stream?download=1`). */
+export function downloadUrl(trackId: number): string {
+  return apiUrl(`/api/tracks/${trackId}/stream?download=1`);
+}

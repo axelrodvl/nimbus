@@ -39,6 +39,7 @@ src/lib/player/          плеер (не React): engine.ts (редьюсер, �
 src/lib/search/          поиск: useRemoteSearch (TanStack Query), история запросов, добавление в библиотеку, элементы палитры
 src/sw/                  service worker: sw.ts (precache, fetch), classify.ts и cache.ts — чистые функции, тестируются без воркера
 src/lib/pwa/             регистрация и обновления (update.ts), постоянное хранилище (storage.ts), установка (install.ts), onLogout (logout.ts)
+src/lib/offline/         офлайн-треки (шаг 46): manager.ts (закрепления, сверка, очередь, повторы, место), storage/downloader за интерфейсами (types.ts), OPFS + воркер скачивания, playback.ts (источник для плеера), status.ts (store и селекторы), settings.ts
 src/lib/theme/           light | dark | system, localStorage['nimbus:theme']
 src/test/                setup, renderWithProviders, фабрики
 tests/e2e/               Playwright; tests/mock-backend.ts — мок бэкенда (bun): вход, синхронизация, WebSocket, служебные `/__test/{reset,emit,mutate,ws,log,search,player,…}`; поток `GET /api/tracks/{id}/stream` отдаёт 5-секундный WAV (Range, `transcode` с `?t=`, управляемые ошибки), есть `played`, `prefetch`, `audio-info`, `GET /api/settings`; `GET /api/search` отдаёт `tests/fixtures/search-radiohead.json`, `POST /api/library` создаёт сущности из неё
@@ -65,7 +66,30 @@ tests/e2e/               Playwright; tests/mock-backend.ts — мок бэкен
   Проверки — при старте, при возврате вкладки и раз в час. Перезагрузка никогда не происходит сама (в том числе во время музыки).
   Версия сборки — `__APP_VERSION__` (`package.json` + git-хэш; `APP_VERSION=… vite build` переопределяет).
 - **Связь.** `useNetworkStatus()` → `online | offline | server-down`; `useOnline()` — `true` только при `online`; `<OfflineNotice />` — пояснение.
-- **Выход.** `onLogout(handler)` (`lib/pwa/logout.ts`) — точка расширения; сейчас очищает кэш картинок, шаг 46 добавит `offline.clear()`.
+- **Выход.** `onLogout(handler)` (`lib/pwa/logout.ts`) — точка расширения; очищает кэш картинок и офлайн-треки (`clearOffline()`).
 - **Как проверять офлайн.** `bun run build && bun run preview`, открыть приложение, дождаться синхронизации, затем DevTools → Network → Offline
   (или `context.setOffline(true)` в Playwright) и перезагрузить. Сброс: DevTools → Application → Storage → «Clear site data»
   (или Service Workers → Unregister + Cache Storage → удалить). e2e обновления: `tests/e2e/variants.ts` строит варианты `dist/` с другой версией.
+
+## Офлайн-треки (движок, шаг 46)
+
+- **Где лежит.** Файлы — в OPFS: `tracks/<trackId>` (без расширения), метаданные — в IndexedDB `nimbus` v2 (`offline_pins`, `offline_files`).
+  Пишет выделенный воркер (`download.worker.ts`, `createSyncAccessHandle`; чанк воркера попадает в precache), читает основной поток.
+- **Платформенная граница.** Менеджер общий для всех платформ; от платформы зависят только `OfflineStorage` и `Downloader`
+  (`lib/offline/types.ts`). В PWA — OPFS и воркер; в нативных оболочках шаг 54 подставит файловую систему приложения и
+  фоновые загрузки ОС. OPFS и `navigator.storage` вне `opfs-storage.ts` и воркера запрещены.
+- **Закрепления** (`pin/unpin(kind, id)`: трек, альбом, плейлист) → нужный набор треков вычисляется из закреплений и библиотеки;
+  файлы приводятся к нему автоматически (дельта библиотеки, debounce 1 с). Закрепление на удалённую сущность снимается.
+- **Очередь.** До `concurrency` загрузок (1…6, по умолчанию 3), порядок — по времени закрепления, затем по номеру в альбоме.
+  Берутся только `found|ready`, остальные ждут в `queued`. Повторы: 5 с → 30 с → 2 мин → 10 мин → 1 ч, докачка с места обрыва
+  (`Range` + `If-Range`, если сервер отдал `Accept-Ranges` и `ETag`); после 8 попыток — `failed` (ручной `retry`).
+  Очередь стоит: нет связи, пауза, «только Wi-Fi» по сотовой сети, лимит места, 401 (`status.blocked`).
+- **Воспроизведение.** `resolveStreamUrl` отдаёт скачанный трек из файла (объектный URL, режим `direct` всегда); источник текущего
+  и следующего треков готовится заранее (`prepare`) и отзывается при смене (`storage.release`). `canPlay` = скачан **или**
+  (есть связь и `found|ready`). Файл не воспроизвёлся → запись возвращается в очередь, трек играет по сети.
+- **Вкладки.** Скачивает лидер (Web Lock `nimbus-offline`); остальные получают состояние по `BroadcastChannel('nimbus-offline')`
+  и могут вызывать `pin/unpin` (запись в IndexedDB + сообщение лидеру).
+- **Настройки устройства:** `localStorage['nimbus:offline-settings']` — `limitBytes` (по умолчанию 50 % квоты, не более 20 ГБ),
+  `concurrency`, `wifiOnly`. Состояние для интерфейса (шаг 47) — store `offline().status` и селекторы `trackOfflineState`,
+  `albumOfflineState`, `playlistOfflineState`; `status.supported === false`, если нет OPFS (интерфейс скрывается).
+- **e2e.** В e2e-сборке (`VITE_UI_GALLERY=1`) и dev есть `window.__nimbus.offline` (`pin/unpin/retry/setPaused/removeAll/state`).

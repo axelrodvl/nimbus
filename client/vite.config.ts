@@ -15,7 +15,17 @@ const DICTIONARY_GLOB = `assets/{${LOCALES.map(l => l.code)
 
 // `/api` (включая WebSocket) уходит на бэкенд; тот же прокси — в `vite preview`.
 const backend = process.env.VITE_BACKEND_URL ?? 'http://localhost:8080';
-const proxy = { '/api': { changeOrigin: true, target: backend, ws: true } };
+const proxy = {
+  '/api': {
+    changeOrigin: true,
+    // Обрыв ответа бэкенда (рвётся соединение посреди тела) должен дойти до клиента: по умолчанию http-proxy оставляет
+    // ответ висеть, и докачка файла (шаг 46) никогда не начиналась бы.
+    configure: (p: { on(event: 'proxyRes', cb: (res: { on(e: 'aborted', cb: () => void): void }, req: unknown, clientRes: { destroy(): void }) => void): void }) =>
+      p.on('proxyRes', (proxyRes, _req, clientRes) => proxyRes.on('aborted', () => clientRes.destroy())),
+    target: backend,
+    ws: true,
+  },
+};
 
 /** Версия сборки: `package.json` + короткий git-хэш (если есть git). */
 function appVersion(): string {

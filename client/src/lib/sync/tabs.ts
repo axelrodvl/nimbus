@@ -15,6 +15,8 @@ export type ChannelLike = {
 };
 
 export type TabsDeps = {
+  /** Имя блокировки и канала; по умолчанию — синхронизация (`nimbus-sync`). Офлайн-менеджер берёт `nimbus-offline`. */
+  name?: string;
   /** `navigator.locks`; без него каждая вкладка сама себе лидер. */
   locks?: LockManagerLike | null;
   /** Фабрика канала; без неё вкладки не обмениваются сообщениями. */
@@ -22,15 +24,16 @@ export type TabsDeps = {
 };
 
 /** Согласование вкладок: синхронизирует одна (лидер, Web Lock), остальные получают её пачки по BroadcastChannel. */
-export interface Tabs {
+export interface Tabs<M = TabMessage> {
   /** Вызывает `onLead`, когда вкладка стала лидером (сразу или когда прежний лидер закрылся). */
   lead(onLead: () => void): void;
-  post(message: TabMessage): void;
-  onMessage(listener: (message: TabMessage) => void): void;
+  post(message: M): void;
+  onMessage(listener: (message: M) => void): void;
   close(): void;
 }
 
-export function createTabs(deps: TabsDeps = {}): Tabs {
+export function createTabs<M = TabMessage>(deps: TabsDeps = {}): Tabs<M> {
+  const lockName = deps.name ?? LOCK_NAME;
   const locks =
     deps.locks === undefined ? (globalThis.navigator?.locks as LockManagerLike | undefined) : (deps.locks ?? undefined);
   const make =
@@ -39,7 +42,7 @@ export function createTabs(deps: TabsDeps = {}): Tabs {
         ? null
         : (n: string) => new BroadcastChannel(n) as ChannelLike
       : deps.channel;
-  const channel = make?.(CHANNEL_NAME) ?? null;
+  const channel = make?.(deps.name ?? CHANNEL_NAME) ?? null;
   const abort = new AbortController();
   let release: () => void = () => {};
 
@@ -57,7 +60,7 @@ export function createTabs(deps: TabsDeps = {}): Tabs {
       }
       // Лок держится, пока вкладка жива: промис не завершается до `close()`.
       locks
-        .request(LOCK_NAME, { signal: abort.signal }, () => {
+        .request(lockName, { signal: abort.signal }, () => {
           onLead();
           return new Promise<void>(resolve => (release = resolve));
         })
@@ -66,7 +69,7 @@ export function createTabs(deps: TabsDeps = {}): Tabs {
         });
     },
     onMessage(listener) {
-      if (channel) channel.onmessage = e => listener(e.data as TabMessage);
+      if (channel) channel.onmessage = e => listener(e.data as M);
     },
     post(message) {
       channel?.postMessage(message);

@@ -108,7 +108,7 @@ describe('адрес потока', () => {
       url: '/api/tracks/5/stream?t=3.000',
     });
     setApiBase('https://music.example.com');
-    expect(resolveStreamUrl(pt(5), 0).url).toBe('https://music.example.com/api/tracks/5/stream');
+    expect((resolveStreamUrl(pt(5), 0) as { url: string }).url).toBe('https://music.example.com/api/tracks/5/stream');
   });
 });
 

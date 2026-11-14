@@ -64,6 +64,8 @@ const state = {
   server: new FakeSyncServer().load(makeSmallLibrary()),
   snapshotDelayMs: 0,
   streamDelayMs: new Map<number, number>(),
+  /** Обрыв ответа потока: id трека → сколько байт отдать до обрыва (срабатывает один раз). */
+  streamCut: new Map<number, number>(),
   prefetchNext: true,
   settings: defaultSettings(),
   /** HTTP-статус, которым отвечает `PUT /api/settings` (`null` — норма). */
@@ -115,6 +117,7 @@ function reset(opts: { authRequired?: boolean; snapshotDelayMs?: number }) {
   state.failDelete = false;
   state.faults = { ...NO_SEARCH_FAULTS };
   state.streamDelayMs.clear();
+  state.streamCut.clear();
   state.prefetchNext = true;
   state.settings = defaultSettings();
   state.settingsFault = null;
@@ -294,7 +297,11 @@ async function playbackRoute(req: Request, id: number, kind: string): Promise<Re
     });
   }
   const size = WAV.length;
-  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.get('range') ?? '');
+  const etag = '"mock-wav-1"';
+  // Как настоящий бэкенд: `If-Range` с чужим ETag отменяет Range (ответ — весь файл).
+  const ifRange = req.headers.get('if-range');
+  const rangeHeader = ifRange && ifRange !== etag ? '' : (req.headers.get('range') ?? '');
+  const range = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
   let start = 0;
   let end = size - 1;
   if (range) {
@@ -303,12 +310,31 @@ async function playbackRoute(req: Request, id: number, kind: string): Promise<Re
       start = Number(range[1]);
       if (range[2] !== '') end = Math.min(end, Number(range[2]));
     }
+    if (start >= size) {
+      return new Response(null, { headers: { 'content-range': `bytes */${size}` }, status: 416 });
+    }
   }
-  return new Response(body ? null : new Uint8Array(WAV.subarray(start, end + 1)), {
+  const slice = new Uint8Array(WAV.subarray(start, end + 1));
+  const cutAt = state.streamCut.get(id);
+  let payload: BodyInit | null = body ? null : slice;
+  if (!body && cutAt !== undefined && cutAt < slice.length) {
+    state.streamCut.delete(id);
+    // Отдаём часть тела и рвём соединение: клиент видит обрыв потока посередине.
+    payload = new ReadableStream({
+      start(ctl) {
+        ctl.enqueue(slice.subarray(0, cutAt));
+      },
+      pull(ctl) {
+        ctl.error(new Error('connection reset'));
+      },
+    });
+  }
+  return new Response(payload, {
     headers: {
       ...base,
       'accept-ranges': 'bytes',
       'content-length': String(end - start + 1),
+      etag,
       ...(range ? { 'content-range': `bytes ${start}-${end}/${size}` } : {}),
     },
     status: range ? 206 : 200,
@@ -345,6 +371,24 @@ function seedPlayerLibrary() {
   track(9033, 903, 4, 'Song Three', { status: 'ready' });
   track(9035, 903, 5, 'Not Yet', { status: 'adding' });
   track(9051, 905, 1, 'Image Track', { playback: 'transcode' });
+}
+
+/** Альбомы для офлайн-тестов (артист 920): «Offline Test» (923: три трека) и «Offline Transcode» (925: перекодируемый трек). */
+function seedOfflineLibrary() {
+  const artist = makeArtist({ added_at: now(), id: 920, name: 'Offline Artist' });
+  state.server.upsert('artist', artist);
+  for (const [id, title] of [[923, 'Offline Test'], [925, 'Offline Transcode']] as const) {
+    state.server.upsert('album', makeAlbum({ added_at: now(), artist_id: artist.id, id, title, year: 2002 }));
+  }
+  const track = (id: number, albumId: number, position: number, title: string, over: Record<string, unknown> = {}) =>
+    state.server.upsert(
+      'track',
+      makeTrack({ added_at: now(), album_id: albumId, artist_id: artist.id, duration_ms: 5000, id, position, status: 'ready', title, ...over }),
+    );
+  track(9231, 923, 1, 'Offline One');
+  track(9232, 923, 2, 'Offline Two');
+  track(9233, 923, 3, 'Offline Three');
+  track(9251, 925, 1, 'Offline Image', { playback: 'transcode' });
 }
 
 // ---------------------------------------------------------------- плейлисты и источники
@@ -748,7 +792,11 @@ Bun.serve({
     const path = new URL(req.url).pathname;
     // В журнал потока попадает и запрос (`?t=` у перекодируемых треков).
     if (!path.startsWith('/__test/'))
-      state.log.push(`${req.method} ${path}${path.endsWith('/stream') ? new URL(req.url).search : ''}`);
+      state.log.push(
+        `${req.method} ${path}${path.endsWith('/stream') ? new URL(req.url).search : ''}${
+          path.endsWith('/stream') && req.url.includes('download=1') && req.headers.get('range') ? ` ${req.headers.get('range')}` : ''
+        }`,
+      );
 
     // Фото артиста: 1×1 PNG (e2e кэша изображений service worker).
     if (path.startsWith('/api/artist-image/')) return new Response(PIXEL, { headers: { 'content-type': 'image/png' } });
@@ -899,6 +947,13 @@ Bun.serve({
       state.streamDelayMs = new Map(Object.entries(body.delayMs ?? {}).map(([id, ms]) => [Number(id), ms]));
       state.prefetchNext = body.prefetchNext ?? true;
       (state.settings.playback as Json).prefetch_next = state.prefetchNext;
+      return json(200, { ok: true });
+    }
+    if (path === '/__test/offline') {
+      const body = (await req.json().catch(() => ({}))) as { delayMs?: Record<string, number>; cut?: Record<string, number> };
+      seedOfflineLibrary();
+      state.streamDelayMs = new Map(Object.entries(body.delayMs ?? {}).map(([id, ms]) => [Number(id), ms]));
+      state.streamCut = new Map(Object.entries(body.cut ?? {}).map(([id, n]) => [Number(id), n]));
       return json(200, { ok: true });
     }
     if (path === '/__test/settings') {

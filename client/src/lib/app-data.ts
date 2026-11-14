@@ -107,6 +107,11 @@ function unauthorizedBridge() {
   unauthorizedHandler?.();
 }
 
+/** Сообщает о потере авторизации тем же путём, что и 401 в обычных запросах (для скачивания офлайн-треков). */
+export function notifyUnauthorized(): void {
+  unauthorizedBridge();
+}
+
 /** Подключает обработчик потери авторизации и для движка, и для всех запросов API. */
 export function setUnauthorizedHandler(handler: (() => void) | null): void {
   unauthorizedHandler = handler;

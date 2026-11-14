@@ -1,6 +1,7 @@
 import { loadPrefetchEnabled } from '@/lib/api/settings';
 import { prefetchTrack } from '@/lib/api/tracks';
 import { appData } from '@/lib/app-data';
+import { offline } from '@/lib/offline';
 import { createAudioEngine } from './audio';
 import { PlayerController, type PlayerDeps } from './controller';
 import { probeStreamError } from './engine';
@@ -22,8 +23,11 @@ export function appPlayerDeps(over: Partial<PlayerDeps> = {}): PlayerDeps {
       const view = selectors.trackView(library.getState(), id);
       return view && toPlayerTrack(view);
     },
+    isOffline: id => offline().playback.has(id),
     libraryReady: () => appData().library.getState().hydrated,
     notifyError: notifyPlayerError,
+    offlineBroken: id => offline().playback.broken(id),
+    prepareOffline: id => offline().playback.prepare(id),
     prefetchEnabled: () => {
       if (prefetch === null) {
         prefetch = true;
@@ -36,7 +40,23 @@ export function appPlayerDeps(over: Partial<PlayerDeps> = {}): PlayerDeps {
     recordPlay: id => appData().mutations.recordPlay(id),
     resolveStreamUrl,
     storage: globalThis.localStorage,
-    subscribeLibrary: listener => appData().library.subscribe(listener),
+    // Статусы треков, скачанные файлы и связь влияют на то, что можно играть и что считать «следующим».
+    subscribeLibrary: listener => {
+      let done = -1;
+      const offs = [
+        appData().library.subscribe(listener),
+        // Прогресс скачивания не интересен — только то, сколько треков стало доступно без сети.
+        offline().status.subscribe(s => {
+          let n = 0;
+          for (const f of s.files.values()) if (f.state === 'done') n++;
+          if (n !== done) {
+            done = n;
+            listener();
+          }
+        }),
+      ];
+      return () => offs.forEach(off => off());
+    },
     ...over,
   };
 }

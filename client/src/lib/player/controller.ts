@@ -61,6 +61,12 @@ export type PlayerDeps = {
   prefetchTrack(trackId: number): Promise<unknown>;
   /** Показать пользователю ошибку воспроизведения. */
   notifyError?(track: PlayerTrack, error: PlayerError): void;
+  /** Скачан ли трек на устройство: такой трек играет как обычный файл (`direct`), даже если на сервере он перекодируется. */
+  isOffline?(trackId: number): boolean;
+  /** Подготовить источник скачанного трека заранее (к клику он уже готов — жест iOS). */
+  prepareOffline?(trackId: number): void;
+  /** Файл скачанного трека не воспроизвёлся: пометить повреждённым (трек вернётся в очередь скачивания). */
+  offlineBroken?(trackId: number): void;
   storage?: PlayerStorage;
   now?: () => number;
 };
@@ -79,6 +85,8 @@ export class PlayerController {
   /** Трек, загруженный в движок (после отмены/восстановления — null). */
   private loadedId: number | null = null;
   private source: AudioSource | null = null;
+  /** Загруженный трек играет из файла на устройстве (а не из сети): ошибка тогда означает повреждённый файл. */
+  private sourceIsOffline = false;
   /** Номер последней загрузки: ответ устаревшего асинхронного `resolveStreamUrl` отбрасывается. */
   private loadSeq = 0;
   private errorTimer: ReturnType<typeof setTimeout> | undefined;
@@ -141,6 +149,11 @@ export class PlayerController {
     return live !== null && canPlay(live);
   };
 
+  /** Перекодируемый поток (перемотка через `?t=`) — только для сетевого трека; скачанный файл играет как `direct`. */
+  private transcoded(track: PlayerTrack): boolean {
+    return isTranscoded(track) && !this.deps.isOffline?.(track.id);
+  }
+
   hasNext = (s: PlayerState = this.state): boolean =>
     nextPlayableIndex(s.queue, s.index, this.canPlayQueued, s.repeat === 'all') >= 0;
 
@@ -150,7 +163,8 @@ export class PlayerController {
     clearTimeout(this.errorTimer);
     this.cancelPendingSeek();
     const fresh = this.live(track) ?? track;
-    const transcoded = isTranscoded(fresh);
+    const viaOffline = this.deps.isOffline?.(track.id) === true;
+    const transcoded = this.transcoded(fresh);
     const offset = transcoded ? startAt : 0;
     const seq = ++this.loadSeq;
     this.loadedId = track.id;
@@ -158,6 +172,7 @@ export class PlayerController {
     const go = (src: AudioSource) => {
       if (seq !== this.loadSeq) return;
       this.source = src;
+      this.sourceIsOffline = viaOffline;
       this.engine.setNowPlaying({
         album: fresh.album ?? '',
         artist: fresh.artist,
@@ -278,6 +293,7 @@ export class PlayerController {
     this.engine.setNowPlaying(null);
     this.loadedId = null;
     this.source = null;
+    this.sourceIsOffline = false;
     this.preloadedId = null;
     this.dispatch({ type: 'CANCEL' });
   };
@@ -286,7 +302,7 @@ export class PlayerController {
     const { duration } = this.state;
     const t = Math.max(0, duration > 0 ? Math.min(duration, seconds) : seconds);
     const track = currentTrack(this.state);
-    if (track && this.loadedId === track.id && isTranscoded(this.live(track) ?? track)) {
+    if (track && this.loadedId === track.id && this.transcoded(this.live(track) ?? track)) {
       // Новый запрос `?t=` вместо перемотки (запросы при перетаскивании объединяются); играем, если играли.
       clearTimeout(this.seekTimer);
       this.pendingSeek = t;
@@ -390,7 +406,7 @@ export class PlayerController {
     const track = currentTrack(this.state);
     if (!track) return;
     const restart = () => {
-      if (isTranscoded(this.live(track) ?? track)) this.loadAndPlay(track, 0);
+      if (this.transcoded(this.live(track) ?? track)) this.loadAndPlay(track, 0);
       else {
         this.engine.seek(0);
         this.engine.play().catch(noop);
@@ -412,6 +428,12 @@ export class PlayerController {
     const src = this.source;
     // Пустой источник (после отмены) и чужой трек — не ошибка.
     if (!track || !src || this.loadedId !== track.id) return;
+    // Скачанный файл не воспроизвёлся (повреждён): помечаем, и трек играет по сети с того же места.
+    if (this.sourceIsOffline && this.deps.offlineBroken) {
+      this.deps.offlineBroken(track.id);
+      this.loadAndPlay(track, this.positionNow(), this.state.isPlaying);
+      return;
+    }
     const seq = this.loadSeq;
     void this.deps.probe(src).then(err => {
       // Пока шла расшифровка, трек могли загрузить заново (в т. ч. тот же): ошибка относится к старой загрузке.
@@ -509,6 +531,7 @@ export class PlayerController {
       this.engine.preloadNext(null);
       return;
     }
+    this.deps.prepareOffline?.(next.id);
     try {
       const src = this.deps.resolveStreamUrl(this.live(next) ?? next, 0);
       if (isPromise(src)) {
@@ -541,7 +564,16 @@ export class PlayerController {
     ) {
       this.persist();
     }
-    if (s.queue !== prev.queue || s.index !== prev.index || s.repeat !== prev.repeat) this.syncNext();
+    if (s.queue !== prev.queue || s.index !== prev.index || s.repeat !== prev.repeat) {
+      this.prepareCurrent();
+      this.syncNext();
+    }
+  }
+
+  /** Источник скачанного текущего трека готовится заранее: `play()` в цепочке жеста получит его синхронно. */
+  private prepareCurrent() {
+    const current = currentTrack(this.state);
+    if (current) this.deps.prepareOffline?.(current.id);
   }
 
   /** Раз в `TICK_MS` при воспроизведении: длительность, учёт прослушивания, предзагрузка, сохранение. */
@@ -575,8 +607,9 @@ export class PlayerController {
     const j = nextPlayableIndex(queue, index, this.canPlayQueued, repeat === 'all');
     const next = j >= 0 && j !== index ? queue[j] : undefined;
     const live = next && this.live(next);
-    // Только `found`: у `ready` файл уже на диске.
+    // Только `found`: у `ready` файл уже на диске. Скачанный на устройство трек предзагружать на сервере незачем.
     if (!next || !live || live.status !== 'found' || this.prefetched === next.id) return;
+    if (this.deps.isOffline?.(next.id)) return;
     this.prefetched = next.id;
     void this.deps.prefetchTrack(next.id).catch(noop);
   }

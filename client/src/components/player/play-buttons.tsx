@@ -7,8 +7,8 @@ import type { TrackRow } from '@/components/library/track-row';
 import { AddToPlaylistDialog } from '@/components/playlists/add-to-playlist-dialog';
 import { TrackSourceDialog } from '@/components/sources/track-source-dialog';
 import { useT } from '@/lib/i18n/provider';
-import { canPlay, toPlayerTrack } from '@/lib/player';
-import { useIsCurrentTrack, useIsTrackPlaying, usePlayerActions, usePlayerState } from '@/lib/player/hooks';
+import { toPlayerTrack } from '@/lib/player';
+import { useCanPlay, useIsCurrentTrack, useIsTrackPlaying, usePlayerActions, usePlayerState } from '@/lib/player/hooks';
 import { playableQueue, queueFromIds } from '@/lib/player/queues';
 import { currentTrack } from '@/lib/player/engine';
 import { useAlbumTracks, useTrackView } from '@/lib/store/hooks';
@@ -21,6 +21,7 @@ function useToggleTrack(id: number, queue: () => ReturnType<typeof queueFromIds>
   const view = useTrackView(id);
   const isCurrent = useIsCurrentTrack(id);
   const isPlaying = useIsTrackPlaying(id);
+  const canPlay = useCanPlay();
   const playable = view ? canPlay(view) : false;
   const toggle = () => {
     if (!view || !playable) return;
@@ -82,6 +83,7 @@ export function PlayTracksButton({
 }) {
   const t = useT();
   const player = usePlayerActions();
+  const canPlay = useCanPlay();
   const playable = tracks.filter(canPlay);
   const inThisList = usePlayerState(s => {
     const cur = currentTrack(s);

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { makeAlbum, makeArtist, makeLibrary, makeTrack } from '@/test/factories';
-import { createDb } from './index';
+import { openDB } from 'idb';
+import { createDb, type OfflineFile } from './index';
 
 let n = 0;
 const name = () => `nimbus-test-${++n}`;
@@ -130,13 +131,69 @@ describe('IndexedDB', () => {
     expect((await b.loadAll()).albums.map(x => x.id)).toEqual([3]);
   });
 
+  it('миграция 1 → 2: библиотека и курсор сохраняются, появляются офлайн-хранилища', async () => {
+    const dbName = name();
+    // База версии 1, как её создавали шаги 37–45.
+    const v1 = await openDB(dbName, 1, {
+      upgrade(db) {
+        for (const store of ['artists', 'albums', 'tracks', 'playlists', 'playlist_tracks']) {
+          db.createObjectStore(store, { keyPath: 'id' });
+        }
+        db.createObjectStore('meta');
+        db.createObjectStore('outbox', { autoIncrement: true });
+      },
+    });
+    await v1.put('tracks', makeTrack({ id: 7 }));
+    await v1.put('meta', 'cursor-1', 'cursor');
+    await v1.add('outbox', { at: 1, trackId: 7 });
+    v1.close();
+
+    const db = createDb({ name: dbName });
+    const loaded = await db.loadAll();
+    expect(loaded.tracks.map(t => t.id)).toEqual([7]);
+    expect(loaded.meta.cursor).toBe('cursor-1');
+    expect(await db.outboxAll()).toHaveLength(1);
+    expect(await db.offlineLoad()).toEqual({ files: [], pins: [] });
+  });
+
+  it('офлайн: закрепления и файлы пишутся, читаются, удаляются; clear библиотеки их не трогает', async () => {
+    const db = createDb({ name: name() });
+    const file: OfflineFile = {
+      attempts: 0,
+      bytes_done: 10,
+      bytes_total: 10,
+      completed_at: 1,
+      error: null,
+      etag: '"x"',
+      mime: 'audio/flac',
+      next_attempt_at: null,
+      resumable: true,
+      state: 'done',
+      track_id: 5,
+    };
+    await db.offlinePinPut({ created_at: 1, id: 3, key: 'album:3', kind: 'album' });
+    await db.offlinePinPut({ created_at: 2, id: 4, key: 'track:4', kind: 'track' });
+    await db.offlineFilePut(file);
+    await db.offlineFilePut({ ...file, bytes_done: 20 });
+    await db.clear();
+    const loaded = await db.offlineLoad();
+    expect(loaded.pins.map(p => p.key).sort()).toEqual(['album:3', 'track:4']);
+    expect(loaded.files).toEqual([{ ...file, bytes_done: 20 }]);
+    await db.offlinePinDelete('album:3');
+    await db.offlineFileDelete(5);
+    expect((await db.offlineLoad()).pins.map(p => p.key)).toEqual(['track:4']);
+    expect((await db.offlineLoad()).files).toEqual([]);
+    await db.offlineClear();
+    expect(await db.offlineLoad()).toEqual({ files: [], pins: [] });
+  });
+
   it('другая вкладка обновляет схему: соединение закрывается и сообщает наверх', async () => {
     const dbName = name();
     const onClosed = vi.fn();
     const db = createDb({ name: dbName, onClosed });
     await db.loadAll();
     // Вторая «вкладка» открывает базу с более новой версией.
-    const upgraded = indexedDB.open(dbName, 2);
+    const upgraded = indexedDB.open(dbName, 99);
     await new Promise<void>((resolve, reject) => {
       upgraded.onsuccess = () => resolve();
       upgraded.onerror = () => reject(upgraded.error);
@@ -184,5 +241,20 @@ describe('IndexedDB недоступна', () => {
     await db.clear();
     expect((await db.loadAll()).tracks).toEqual([]);
     expect(await db.outboxAll()).toHaveLength(1);
+  });
+
+  it('офлайн-записи в памяти', async () => {
+    vi.stubGlobal('indexedDB', undefined);
+    const db = createDb({ name: name() });
+    const file = { track_id: 1 } as OfflineFile;
+    await db.offlinePinPut({ created_at: 1, id: 1, key: 'track:1', kind: 'track' });
+    await db.offlinePinPut({ created_at: 1, id: 2, key: 'track:2', kind: 'track' });
+    await db.offlinePinDelete('track:2');
+    await db.offlineFilePut(file);
+    await db.offlineFilePut({ track_id: 2 } as OfflineFile);
+    await db.offlineFileDelete(2);
+    expect(await db.offlineLoad()).toEqual({ files: [file], pins: [{ created_at: 1, id: 1, key: 'track:1', kind: 'track' }] });
+    await db.offlineClear();
+    expect(await db.offlineLoad()).toEqual({ files: [], pins: [] });
   });
 });

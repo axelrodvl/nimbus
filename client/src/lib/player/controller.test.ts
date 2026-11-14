@@ -771,6 +771,15 @@ describe('предзагрузка (prefetch)', () => {
     expect(s.prefetchTrack).toHaveBeenCalledWith(2);
   });
 
+  it('следующий трек скачан на устройство: на сервере не предзагружается', () => {
+    const s = setup({ isOffline: id => id === 2 }, [pt(1, durations), pt(2, { status: 'found' })]);
+    s.ctl.play(s.library.get(1)!, queue(s));
+    s.engine.emit({ type: 'playing' });
+    s.engine.setPosition(5, 100);
+    vi.advanceTimersByTime(TICK_MS * 4);
+    expect(s.prefetchTrack).not.toHaveBeenCalled();
+  });
+
   it('выключена: только за 30 с до конца', () => {
     const s = setup({}, [pt(1, durations), pt(2)]);
     s.settings.prefetch = false;

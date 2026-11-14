@@ -6,6 +6,8 @@ import {
   type LibraryData,
   type LibraryRows,
   type Meta,
+  type OfflineFile,
+  type OfflinePin,
   type OutboxItem,
   type Track,
 } from './types';
@@ -13,7 +15,7 @@ import {
 export * from './types';
 
 export const DB_NAME = 'nimbus';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 const ROW_STORES = ['artists', 'albums', 'tracks', 'playlists', 'playlist_tracks'] as const;
 type RowStore = (typeof ROW_STORES)[number];
@@ -55,6 +57,13 @@ export interface Db {
   outboxAdd(item: Omit<OutboxItem, 'id'>): Promise<void>;
   outboxAll(): Promise<OutboxItem[]>;
   outboxRemove(id: number): Promise<void>;
+  /** Закрепления и файлы офлайн-хранилища (шаг 46); не стираются `clear()` — их чистит `offline.clear()`. */
+  offlineLoad(): Promise<{ pins: OfflinePin[]; files: OfflineFile[] }>;
+  offlinePinPut(pin: OfflinePin): Promise<void>;
+  offlinePinDelete(key: string): Promise<void>;
+  offlineFilePut(file: OfflineFile): Promise<void>;
+  offlineFileDelete(trackId: number): Promise<void>;
+  offlineClear(): Promise<void>;
   close(): void;
 }
 
@@ -92,10 +101,17 @@ export function createDb(options: DbOptions = {}): Db {
           closed = true;
           options.onClosed?.('versionchange');
         },
-        upgrade(db) {
-          for (const store of ROW_STORES) db.createObjectStore(store, { keyPath: 'id' });
-          db.createObjectStore('meta');
-          db.createObjectStore('outbox', { autoIncrement: true });
+        upgrade(db, oldVersion) {
+          if (oldVersion < 1) {
+            for (const store of ROW_STORES) db.createObjectStore(store, { keyPath: 'id' });
+            db.createObjectStore('meta');
+            db.createObjectStore('outbox', { autoIncrement: true });
+          }
+          // Версия 2 (шаг 46): офлайн-треки. Данные версии 1 остаются на месте.
+          if (oldVersion < 2) {
+            db.createObjectStore('offline_pins', { keyPath: 'key' });
+            db.createObjectStore('offline_files', { keyPath: 'track_id' });
+          }
         },
       });
       persistent = true;
@@ -196,6 +212,49 @@ export function createDb(options: DbOptions = {}): Db {
       await db.delete('outbox', id);
     },
 
+    async offlineClear() {
+      const db = await handle();
+      if (!db) return memory.offlineClear();
+      const tx = db.transaction(['offline_pins', 'offline_files'], 'readwrite');
+      await Promise.all([tx.objectStore('offline_pins').clear(), tx.objectStore('offline_files').clear()]);
+      await tx.done;
+    },
+
+    async offlineFileDelete(trackId) {
+      const db = await handle();
+      if (!db) return memory.offlineFileDelete(trackId);
+      await db.delete('offline_files', trackId);
+    },
+
+    async offlineFilePut(file) {
+      const db = await handle();
+      if (!db) return memory.offlineFilePut(file);
+      await db.put('offline_files', file);
+    },
+
+    async offlineLoad() {
+      const db = await handle();
+      if (!db) return memory.offlineLoad();
+      const tx = db.transaction(['offline_pins', 'offline_files'], 'readonly');
+      const [pins, files] = await Promise.all([
+        tx.objectStore('offline_pins').getAll(),
+        tx.objectStore('offline_files').getAll(),
+      ]);
+      return { files: files as OfflineFile[], pins: pins as OfflinePin[] };
+    },
+
+    async offlinePinDelete(key) {
+      const db = await handle();
+      if (!db) return memory.offlinePinDelete(key);
+      await db.delete('offline_pins', key);
+    },
+
+    async offlinePinPut(pin) {
+      const db = await handle();
+      if (!db) return memory.offlinePinPut(pin);
+      await db.put('offline_pins', pin);
+    },
+
     async patchTrack(id, partial) {
       const db = await handle();
       if (!db) return memory.patchTrack(id, partial);
@@ -254,6 +313,8 @@ function createMemory() {
   };
   let meta: Meta = {};
   let outbox: OutboxItem[] = []; // не очищается `clear()`, как и в IndexedDB
+  const pins = new Map<string, OfflinePin>();
+  const files = new Map<number, OfflineFile>();
   let seq = 0;
 
   const wipe = () => {
@@ -279,6 +340,23 @@ function createMemory() {
       const out: Partial<LibraryRows> = emptyRows();
       for (const store of ROW_STORES) (out as Record<string, unknown>)[FIELD_OF[store]] = [...rows[store].values()];
       return { ...(out as LibraryRows), meta: { ...meta } };
+    },
+    offlineClear() {
+      pins.clear();
+      files.clear();
+    },
+    offlineFileDelete(trackId: number) {
+      files.delete(trackId);
+    },
+    offlineFilePut(file: OfflineFile) {
+      files.set(file.track_id, file);
+    },
+    offlineLoad: () => ({ files: [...files.values()], pins: [...pins.values()] }),
+    offlinePinDelete(key: string) {
+      pins.delete(key);
+    },
+    offlinePinPut(pin: OfflinePin) {
+      pins.set(pin.key, pin);
     },
     outboxAdd(item: Omit<OutboxItem, 'id'>) {
       outbox.push({ ...item, id: ++seq });

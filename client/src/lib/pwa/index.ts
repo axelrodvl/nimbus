@@ -1,4 +1,5 @@
 import { toast } from 'sonner';
+import { clearOffline } from '@/lib/offline';
 import { tNow } from '@/lib/i18n/t-now';
 import { player } from '@/lib/player';
 import { clearImageCache } from './images';
@@ -18,6 +19,7 @@ export function startPwa(i18nReady: Promise<unknown> = Promise.resolve()): void 
   if (started) return;
   started = true;
   onLogout(() => clearImageCache());
+  onLogout(() => clearOffline());
   listenForInstall();
   if (!import.meta.env.PROD) return;
   const updater = createUpdater({

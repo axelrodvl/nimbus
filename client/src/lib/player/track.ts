@@ -1,3 +1,5 @@
+import { isOnlineNow } from '@/lib/live/online';
+import { offline } from '@/lib/offline';
 import type { TrackStatus, TrackView } from '@/lib/store/selectors';
 
 /**
@@ -35,8 +37,12 @@ export function toPlayerTrack(t: TrackView): PlayerTrack {
   };
 }
 
-/** Можно ли играть трек сейчас. Шаг 47 расширит условием офлайн-доступности. Единая функция для контроллера и кнопок. */
-export const canPlay = (t: { status: TrackStatus }): boolean => t.status === 'found' || t.status === 'ready';
+/**
+ * Можно ли играть трек сейчас: он скачан на устройство **или** есть связь с сервером и трек готов к выдаче
+ * (`found`/`ready`). Единая функция для контроллера и кнопок; `id` нужен, чтобы увидеть скачанный файл.
+ */
+export const canPlay = (t: { id?: number; status: TrackStatus }): boolean =>
+  (t.id !== undefined && offline().playback.has(t.id)) || ((t.status === 'found' || t.status === 'ready') && isOnlineNow());
 
 export const isTranscoded = (t: Pick<PlayerTrack, 'playback'> | null | undefined): boolean =>
   t?.playback === 'transcode';

@@ -67,6 +67,18 @@ export async function seedPlayer(
   await request.post(`${MOCK}/__test/player`, { data: opts });
 }
 
+/**
+ * Добавляет на сервер альбомы для офлайн-тестов (артист 920): «Offline Test» (923: треки 9231–9233) и
+ * «Offline Transcode» (925: трек 9251 с перекодированием). `delayMs` — задержка потока по id трека,
+ * `cut` — после скольких байт оборвать (один раз) ответ потока трека. Вызывать до открытия страницы.
+ */
+export async function seedOffline(
+  request: APIRequestContext,
+  opts: { delayMs?: Record<number, number>; cut?: Record<number, number> } = {},
+) {
+  await request.post(`${MOCK}/__test/offline`, { data: opts });
+}
+
 /** Добавляет альбом 913 «Sources Test» (артист 910): 9131 found, 9132 требует подтверждения, 9133 не найден. Вызывать до открытия страницы. */
 export async function seedSources(request: APIRequestContext) {
   await request.post(`${MOCK}/__test/sources`);

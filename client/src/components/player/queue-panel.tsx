@@ -3,10 +3,9 @@ import { useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { Cover } from '@/components/library/cover';
 import { useT } from '@/lib/i18n/provider';
-import { usePlayerActions, usePlayerState } from '@/lib/player/hooks';
+import { useCanPlay, usePlayerActions, usePlayerState } from '@/lib/player/hooks';
 import type { PlayerTrack } from '@/lib/player';
 import { useTrackView } from '@/lib/store/hooks';
-import { canPlay } from '@/lib/player';
 import { cn, formatDuration } from '@/lib/utils';
 
 const rowButton =
@@ -103,7 +102,8 @@ function QueueRow({
   const t = useT();
   // Актуальный статус — из библиотеки (снимок в очереди мог устареть).
   const live = useTrackView(track.id);
-  const playable = canPlay({ status: live?.status ?? track.status });
+  const canPlay = useCanPlay();
+  const playable = canPlay({ id: track.id, status: live?.status ?? track.status });
   return (
     <div
       className={cn(

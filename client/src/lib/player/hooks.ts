@@ -1,11 +1,14 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { useStore } from 'zustand';
 import { appData } from '@/lib/app-data';
+import { useOnline } from '@/lib/live/hooks';
+import { offline } from '@/lib/offline';
 import type { AudioPosition } from './audio/types';
 import type { PlayerController } from './controller';
 import { currentTrack, type PlayerState } from './engine';
 import { player } from './index';
 import { createProgressSource } from './progress';
+import { canPlay } from './track';
 
 /** Срез состояния плеера; перерисовывается только при изменении выбранного значения. */
 export function usePlayerState<T>(select: (s: PlayerState) => T): T {
@@ -49,4 +52,18 @@ export function useHasNext(): boolean {
     [ctl],
   );
   return useSyncExternalStore(subscribe, () => ctl.hasNext());
+}
+
+/**
+ * Функция `canPlay`, которая меняется, когда меняется то, от чего зависит доступность треков: связь с сервером и набор
+ * скачанных файлов. Компоненты берут её отсюда, а не импортируют `canPlay`, — иначе кнопки не узнают, что трек
+ * стал (или перестал быть) доступен.
+ */
+export function useCanPlay(): typeof canPlay {
+  const { playback } = offline();
+  const version = useSyncExternalStore(playback.subscribe, playback.version, playback.version);
+  const online = useOnline();
+  // Версия и связь — зависимости: при их смене появляется новая функция, и зависящие от неё значения пересчитываются.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => (t: Parameters<typeof canPlay>[0]) => canPlay(t), [version, online]);
 }

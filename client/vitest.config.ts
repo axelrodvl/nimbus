@@ -11,6 +11,8 @@ export default defineConfig({
       exclude: [
         'src/lib/api/schema.d.ts',
         'src/main.tsx',
+        // Тонкая привязка воркера к OPFS (`createSyncAccessHandle`): логика покрыта в worker-core/download, сам воркер — e2e.
+        'src/lib/offline/download.worker.ts',
         'src/test/**',
         'src/lib/i18n/messages/**',
         'src/**/*.test.*',
@@ -19,7 +21,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text-summary', 'json-summary'],
       // Храповик: пороги только растут.
-      thresholds: { lines: 97.5, 'src/lib/**': { lines: 97.5 } },
+      thresholds: { lines: 97.8, 'src/lib/**': { lines: 98.3 } },
     },
     environment: 'happy-dom',
     include: ['src/**/*.test.{ts,tsx}'],
