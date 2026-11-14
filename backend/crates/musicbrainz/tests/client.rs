@@ -1310,3 +1310,48 @@ async fn request_budget_for_an_artist_with_30_albums() {
     assert_eq!(out.groups.len(), 30);
     assert_eq!(requests, 1 + 3, "список групп + 3 страницы по 25 релизов");
 }
+
+/// Регрессия («импорт стоит вечно»): интерактивный запрос бросили, пока он ждал токен в лимитере.
+/// Общий запрос в полёте не должен зависать «без хозяина» с флагом «интерактивный ждёт» — иначе
+/// фоновые запросы (импорт артиста) не получают токен никогда.
+#[tokio::test]
+async fn abandoned_interactive_request_does_not_starve_background_requests() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/ws/2/artist"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw("{\"artists\": []}", "application/json"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/ws/2/release-group"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            "{\"release-group-count\": 0, \"release-group-offset\": 0, \"release-groups\": []}",
+            "application/json",
+        ))
+        .mount(&server)
+        .await;
+    let mut c = cfg(&server);
+    c.limits = MbLimits::paced(2.0); // токен раз в 0,5 с, burst 1
+    let mb = MbClient::with_config(c, None).unwrap();
+
+    // Первый интерактивный запрос забирает токен, второй (другой ключ) встаёт в очередь лимитера и
+    // тут же отменяется — как закрытая пользователем страница.
+    mb.search_artists("first", 5).await.unwrap();
+    let abandoned =
+        tokio::time::timeout(Duration::from_millis(50), mb.search_artists("second", 5)).await;
+    assert!(abandoned.is_err(), "второй запрос должен был ждать токен");
+
+    let bg = mb.background();
+    let res = tokio::time::timeout(
+        Duration::from_secs(5),
+        bg.artist_release_groups(uuid(RADIOHEAD), &["album"]),
+    )
+    .await;
+    assert!(
+        res.is_ok(),
+        "фоновый запрос застрял за брошенным интерактивным"
+    );
+    res.unwrap().unwrap();
+}

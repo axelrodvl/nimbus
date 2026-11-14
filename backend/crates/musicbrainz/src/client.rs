@@ -195,7 +195,12 @@ impl MbClient {
                         .map(|(k, v)| (k.to_string(), v.to_string()))
                         .collect();
                     let (path, k) = (path.to_string(), key.clone());
-                    let fut = async move {
+                    // Запрос выполняется отдельной задачей, а не «общим будущим», которое двигают
+                    // только ожидающие: если все ожидающие ушли (пользователь закрыл страницу),
+                    // будущее зависло бы в карте вместе с флагом «интерактивный ждёт» в лимитере и
+                    // навсегда заморозило фоновые запросы. Задача ограничена таймаутом HTTP, поэтому
+                    // отслеживать её отдельно не нужно; запись из карты убирает она сама.
+                    let task = tokio::spawn(async move {
                         let r = inner
                             .fetch_and_cache(priority, &path, &owned_query, ttl, &k)
                             .await;
@@ -205,6 +210,11 @@ impl MbClient {
                             .unwrap_or_else(std::sync::PoisonError::into_inner)
                             .remove(&k);
                         r.map(Arc::new)
+                    });
+                    let fut = async move {
+                        task.await.unwrap_or_else(|e| {
+                            Err(MbError::Transport(format!("request task failed: {e}")))
+                        })
                     }
                     .boxed()
                     .shared();

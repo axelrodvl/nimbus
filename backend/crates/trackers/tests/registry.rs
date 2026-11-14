@@ -452,3 +452,35 @@ async fn in_flight_failures_do_not_escalate_the_pause() {
     ));
     assert_eq!(p.calls(), 4);
 }
+
+/// Отменённый поиск (все ожидающие ушли) доводится до конца сам: запись «в полёте» не зависает
+/// без хозяина вместе с занятым слотом лимитера и «пробным» запросом предохранителя.
+#[tokio::test(start_paused = true)]
+async fn search_survives_the_cancellation_of_everyone_waiting_for_it() {
+    struct Slow(Arc<AtomicUsize>);
+    #[async_trait]
+    impl TorrentProvider for Slow {
+        fn source(&self) -> TorrentSource {
+            TorrentSource::Tpb
+        }
+        async fn search(&self, _q: &SearchQuery) -> Result<Vec<TorrentCandidate>, ProviderError> {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![])
+        }
+    }
+    let finished = Arc::new(AtomicUsize::new(0));
+    let reg = ProviderRegistry::new(vec![Arc::new(Slow(finished.clone()))]);
+    let q = SearchQuery::text("radiohead");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(10), reg.search_all(&q))
+            .await
+            .is_err()
+    );
+    // Никто больше не ждёт и не опрашивает — поиск всё равно заканчивается.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(finished.load(Ordering::SeqCst), 1);
+    // Результат лежит в кэше: повторный запрос провайдера не тревожит.
+    reg.search_all(&q).await;
+    assert_eq!(finished.load(Ordering::SeqCst), 1);
+}

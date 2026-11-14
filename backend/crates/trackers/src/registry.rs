@@ -288,7 +288,10 @@ impl ProviderRegistry {
                 let epoch = st.epoch;
                 let state = Arc::clone(&self.state);
                 let (k, query) = (key.clone(), q.clone());
-                let fut: BoxFuture<'static, _> = async move {
+                // Поиск идёт отдельной задачей, а не «общим будущим», которое двигают только ожидающие:
+                // если все ожидающие ушли (запрос отменён), будущее зависло бы в `inflight` навсегда.
+                // Задача ограничена таймаутом провайдера, поэтому отдельно её не отслеживаем.
+                let task = tokio::spawn(async move {
                     let res = match tokio::time::timeout(timeout, provider.search(&query)).await {
                         Ok(r) => r,
                         Err(_) => Err(ProviderError::Timeout),
@@ -339,6 +342,11 @@ impl ProviderRegistry {
                         tracing::warn!(?source, error = %e, "provider search failed");
                     }
                     res
+                });
+                let fut: BoxFuture<'static, _> = async move {
+                    task.await.unwrap_or_else(|e| {
+                        Err(ProviderError::Network(format!("search task failed: {e}")))
+                    })
                 }
                 .boxed();
                 let shared = fut.shared();
