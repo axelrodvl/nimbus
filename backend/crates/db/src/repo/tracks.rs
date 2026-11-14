@@ -71,6 +71,30 @@ pub async fn mark_found(db: impl PgExecutor<'_>, ids: &[i64]) -> sqlx::Result<Ve
     .await
 }
 
+/// Альбомы с треками библиотеки в `adding`, которые не менялись дольше `grace` и по которым нет
+/// активного поиска (`discover_album` альбома или `discover_artist` его артиста). Такие альбомы
+/// остались без исполнителя решения: поиск закончился, а финализация была отложена другим поиском.
+pub async fn albums_stuck_in_adding(
+    db: impl PgExecutor<'_>,
+    grace: std::time::Duration,
+) -> sqlx::Result<Vec<i64>> {
+    sqlx::query_scalar(
+        "SELECT a.id FROM albums a
+         WHERE EXISTS (
+             SELECT 1 FROM tracks t
+             WHERE t.album_id = a.id AND t.in_library AND t.status = 'adding'
+               AND t.updated_at < now() - make_interval(secs => $1))
+           AND NOT EXISTS (
+             SELECT 1 FROM jobs j
+             WHERE j.state IN ('queued', 'running')
+               AND j.dedup_key IN ('discover_album:' || a.id, 'discover_artist:' || a.artist_id))
+         ORDER BY a.id",
+    )
+    .bind(grace.as_secs_f64())
+    .fetch_all(db)
+    .await
+}
+
 /// Переводит треки альбома из любого статуса в `from` в статус `to`; возвращает изменённые.
 pub async fn set_status_for_album(
     db: impl PgExecutor<'_>,

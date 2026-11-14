@@ -1135,3 +1135,72 @@ async fn dht_with_persistence_starts_and_stops_cleanly() {
     assert!(e.listen_addr().is_some());
     e.shutdown().await;
 }
+
+/// Файл данных — симлинк на `/dev/full`: открывается и пишется, но каждая запись даёт ENOSPC.
+/// Торрент живёт, получает данные и падает в `Error` (отказ диска посреди загрузки).
+async fn engine_with_errored_torrent(
+    swarm: &Swarm,
+) -> (
+    TorrentEngine,
+    TempDir,
+    TorrentHandleId,
+    usize,
+    std::path::PathBuf,
+) {
+    let (e, base) = engine(swarm, true).await;
+    let one = ix(&e, swarm).await[1];
+    let data = base.path().join("torrents").join("Album");
+    let _ = std::fs::create_dir_all(&data);
+    let link = data.join(NAMES[1]);
+    std::os::unix::fs::symlink("/dev/full", &link).unwrap();
+    e.ensure_file(&TorrentRef::magnet(swarm.magnet()), one)
+        .await
+        .unwrap();
+    let id = TorrentHandleId(nimbus_core::model::InfoHash::parse(&swarm.swarm.info_hash).unwrap());
+    wait_state(&e, &id, TorrentState::Error).await;
+    (e, base, id, one, link)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn errored_torrent_is_restarted_when_the_cause_is_gone() {
+    let swarm = start_swarm().await;
+    let (e, _base, id, one, link) = engine_with_errored_torrent(&swarm).await;
+    std::fs::remove_file(&link).unwrap(); // диск «починили»
+    let again = e
+        .ensure_file(&TorrentRef::magnet(swarm.magnet()), one)
+        .await
+        .unwrap();
+    assert_eq!(again, id);
+    assert_eq!(read_all(&e, &id, one).await, swarm.contents[1]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn errored_torrent_that_cannot_recover_is_readded_instead_of_left_dead() {
+    let swarm = start_swarm().await;
+    let (e, _base, id, one, _link) = engine_with_errored_torrent(&swarm).await;
+    // Причина осталась: перезапуск не помогает, торрент удаляется и добавляется заново (свежий
+    // дескриптор), а не остаётся мёртвым в сессии. Диск всё ещё «полный» — он снова упадёт.
+    e.ensure_file(&TorrentRef::magnet(swarm.magnet()), one)
+        .await
+        .unwrap();
+    assert_eq!(e.list_torrents().len(), 1);
+    wait_state(&e, &id, TorrentState::Error).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ensure_file_resumes_a_paused_unfinished_torrent_without_changing_selection() {
+    let swarm = start_swarm().await;
+    // Пиров нет: торрент добавляется по готовому `.torrent` и не может завершиться.
+    let base = tempdir();
+    let e = TorrentEngine::new(base_cfg(base.path(), vec![], true))
+        .await
+        .unwrap();
+    let t = TorrentRef::new(swarm.magnet(), Some(swarm.swarm.torrent_file.to_vec()));
+    let id = e.ensure_file(&t, 0).await.unwrap();
+    e.pause_torrent(&id).await.unwrap();
+    assert_eq!(state_of(&e, &id), Some(TorrentState::Paused));
+    // Тот же файл, выбор не меняется, но он не докачан → торрент снимается с паузы.
+    e.ensure_file(&t, 0).await.unwrap();
+    assert_ne!(state_of(&e, &id), Some(TorrentState::Paused));
+    assert_eq!(e.selected_files(&id).await, [0]);
+}

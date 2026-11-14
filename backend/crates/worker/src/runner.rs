@@ -189,6 +189,9 @@ pub struct WorkerConfig {
     pub stale_after: Duration,
     pub maintenance_interval: Duration,
     pub done_retention: Duration,
+    /// Сколько трек может висеть в `adding` без активного поиска, прежде чем обслуживание
+    /// финализирует его альбом (см. `verify::finalize_stuck_albums`).
+    pub stuck_grace: Duration,
     /// Сколько хранятся надгробия синхронизации (шаг 34): клиент, не заходивший дольше, берёт снимок заново.
     pub tombstone_retention: Duration,
     pub shutdown_timeout: Duration,
@@ -209,6 +212,7 @@ impl Default for WorkerConfig {
             stale_after: Duration::from_secs(90),
             maintenance_interval: Duration::from_secs(60),
             done_retention: Duration::from_secs(7 * 24 * 3600),
+            stuck_grace: Duration::from_secs(10 * 60),
             tombstone_retention: nimbus_db::repo::sync::TOMBSTONE_RETENTION,
             shutdown_timeout: Duration::from_secs(10),
             evict_interval: Some(Duration::from_secs(10 * 60)),
@@ -408,6 +412,11 @@ async fn maintenance_loop(
                 }
             }
             Err(e) => tracing::error!(error = %e, "requeue_stale failed"),
+        }
+        match crate::verify::finalize_stuck_albums(&ctx, cfg.stuck_grace).await {
+            Ok(0) => {}
+            Ok(n) => tracing::warn!(count = n, "finalized albums stuck in adding"),
+            Err(e) => tracing::error!(error = %e, "finalize_stuck_albums failed"),
         }
         if last_purge.elapsed() > Duration::from_secs(3600) {
             last_purge = std::time::Instant::now();

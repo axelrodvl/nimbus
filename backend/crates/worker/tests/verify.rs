@@ -1144,3 +1144,129 @@ async fn verify_without_an_active_search_does_not_touch_search_state(pool: PgPoo
         .unwrap()
         .is_none());
 }
+
+// ---- Страховка от зависших альбомов (шаг 35)
+
+mod stuck {
+    use std::time::Duration;
+
+    use nimbus_core::events::EventBus;
+    use nimbus_core::jobs::Job;
+    use nimbus_db::repo::jobs::{self, EnqueueOpts};
+    use nimbus_db::repo::{albums, artists, tracks};
+    use nimbus_worker::verify::finalize_stuck_albums;
+    use nimbus_worker::JobCtx;
+    use sqlx::PgPool;
+    use uuid::Uuid;
+
+    async fn album_with_adding_track(pool: &PgPool) -> (i64, i64, i64) {
+        let artist = artists::upsert_by_mbid(
+            pool,
+            &nimbus_core::model::NewArtist {
+                mbid: Uuid::new_v4(),
+                name: "A".into(),
+                sort_name: None,
+                disambiguation: None,
+            },
+        )
+        .await
+        .unwrap();
+        let album = albums::upsert_by_rg_mbid(
+            pool,
+            &nimbus_core::model::NewAlbum {
+                mbid_release_group: Uuid::new_v4(),
+                mbid_release: None,
+                artist_id: artist.id,
+                title: "B".into(),
+                primary_type: None,
+                secondary_types: vec![],
+                year: None,
+                cover_url: None,
+            },
+        )
+        .await
+        .unwrap();
+        let t = tracks::upsert_by_mbid_track(
+            pool,
+            &nimbus_core::model::NewTrack {
+                mbid_recording: Uuid::new_v4(),
+                mbid_track: None,
+                album_id: album.id,
+                artist_id: artist.id,
+                title: "T".into(),
+                disc_no: 1,
+                position: 1,
+                duration_ms: None,
+            },
+        )
+        .await
+        .unwrap();
+        tracks::set_in_library(pool, t.id, true).await.unwrap();
+        (artist.id, album.id, t.id)
+    }
+
+    fn ctx(pool: &PgPool) -> JobCtx {
+        JobCtx::new(
+            pool.clone(),
+            EventBus::new(),
+            nimbus_musicbrainz::MbClient::new("NimbusTest/0.1 ( https://example.org )", None)
+                .unwrap(),
+            std::sync::Arc::new(nimbus_trackers::ProviderRegistry::new(vec![])),
+        )
+    }
+
+    async fn status(pool: &PgPool, id: i64) -> String {
+        tracks::get(pool, id)
+            .await
+            .unwrap()
+            .unwrap()
+            .status
+            .as_str()
+            .to_string()
+    }
+
+    #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+    async fn idle_album_stuck_in_adding_is_marked_not_found(pool: PgPool) {
+        let (_, album_id, track_id) = album_with_adding_track(&pool).await;
+        let c = ctx(&pool);
+        // Трек свежий — грейс не вышел.
+        assert_eq!(
+            finalize_stuck_albums(&c, Duration::from_secs(3600))
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(status(&pool, track_id).await, "adding");
+        assert_eq!(finalize_stuck_albums(&c, Duration::ZERO).await.unwrap(), 1);
+        assert_eq!(status(&pool, track_id).await, "not_found");
+        // Повтор ничего не меняет и не находит.
+        assert_eq!(finalize_stuck_albums(&c, Duration::ZERO).await.unwrap(), 0);
+        let _ = album_id;
+    }
+
+    #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+    async fn album_with_an_active_search_is_left_alone(pool: PgPool) {
+        let (artist_id, album_id, track_id) = album_with_adding_track(&pool).await;
+        let c = ctx(&pool);
+        for job in [
+            Job::DiscoverAlbum { album_id },
+            Job::DiscoverArtist { artist_id },
+        ] {
+            let id = jobs::enqueue(&pool, &job, EnqueueOpts::default())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                finalize_stuck_albums(&c, Duration::ZERO).await.unwrap(),
+                0,
+                "{job:?}"
+            );
+            assert_eq!(status(&pool, track_id).await, "adding");
+            sqlx::query("DELETE FROM jobs WHERE id = $1")
+                .bind(id)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+    }
+}

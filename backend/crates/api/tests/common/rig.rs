@@ -266,6 +266,8 @@ impl Rig {
                 poll_interval: Duration::from_millis(50),
                 backoff_base: Duration::from_millis(50),
                 backoff_max: Duration::from_millis(500),
+                maintenance_interval: Duration::from_millis(200),
+                stuck_grace: Duration::from_secs(1),
                 shutdown_timeout: Duration::from_secs(2),
                 ..WorkerConfig::default()
             },
@@ -285,6 +287,8 @@ impl Rig {
             hs,
             WorkerConfig {
                 poll_interval: Duration::from_millis(50),
+                maintenance_interval: Duration::from_millis(200),
+                stuck_grace: Duration::from_secs(1),
                 shutdown_timeout: Duration::from_secs(2),
                 ..WorkerConfig::default()
             },

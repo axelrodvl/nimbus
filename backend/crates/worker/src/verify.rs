@@ -328,6 +328,22 @@ pub(crate) async fn finalize_album(ctx: &JobCtx, album_id: i64) -> Result<(), Jo
     finalize(ctx, album_id, None).await
 }
 
+/// Страховка от «зависших» альбомов: две задачи поиска (`discover_album` и `discover_artist`)
+/// могут закончиться одновременно, и каждая, увидев другую `running`, отложит решение — тогда
+/// треки навсегда остаются `adding`. Обслуживание раз в тик финализирует такие альбомы
+/// (`finalize` сам проверяет непроверенные раздачи, CUE и активный поиск). Возвращает число
+/// просмотренных альбомов.
+pub async fn finalize_stuck_albums(
+    ctx: &JobCtx,
+    grace: std::time::Duration,
+) -> Result<usize, JobError> {
+    let ids = tracks::albums_stuck_in_adding(&ctx.db, grace).await?;
+    for id in &ids {
+        finalize_album(ctx, *id).await?;
+    }
+    Ok(ids.len())
+}
+
 /// То же, но вызывается самой задачей поиска (`discover_album`/`discover_artist`) перед
 /// завершением: её собственная запись (`own_key` — её `dedup_key`) ещё `running`, поэтому её
 /// при проверке «идёт поиск» не учитываем; другой поиск этого альбома или артиста — учитываем.
