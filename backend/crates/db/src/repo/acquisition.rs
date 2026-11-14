@@ -346,6 +346,18 @@ pub async fn list(
     cursor: Option<&Cursor>,
     limit: i64,
 ) -> sqlx::Result<AcquisitionPage> {
+    list_filtered(db, states, None, cursor, limit).await
+}
+
+/// То же, что [`list`], с необязательным фильтром по `album_ids` (`None` — все альбомы): клиент узнаёт состояние
+/// нескольких конкретных альбомов, не листая весь список.
+pub async fn list_filtered(
+    db: impl PgExecutor<'_>,
+    states: Option<&[AcquisitionState]>,
+    album_ids: Option<&[i64]>,
+    cursor: Option<&Cursor>,
+    limit: i64,
+) -> sqlx::Result<AcquisitionPage> {
     let limit = limit.clamp(1, MAX_PAGE);
     let states: Option<Vec<&str>> = states.map(|s| s.iter().map(|s| s.as_str()).collect());
     let mut items: Vec<AcquisitionRow> = sqlx::query_as(concat!(
@@ -361,6 +373,7 @@ pub async fn list(
                    s.next_retry_at
             FROM st LEFT JOIN album_search_state s ON s.album_id = st.album_id
             WHERE ($1::text[] IS NULL OR st.state = ANY($1))
+              AND ($6::bigint[] IS NULL OR st.album_id = ANY($6))
          ), page AS (
             SELECT * FROM base
             WHERE $2::int IS NULL
@@ -393,6 +406,7 @@ pub async fn list(
     .bind(cursor.map(|c| c.finished.clone()))
     .bind(cursor.map(|c| c.album_id))
     .bind(limit + 1)
+    .bind(album_ids)
     .fetch_all(db)
     .await?;
     let next = if items.len() as i64 > limit {

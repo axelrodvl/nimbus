@@ -156,7 +156,7 @@ describe('содержимое палитры', () => {
     const list = await screen.findByRole('listbox', { name: 'Результаты поиска' });
     expect(within(list).getByText('Действия')).toBeInTheDocument();
     expect(within(list).getByRole('option', { name: /Библиотека/ })).toBeInTheDocument();
-    expect(within(list).queryByRole('option', { name: /Загрузки/ })).not.toBeInTheDocument();
+    expect(within(list).getByRole('option', { name: /Загрузки/ })).toBeInTheDocument();
     fireEvent.click(within(list).getByRole('option', { name: /Тёмная тема|Dark/i }));
     expect(localStorage.getItem(THEME_KEY)).toBe('dark');
     await waitFor(() => expect(palette()).not.toBeInTheDocument());

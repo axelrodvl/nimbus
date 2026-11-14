@@ -1,4 +1,5 @@
 import { AppNavLink } from '@/components/app-nav-link';
+import { DownloadsBadge } from '@/components/nav-badge';
 import { useT } from '@/lib/i18n/provider';
 import type { NavItem } from '@/lib/nav/items';
 
@@ -17,9 +18,12 @@ export function MobileTabBar({ items }: { items: readonly NavItem[] }) {
       data-testid="mobile-tab-bar"
       style={{ viewTransitionName: 'mobile-nav' }}
     >
-      {items.map(({ end, icon: Icon, label, to }) => (
+      {items.map(({ badge, end, icon: Icon, label, to }) => (
         <AppNavLink aria-label={t(label)} className={mobileTab} end={end} key={to} to={to}>
-          <Icon className="size-5" />
+          <span className="relative">
+            <Icon className="size-5" />
+            {badge === 'downloads' ? <DownloadsBadge /> : null}
+          </span>
           <span>{t(label)}</span>
         </AppNavLink>
       ))}

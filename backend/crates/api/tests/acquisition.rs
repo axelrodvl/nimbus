@@ -191,6 +191,46 @@ async fn list_filters_orders_and_paginates(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn album_ids_filter_limits_the_list_and_validates_input(pool: PgPool) {
+    let ar = artist(&pool, "A").await;
+    let a = album(&pool, ar, "a", &[NotFound]).await;
+    let b = album(&pool, ar, "b", &[Ready]).await;
+    let _c = album(&pool, ar, "c", &[Adding]).await;
+    let app = router(state(pool));
+
+    let (code, v) = get_json(app.clone(), &format!("/api/acquisition?album_ids={a},{b}")).await;
+    assert_eq!(code, 200);
+    assert_eq!(ids(&v), vec![a, b]);
+    // Сочетается с фильтром по состоянию.
+    let (_, v) = get_json(
+        app.clone(),
+        &format!("/api/acquisition?album_ids={a},{b}&state=downloaded"),
+    )
+    .await;
+    assert_eq!(ids(&v), vec![b]);
+    // Несуществующий id просто не даёт строки; пустой фильтр — без фильтра.
+    let (_, v) = get_json(app.clone(), "/api/acquisition?album_ids=999999").await;
+    assert!(ids(&v).is_empty());
+    let (_, v) = get_json(app.clone(), "/api/acquisition?album_ids=").await;
+    assert_eq!(ids(&v).len(), 3);
+
+    let (code, v) = get_json(app.clone(), "/api/acquisition?album_ids=1,x").await;
+    assert_eq!(
+        (code, v["error"]["code"].as_str()),
+        (400, Some("invalid_album_ids"))
+    );
+    let many = (1..=101)
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let (code, v) = get_json(app, &format!("/api/acquisition?album_ids={many}")).await;
+    assert_eq!(
+        (code, v["error"]["code"].as_str()),
+        (400, Some("invalid_album_ids"))
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn invalid_state_and_cursor_are_bad_requests(pool: PgPool) {
     let app = router(state(pool));
     let (code, v) = get_json(app.clone(), "/api/acquisition?state=missing,bogus").await;

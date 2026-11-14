@@ -169,6 +169,8 @@ impl AcquisitionItem {
 pub struct AcquisitionParams {
     /// Фильтр по состояниям через запятую: searching, missing, partial, available, downloading, downloaded.
     state: Option<String>,
+    /// Только эти альбомы: id через запятую (не больше 100).
+    album_ids: Option<String>,
     /// Курсор из `next_cursor` предыдущей страницы.
     cursor: Option<String>,
     /// 1..200, по умолчанию 50.
@@ -192,6 +194,32 @@ fn parse_states(raw: Option<&str>) -> Result<Option<Vec<AcquisitionState>>, ApiE
         .map(Some)
 }
 
+/// Максимум id в фильтре `album_ids`.
+const MAX_ALBUM_IDS: usize = 100;
+
+fn parse_album_ids(raw: Option<&str>) -> Result<Option<Vec<i64>>, ApiError> {
+    let Some(raw) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let ids = raw
+        .split(',')
+        .map(|s| s.trim().parse::<i64>())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| {
+            ApiError::bad_request(
+                "invalid_album_ids",
+                "album_ids must be a comma-separated list of ids",
+            )
+        })?;
+    if ids.len() > MAX_ALBUM_IDS {
+        return Err(ApiError::bad_request(
+            "invalid_album_ids",
+            format!("album_ids accepts at most {MAX_ALBUM_IDS} ids"),
+        ));
+    }
+    Ok(Some(ids))
+}
+
 #[utoipa::path(
     get,
     path = "/api/acquisition",
@@ -199,7 +227,7 @@ fn parse_states(raw: Option<&str>) -> Result<Option<Vec<AcquisitionState>>, ApiE
     params(AcquisitionParams),
     responses(
         (status = 200, description = "Альбомы библиотеки с состоянием приобретения: сначала ищущиеся, затем по времени последнего поиска", body = AcquisitionPage),
-        (status = 400, description = "Неверный `state` (`invalid_state`) или курсор (`invalid_cursor`)", body = ErrorResponse),
+        (status = 400, description = "Неверный `state` (`invalid_state`), `album_ids` (`invalid_album_ids`) или курсор (`invalid_cursor`)", body = ErrorResponse),
     )
 )]
 pub async fn list_acquisition(
@@ -209,6 +237,7 @@ pub async fn list_acquisition(
 ) -> Result<Json<AcquisitionPage>, ApiError> {
     authorize(&state, &headers)?;
     let states = parse_states(p.state.as_deref())?;
+    let album_ids = parse_album_ids(p.album_ids.as_deref())?;
     let cursor = match p.cursor.as_deref().filter(|c| !c.is_empty()) {
         Some(c) => Some(
             Cursor::decode(c)
@@ -217,7 +246,14 @@ pub async fn list_acquisition(
         None => None,
     };
     let limit = p.limit.unwrap_or(DEFAULT_PAGE).clamp(1, MAX_PAGE);
-    let page = acquisition::list(&state.db, states.as_deref(), cursor.as_ref(), limit).await?;
+    let page = acquisition::list_filtered(
+        &state.db,
+        states.as_deref(),
+        album_ids.as_deref(),
+        cursor.as_ref(),
+        limit,
+    )
+    .await?;
     Ok(Json(AcquisitionPage {
         next_cursor: page.next.as_ref().map(Cursor::encode),
         items: page

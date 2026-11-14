@@ -20,8 +20,16 @@ const timeToAppear = (page: Page, click: string, appears: string) =>
   );
 
 // Картинки артистов (`/api/artist-image/…`) грузятся лениво браузером — это не запросы за данными библиотеки.
+// Состояние загрузки альбома на сервер (`/api/acquisition?album_ids=`, кнопка «Скачать на сервер», шаг 44) —
+// серверное состояние, а не данные библиотеки: их читают только из локального store.
 const dataRequests = (log: string[]) =>
-  log.filter(l => l.startsWith('GET /api/') && !l.includes('/api/artists/') && !l.includes('/api/artist-image/'));
+  log.filter(
+    l =>
+      l.startsWith('GET /api/') &&
+      !l.includes('/api/artists/') &&
+      !l.includes('/api/artist-image/') &&
+      !l.includes('/api/acquisition'),
+  );
 
 test.describe('экраны библиотеки', () => {
   test.beforeEach(async ({ request }) => resetMock(request));

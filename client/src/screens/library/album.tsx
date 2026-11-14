@@ -4,6 +4,7 @@ import { Cover } from '@/components/library/cover';
 import { AlbumProgress } from '@/components/library/album-progress';
 import { RemoveFromLibraryButton } from '@/components/library/remove-from-library-button';
 import { StatusMiniBar } from '@/components/library/status-mini-bar';
+import { ServerDownloadButton } from '@/components/downloads/server-download-button';
 import { PageLayout } from '@/components/page-layout';
 import { PlayAlbumButton, PlayableTrackRow } from '@/components/player/play-buttons';
 import { useT } from '@/lib/i18n/provider';
@@ -58,6 +59,7 @@ export function AlbumScreen() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <PlayAlbumButton albumId={album.id} />
+            <ServerDownloadButton albumId={album.id} title={album.title} />
             {tracks.some(tr => tr.in_library && tr.needs_confirmation) ? (
               <span
                 className="text-warning inline-flex items-center gap-1 text-xs"

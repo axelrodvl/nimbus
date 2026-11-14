@@ -1,4 +1,5 @@
 import type { RouteObject } from 'react-router';
+import { DownloadsScreen, LegacyDownloadsRedirect } from '@/screens/downloads/downloads-screen';
 import { Home } from '@/screens/home';
 import { AlbumScreen } from '@/screens/library/album';
 import { ArtistScreen } from '@/screens/library/artist';
@@ -11,7 +12,7 @@ import { SettingsScreen } from '@/screens/settings/settings-screen';
 /**
  * Маршруты внутри оболочки. Экран добавляет свой шаг: запись здесь + при необходимости пункт в `NAV_ITEMS`.
  * Целевая таблица: `/library[/:tab]`, `/artist/:id`, `/album/:id` (39), `/search` (40, готов),
- * `/album/:id/sources`, `/playlist/:id` (42, готово), `/settings[/:section]` (43, готово), `/downloads[/:tab]` (44).
+ * `/album/:id/sources`, `/playlist/:id` (42, готово), `/settings[/:section]` (43, готово), `/downloads[/:tab]` (44, готово).
  */
 const galleryEnabled = import.meta.env.DEV || import.meta.env.VITE_UI_GALLERY === '1';
 
@@ -23,6 +24,9 @@ export const appRoutes: RouteObject[] = [
   { element: <SourcesScreen />, path: '/album/:id/sources' },
   { element: <PlaylistScreen />, path: '/playlist/:id' },
   { element: <SearchScreen />, path: '/search' },
+  { element: <DownloadsScreen />, path: '/downloads/:tab?' },
+  // Статический маршрут приоритетнее `/settings/:section?`.
+  { element: <LegacyDownloadsRedirect />, path: '/settings/downloads' },
   { element: <SettingsScreen />, path: '/settings/:section?' },
   // Галерея примитивов: только dev и e2e-сборка (`VITE_UI_GALLERY=1`); в обычную сборку не попадает.
   ...(galleryEnabled

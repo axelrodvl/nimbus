@@ -26,8 +26,9 @@
 Состояние альбома считается по его трекам из библиотеки (см. `docs/architecture.md`, «Приобретение альбомов»):
 `searching` · `downloading` · `partial` · `missing` · `available` · `downloaded`.
 
-- `GET /api/acquisition?state=&cursor=&limit=` → `{ items: [AcquisitionItem], next_cursor }`. `state` — список через
-  запятую (иначе `400 invalid_state`), `cursor` — из `next_cursor` (испорченный — `400 invalid_cursor`), `limit` 1–200
+- `GET /api/acquisition?state=&album_ids=&cursor=&limit=` → `{ items: [AcquisitionItem], next_cursor }`. `state` — список через
+  запятую (иначе `400 invalid_state`), `album_ids` — только эти альбомы, id через запятую, не больше 100
+  (иначе `400 invalid_album_ids`; шаг 44: клиент так узнаёт состояние одного альбома), `cursor` — из `next_cursor` (испорченный — `400 invalid_cursor`), `limit` 1–200
   (по умолчанию 50). Порядок: сначала `searching`, затем по `last_finished_at DESC NULLS LAST`, `album_id`.
   `AcquisitionItem { album { id, title, year, cover_url, artist { id, name } }, state, tracks { total, adding, found,
   not_found, ready }, reason, search { attempts, last_finished_at, last_outcome, candidates, provider_errors

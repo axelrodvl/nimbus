@@ -10,6 +10,7 @@ import { Sidebar } from '@/components/sidebar';
 import { ScrollContainerProvider } from '@/components/ui/scroll-container';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
+import { useAcquisitionLiveSync } from '@/lib/acquisition/hooks';
 import { appData } from '@/lib/app-data';
 import { useT } from '@/lib/i18n/provider';
 import { visibleNavItems } from '@/lib/nav/items';
@@ -74,6 +75,7 @@ function Content() {
 
 /** Макет приложения: боковая панель (настольная), контент, место под плеер, нижняя панель вкладок (мобильная). */
 export function AppShell() {
+  useAcquisitionLiveSync();
   const items = visibleNavItems(registeredPaths);
   const scroller = useRef<HTMLElement>(null);
   // Элемент нужен виртуальным спискам как значение контекста (ref к моменту их эффектов ещё не заполнен).

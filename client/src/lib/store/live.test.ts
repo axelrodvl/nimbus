@@ -24,4 +24,12 @@ describe('live store', () => {
     live.getState().clear();
     expect(live.getState().streamProgress.size + live.getState().albumProgress.size).toBe(0);
   });
+
+  it('прогресс загрузки на сервер хранится по альбому и обновляется целиком', () => {
+    const live = createLiveStore();
+    live.getState().setDownloadProgress(2, { bytes_done: 1, bytes_total: 10, down_bps: 5, peers: 1 });
+    live.getState().setDownloadProgress(2, { bytes_done: 4, bytes_total: 10, down_bps: 6, peers: 2 });
+    expect(live.getState().downloadProgress.get(2)).toEqual({ bytes_done: 4, bytes_total: 10, down_bps: 6, peers: 2 });
+    expect(live.getState().downloadProgress.has(3)).toBe(false);
+  });
 });

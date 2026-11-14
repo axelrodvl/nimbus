@@ -1718,6 +1718,8 @@ export interface operations {
             query?: {
                 /** @description Фильтр по состояниям через запятую: searching, missing, partial, available, downloading, downloaded. */
                 state?: string;
+                /** @description Только эти альбомы: id через запятую (не больше 100). */
+                album_ids?: string;
                 /** @description Курсор из `next_cursor` предыдущей страницы. */
                 cursor?: string;
                 /** @description 1..200, по умолчанию 50. */
@@ -1738,7 +1740,7 @@ export interface operations {
                     "application/json": components["schemas"]["AcquisitionPage"];
                 };
             };
-            /** @description Неверный `state` (`invalid_state`) или курсор (`invalid_cursor`) */
+            /** @description Неверный `state` (`invalid_state`), `album_ids` (`invalid_album_ids`) или курсор (`invalid_cursor`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2400,16 +2402,16 @@ export interface operations {
     };
     list_jobs: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
+            query?: {
                 /** @description Фильтр по состоянию: `queued`, `running`, `done`, `failed`. */
-                state: string | null;
+                state?: string;
                 /** @description Фильтр по виду задачи. */
-                kind: string | null;
+                kind?: string;
                 /** @description Сколько вернуть (1–500, по умолчанию 50). */
-                limit: number | null;
+                limit?: number;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;

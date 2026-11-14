@@ -495,7 +495,7 @@ describe('мгновенные события', () => {
     expect(server.changesRequests).toBe(0);
   });
 
-  it('job.progress и stream.progress идут в эфемерный store; resync его очищает', async () => {
+  it('job.progress, stream.progress и download.progress идут в эфемерный store; resync его очищает', async () => {
     const server = new FakeSyncServer();
     const env = makeEnv(server);
     await sync(env);
@@ -510,9 +510,24 @@ describe('мгновенные события', () => {
     });
     expect(env.live.getState().albumProgress.get(3)).toEqual({ done: 1, stage: 'searching', total: 5 });
     expect(env.live.getState().streamProgress.get(9)).toMatchObject({ peers: 2 });
+    env.engine.handleEvent({
+      album_id: 4,
+      bytes_done: 7,
+      bytes_total: 70,
+      down_bps: 3,
+      peers: 1,
+      type: 'download.progress',
+    });
+    expect(env.live.getState().downloadProgress.get(4)).toEqual({
+      bytes_done: 7,
+      bytes_total: 70,
+      down_bps: 3,
+      peers: 1,
+    });
     env.engine.handleEvent({ type: 'resync' });
     expect(env.live.getState().albumProgress.size).toBe(0);
     expect(env.live.getState().streamProgress.size).toBe(0);
+    expect(env.live.getState().downloadProgress.size).toBe(0);
     await env.engine.settled();
   });
 });

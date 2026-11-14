@@ -1,5 +1,6 @@
 import { LogOut, Search } from 'lucide-react';
 import { AppNavLink } from '@/components/app-nav-link';
+import { DownloadsBadge } from '@/components/nav-badge';
 import { ConnectionIndicator } from '@/components/connection-indicator';
 import { useCommandPalette } from '@/components/search/command-palette';
 import { ShortcutHint } from '@/components/shortcut-hint';
@@ -44,9 +45,12 @@ export function Sidebar({ items }: { items: readonly NavItem[] }) {
           <ShortcutHint className="hidden font-mono text-xs lg:inline" />
         </button>
         <nav aria-label={t('nav.primary')} className="flex flex-col gap-1 text-sm font-medium">
-          {items.map(({ end, icon: Icon, label, to }) => (
+          {items.map(({ badge, end, icon: Icon, label, to }) => (
             <AppNavLink aria-label={t(label)} className={sidebarLink} end={end} key={to} to={to}>
-              <Icon className="size-5" />
+              <span className="relative">
+                <Icon className="size-5" />
+                {badge === 'downloads' ? <DownloadsBadge /> : null}
+              </span>
               <span className="hidden truncate lg:inline">{t(label)}</span>
             </AppNavLink>
           ))}

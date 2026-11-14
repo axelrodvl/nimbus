@@ -92,3 +92,24 @@ export async function setSettingsFaults(
 export async function mockSettings(request: APIRequestContext): Promise<Record<string, unknown>> {
   return (await request.get(`${MOCK}/__test/settings`)).json();
 }
+
+/**
+ * Библиотека для сценариев «Загрузки» (артист 920): 921 не найден, 922 найден частично, 923 и 924 найдены (не скачаны),
+ * 925 скачан, 926 ищется; два торрента движка и одна упавшая задача. `pinFail` — закрепление отвечает 500.
+ * Вызывать до открытия страницы.
+ */
+export async function seedAcquisition(request: APIRequestContext, opts: { pinFail?: boolean } = {}) {
+  await request.post(`${MOCK}/__test/acquisition`, { data: opts });
+}
+
+/** Имитация загрузки альбома на сервер: прогресс в байтах (`bytes_done >= bytes_total` — завершено). */
+export async function setProgress(request: APIRequestContext, albumId: number, bytesDone: number, bytesTotal?: number) {
+  await request.post(`${MOCK}/__test/progress`, {
+    data: { album_id: albumId, bytes_done: bytesDone, bytes_total: bytesTotal },
+  });
+}
+
+/** Завершает поиск альбома: `adding` → `found` или `not_found`. */
+export async function finishSearch(request: APIRequestContext, albumId: number, found: boolean) {
+  await request.post(`${MOCK}/__test/search-result`, { data: { album_id: albumId, found } });
+}

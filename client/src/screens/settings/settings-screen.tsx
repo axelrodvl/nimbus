@@ -3,6 +3,7 @@ import {
   ChevronRight,
   Cpu,
   Database,
+  Download,
   Globe,
   Info,
   Music,
@@ -41,6 +42,8 @@ type Section = {
   /** Нужны настройки сервера (недоступны без сети и пока не загрузились). */
   server: boolean;
   render: (settings: ServerSettings, readOnly: boolean) => ReactNode;
+  /** Пункт-ссылка на другой экран вместо раздела (`/settings/:id` для него не существует). */
+  href?: string;
 };
 
 /** Разделы настроек в порядке показа. Новый раздел — запись здесь (шаг 44 добавит «Загрузки», шаг 47 — «Офлайн»). */
@@ -87,6 +90,14 @@ export const SETTINGS_SECTIONS: readonly Section[] = [
     render: (s, ro) => <PerformanceSection readOnly={ro} settings={s} />,
     server: true,
   },
+  {
+    href: '/downloads',
+    icon: Download,
+    id: 'downloads-link',
+    label: 'settings.downloadsLink',
+    render: () => null,
+    server: false,
+  },
   { icon: Palette, id: 'appearance', label: 'settings.appearance', render: () => <AppearanceSection />, server: false },
   { icon: Info, id: 'about', label: 'settings.about', render: () => <AboutSection />, server: false },
 ];
@@ -114,9 +125,9 @@ export function SettingsScreen() {
   const offline = !online || socket === 'closed';
   const settings = useSettings();
 
-  const current = SETTINGS_SECTIONS.find(s => s.id === param);
+  const current = SETTINGS_SECTIONS.find(s => s.id === param && !s.href);
   if (param && !current) return <NotFound />;
-  const active = current ?? SETTINGS_SECTIONS[0];
+  const active = current ?? SETTINGS_SECTIONS.find(s => !s.href);
   if (!active) return null;
 
   let body: ReactNode;
@@ -163,7 +174,7 @@ export function SettingsScreen() {
                         : 'text-muted hover:text-black dark:hover:text-white',
                     )}
                     data-testid={`settings-link-${s.id}`}
-                    to={`/settings/${s.id}`}
+                    to={s.href ?? `/settings/${s.id}`}
                   >
                     <Icon aria-hidden className="size-5" />
                     <span className="flex-1">{t(s.label)}</span>

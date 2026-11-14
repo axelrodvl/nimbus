@@ -126,3 +126,6 @@ export function useLibraryCounts(): LibraryCounts {
 
 /** Прогресс поиска раздач по альбому (`job.progress`). */
 export const useAlbumProgress = (albumId: number) => useLive(s => s.albumProgress.get(albumId));
+
+/** Прогресс закрепленной загрузки альбома на сервер (`download.progress`). */
+export const useDownloadProgress = (albumId: number) => useLive(s => s.downloadProgress.get(albumId));

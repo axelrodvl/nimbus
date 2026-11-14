@@ -26,6 +26,14 @@ export type EngineEvent =
     }
   | { type: 'job.progress'; album_id: number; stage: 'searching' | 'verifying'; done: number; total: number }
   | {
+      type: 'download.progress';
+      album_id: number;
+      bytes_done: number;
+      bytes_total: number;
+      down_bps: number;
+      peers: number;
+    }
+  | {
       type: 'stream.progress';
       track_id: number;
       bytes_done: number;
@@ -354,6 +362,16 @@ export function createSyncEngine(deps: EngineDeps) {
       case 'job.progress': {
         const ev = e as Extract<EngineEvent, { type: 'job.progress' }>;
         live.getState().setAlbumProgress(ev.album_id, { done: ev.done, stage: ev.stage, total: ev.total });
+        break;
+      }
+      case 'download.progress': {
+        const ev = e as Extract<EngineEvent, { type: 'download.progress' }>;
+        live.getState().setDownloadProgress(ev.album_id, {
+          bytes_done: ev.bytes_done,
+          bytes_total: ev.bytes_total,
+          down_bps: ev.down_bps,
+          peers: ev.peers,
+        });
         break;
       }
       case 'stream.progress': {

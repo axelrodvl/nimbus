@@ -64,6 +64,7 @@ pub struct JobsResponse {
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct JobsQuery {
     /// Фильтр по состоянию: `queued`, `running`, `done`, `failed`.
     state: Option<String>,

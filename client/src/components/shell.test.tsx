@@ -148,10 +148,10 @@ describe('оболочка', () => {
     act(() => appData().library.getState().hydrate(makeLibrary()));
     expect(screen.queryByTestId('content-skeleton')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Nimbus' })).toBeInTheDocument();
-    // Пункты есть только у зарегистрированных маршрутов: «Поиск» — да, «Загрузки» (шаг 44) — ещё нет.
+    // Пункты есть у зарегистрированных маршрутов: «Поиск» и «Загрузки» (шаг 44).
     expect(screen.getAllByRole('link', { name: 'Главная' }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('link', { name: 'Поиск' }).length).toBeGreaterThan(0);
-    expect(screen.queryByRole('link', { name: 'Загрузки' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'Загрузки' }).length).toBeGreaterThan(0);
   });
 
   it('база пуста и снимок в пути → экран загрузки с прогрессом; после синхронизации — контент', () => {

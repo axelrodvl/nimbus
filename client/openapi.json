@@ -23,6 +23,15 @@
             }
           },
           {
+            "name": "album_ids",
+            "in": "query",
+            "description": "Только эти альбомы: id через запятую (не больше 100).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "cursor",
             "in": "query",
             "description": "Курсор из `next_cursor` предыдущей страницы.",
@@ -54,7 +63,7 @@
             }
           },
           "400": {
-            "description": "Неверный `state` (`invalid_state`) или курсор (`invalid_cursor`)",
+            "description": "Неверный `state` (`invalid_state`), `album_ids` (`invalid_album_ids`) или курсор (`invalid_cursor`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -862,38 +871,29 @@
         "parameters": [
           {
             "name": "state",
-            "in": "path",
+            "in": "query",
             "description": "Фильтр по состоянию: `queued`, `running`, `done`, `failed`.",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           },
           {
             "name": "kind",
-            "in": "path",
+            "in": "query",
             "description": "Фильтр по виду задачи.",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           },
           {
             "name": "limit",
-            "in": "path",
+            "in": "query",
             "description": "Сколько вернуть (1–500, по умолчанию 50).",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": "integer",
               "format": "int64"
             }
           }

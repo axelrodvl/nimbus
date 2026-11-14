@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import * as Ariakit from '@ariakit/react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -368,6 +369,13 @@ function StorageUsage() {
       <p className="text-muted text-xs">
         {t('settings.pinned', { files: data.pinned_files, size: formatSize(data.pinned_bytes, t) })}
       </p>
+      <Link
+        className="text-accent text-sm hover:underline"
+        data-testid="storage-downloaded-link"
+        to="/downloads/downloaded"
+      >
+        {t('settings.storageDownloaded')}
+      </Link>
       {data.over_limit ? (
         <p className="text-danger text-sm" role="alert">
           {t('settings.overLimit')}

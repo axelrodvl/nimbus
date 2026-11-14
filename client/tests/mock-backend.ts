@@ -9,6 +9,7 @@ import {
   makeTrack,
 } from '../src/test/factories';
 import searchFixture from './fixtures/search-radiohead.json';
+import { createAcquisitionMock } from './mock-acquisition';
 
 const PORT = Number(process.env.MOCK_BACKEND_PORT ?? 4011);
 const TOKEN = 'secret';
@@ -114,6 +115,7 @@ function reset(opts: { authRequired?: boolean; snapshotDelayMs?: number }) {
   state.settingsFault = null;
   state.providerTestOk = true;
   state.imports.clear();
+  acquisition.reset();
   state.failPlaylists = null;
   state.playlistDelayMs = 0;
   state.extraTorrents.clear();
@@ -725,6 +727,14 @@ async function settingsRoute(req: Request, path: string): Promise<Response | nul
   return null;
 }
 
+const acquisition = createAcquisitionMock({
+  broadcast: event => broadcast(event),
+  json,
+  now,
+  poke: () => poke(),
+  server: () => state.server,
+});
+
 const authed = (req: Request) => !state.authRequired || cookieOf(req) === TOKEN;
 const broadcast = (event: unknown) => clients.forEach(ws => ws.send(JSON.stringify(event)));
 
@@ -770,6 +780,12 @@ Bun.serve({
     if (/^\/api\/(albums\/\d+\/(torrents|retry)|tracks\/\d+\/(sources|source|retry)|torrents\/\d+\/files)/.test(path)) {
       if (!authed(req)) return json(401, { error: { code: 'unauthorized', message: 'login required' } });
       const handled = await sourcesRoute(req, path.split('/').filter(Boolean));
+      if (handled) return handled;
+    }
+
+    if (/^\/api\/(acquisition|downloads|jobs|albums\/\d+\/download)/.test(path)) {
+      if (!authed(req)) return json(401, { error: { code: 'unauthorized', message: 'login required' } });
+      const handled = await acquisition.route(req, path);
       if (handled) return handled;
     }
 
@@ -886,6 +902,10 @@ Bun.serve({
         return json(200, { ok: true });
       }
       return json(200, state.settings);
+    }
+    if (path === '/__test/acquisition' || path === '/__test/progress' || path === '/__test/search-result') {
+      const handled = await acquisition.testRoute(req, path);
+      if (handled) return handled;
     }
     if (path === '/__test/sources') {
       seedSourcesLibrary();
