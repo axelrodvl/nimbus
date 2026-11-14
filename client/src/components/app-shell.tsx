@@ -5,6 +5,7 @@ import { registeredPaths } from '@/app-routes';
 import { CommandPaletteProvider } from '@/components/search/command-palette';
 import { MobileTabBar } from '@/components/mobile-tab-bar';
 import { OfflineIndicator } from '@/components/offline-indicator';
+import { Player } from '@/components/player/player';
 import { Sidebar } from '@/components/sidebar';
 import { ScrollContainerProvider } from '@/components/ui/scroll-container';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -95,8 +96,9 @@ export function AppShell() {
               <Content />
             </ScrollContainerProvider>
           </main>
-          {/* Сюда плеер монтируется шагом 41. */}
-          <div data-slot="player" />
+          <div data-slot="player">
+            <Player />
+          </div>
           <MobileTabBar items={items} />
         </div>
         <OfflineIndicator />

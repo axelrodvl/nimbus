@@ -139,6 +139,26 @@ describe('списки библиотеки', () => {
     expect(selectors.artistAlbums(s(), 404)).toEqual([]);
   });
 
+  it('artistTracks: треки альбомов библиотеки артиста — альбомы по году, внутри по порядку; без альбомов вне библиотеки', () => {
+    const { s, selectors } = setup({
+      albums: [
+        makeAlbum({ artist_id: 1, id: 1, in_library: true, year: 2010 }),
+        makeAlbum({ artist_id: 1, id: 2, in_library: true, year: 2001 }),
+        makeAlbum({ artist_id: 1, id: 3, in_library: false, year: 1999 }),
+      ],
+      artists: [makeArtist({ id: 1 })],
+      tracks: [
+        makeTrack({ album_id: 1, artist_id: 1, id: 1, position: 2 }),
+        makeTrack({ album_id: 1, artist_id: 1, id: 2, position: 1 }),
+        makeTrack({ album_id: 2, artist_id: 1, id: 3, position: 1 }),
+        makeTrack({ album_id: 3, artist_id: 1, id: 4, in_library: false, position: 1 }),
+      ],
+    });
+    expect(selectors.artistTracks(s(), 1).map(t => t.id)).toEqual([3, 2, 1]);
+    expect(selectors.artistTracks(s(), 1)).toBe(selectors.artistTracks(s(), 1));
+    expect(selectors.artistTracks(s(), 404)).toEqual([]);
+  });
+
   it('albumTracks: по disc_no, затем position', () => {
     const { s, selectors } = setup({
       albums: [makeAlbum({ id: 1 })],

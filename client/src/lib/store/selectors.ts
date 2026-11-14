@@ -199,6 +199,13 @@ export function createSelectors() {
     ) as AlbumView[];
   }
 
+  /** Все треки альбомов артиста библиотеки: альбомы по году, внутри — по дискам и позициям. */
+  function artistTracks(s: LibraryState, artistId: number): TrackView[] {
+    return lists(`artistTracks:${artistId}`, [s.albums, s.tracks, s.artists, s.albumsByArtist.get(artistId)], () =>
+      artistAlbums(s, artistId, true).flatMap(a => albumTracks(s, a.id)),
+    ) as TrackView[];
+  }
+
   /** Все треки альбома по `disc_no`, `position`. */
   function albumTracks(s: LibraryState, albumId: number): TrackView[] {
     return lists(`albumTracks:${albumId}`, [s.tracks, s.albums, s.artists, s.tracksByAlbum.get(albumId)], () => {
@@ -302,6 +309,7 @@ export function createSelectors() {
     albumTracks,
     albumView,
     artistAlbums,
+    artistTracks,
     artistView,
     favorites,
     libraryAlbums,

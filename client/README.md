@@ -1,7 +1,7 @@
 # Nimbus client
 
 Одностраничное приложение (Vite + React 19 + TypeScript) на bun. Заменит `web/` (Next.js) на шаге 48;
-правила — `docs/DEVELOPMENT.md` §5–6. Сейчас — оболочка, локальные данные, экраны библиотеки и поиск (локальный сразу + MusicBrainz, добавление в библиотеку, командная палитра).
+правила — `docs/DEVELOPMENT.md` §5–6. Сейчас — оболочка, локальные данные, экраны библиотеки, поиск (локальный сразу + MusicBrainz, добавление в библиотеку, командная палитра) и плеер (панель, мини-плеер, полноэкранный режим, очередь).
 
 ## Команды
 
@@ -20,6 +20,7 @@ index.html               корень; инлайн-скрипт темы ста
 src/main.tsx app.tsx router.tsx
 src/styles/              tokens.css (@theme), base.css, animations.css, index.css
 src/components/ui/       примитивы (button, skeleton, spinner, empty/error-state, error-boundary, …)
+src/components/player/   плеер: панель, мини-плеер, полноэкранный режим, очередь, кнопки запуска (`play-buttons.tsx`)
 src/components/search/   поиск: результаты, кнопка добавления, командная палитра (⌘K, `/`)
 src/components/          оболочка: app-shell, sidebar, mobile-tab-bar, session-routes (защита маршрутов), индикаторы
 src/app-routes.tsx       маршруты внутри оболочки; пункты навигации появляются сами (src/lib/nav/items.ts)
@@ -34,10 +35,11 @@ src/lib/app-data.ts      сборка db + store + движок + сокет + �
 src/lib/auth/            сессия (unknown | anonymous | authenticated, кэш в localStorage), вход/выход/401
 src/lib/live/            WebSocket с переподключением (`socket.ts`), хуки `useLiveEvent`, `useConnectionState`
 src/lib/nav/             пункты навигации, `useTitle`, восстановление прокрутки
+src/lib/player/          плеер (не React): engine.ts (редьюсер, очередь), controller.ts (PlayerController), audio/ (контракт AudioEngine, web-engine на <audio>), media-session.ts, shortcuts.ts, hooks.ts (usePlayerState, useProgress)
 src/lib/search/          поиск: useRemoteSearch (TanStack Query), история запросов, добавление в библиотеку, элементы палитры
 src/lib/theme/           light | dark | system, localStorage['nimbus:theme']
 src/test/                setup, renderWithProviders, фабрики
-tests/e2e/               Playwright; tests/mock-backend.ts — мок бэкенда (bun): вход, синхронизация, WebSocket, служебные `/__test/{reset,emit,mutate,ws,log,search,…}`; `GET /api/search` отдаёт `tests/fixtures/search-radiohead.json`, `POST /api/library` создаёт сущности из неё
+tests/e2e/               Playwright; tests/mock-backend.ts — мок бэкенда (bun): вход, синхронизация, WebSocket, служебные `/__test/{reset,emit,mutate,ws,log,search,player,…}`; поток `GET /api/tracks/{id}/stream` отдаёт 5-секундный WAV (Range, `transcode` с `?t=`, управляемые ошибки), есть `played`, `prefetch`, `audio-info`, `GET /api/settings`; `GET /api/search` отдаёт `tests/fixtures/search-radiohead.json`, `POST /api/library` создаёт сущности из неё
 ```
 
 ## Соглашения

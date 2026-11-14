@@ -13,7 +13,7 @@ type Props = {
   album: AlbumView;
   /** Обложка над сгибом — грузится сразу. */
   priority?: boolean;
-  /** Слот под действия (кнопка воспроизведения — шаг 41): накладывается на правый нижний угол обложки. */
+  /** Слот под действия (кнопка воспроизведения): накладывается на правый нижний угол обложки. */
   actions?: React.ReactNode;
 };
 
@@ -39,7 +39,11 @@ export function AlbumCard({ album, priority, actions }: Props) {
           <StatusMiniBar counts={album.statusCounts} total={album.trackCount} />
         </div>
       </Link>
-      {actions ? <div className="absolute right-5 bottom-[7.5rem]">{actions}</div> : null}
+      {actions ? (
+        <div className="absolute right-5 bottom-[7.5rem] opacity-0 transition-opacity group-focus-within/card:opacity-100 group-hover/card:opacity-100 [@media(hover:none)]:opacity-100">
+          {actions}
+        </div>
+      ) : null}
     </div>
   );
 }

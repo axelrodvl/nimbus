@@ -16,23 +16,40 @@ type Props = {
   showAlbum?: boolean;
   /** Номер вместо обложки (страница альбома). */
   index?: number;
-  /** Слот перед названием (кнопка воспроизведения — шаг 41). */
+  /** Слот перед названием (кнопка воспроизведения). */
   leading?: React.ReactNode;
   /** Слот справа (меню трека, кнопки скачивания — шаги 42–47). */
   actions?: React.ReactNode;
+  /** Трек сейчас в плеере: строка подсвечена, название акцентным цветом. */
+  current?: boolean;
+  /** Трек нельзя воспроизвести сейчас: строка приглушена. */
+  unavailable?: boolean;
+  /** Действие по двойному клику и Enter на строке (запуск воспроизведения). */
+  onActivate?: () => void;
 };
 
 /** Строка трека. Все данные — пропсами; фиксированная высота — для виртуализации. */
-export function TrackRow({ track, progress, showAlbum = true, index, leading, actions }: Props) {
+export function TrackRow({ track, progress, showAlbum = true, index, leading, actions, current, unavailable, onActivate }: Props) {
   const t = useT();
   return (
     <div
       className={cn(
-        'hover:bg-card/60 dark:hover:bg-card-dark/60 flex h-[3.25rem] items-center gap-3 rounded-md px-3 transition-colors',
-        !track.in_library && 'opacity-55',
+        'focus-visible:ring-accent/40 flex h-[3.25rem] items-center gap-3 rounded-md px-3 transition-colors focus-visible:ring-2 focus-visible:outline-none',
+        current ? 'bg-card/40 dark:bg-card-dark/40' : 'hover:bg-card/60 dark:hover:bg-card-dark/60',
+        (!track.in_library || unavailable) && 'opacity-55',
       )}
+      data-current={current || undefined}
       data-testid="track-row"
       data-track-id={track.id}
+      onDoubleClick={onActivate}
+      onKeyDown={
+        onActivate
+          ? e => {
+              if (e.key === 'Enter' && e.target === e.currentTarget) onActivate();
+            }
+          : undefined
+      }
+      tabIndex={onActivate ? 0 : undefined}
     >
       {leading}
       {index !== undefined ? (
@@ -41,7 +58,7 @@ export function TrackRow({ track, progress, showAlbum = true, index, leading, ac
         <Cover alt={track.albumTitle} className="size-10" src={track.coverUrl} />
       )}
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-sm font-medium">{track.title}</span>
+        <span className={cn('truncate text-sm font-medium', current && 'text-accent')}>{track.title}</span>
         <span className="text-muted truncate text-xs">
           <Link className="hover:underline" to={`/artist/${track.artist_id}`}>
             {track.artistName}

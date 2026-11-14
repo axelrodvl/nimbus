@@ -38,13 +38,21 @@ export function useScrollRestoration(ref: RefObject<HTMLElement | null>): void {
     el.addEventListener('wheel', stop, { passive: true });
     el.addEventListener('touchstart', stop, { passive: true });
     const timer = setTimeout(stop, RESTORE_TIMEOUT_MS);
+    // Контент усох (экран сменился, список отфильтрован): браузер подрезает `scrollTop` по новой высоте. Это не
+    // прокрутка пользователя — её нельзя запоминать, иначе «назад» вернёт подрезанную позицию (гонка с очисткой эффекта).
+    let lastHeight = el.scrollHeight;
+    // Последнее событие scroll было подрезкой: до настоящей прокрутки позицию не обновляем.
+    let clamped = false;
+    const shrunk = () => el.scrollHeight < lastHeight - 1;
     const onScroll = () => {
-      if (!restoring) positions.current.set(key, el.scrollTop);
+      clamped = shrunk();
+      lastHeight = el.scrollHeight;
+      if (!restoring && !clamped) positions.current.set(key, el.scrollTop);
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     const memory = positions.current;
     return () => {
-      if (!restoring) memory.set(key, el.scrollTop);
+      if (!restoring && !clamped && !shrunk()) memory.set(key, el.scrollTop);
       clearTimeout(timer);
       observer?.disconnect();
       el.removeEventListener('scroll', onScroll);

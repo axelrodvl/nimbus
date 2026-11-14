@@ -53,3 +53,16 @@ export async function setSearch(
 ) {
   await request.post(`${MOCK}/__test/search`, { data: faults });
 }
+
+/**
+ * Добавляет на сервер альбомы для тестов плеера (артист 900): «Player Test» (альбом 903:
+ * Song One → Broken Format [503 ffmpeg_missing] → Song Two → Song Three [ready] → Not Yet [adding]) и
+ * «Transcode Test» (альбом 905, трек 9051 с перекодированием). `delayMs` — задержка потока по id трека.
+ * Вызывать до открытия страницы.
+ */
+export async function seedPlayer(
+  request: APIRequestContext,
+  opts: { delayMs?: Record<number, number>; prefetchNext?: boolean } = {},
+) {
+  await request.post(`${MOCK}/__test/player`, { data: opts });
+}

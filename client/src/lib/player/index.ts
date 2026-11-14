@@ -1,0 +1,72 @@
+import { loadPrefetchEnabled } from '@/lib/api/settings';
+import { prefetchTrack } from '@/lib/api/tracks';
+import { appData } from '@/lib/app-data';
+import { createAudioEngine } from './audio';
+import { PlayerController, type PlayerDeps } from './controller';
+import { probeStreamError } from './engine';
+import { notifyPlayerError } from './notify';
+import { resolveStreamUrl } from './stream';
+import { toPlayerTrack } from './track';
+
+export { canPlay, toPlayerTrack, type PlayerTrack } from './track';
+export { PlayerController } from './controller';
+
+/** Зависимости контроллера приложения: библиотека — из синглтона `appData()` (переживает его пересоздание). */
+export function appPlayerDeps(over: Partial<PlayerDeps> = {}): PlayerDeps {
+  // Настройка читается при первом обращении (не при создании контроллера); пока не загрузилась — включена.
+  let prefetch: boolean | null = null;
+  return {
+    engine: createAudioEngine(),
+    getTrack: id => {
+      const { library, selectors } = appData();
+      const view = selectors.trackView(library.getState(), id);
+      return view && toPlayerTrack(view);
+    },
+    libraryReady: () => appData().library.getState().hydrated,
+    notifyError: notifyPlayerError,
+    prefetchEnabled: () => {
+      if (prefetch === null) {
+        prefetch = true;
+        void loadPrefetchEnabled().then(v => (prefetch = v));
+      }
+      return prefetch;
+    },
+    prefetchTrack,
+    probe: src => probeStreamError(src.url, fetch, src.headers),
+    recordPlay: id => appData().mutations.recordPlay(id),
+    resolveStreamUrl,
+    storage: globalThis.localStorage,
+    subscribeLibrary: listener => appData().library.subscribe(listener),
+    ...over,
+  };
+}
+
+let instance: PlayerController | null = null;
+
+/** Контроллер плеера приложения (создаётся при первом обращении; один на всю жизнь вкладки). */
+export function player(): PlayerController {
+  instance ??= new PlayerController(appPlayerDeps());
+  return instance;
+}
+
+/**
+ * Останавливает звук и забывает контроллер (выход из аккаунта): следующий `player()` начнёт заново.
+ * `clear` стирает ещё и сохранённую очередь.
+ */
+export function resetPlayer(clear = false): void {
+  instance?.destroy();
+  instance = null;
+  if (clear) {
+    try {
+      localStorage.removeItem('nimbus:player');
+    } catch {
+      // Хранилище недоступно.
+    }
+  }
+}
+
+/** Подмена контроллера приложения (тесты компонентов: контроллер с фейковым движком). */
+export function installPlayer(controller: PlayerController): void {
+  instance?.destroy();
+  instance = controller;
+}

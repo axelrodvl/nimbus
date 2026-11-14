@@ -2,8 +2,8 @@ import { Search } from 'lucide-react';
 import { Link } from 'react-router';
 import { AlbumCard } from '@/components/library/album-card';
 import { ArtistCard } from '@/components/library/artist-card';
-import { TrackRowById } from '@/components/library/connected';
 import { PageLayout } from '@/components/page-layout';
+import { PlayAlbumButton, PlayableTrackRow, PlayTracksButton } from '@/components/player/play-buttons';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useT } from '@/lib/i18n/provider';
 import { SEARCH_ENTRY } from '@/lib/nav/items';
@@ -46,6 +46,7 @@ export function Home() {
 
   const recent = recentItems(albums, artists);
   const readyTracks = ready.slice(0, READY_TRACKS);
+  const readyIds = ready.map(tr => tr.id);
 
   if (recent.length === 0 && readyTracks.length === 0) {
     return (
@@ -74,7 +75,7 @@ export function Home() {
             <ul className={GRID}>
               {played.map((a, i) => (
                 <li key={a.id}>
-                  <AlbumCard album={a} priority={i < 4} />
+                  <AlbumCard actions={<PlayAlbumButton albumId={a.id} variant="icon" />} album={a} priority={i < 4} />
                 </li>
               ))}
             </ul>
@@ -88,23 +89,30 @@ export function Home() {
             <ul className={GRID}>
               {recent.map((r, i) => (
                 <li key={r.key}>
-                  {r.album ? <AlbumCard album={r.album} priority={i < 4} /> : r.artist ? <ArtistCard artist={r.artist} /> : null}
+                  {r.album ? (
+                    <AlbumCard
+                      actions={<PlayAlbumButton albumId={r.album.id} variant="icon" />}
+                      album={r.album}
+                      priority={i < 4}
+                    />
+                  ) : r.artist ? <ArtistCard artist={r.artist} /> : null}
                 </li>
               ))}
             </ul>
           </section>
         ) : null}
         <section aria-labelledby="home-ready" data-testid="home-ready">
-          <h2 className="mb-4" id="home-ready">
-            {t('home.ready')}
-          </h2>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 id="home-ready">{t('home.ready')}</h2>
+            {readyTracks.length > 0 ? <PlayTracksButton testId="play-ready" tracks={ready} /> : null}
+          </div>
           {readyTracks.length === 0 ? (
             <p className="text-muted text-sm">{t('home.readyEmpty')}</p>
           ) : (
             <ul className="flex flex-col gap-0.5">
               {readyTracks.map(tr => (
                 <li key={tr.id}>
-                  <TrackRowById id={tr.id} />
+                  <PlayableTrackRow id={tr.id} queueIds={readyIds} />
                 </li>
               ))}
             </ul>

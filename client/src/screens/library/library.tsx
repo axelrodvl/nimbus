@@ -3,7 +3,7 @@ import { useDeferredValue } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { AlbumCard, ALBUM_CARD_EXTRA } from '@/components/library/album-card';
 import { ARTIST_CARD_HEIGHT, ArtistCard } from '@/components/library/artist-card';
-import { TrackRowById } from '@/components/library/connected';
+import { PlayAlbumButton, PlayableTrackRow } from '@/components/player/play-buttons';
 import { TRACK_ROW_HEIGHT } from '@/components/library/track-row';
 import { PageLayout } from '@/components/page-layout';
 import { Button } from '@/components/ui/button';
@@ -53,7 +53,9 @@ function AlbumsList({ q, status }: { q: string; status: StatusFilterId }) {
       count={items.length}
       data-testid="library-albums"
       getKey={i => items[i]?.id ?? i}
-      renderCell={i => (items[i] ? <AlbumCard album={items[i]} priority={i < 4} /> : null)}
+      renderCell={i => (items[i] ? (
+          <AlbumCard actions={<PlayAlbumButton albumId={items[i].id} variant="icon" />} album={items[i]} priority={i < 4} />
+        ) : null)}
       rowHeight={w => w + ALBUM_CARD_EXTRA}
     />
   );
@@ -81,13 +83,14 @@ function TracksList({ q, status }: { q: string; status: StatusFilterId }) {
   const statuses = STATUS_FILTERS.find(s => s.id === status)?.statuses;
   const all = useLibraryList('tracks', statuses);
   const items = filterByName(all, useDeferredValue(q), tr => tr.title);
+  const queueIds = items.map(tr => tr.id);
   if (items.length === 0) return <Empty hasData={all.length > 0} status={status} />;
   return (
     <VirtualList
       count={items.length}
       data-testid="library-tracks"
       getKey={i => items[i]?.id ?? i}
-      renderRow={i => (items[i] ? <TrackRowById id={items[i].id} /> : null)}
+      renderRow={i => (items[i] ? <PlayableTrackRow id={items[i].id} queueIds={queueIds} /> : null)}
       rowHeight={TRACK_ROW_HEIGHT}
     />
   );

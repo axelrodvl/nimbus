@@ -112,6 +112,52 @@ describe('восстановление прокрутки', () => {
     expect(el.scrollTop).toBe(420);
   });
 
+  it('подрезка прокрутки при смене экрана (контент усох) не затирает запомненную позицию', async () => {
+    const { el } = setup();
+    let height = 5000;
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => height });
+    el.scrollTop = 420;
+    el.dispatchEvent(new Event('scroll'));
+    // Экран сменился: высота упала, браузер подрезал позицию и прислал scroll до очистки эффекта.
+    height = 300;
+    el.scrollTop = 0;
+    el.dispatchEvent(new Event('scroll'));
+    await act(async () => screen.getByText('to-b').click());
+    height = 5000;
+    await act(async () => screen.getByText('back').click());
+    expect(el.scrollTop).toBe(420);
+  });
+
+  it('усыхание контента без события scroll: при уходе позиция тоже не подрезается', async () => {
+    const { el } = setup();
+    let height = 5000;
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => height });
+    el.scrollTop = 420;
+    el.dispatchEvent(new Event('scroll'));
+    height = 300; // новая страница уже смонтирована, scroll ещё не пришёл
+    el.scrollTop = 0;
+    await act(async () => screen.getByText('to-b').click());
+    height = 5000;
+    await act(async () => screen.getByText('back').click());
+    expect(el.scrollTop).toBe(420);
+  });
+
+  it('настоящая прокрутка после усыхания контента снова запоминается', async () => {
+    const { el } = setup();
+    let height = 5000;
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => height });
+    el.scrollTop = 420;
+    el.dispatchEvent(new Event('scroll'));
+    height = 1000; // список отфильтрован
+    el.scrollTop = 200;
+    el.dispatchEvent(new Event('scroll'));
+    el.scrollTop = 350; // пользователь прокрутил короткий список
+    el.dispatchEvent(new Event('scroll'));
+    await act(async () => screen.getByText('to-b').click());
+    await act(async () => screen.getByText('back').click());
+    expect(el.scrollTop).toBe(350);
+  });
+
   it('пользователь начал скроллить — восстановление прекращается; по таймеру тоже', async () => {
     vi.useFakeTimers();
     try {

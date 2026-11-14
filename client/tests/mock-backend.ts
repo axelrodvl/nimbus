@@ -23,8 +23,45 @@ const state = {
   log: [] as string[],
   server: new FakeSyncServer().load(makeSmallLibrary()),
   snapshotDelayMs: 0,
+  streamDelayMs: new Map<number, number>(),
+  prefetchNext: true,
 };
 const clients = new Set<MockWebSocket>();
+
+// ---------------------------------------------------------------- звук: 5-секундный WAV (8 кГц, моно, 16 бит)
+const RATE = 8000;
+const SECONDS = 5;
+const WAV = (() => {
+  const samples = RATE * SECONDS;
+  const buf = Buffer.alloc(44 + samples * 2);
+  buf.write('RIFF', 0);
+  buf.writeUInt32LE(36 + samples * 2, 4);
+  buf.write('WAVEfmt ', 8);
+  buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20);
+  buf.writeUInt16LE(1, 22);
+  buf.writeUInt32LE(RATE, 24);
+  buf.writeUInt32LE(RATE * 2, 28);
+  buf.writeUInt16LE(2, 32);
+  buf.writeUInt16LE(16, 34);
+  buf.write('data', 36);
+  buf.writeUInt32LE(samples * 2, 40);
+  for (let i = 0; i < samples; i++) buf.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 440 * i) / RATE) * 8000), 44 + i * 2);
+  return buf;
+})();
+
+/** WAV с начала `startSec`: для перекодируемых треков поток без Range, перемотка идёт запросом `?t=`. */
+function wavFrom(startSec: number): Buffer {
+  const skip = Math.min(Math.floor(startSec * RATE), RATE * SECONDS) * 2;
+  const data = WAV.subarray(44 + skip);
+  const head = Buffer.from(WAV.subarray(0, 44));
+  head.writeUInt32LE(36 + data.length, 4);
+  head.writeUInt32LE(data.length, 40);
+  return Buffer.concat([head, data]);
+}
+
+/** Треки, поток которых отдаётся с ошибкой (как настоящий бэкенд): id → [HTTP-статус, код]. */
+const STREAM_ERRORS: Record<number, [number, string]> = { 9034: [503, 'ffmpeg_missing'] };
 
 function reset(opts: { authRequired?: boolean; snapshotDelayMs?: number }) {
   state.authRequired = opts.authRequired ?? false;
@@ -32,6 +69,8 @@ function reset(opts: { authRequired?: boolean; snapshotDelayMs?: number }) {
   state.blockWs = false;
   state.failDelete = false;
   state.faults = { ...NO_SEARCH_FAULTS };
+  state.streamDelayMs.clear();
+  state.prefetchNext = true;
   state.imports.clear();
   state.log = [];
   state.server = new FakeSyncServer().load(makeSmallLibrary());
@@ -149,13 +188,99 @@ function addToLibrary(body: AddBody): { status: number; body: unknown } | null {
   return { body: { id: track.id, status: 'added', type: 'track' }, status: 201 };
 }
 
+/** Обработчик `/api/tracks/{id}/{stream|played|prefetch|audio-info}`. */
+async function playbackRoute(req: Request, id: number, kind: string): Promise<Response> {
+  const track = state.server.get('track', id);
+  if (kind === 'played' && req.method === 'POST') {
+    if (!track) return json(404, { error: { code: 'not_found', message: 'track not found' } });
+    const play_count = Number(track.play_count ?? 0) + 1;
+    state.server.upsert('track', { ...track, last_played_at: now(), play_count });
+    return json(200, { play_count });
+  }
+  if (kind === 'prefetch' && req.method === 'POST') return json(202, { state: 'started' });
+  if (kind === 'audio-info' && req.method === 'GET') {
+    return json(200, {
+      bit_depth: 16,
+      bitrate_kbps: null,
+      channels: 'stereo',
+      codec: id === 9031 ? 'flac' : 'mp3',
+      ext: 'flac',
+      sample_rate: 44100,
+      transcoded: false,
+    });
+  }
+  if (kind !== 'stream' || (req.method !== 'GET' && req.method !== 'HEAD')) {
+    return json(404, { error: { code: 'not_found', message: `no mock for ${kind}` } });
+  }
+  const delay = state.streamDelayMs.get(id);
+  if (delay) await sleep(delay);
+  const failure = STREAM_ERRORS[id];
+  if (failure) return json(failure[0], { error: { code: failure[1], message: 'stream error' } });
+  if (!track || !['found', 'ready'].includes(String(track.status))) {
+    return json(409, { error: { code: 'track_not_playable', message: 'not playable' } });
+  }
+  const body = req.method === 'HEAD';
+  const base = { 'cache-control': 'no-store', 'content-type': 'audio/wav' };
+  if (track.playback === 'transcode') {
+    const start = Number(new URL(req.url).searchParams.get('t') ?? 0);
+    const data = wavFrom(start);
+    return new Response(body ? null : new Uint8Array(data), {
+      headers: { ...base, 'accept-ranges': 'none', 'content-length': String(data.length), 'x-nimbus-transcode': '1' },
+      status: 200,
+    });
+  }
+  const size = WAV.length;
+  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.get('range') ?? '');
+  let start = 0;
+  let end = size - 1;
+  if (range) {
+    if (range[1] === '') start = Math.max(0, size - Number(range[2]));
+    else {
+      start = Number(range[1]);
+      if (range[2] !== '') end = Math.min(end, Number(range[2]));
+    }
+  }
+  return new Response(body ? null : new Uint8Array(WAV.subarray(start, end + 1)), {
+    headers: {
+      ...base,
+      'accept-ranges': 'bytes',
+      'content-length': String(end - start + 1),
+      ...(range ? { 'content-range': `bytes ${start}-${end}/${size}` } : {}),
+    },
+    status: range ? 206 : 200,
+  });
+}
+
+/** Альбомы для тестов плеера (id 9xx — не пересекаются с `makeSmallLibrary`). */
+function seedPlayerLibrary() {
+  const artist = makeArtist({ added_at: now(), id: 900, name: 'Radiohead' });
+  state.server.upsert('artist', artist);
+  const album = (id: number, title: string) =>
+    state.server.upsert('album', makeAlbum({ added_at: now(), artist_id: artist.id, id, title, year: 2001 }));
+  album(903, 'Player Test');
+  album(905, 'Transcode Test');
+  const track = (id: number, albumId: number, position: number, title: string, over: Record<string, unknown> = {}) =>
+    state.server.upsert(
+      'track',
+      makeTrack({ added_at: now(), album_id: albumId, artist_id: artist.id, duration_ms: 5000, id, position, status: 'found', title, ...over }),
+    );
+  // Song One → Broken Format (503 ffmpeg_missing) → Song Two → Song Three (ready) → Not Yet (adding)
+  track(9031, 903, 1, 'Song One');
+  track(9034, 903, 2, 'Broken Format');
+  track(9032, 903, 3, 'Song Two');
+  track(9033, 903, 4, 'Song Three', { status: 'ready' });
+  track(9035, 903, 5, 'Not Yet', { status: 'adding' });
+  track(9051, 905, 1, 'Image Track', { playback: 'transcode' });
+}
+
 const authed = (req: Request) => !state.authRequired || cookieOf(req) === TOKEN;
 const broadcast = (event: unknown) => clients.forEach(ws => ws.send(JSON.stringify(event)));
 
 Bun.serve({
   async fetch(req, server) {
     const path = new URL(req.url).pathname;
-    if (!path.startsWith('/__test/')) state.log.push(`${req.method} ${path}`);
+    // В журнал потока попадает и запрос (`?t=` у перекодируемых треков).
+    if (!path.startsWith('/__test/')) state.log.push(`${req.method} ${path}${path.endsWith('/stream') ? new URL(req.url).search : ''}`);
 
     if (path === '/api/health') return json(200, { db: true, status: 'ok', version: 'mock' });
     if (path === '/api/auth/session') {
@@ -176,6 +301,16 @@ Bun.serve({
         headers: { 'set-cookie': `${COOKIE}=; Path=/; HttpOnly; Max-Age=0` },
         status: 204,
       });
+    }
+
+    // ---------------------------------------------------------------- воспроизведение
+    const trackRoute = /^\/api\/tracks\/(\d+)\/(stream|played|prefetch|audio-info)$/.exec(path);
+    if (trackRoute) {
+      if (!authed(req)) return json(401, { error: { code: 'unauthorized', message: 'login required' } });
+      return playbackRoute(req, Number(trackRoute[1]), trackRoute[2]);
+    }
+    if (path === '/api/settings') {
+      return json(200, { playback: { prefetch_next: state.prefetchNext, transcode_alac: false, transcode_lossy_codec: 'opus' } });
     }
 
     if (path === '/api/search') {
@@ -255,6 +390,13 @@ Bun.serve({
       const body = (await req.json()) as { id: number; status: ImportStatus | null };
       if (body.status) state.imports.set(body.id, body.status);
       else state.imports.delete(body.id);
+      return json(200, { ok: true });
+    }
+    if (path === '/__test/player') {
+      const body = (await req.json().catch(() => ({}))) as { delayMs?: Record<string, number>; prefetchNext?: boolean };
+      seedPlayerLibrary();
+      state.streamDelayMs = new Map(Object.entries(body.delayMs ?? {}).map(([id, ms]) => [Number(id), ms]));
+      state.prefetchNext = body.prefetchNext ?? true;
       return json(200, { ok: true });
     }
     if (path === '/__test/search') {

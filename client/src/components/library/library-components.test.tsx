@@ -149,5 +149,12 @@ describe('StatusMiniBar и AudioQuality', () => {
     expect(screen.getByTestId('audio-quality').firstElementChild).toHaveClass('opacity-0');
     rerender(<AudioQuality info={{ codec: 'flac', ext: 'flac', transcoded: false } as never} />);
     expect(screen.getByTestId('audio-quality')).toHaveTextContent('FLAC');
+    expect(screen.getByTestId('audio-quality').firstElementChild).toHaveClass('opacity-100');
+  });
+
+  it('AudioQuality: данные прежнего трека остаются в DOM, но гаснут', () => {
+    render(<AudioQuality info={{ codec: 'flac', ext: 'flac', transcoded: false } as never} stale />);
+    expect(screen.getByTestId('audio-quality')).toHaveTextContent('FLAC');
+    expect(screen.getByTestId('audio-quality').firstElementChild).toHaveClass('opacity-0');
   });
 });

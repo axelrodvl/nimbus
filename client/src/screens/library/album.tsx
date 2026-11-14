@@ -2,10 +2,10 @@ import { AlertTriangle } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 import { Cover } from '@/components/library/cover';
 import { AlbumProgress } from '@/components/library/album-progress';
-import { TrackRowById } from '@/components/library/connected';
 import { RemoveFromLibraryButton } from '@/components/library/remove-from-library-button';
 import { StatusMiniBar } from '@/components/library/status-mini-bar';
 import { PageLayout } from '@/components/page-layout';
+import { PlayAlbumButton, PlayableTrackRow } from '@/components/player/play-buttons';
 import { useT } from '@/lib/i18n/provider';
 import { albumMeta, statusSummary } from '@/lib/library/status';
 import { useAlbumProgress, useAlbumTracks, useAlbumView } from '@/lib/store/hooks';
@@ -25,6 +25,7 @@ export function AlbumScreen() {
   if (state === 'loading') return <AlbumSkeleton />;
   if (state === 'missing' || !album) return <ItemNotFound />;
 
+  const queueIds = tracks.map(tr => tr.id);
   const inLibraryCount = tracks.filter(tr => tr.in_library).length;
   const multiDisc = new Set(tracks.map(tr => tr.disc_no)).size > 1;
   return (
@@ -56,6 +57,7 @@ export function AlbumScreen() {
             <AlbumProgress progress={progress} />
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            <PlayAlbumButton albumId={album.id} />
             {tracks.some(tr => tr.in_library && tr.needs_confirmation) ? (
               <span className="text-warning inline-flex items-center gap-1 text-xs" data-testid="album-needs-confirmation">
                 <AlertTriangle aria-hidden className="size-4" /> {t('album.needsCheck')}
@@ -80,7 +82,7 @@ export function AlbumScreen() {
                 {t('album.disc', { n: tr.disc_no })}
               </p>
             ) : null}
-            <TrackRowById id={tr.id} index={tr.position} showAlbum={false} />
+            <PlayableTrackRow id={tr.id} index={tr.position} queueIds={queueIds} showAlbum={false} />
           </li>
         ))}
       </ol>

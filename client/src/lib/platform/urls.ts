@@ -36,3 +36,8 @@ export function liveSocketUrl(): string {
 export function artistImageUrl(mbid: string): string {
   return apiUrl(`/api/artist-image/${mbid}`);
 }
+
+/** Поток трека (`/api/tracks/{id}/stream`); `startSeconds` > 0 — смещение `?t=` для перекодируемых треков (без Range). */
+export function streamUrl(trackId: number, startSeconds = 0): string {
+  return apiUrl(`/api/tracks/${trackId}/stream${startSeconds > 0 ? `?t=${startSeconds.toFixed(3)}` : ''}`);
+}

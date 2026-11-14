@@ -12,7 +12,11 @@ export default defineConfig({
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
-        launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined },
+        // Автозапуск звука без жеста пользователя — как в старом конфиге.
+        launchOptions: {
+          args: ['--autoplay-policy=no-user-gesture-required'],
+          executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined,
+        },
         // Тесты написаны под русский интерфейс.
         locale: 'ru-RU',
       },

@@ -152,9 +152,20 @@ test.describe('большая библиотека', () => {
     await expect(page.getByTestId('library-tracks')).toBeVisible();
     await main.evaluate(el => el.scrollTo(0, 20_000));
     await expect.poll(() => main.evaluate(el => el.scrollTop)).toBeGreaterThan(19_990);
-    // Строка из середины окна: Playwright не должен прокручивать страницу ради клика.
+    // Строка, целиком видимая в окне прокрутки: Playwright не должен прокручивать страницу ради клика
+    // (в DOM есть и строки за краем окна — «запас» виртуализатора).
     const rows = page.getByTestId('library-tracks').getByTestId('track-row');
-    await rows.nth(Math.floor((await rows.count()) / 2)).getByRole('link').first().click();
+    const findVisible = () =>
+      rows.evaluateAll(list => {
+        const box = document.querySelector('main')!.getBoundingClientRect();
+        return list.findIndex(r => {
+          const b = r.getBoundingClientRect();
+          return b.top >= box.top + 8 && b.bottom <= box.bottom - 8;
+        });
+      });
+    // Виртуализатор дорисовывает строки после прокрутки.
+    await expect.poll(findVisible).toBeGreaterThanOrEqual(0);
+    await rows.nth(await findVisible()).getByRole('link').first().click();
     const before = 20_000;
     await expect(page).toHaveURL(/\/artist\/\d+$/);
     await page.goBack();

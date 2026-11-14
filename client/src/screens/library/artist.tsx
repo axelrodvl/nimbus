@@ -6,11 +6,12 @@ import { ArtistAvatar } from '@/components/library/artist-avatar';
 import { ArtistImportStatus } from '@/components/library/artist-import-status';
 import { RemoveFromLibraryButton } from '@/components/library/remove-from-library-button';
 import { PageLayout } from '@/components/page-layout';
+import { PlayAlbumButton, PlayTracksButton } from '@/components/player/play-buttons';
 import { ApiError } from '@/lib/api/errors';
 import { retryArtistImport } from '@/lib/api/library';
 import { useT } from '@/lib/i18n/provider';
 import { artistImportKey, shouldCheckImport, useArtistImport } from '@/lib/library/use-artist-import';
-import { useArtistAlbums, useArtistView } from '@/lib/store/hooks';
+import { useArtistAlbums, useArtistTracks, useArtistView } from '@/lib/store/hooks';
 import type { AlbumView } from '@/lib/store/selectors';
 import { ArtistSkeleton, AlbumGridSkeleton } from './skeletons';
 import { ItemNotFound, parseId, useEntityState } from './entity-gate';
@@ -41,6 +42,7 @@ export function ArtistScreen() {
   const id = parseId(useParams().id);
   const artist = useArtistView(id ?? -1);
   const albums = useArtistAlbums(id ?? -1);
+  const artistTracks = useArtistTracks(id ?? -1);
   const queryClient = useQueryClient();
   const state = useEntityState(artist !== undefined);
   const { data: importStatus } = useArtistImport(id ?? -1, artist !== undefined && shouldCheckImport(artist));
@@ -76,9 +78,12 @@ export function ArtistScreen() {
             })}
           </p>
           {importStatus ? <ArtistImportStatus onRetry={retry} status={importStatus} /> : null}
-          {artist.in_library ? (
-            <RemoveFromLibraryButton id={artist.id} redirectTo="/library/artists" title={artist.name} type="artist" />
-          ) : null}
+          <div className="flex flex-wrap items-center gap-3">
+            <PlayTracksButton testId="play-artist" tracks={artistTracks} />
+            {artist.in_library ? (
+              <RemoveFromLibraryButton id={artist.id} redirectTo="/library/artists" title={artist.name} type="artist" />
+            ) : null}
+          </div>
         </div>
       </header>
       {groups.length === 0 ? (
@@ -95,7 +100,7 @@ export function ArtistScreen() {
             <ul className={GRID}>
               {g.albums.map((a, i) => (
                 <li key={a.id}>
-                  <AlbumCard album={a} priority={gi === 0 && i < 4} />
+                  <AlbumCard actions={<PlayAlbumButton albumId={a.id} variant="icon" />} album={a} priority={gi === 0 && i < 4} />
                 </li>
               ))}
             </ul>
