@@ -57,7 +57,7 @@
    `seek-bar.tsx` (с отображением буфера — `toRanges`), `volume.tsx`, `transport.tsx`, `queue-panel.tsx`, `download-info.tsx` (`describeDownload` по `stream.progress`), `track-menu.tsx` (пока: «Перейти к альбому», «Перейти к артисту», «Убрать из очереди»; «В плейлист» добавит шаг 42).
    Монтируется в слот `data-slot="player"` оболочки. Анимации смены трека (`animate-track-next/prev`), `Marquee`, `Equalizer` — как сейчас.
 7. **Кнопки запуска в экранах шага 39.** В слоты `TrackRow`, `AlbumCard`, шапок альбома/артиста/главной: `PlayButton` (трек в контексте списка: очередь = список, старт с этого трека), `PlayAlbumButton`, двойной клик/Enter по строке трека,
-   индикатор текущего трека (`Equalizer`), недоступные треки приглушены и не запускаются (перенеси `track-interactions.tsx`).
+   индикатор текущего трека (`Equalizer`; после шага 39 строка — `TrackRow` из `src/components/library`, кнопка воспроизведения вставляется в слот `leading`, меню — в `actions`; у `AlbumCard` — слот `actions`; подписанная на трек обёртка — `TrackRowById`), недоступные треки приглушены и не запускаются (перенеси `track-interactions.tsx`).
    Очереди формируются теми же правилами, что сейчас (альбом — его доступные треки по порядку; «Готово к прослушиванию» — весь список).
 8. **События.** `stream.progress` → `live`-store → `download-info`. `track.status` для текущего/следующего трека: если текущий трек ждал источника и стал `found` — продолжить; если следующий стал недоступен — пропустить.
 9. **Мок и e2e.** Мок: поток (WAV-генератор и `wavFrom` из старого мока, Range, режим `transcode` с `?t=`, управляемые ошибки по списку треков), `HEAD` потока, `prefetch`, `played`. Запуск Chromium с `--autoplay-policy=no-user-gesture-required` (как в старом конфиге).

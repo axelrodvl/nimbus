@@ -1,6 +1,6 @@
 // Мок бэкенда для Playwright (запускается под bun). Состояние живёт в памяти процесса; тесты идут последовательно
 // и сбрасывают его через `POST /__test/reset`. Данные синхронизации отдаёт тот же `FakeSyncServer`, что и unit-тесты.
-import { FakeSyncServer, makeSmallLibrary } from '../src/test/factories';
+import { FakeSyncServer, makeBigLibrary, makeSmallLibrary } from '../src/test/factories';
 
 const PORT = Number(process.env.MOCK_BACKEND_PORT ?? 4011);
 const TOKEN = 'secret';
@@ -8,8 +8,12 @@ const COOKIE = 'nimbus_token';
 
 type Entity = Parameters<FakeSyncServer['upsert']>[0];
 
+type ImportStatus = { attempt: number; max_attempts: number; state: string; error?: string; retry_at?: string };
+
 const state = {
   authRequired: false,
+  failDelete: false,
+  imports: new Map<number, ImportStatus>(),
   blockWs: false,
   log: [] as string[],
   server: new FakeSyncServer().load(makeSmallLibrary()),
@@ -21,6 +25,8 @@ function reset(opts: { authRequired?: boolean; snapshotDelayMs?: number }) {
   state.authRequired = opts.authRequired ?? false;
   state.snapshotDelayMs = opts.snapshotDelayMs ?? 0;
   state.blockWs = false;
+  state.failDelete = false;
+  state.imports.clear();
   state.log = [];
   state.server = new FakeSyncServer().load(makeSmallLibrary());
   dropClients();
@@ -44,6 +50,20 @@ const cookieOf = (req: Request) =>
       .map(p => p.trim().split('=') as [string, string])
       .filter(([k]) => k),
   )[COOKIE];
+
+/** Как сервер: убирает из библиотеки сам объект и всё, что в нём лежит. */
+function removeFromLibrary(type: 'artist' | 'album', id: number) {
+  const off = (entity: Entity, row: { id: number } & Record<string, unknown>) =>
+    state.server.upsert(entity, { ...row, in_library: false });
+  const current = state.server.get(type, id);
+  if (current) off(type, current);
+  for (const album of state.server.all('album')) {
+    if (type === 'artist' ? album.artist_id === id : album.id === id) off('album', album);
+  }
+  for (const track of state.server.all('track')) {
+    if (type === 'artist' ? track.artist_id === id : track.album_id === id) off('track', track);
+  }
+}
 
 const authed = (req: Request) => !state.authRequired || cookieOf(req) === TOKEN;
 const broadcast = (event: unknown) => clients.forEach(ws => ws.send(JSON.stringify(event)));
@@ -74,6 +94,28 @@ Bun.serve({
       });
     }
 
+    if (path.startsWith('/api/artists/') || path.startsWith('/api/library/')) {
+      if (!authed(req)) return json(401, { error: { code: 'unauthorized', message: 'login required' } });
+      const parts = path.split('/').filter(Boolean); // api, artists|library, id|type, [id|import]
+      if (parts[1] === 'artists' && req.method === 'GET') {
+        const id = Number(parts[2]);
+        const row = state.server.get('artist', id);
+        if (!row) return json(404, { error: { code: 'not_found', message: 'no artist' } });
+        return json(200, { albums: [], artist: { ...row, album_count: 0, import: state.imports.get(id), track_count: 0 } });
+      }
+      if (parts[1] === 'artists' && parts[3] === 'import' && req.method === 'POST') {
+        state.imports.set(Number(parts[2]), { attempt: 1, max_attempts: 8, state: 'importing' });
+        broadcast({ entity: 'artist', id: Number(parts[2]), type: 'library.changed' });
+        return new Response(null, { status: 204 });
+      }
+      if (parts[1] === 'library' && req.method === 'DELETE') {
+        if (state.failDelete) return json(500, { error: { code: 'internal', message: 'delete failed' } });
+        removeFromLibrary(parts[2] as 'artist' | 'album', Number(parts[3]));
+        broadcast({ type: 'sync.poke' });
+        return new Response(null, { status: 204 });
+      }
+    }
+
     if (path === '/api/ws') {
       if (!authed(req) || state.blockWs) return json(401, { error: { code: 'unauthorized', message: 'no' } });
       return server.upgrade(req) ? undefined : json(400, { error: { code: 'bad_request', message: 'upgrade' } });
@@ -95,8 +137,40 @@ Bun.serve({
       broadcast(await req.json());
       return json(200, { clients: clients.size });
     }
+    if (path === '/__test/seed') {
+      const q = new URL(req.url).searchParams;
+      const rows = makeBigLibrary({
+        albums: Number(q.get('albums') ?? 8),
+        artists: Number(q.get('artists') ?? 3),
+        tracks: Number(q.get('tracks') ?? 80),
+      });
+      state.server = new FakeSyncServer().load(rows);
+      return json(200, { tracks: rows.tracks.length });
+    }
+    if (path === '/__test/import') {
+      const body = (await req.json()) as { id: number; status: ImportStatus | null };
+      if (body.status) state.imports.set(body.id, body.status);
+      else state.imports.delete(body.id);
+      return json(200, { ok: true });
+    }
+    if (path === '/__test/fail-delete') {
+      state.failDelete = ((await req.json()) as { fail: boolean }).fail;
+      return json(200, { ok: true });
+    }
     if (path === '/__test/mutate') {
-      const body = (await req.json()) as { entity: Entity; row?: { id: number }; remove?: number };
+      const body = (await req.json()) as {
+        entity: Entity;
+        id?: number;
+        patch?: Record<string, unknown>;
+        row?: { id: number };
+        remove?: number;
+        event?: unknown;
+      };
+      if (body.patch && body.id !== undefined) {
+        const current = state.server.get(body.entity, body.id);
+        if (current) state.server.upsert(body.entity, { ...current, ...body.patch });
+      }
+      if (body.event) broadcast(body.event);
       if (body.row) state.server.upsert(body.entity, body.row);
       if (body.remove !== undefined) state.server.remove(body.entity, body.remove);
       broadcast({ type: 'sync.poke' });

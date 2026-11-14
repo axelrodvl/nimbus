@@ -31,3 +31,8 @@ export function wsUrl(path: string): string {
 export function liveSocketUrl(): string {
   return wsUrl('/api/ws');
 }
+
+/** Фото артиста (`/api/artist-image/{mbid}`): бэкенд ищет его в Wikidata/Commons, затем в Deezer. */
+export function artistImageUrl(mbid: string): string {
+  return apiUrl(`/api/artist-image/${mbid}`);
+}

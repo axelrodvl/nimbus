@@ -20,3 +20,9 @@ export function hasRoute(paths: readonly string[], to: string): boolean {
 export function visibleNavItems(paths: readonly string[]): NavItem[] {
   return NAV_ITEMS.filter(item => hasRoute(paths, item.to));
 }
+
+/**
+ * Куда ведёт призыв «найти музыку» на пустых экранах. Экран поиска появится в шаге 40 — тогда здесь `/search`;
+ * до этого — библиотека.
+ */
+export const SEARCH_ENTRY = '/library';

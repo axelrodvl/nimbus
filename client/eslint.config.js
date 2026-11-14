@@ -35,6 +35,11 @@ export default defineConfig([
     },
   },
   {
+    // В тестах утверждение «значение есть» — часть проверки: падение теста точнее любой защитной ветки.
+    files: ['**/*.test.{ts,tsx}', 'src/test/**', 'tests/**'],
+    rules: { '@typescript-eslint/no-non-null-assertion': 'off' },
+  },
+  {
     files: ['src/screens/**/*.{ts,tsx}', 'src/components/**/*.{ts,tsx}'],
     ignores: ['src/**/*.test.*'],
     rules: {

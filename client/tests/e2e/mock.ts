@@ -30,3 +30,18 @@ export async function mutate(request: APIRequestContext, body: unknown) {
 export async function dropWs(request: APIRequestContext, block: boolean) {
   await request.post(`${MOCK}/__test/ws`, { data: { block } });
 }
+
+/** Заменяет данные мока большой библиотекой (скорость и виртуализация); клиентам нужна свежая загрузка страницы. */
+export async function seedMock(request: APIRequestContext, q: { artists: number; albums: number; tracks: number }) {
+  await request.post(`${MOCK}/__test/seed?artists=${q.artists}&albums=${q.albums}&tracks=${q.tracks}`);
+}
+
+/** Задаёт статус импорта артиста для `GET /api/artists/{id}` (`null` — импорта нет). */
+export async function setImport(request: APIRequestContext, id: number, status: Record<string, unknown> | null) {
+  await request.post(`${MOCK}/__test/import`, { data: { id, status } });
+}
+
+/** `DELETE /api/library/*` отвечает 500, пока включено. */
+export async function failDelete(request: APIRequestContext, fail: boolean) {
+  await request.post(`${MOCK}/__test/fail-delete`, { data: { fail } });
+}

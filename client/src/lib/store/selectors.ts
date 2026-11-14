@@ -293,3 +293,22 @@ export function createSelectors() {
 }
 
 export type Selectors = ReturnType<typeof createSelectors>;
+
+const normalized = new WeakMap<object, string>();
+
+/**
+ * Быстрый фильтр списка по подстроке названия (регистр, диакритика, «ё/е» не важны), порядок сохраняется.
+ * Нормализованные названия кэшируются по объекту строки — повторный ввод по 25 000 трекам не пересчитывает их.
+ */
+export function filterByName<V extends object>(items: readonly V[], query: string, name: (v: V) => string): readonly V[] {
+  const q = normalize(query.trim());
+  if (!q) return items;
+  return items.filter(v => {
+    let n = normalized.get(v);
+    if (n === undefined) {
+      n = normalize(name(v));
+      normalized.set(v, n);
+    }
+    return n.includes(q);
+  });
+}

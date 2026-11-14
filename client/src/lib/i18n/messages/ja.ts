@@ -18,6 +18,9 @@ const messages: Messages = {
   'artist.badge.importing': 'インポート中…',
   'artist.badge.retrying': 'MusicBrainz を待機中…',
   'artist.counts': 'ライブラリ内：{albums}、{tracks}',
+  'artist.group.ep': 'EP',
+  'artist.group.other': 'その他のリリース',
+  'artist.group.single': 'シングル',
   'artist.import.attempt': 'ディスコグラフィをインポート中…（{max} 回中 {attempt} 回目）',
   'artist.import.details': '詳細',
   'artist.import.failed':
@@ -115,6 +118,8 @@ const messages: Messages = {
   'library.empty.title': 'ライブラリは空です',
   'library.filter': 'ステータスで絞り込み',
   'library.noTracksStatus': 'このステータスの曲はありません',
+  'library.search.label': '名前で絞り込み',
+  'library.search.placeholder': '絞り込み…',
   'library.tabs': 'ライブラリのセクション',
   'load.more': 'もっと見る',
   'login.empty': 'トークンを入力してください',

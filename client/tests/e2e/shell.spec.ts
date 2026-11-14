@@ -20,9 +20,8 @@ test.describe('вход', () => {
 
     await page.getByLabel('Токен доступа').fill('secret');
     await page.getByRole('button', { name: 'Войти' }).click();
-    // Маршрута /library пока нет — страница «не найдено» внутри оболочки.
     await expect(page).toHaveURL(/\/library$/);
-    await expect(page.getByRole('heading', { name: 'Страница не найдена' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Библиотека' })).toBeVisible();
     await expect(page.getByTestId('sidebar')).toBeVisible();
 
     await page.reload();

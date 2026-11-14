@@ -18,6 +18,9 @@ const messages: Messages = {
   'artist.badge.importing': 'Importando…',
   'artist.badge.retrying': 'Aguardando o MusicBrainz…',
   'artist.counts': '{albums} · {tracks} na biblioteca',
+  'artist.group.ep': 'EPs',
+  'artist.group.other': 'Outros lançamentos',
+  'artist.group.single': 'Singles',
   'artist.import.attempt': 'Importando a discografia… (tentativa {attempt} de {max})',
   'artist.import.details': 'Detalhes',
   'artist.import.failed':
@@ -115,6 +118,8 @@ const messages: Messages = {
   'library.empty.title': 'A biblioteca está vazia',
   'library.filter': 'Filtrar por status',
   'library.noTracksStatus': 'Nenhuma faixa com este status',
+  'library.search.label': 'Filtrar por nome',
+  'library.search.placeholder': 'Filtrar…',
   'library.tabs': 'Seções da biblioteca',
   'load.more': 'Mostrar mais',
   'login.empty': 'Informe o token',

@@ -18,6 +18,9 @@ const messages: Messages = {
   'artist.badge.importing': '가져오는 중…',
   'artist.badge.retrying': 'MusicBrainz 대기 중…',
   'artist.counts': '라이브러리: {albums}, {tracks}',
+  'artist.group.ep': 'EP',
+  'artist.group.other': '기타 발매',
+  'artist.group.single': '싱글',
   'artist.import.attempt': '디스코그래피를 가져오는 중… ({max}회 중 {attempt}번째 시도)',
   'artist.import.details': '자세히',
   'artist.import.failed':
@@ -114,6 +117,8 @@ const messages: Messages = {
   'library.empty.title': '라이브러리가 비어 있습니다',
   'library.filter': '상태별 필터',
   'library.noTracksStatus': '이 상태의 곡이 없습니다',
+  'library.search.label': '이름으로 필터',
+  'library.search.placeholder': '필터…',
   'library.tabs': '라이브러리 섹션',
   'load.more': '더 보기',
   'login.empty': '토큰을 입력하세요',

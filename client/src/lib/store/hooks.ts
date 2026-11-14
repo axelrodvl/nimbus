@@ -1,6 +1,8 @@
+import { useMemo, useSyncExternalStore } from 'react';
 import { useStore } from 'zustand';
 import { appData } from '@/lib/app-data';
 import type { LibraryState } from './library';
+import { createThrottledSource } from './throttled';
 import type { LiveState } from './live';
 import type { AlbumView, ArtistView, PlaylistEntry, SearchResult, TrackStatus, TrackView } from './selectors';
 
@@ -42,3 +44,62 @@ export const useSearchLocal = (query: string, limit: number): SearchResult =>
 
 /** Эфемерные live-данные (прогресс поиска и буферизации). */
 export const useLive = <T>(select: (s: LiveState) => T): T => useStore(appData().live, select);
+
+const LIST_THROTTLE_MS = 250;
+
+const statusKeyOf = (statuses?: readonly TrackStatus[]) => (statuses?.length ? [...statuses].sort().join(',') : '');
+const statusesOf = (key: string) => (key ? (key.split(',') as TrackStatus[]) : undefined);
+
+type ListKind = 'albums' | 'artists' | 'tracks';
+type ListOf = { albums: AlbumView[]; artists: ArtistView[]; tracks: TrackView[] };
+
+/**
+ * Список библиотеки для длинных экранов: пересчитывается не чаще раза в 250 мс (серия событий статуса
+ * не пересчитывает 25 000 строк на каждое). Строки подписываются на свои треки сами (`useTrackView`).
+ */
+export function useLibraryList<K extends ListKind>(kind: K, statuses?: readonly TrackStatus[]): ListOf[K] {
+  const key = statusKeyOf(statuses);
+  const source = useMemo(
+    () =>
+      createThrottledSource(
+        appData().library,
+        s => {
+          const { selectors } = appData();
+          const st = statusesOf(key);
+          if (kind === 'albums') return selectors.libraryAlbums(s, st);
+          if (kind === 'artists') return selectors.libraryArtists(s, st);
+          return selectors.libraryTracks(s, st);
+        },
+        LIST_THROTTLE_MS,
+      ),
+    [kind, key],
+  );
+  return useSyncExternalStore(source.subscribe, source.getSnapshot) as ListOf[K];
+}
+
+export type LibraryCounts = { albums: number; artists: number; tracks: number };
+
+/** Размеры трёх списков библиотеки (счётчики во вкладках). */
+export function useLibraryCounts(): LibraryCounts {
+  const source = useMemo(
+    () =>
+      createThrottledSource(
+        appData().library,
+        (s): LibraryCounts => {
+          const { selectors } = appData();
+          return {
+            albums: selectors.libraryAlbums(s).length,
+            artists: selectors.libraryArtists(s).length,
+            tracks: selectors.libraryTracks(s).length,
+          };
+        },
+        LIST_THROTTLE_MS,
+        (a, b) => a.albums === b.albums && a.artists === b.artists && a.tracks === b.tracks,
+      ),
+    [],
+  );
+  return useSyncExternalStore(source.subscribe, source.getSnapshot);
+}
+
+/** Прогресс поиска раздач по альбому (`job.progress`). */
+export const useAlbumProgress = (albumId: number) => useLive(s => s.albumProgress.get(albumId));

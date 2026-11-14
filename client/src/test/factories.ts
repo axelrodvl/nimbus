@@ -170,6 +170,16 @@ export class FakeSyncServer {
     return `1.${this.epoch}.${this.txid}`;
   }
 
+  /** Текущая строка сущности (мок бэкенда меняет её и возвращает на место через `upsert`). */
+  get(entity: Entity, id: number): ({ id: number } & Record<string, unknown>) | undefined {
+    return this.rows.get(`${entity}:${id}`)?.row as ({ id: number } & Record<string, unknown>) | undefined;
+  }
+
+  /** Все текущие строки сущности. */
+  all(entity: Entity): ({ id: number } & Record<string, unknown>)[] {
+    return [...this.rows.values()].filter(r => r.entity === entity).map(r => r.row as { id: number } & Record<string, unknown>);
+  }
+
   count(entity: Entity): number {
     return [...this.rows.values()].filter(r => r.entity === entity).length;
   }
@@ -287,5 +297,37 @@ export function makeSmallLibrary(): LibraryRows {
     makePlaylistTrack({ id: 2, playlist_id: 1, track_id: 12 }),
     makePlaylistTrack({ id: 3, playlist_id: 2, track_id: 25 }),
   );
+  return rows;
+}
+
+/**
+ * Большая библиотека для проверки скорости и виртуализации: `albums` альбомов поровну между `artists` артистами,
+ * `tracks` треков поровну между альбомами. Статусы чередуются, `added_at` растёт с id.
+ */
+export function makeBigLibrary({ artists, albums, tracks }: { artists: number; albums: number; tracks: number }): LibraryRows {
+  resetFactories();
+  const rows: LibraryRows = { albums: [], artists: [], playlistTracks: [], playlists: [], tracks: [] };
+  const statuses = ['ready', 'found', 'adding', 'not_found'] as const;
+  for (let a = 1; a <= artists; a++) rows.artists.push(makeArtist({ added_at: iso(a), id: a, name: `Artist ${a}` }));
+  for (let al = 1; al <= albums; al++) {
+    rows.albums.push(
+      makeAlbum({ added_at: iso(al), artist_id: ((al - 1) % artists) + 1, id: al, title: `Album ${al}` }),
+    );
+  }
+  for (let t = 1; t <= tracks; t++) {
+    const albumId = ((t - 1) % albums) + 1;
+    const album = rows.albums[albumId - 1];
+    rows.tracks.push(
+      makeTrack({
+        added_at: iso(t),
+        album_id: albumId,
+        artist_id: album?.artist_id ?? 1,
+        id: t,
+        position: Math.floor((t - 1) / albums) + 1,
+        status: statuses[t % statuses.length],
+        title: `Track ${t}`,
+      }),
+    );
+  }
   return rows;
 }
