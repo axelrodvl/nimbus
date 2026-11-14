@@ -196,6 +196,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["session"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/debug/albums/{id}/torrents": {
         parameters: {
             query?: never;
@@ -604,6 +620,38 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get_storage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sync/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["changes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sync/snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["snapshot"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1088,11 +1136,35 @@ export interface components {
             /** @description Играет через перекодирование на лету (в браузер уходит FLAC). */
             transcoded: boolean;
         };
+        ChangesResponse: {
+            albums: components["schemas"]["SyncAlbum"][];
+            artists: components["schemas"]["SyncArtist"][];
+            /** @description Курсор для следующего запроса. При `reset` пуст. */
+            cursor: string;
+            /** @description Удалённые строки. Строка и её надгробие в одном ответе не встречаются. */
+            deleted: components["schemas"]["DeletedRef"][];
+            /** @description Изменений больше лимита ответа (5000 строк): запросите ещё с возвращённым `cursor`. */
+            more: boolean;
+            playlist_tracks: components["schemas"]["SyncPlaylistTrack"][];
+            playlists: components["schemas"]["SyncPlaylist"][];
+            /**
+             * @description Курсор не годится (неразборчив, другая база или версия формата, слишком старый): остальные
+             *     поля пусты, клиент обязан взять `GET /api/sync/snapshot` заново.
+             */
+            reset: boolean;
+            tracks: components["schemas"]["SyncTrack"][];
+        };
         CreatePlaylistRequest: {
             name: string;
         };
         DebugMetadataRequest: {
             magnet: string;
+        };
+        DeletedRef: {
+            /** @description `artist` | `album` | `track` | `playlist` | `playlist_track`. */
+            entity: string;
+            /** Format: int64 */
+            id: number;
         };
         DownloadDto: {
             /** Format: int64 */
@@ -1389,6 +1461,12 @@ export interface components {
             query: string;
             tracks: components["schemas"]["TrackResult"][];
         };
+        SessionInfo: {
+            /** @description Включена ли авторизация (задан `NIMBUS_API_TOKEN`). */
+            auth_required: boolean;
+            /** @description Запрос авторизован: авторизация выключена или предъявлен верный токен (cookie / Bearer). */
+            authenticated: boolean;
+        };
         SetSourceRequest: {
             /** Format: int32 */
             file_index?: number | null;
@@ -1437,6 +1515,87 @@ export interface components {
             torrents_active: number;
             /** Format: int64 */
             used_bytes: number;
+        };
+        SyncAlbum: {
+            /** Format: date-time */
+            added_at?: string | null;
+            /** Format: int64 */
+            artist_id: number;
+            cover_url?: string | null;
+            /** Format: int64 */
+            id: number;
+            in_library: boolean;
+            /**
+             * Format: uuid
+             * @description MBID release group.
+             */
+            mbid: string;
+            primary_type?: string | null;
+            secondary_types: string[];
+            title: string;
+            /** Format: int32 */
+            year?: number | null;
+        };
+        SyncArtist: {
+            /** Format: date-time */
+            added_at?: string | null;
+            disambiguation?: string | null;
+            /** Format: int64 */
+            id: number;
+            in_library: boolean;
+            /** Format: uuid */
+            mbid: string;
+            name: string;
+            sort_name?: string | null;
+        };
+        SyncPlaylist: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            id: number;
+            /** Format: date-time */
+            last_used_at: string;
+            name: string;
+        };
+        SyncPlaylistTrack: {
+            /** Format: date-time */
+            added_at: string;
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            playlist_id: number;
+            /** Format: int64 */
+            track_id: number;
+        };
+        SyncTrack: {
+            /** Format: date-time */
+            added_at?: string | null;
+            /** Format: int64 */
+            album_id: number;
+            /** Format: int64 */
+            artist_id: number;
+            /** Format: int32 */
+            disc_no: number;
+            /** Format: int32 */
+            duration_ms?: number | null;
+            /** Format: int64 */
+            id: number;
+            in_library: boolean;
+            /** Format: date-time */
+            last_played_at?: string | null;
+            /** Format: uuid */
+            mbid_recording: string;
+            /** @description Primary-источник сомнительный: его стоит проверить или подтвердить. */
+            needs_confirmation: boolean;
+            /** Format: int32 */
+            play_count: number;
+            /** @description Как играть: `direct` или `transcode`. */
+            playback: components["schemas"]["PlaybackMode"];
+            /** Format: int32 */
+            position: number;
+            status: components["schemas"]["TrackStatus"];
+            status_reason?: string | null;
+            title: string;
         };
         TorrentDto: {
             /** Format: int64 */
@@ -1977,6 +2136,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Нужен ли вход и выполнен ли он. Публичный эндпоинт: по нему SPA решает, показывать ли экран входа */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionInfo"];
+                };
             };
         };
     };
@@ -2898,6 +3077,67 @@ export interface operations {
             };
         };
     };
+    changes: {
+        parameters: {
+            query?: {
+                /** @description Курсор из предыдущего ответа (`begin` снимка или `cursor` дельты). Непрозрачная строка. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Изменения после курсора (не больше 5000 строк с надгробиями, по возрастанию `(sync_txid, сущность, id)`). Может повторять уже известные строки — клиент делает upsert, но изменений не теряет. Ответ сжимается (gzip, br). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangesResponse"];
+                };
+            };
+            /** @description Параметр `cursor` не указан (`invalid_cursor`) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Нужен токен */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    snapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Весь синхронизируемый набор данных, по JSON-объекту в строке: `{"type":"begin","cursor":"…","schema":1}`, затем строки `artist`, `album`, `track`, `playlist`, `playlist_track` (`{"type":…,"row":{…}}`, именно в этом порядке сущностей), в конце `{"type":"end","counts":{…}}`. Снимок принят, только если получена строка `end`; обрыв без неё — ошибка. Ответ сжимается (gzip, br). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-ndjson": string;
+                };
+            };
+        };
+    };
     torrent_files: {
         parameters: {
             query?: never;
@@ -3394,7 +3634,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description WebSocket: события `track.status`, `job.progress`, `stream.progress`, `library.changed`, `resync` */
+            /** @description WebSocket: события `track.status`, `job.progress`, `stream.progress`, `library.changed`, `acquisition.changed`, `download.progress`, `sync.poke`, `resync` */
             101: {
                 headers: {
                     [name: string]: unknown;

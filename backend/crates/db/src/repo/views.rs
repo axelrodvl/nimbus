@@ -103,21 +103,44 @@ const ALBUM_SELECT: &str = "
 
 const ALBUM_GROUP: &str = " GROUP BY al.id, ar.name";
 
-const TRACK_SELECT: &str = "
-    SELECT t.id, t.mbid_recording, t.title, t.album_id, al.title AS album_title, t.artist_id,
-           ar.name AS artist_name, t.disc_no, t.position, t.duration_ms, al.cover_url,
-           t.status, t.status_reason, t.in_library, t.added_at,
-           EXISTS (SELECT 1 FROM track_sources ts
-                    WHERE ts.track_id = t.id AND ts.is_primary AND ts.needs_confirmation) AS needs_confirmation,
-           COALESCE((SELECT ts.cue_start_ms IS NOT NULL
+macro_rules! needs_confirmation_sql {
+    () => {
+        "EXISTS (SELECT 1 FROM track_sources ts
+                    WHERE ts.track_id = t.id AND ts.is_primary AND ts.needs_confirmation)"
+    };
+}
+
+macro_rules! transcode_sql {
+    () => {
+        "COALESCE((SELECT ts.cue_start_ms IS NOT NULL
                             OR lower(COALESCE(f.ext, '')) NOT IN ('flac','mp3','m4a','aac','alac','ogg','opus','wav')
                        FROM track_sources ts
                        JOIN torrent_files f ON f.torrent_id = ts.torrent_id AND f.file_index = ts.file_index
-                      WHERE ts.track_id = t.id AND ts.is_primary), FALSE) AS transcode,
+                      WHERE ts.track_id = t.id AND ts.is_primary), FALSE)"
+    };
+}
+
+// Выражения `needs_confirmation` (primary-источник требует подтверждения) и `transcode`
+// (primary нужно перекодировать: CUE или формат, который не играет браузер) для трека `t`.
+// Общие для `TrackView` и синхронизации (`repo::sync`) — формулы не должны разойтись.
+pub(crate) use {needs_confirmation_sql, transcode_sql};
+
+const TRACK_SELECT: &str = concat!(
+    "
+    SELECT t.id, t.mbid_recording, t.title, t.album_id, al.title AS album_title, t.artist_id,
+           ar.name AS artist_name, t.disc_no, t.position, t.duration_ms, al.cover_url,
+           t.status, t.status_reason, t.in_library, t.added_at,
+           ",
+    needs_confirmation_sql!(),
+    " AS needs_confirmation,
+           ",
+    transcode_sql!(),
+    " AS transcode,
            COALESCE((SELECT tp.play_count FROM track_plays tp WHERE tp.track_id = t.id), 0) AS play_count
     FROM tracks t
     JOIN albums al ON al.id = t.album_id
-    JOIN artists ar ON ar.id = t.artist_id";
+    JOIN artists ar ON ar.id = t.artist_id"
+);
 
 fn split(cursor: Option<Cursor>) -> (Option<DateTime<Utc>>, Option<i64>) {
     (cursor.map(|c| c.0), cursor.map(|c| c.1))

@@ -25,10 +25,11 @@ WebSocket «есть изменения» и эндпоинт, по которо
 - Дельта от курсора `C` — все строки с `sync_txid >= C`. Транзакция, не видимая предыдущему ответу, имела номер `>= C`, значит попадёт в следующий. Дельта может прислать уже известные строки (клиент делает upsert — это безопасно), но **никогда не пропускает** изменения.
 - Удаления — таблица надгробий `sync_tombstones`, заполняется триггерами `AFTER DELETE`.
 - Курсор для клиента — непрозрачная строка `"<schema>.<epoch>.<xmin>"`. `schema` — версия формата (константа `SYNC_SCHEMA = 1`), `epoch` — случайный идентификатор базы (создаётся миграцией). Несовпадение `schema`/`epoch` или слишком старый `xmin` → сервер отвечает `reset: true`, клиент заново берёт снимок.
+- **Уточнение при реализации.** Постраничная выдача (п. 5) продолжается курсором `<schema>.<epoch>.<xmin>.<txid>.<rank>.<id>`: «`cursor` = `sync_txid` последней строки» не продвигался бы, когда >5000 строк записала одна транзакция (массовый импорт). `xmin` в таком курсоре — снимок первой страницы серии, он же итоговый курсор. Для клиента курсор по-прежнему непрозрачная строка. Режим `playback` трека не зависит от `settings.playback` (проверено в `views.rs`: только CUE и расширение primary-файла), поэтому п. 8 не потребовал кода.
 
 ## Что сделать
 
-1. **Миграция** (следующий свободный номер, ожидается `0011_sync.sql`):
+1. **Миграция** (следующий свободный номер, фактически `0012_sync.sql` (`0011` занят закреплениями шага 33)):
    - `ALTER TABLE … ADD COLUMN sync_txid BIGINT NOT NULL DEFAULT 0` для `artists`, `albums`, `tracks`, `playlists`, `playlist_tracks`; индекс по `sync_txid` на каждой;
    - функция-триггер `sync_stamp()` (`BEFORE INSERT OR UPDATE … FOR EACH ROW`: `NEW.sync_txid := txid_current()`) на этих пяти таблицах;
    - `CREATE TABLE sync_tombstones (entity TEXT NOT NULL, entity_id BIGINT NOT NULL, sync_txid BIGINT NOT NULL, deleted_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (entity, entity_id))` + индекс по `sync_txid`; триггеры `AFTER DELETE` (`entity` = `artist|album|track|playlist|playlist_track`, `ON CONFLICT … DO UPDATE`);

@@ -19,6 +19,7 @@ pub mod settings;
 pub mod sources;
 pub mod state;
 pub mod stream;
+pub mod sync;
 pub mod transcode;
 pub mod ws;
 

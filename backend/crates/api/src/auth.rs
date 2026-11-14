@@ -101,7 +101,12 @@ pub fn authorize_with_query(
 fn is_public(path: &str) -> bool {
     matches!(
         path,
-        "/api/health" | "/api/openapi.json" | "/api/auth/login" | "/api/auth/logout" | "/api/ws"
+        "/api/health"
+            | "/api/openapi.json"
+            | "/api/auth/login"
+            | "/api/auth/logout"
+            | "/api/auth/session"
+            | "/api/ws"
     ) || path.starts_with("/api/internal/raw/")
 }
 
@@ -162,6 +167,27 @@ pub async fn login(
     }
     let cookie = set_cookie(&hex_encode(expected), COOKIE_MAX_AGE, &headers);
     Ok((StatusCode::NO_CONTENT, [(header::SET_COOKIE, cookie)]).into_response())
+}
+
+#[derive(Debug, serde::Serialize, ToSchema)]
+pub struct SessionInfo {
+    /// Включена ли авторизация (задан `NIMBUS_API_TOKEN`).
+    pub auth_required: bool,
+    /// Запрос авторизован: авторизация выключена или предъявлен верный токен (cookie / Bearer).
+    pub authenticated: bool,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/auth/session",
+    tag = "system",
+    responses((status = 200, description = "Нужен ли вход и выполнен ли он. Публичный эндпоинт: по нему SPA решает, показывать ли экран входа", body = SessionInfo))
+)]
+pub async fn session(State(state): State<AppState>, headers: HeaderMap) -> Json<SessionInfo> {
+    Json(SessionInfo {
+        auth_required: state.config.api_token.is_some(),
+        authenticated: authorize(&state, &headers).is_ok(),
+    })
 }
 
 #[utoipa::path(

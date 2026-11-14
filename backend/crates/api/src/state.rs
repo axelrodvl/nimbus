@@ -1,3 +1,4 @@
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -40,6 +41,8 @@ pub struct AppState {
     pub search_timeout: Duration,
     /// Связь менеджера загрузок с API: будильник и живая статистика (скорость, пиры) по альбомам.
     pub downloads: crate::download_manager::DownloadHub,
+    /// Сколько задач-источников снимков синхронизации сейчас живо (`GET /api/sync/snapshot`).
+    pub sync_tasks: Arc<AtomicUsize>,
 }
 
 /// Включена ли автозагрузка в текущих настройках.
@@ -69,6 +72,7 @@ impl AppState {
         Self {
             boot_performance: settings.get().performance.clone(),
             downloads: crate::download_manager::DownloadHub::default(),
+            sync_tasks: Arc::new(AtomicUsize::new(0)),
             settings,
             providers: Arc::new(nimbus_trackers::ProviderRegistry::new(vec![])),
             activity: nimbus_core::activity::Activity::default(),

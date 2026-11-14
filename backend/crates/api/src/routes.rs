@@ -118,6 +118,8 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
             post(crate::downloads::resume_download),
         )
         .route("/tracks/{id}/prefetch", post(crate::stream::prefetch_track))
+        .nest("/sync", crate::sync::routes())
+        .route("/auth/session", get(crate::auth::session))
         .route("/auth/login", post(crate::auth::login))
         .route("/auth/logout", post(crate::auth::logout))
         .route("/ws", get(ws_handler));
@@ -226,7 +228,7 @@ async fn openapi_json() -> Json<utoipa::openapi::OpenApi> {
     get,
     path = "/api/ws",
     tag = "system",
-    responses((status = 101, description = "WebSocket: события `track.status`, `job.progress`, `stream.progress`, `library.changed`, `resync`"))
+    responses((status = 101, description = "WebSocket: события `track.status`, `job.progress`, `stream.progress`, `library.changed`, `acquisition.changed`, `download.progress`, `sync.poke`, `resync`"))
 )]
 pub fn ws_doc() {}
 

@@ -362,6 +362,36 @@ async fn without_heartbeat_a_lost_job_is_requeued(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn maintenance_purges_old_sync_tombstones_and_keeps_fresh_ones(pool: PgPool) {
+    sqlx::query("INSERT INTO sync_tombstones (entity, entity_id, sync_txid, deleted_at) VALUES ('track', 1, 5, now() - interval '40 days'), ('track', 2, 6, now())")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let probe = Probe::new(Behavior::Ok);
+    let w = spawn_probe(&pool, &probe, fast_cfg());
+    nimbus_testkit::eventually(Duration::from_secs(5), || async {
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM sync_tombstones")
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+            == 1
+    })
+    .await;
+    let left: i64 = sqlx::query_scalar("SELECT entity_id FROM sync_tombstones")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(left, 2);
+    let floor: i64 =
+        sqlx::query_scalar("SELECT (value->>'floor')::bigint FROM settings WHERE key = 'sync'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(floor, 6);
+    w.shutdown().await;
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn shutdown_cancels_handler_and_requeues_without_spending_attempt(pool: PgPool) {
     let probe = Probe::new(Behavior::CancelAware);
     let w = spawn_probe(&pool, &probe, fast_cfg());

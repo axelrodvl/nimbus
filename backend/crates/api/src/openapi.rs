@@ -16,6 +16,9 @@ use crate::{library, routes, search, sources};
         routes::ws_doc,
         crate::auth::login,
         crate::auth::logout,
+        crate::auth::session,
+        crate::sync::snapshot,
+        crate::sync::changes,
         search::search,
         library::add_to_library,
         library::remove_from_library,
@@ -72,6 +75,14 @@ use crate::{library, routes, search, sources};
         routes::JobsHealth,
         routes::ProviderHealthDto,
         crate::auth::LoginRequest,
+        crate::auth::SessionInfo,
+        crate::sync::SyncArtist,
+        crate::sync::SyncAlbum,
+        crate::sync::SyncTrack,
+        crate::sync::SyncPlaylist,
+        crate::sync::SyncPlaylistTrack,
+        crate::sync::DeletedRef,
+        crate::sync::ChangesResponse,
         routes::DebugMetadataRequest,
         crate::error::ErrorResponse,
         crate::error::ErrorBody,
@@ -155,6 +166,7 @@ use crate::{library, routes, search, sources};
         (name = "downloads", description = "Менеджер загрузок: торренты движка, пауза и запуск"),
         (name = "playlists", description = "Плейлисты, динамический Favorites и счётчик прослушиваний"),
         (name = "library", description = "Библиотека: добавление, списки, страницы артиста и альбома"),
+        (name = "sync", description = "Синхронизация клиента: снимок, дельта по курсору"),
     )
 )]
 pub struct ApiDoc;

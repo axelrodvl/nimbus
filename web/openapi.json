@@ -554,6 +554,26 @@
         }
       }
     },
+    "/api/auth/session": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "session",
+        "responses": {
+          "200": {
+            "description": "Нужен ли вход и выполнен ли он. Публичный эндпоинт: по нему SPA решает, показывать ли экран входа",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/debug/albums/{id}/torrents": {
       "get": {
         "tags": [
@@ -1762,6 +1782,77 @@
         }
       }
     },
+    "/api/sync/changes": {
+      "get": {
+        "tags": [
+          "sync"
+        ],
+        "operationId": "changes",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Курсор из предыдущего ответа (`begin` снимка или `cursor` дельты). Непрозрачная строка.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Изменения после курсора (не больше 5000 строк с надгробиями, по возрастанию `(sync_txid, сущность, id)`). Может повторять уже известные строки — клиент делает upsert, но изменений не теряет. Ответ сжимается (gzip, br).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Параметр `cursor` не указан (`invalid_cursor`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Нужен токен",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sync/snapshot": {
+      "get": {
+        "tags": [
+          "sync"
+        ],
+        "operationId": "snapshot",
+        "responses": {
+          "200": {
+            "description": "Весь синхронизируемый набор данных, по JSON-объекту в строке: `{\"type\":\"begin\",\"cursor\":\"…\",\"schema\":1}`, затем строки `artist`, `album`, `track`, `playlist`, `playlist_track` (`{\"type\":…,\"row\":{…}}`, именно в этом порядке сущностей), в конце `{\"type\":\"end\",\"counts\":{…}}`. Снимок принят, только если получена строка `end`; обрыв без неё — ошибка. Ответ сжимается (gzip, br).",
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/torrents/{id}/files": {
       "get": {
         "tags": [
@@ -2411,7 +2502,7 @@
         "operationId": "ws_doc",
         "responses": {
           "101": {
-            "description": "WebSocket: события `track.status`, `job.progress`, `stream.progress`, `library.changed`, `resync`"
+            "description": "WebSocket: события `track.status`, `job.progress`, `stream.progress`, `library.changed`, `acquisition.changed`, `download.progress`, `sync.poke`, `resync`"
           }
         }
       }
@@ -3236,6 +3327,71 @@
           }
         }
       },
+      "ChangesResponse": {
+        "type": "object",
+        "required": [
+          "cursor",
+          "reset",
+          "artists",
+          "albums",
+          "tracks",
+          "playlists",
+          "playlist_tracks",
+          "deleted",
+          "more"
+        ],
+        "properties": {
+          "albums": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SyncAlbum"
+            }
+          },
+          "artists": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SyncArtist"
+            }
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Курсор для следующего запроса. При `reset` пуст."
+          },
+          "deleted": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeletedRef"
+            },
+            "description": "Удалённые строки. Строка и её надгробие в одном ответе не встречаются."
+          },
+          "more": {
+            "type": "boolean",
+            "description": "Изменений больше лимита ответа (5000 строк): запросите ещё с возвращённым `cursor`."
+          },
+          "playlist_tracks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SyncPlaylistTrack"
+            }
+          },
+          "playlists": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SyncPlaylist"
+            }
+          },
+          "reset": {
+            "type": "boolean",
+            "description": "Курсор не годится (неразборчив, другая база или версия формата, слишком старый): остальные\nполя пусты, клиент обязан взять `GET /api/sync/snapshot` заново."
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SyncTrack"
+            }
+          }
+        }
+      },
       "CreatePlaylistRequest": {
         "type": "object",
         "required": [
@@ -3255,6 +3411,23 @@
         "properties": {
           "magnet": {
             "type": "string"
+          }
+        }
+      },
+      "DeletedRef": {
+        "type": "object",
+        "required": [
+          "entity",
+          "id"
+        ],
+        "properties": {
+          "entity": {
+            "type": "string",
+            "description": "`artist` | `album` | `track` | `playlist` | `playlist_track`."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -4151,6 +4324,23 @@
           }
         }
       },
+      "SessionInfo": {
+        "type": "object",
+        "required": [
+          "auth_required",
+          "authenticated"
+        ],
+        "properties": {
+          "auth_required": {
+            "type": "boolean",
+            "description": "Включена ли авторизация (задан `NIMBUS_API_TOKEN`)."
+          },
+          "authenticated": {
+            "type": "boolean",
+            "description": "Запрос авторизован: авторизация выключена или предъявлен верный токен (cookie / Bearer)."
+          }
+        }
+      },
       "SetSourceRequest": {
         "type": "object",
         "properties": {
@@ -4251,6 +4441,258 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "SyncAlbum": {
+        "type": "object",
+        "required": [
+          "id",
+          "mbid",
+          "artist_id",
+          "title",
+          "secondary_types",
+          "in_library"
+        ],
+        "properties": {
+          "added_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "artist_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cover_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "in_library": {
+            "type": "boolean"
+          },
+          "mbid": {
+            "type": "string",
+            "format": "uuid",
+            "description": "MBID release group."
+          },
+          "primary_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "secondary_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "title": {
+            "type": "string"
+          },
+          "year": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "SyncArtist": {
+        "type": "object",
+        "required": [
+          "id",
+          "mbid",
+          "name",
+          "in_library"
+        ],
+        "properties": {
+          "added_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "disambiguation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "in_library": {
+            "type": "boolean"
+          },
+          "mbid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sort_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "SyncPlaylist": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "last_used_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "last_used_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "SyncPlaylistTrack": {
+        "type": "object",
+        "required": [
+          "id",
+          "playlist_id",
+          "track_id",
+          "added_at"
+        ],
+        "properties": {
+          "added_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "playlist_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "track_id": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SyncTrack": {
+        "type": "object",
+        "required": [
+          "id",
+          "mbid_recording",
+          "album_id",
+          "artist_id",
+          "title",
+          "disc_no",
+          "position",
+          "status",
+          "in_library",
+          "needs_confirmation",
+          "playback",
+          "play_count"
+        ],
+        "properties": {
+          "added_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "album_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "artist_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "disc_no": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "duration_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "in_library": {
+            "type": "boolean"
+          },
+          "last_played_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "mbid_recording": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "needs_confirmation": {
+            "type": "boolean",
+            "description": "Primary-источник сомнительный: его стоит проверить или подтвердить."
+          },
+          "play_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "playback": {
+            "$ref": "#/components/schemas/PlaybackMode",
+            "description": "Как играть: `direct` или `transcode`."
+          },
+          "position": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TrackStatus"
+          },
+          "status_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
           }
         }
       },
@@ -4644,6 +5086,10 @@
     {
       "name": "library",
       "description": "Библиотека: добавление, списки, страницы артиста и альбома"
+    },
+    {
+      "name": "sync",
+      "description": "Синхронизация клиента: снимок, дельта по курсору"
     }
   ]
 }

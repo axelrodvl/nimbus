@@ -189,6 +189,8 @@ pub struct WorkerConfig {
     pub stale_after: Duration,
     pub maintenance_interval: Duration,
     pub done_retention: Duration,
+    /// Сколько хранятся надгробия синхронизации (шаг 34): клиент, не заходивший дольше, берёт снимок заново.
+    pub tombstone_retention: Duration,
     pub shutdown_timeout: Duration,
     /// Как часто ставить задачу вытеснения кэша (`None` — не ставить).
     pub evict_interval: Option<Duration>,
@@ -207,6 +209,7 @@ impl Default for WorkerConfig {
             stale_after: Duration::from_secs(90),
             maintenance_interval: Duration::from_secs(60),
             done_retention: Duration::from_secs(7 * 24 * 3600),
+            tombstone_retention: nimbus_db::repo::sync::TOMBSTONE_RETENTION,
             shutdown_timeout: Duration::from_secs(10),
             evict_interval: Some(Duration::from_secs(10 * 60)),
             retry_missing_interval: Some(Duration::from_secs(15 * 60)),
@@ -379,6 +382,9 @@ async fn sleep_or_cancel(d: Duration, token: &CancellationToken) -> bool {
     }
 }
 
+/// Как часто чистить надгробия синхронизации.
+const SYNC_PURGE_EVERY: Duration = Duration::from_secs(24 * 3600);
+
 async fn maintenance_loop(
     ctx: JobCtx,
     handlers: HandlerMap,
@@ -387,6 +393,7 @@ async fn maintenance_loop(
 ) {
     let db = &ctx.db;
     let mut last_purge = std::time::Instant::now() - Duration::from_secs(24 * 3600);
+    let mut last_sync_purge = std::time::Instant::now() - SYNC_PURGE_EVERY;
     let mut last_evict = std::time::Instant::now();
     let mut last_retry_missing = std::time::Instant::now();
     loop {
@@ -413,6 +420,14 @@ async fn maintenance_loop(
                     .await
             {
                 tracing::error!(error = %e, "mb_cache purge failed");
+            }
+        }
+        if last_sync_purge.elapsed() >= SYNC_PURGE_EVERY {
+            last_sync_purge = std::time::Instant::now();
+            match nimbus_db::repo::sync::purge_tombstones(db, cfg.tombstone_retention).await {
+                Ok(0) => {}
+                Ok(n) => tracing::info!(count = n, "purged old sync tombstones"),
+                Err(e) => tracing::error!(error = %e, "sync tombstone purge failed"),
             }
         }
         if cfg

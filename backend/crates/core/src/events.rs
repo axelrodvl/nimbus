@@ -68,6 +68,10 @@ pub enum Event {
         down_bps: u64,
         peers: u32,
     },
+    /// В синхронизируемых таблицах что-то изменилось: клиенту стоит запросить `GET /api/sync/changes`.
+    /// Коалесцируется слушателем `LISTEN nimbus_sync` (не чаще раза в 300 мс); не несёт данных.
+    #[serde(rename = "sync.poke")]
+    SyncPoke,
 }
 
 /// Состояние коалесцирования событий одного альбома.
@@ -289,6 +293,12 @@ mod tests {
         bus.publish_acquisition_changed(1);
         bus.publish_acquisition_changed(1);
         assert_eq!(acq_count(&drain(&mut rx), 1), 1);
+    }
+
+    #[test]
+    fn sync_poke_serializes_with_type_tag_only() {
+        let v = serde_json::to_value(Event::SyncPoke).unwrap();
+        assert_eq!(v, serde_json::json!({"type": "sync.poke"}));
     }
 
     #[test]

@@ -446,6 +446,22 @@ async fn full_and_partial_ranges(pool: PgPool) {
     let _ = std::fs::remove_file(&f.path);
 }
 
+/// Сжатие включено только для `/api/sync/*` (шаг 34): аудио с Range сжимать нельзя.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn stream_is_never_compressed(pool: PgPool) {
+    let f = fixture(pool, "flac", TrackStatus::Found).await;
+    let fake = Fake::new(f.path.clone(), Mode::Normal);
+    let st = app(&f, &fake);
+    let uri = format!("/api/tracks/{}/stream", f.track_id);
+    for range in [None, Some("bytes=0-99")] {
+        let r = call_h(&st, "GET", &uri, range, &[("accept-encoding", "gzip, br")]).await;
+        assert!(r.status == 200 || r.status == 206);
+        assert_eq!(h(&r, "content-encoding"), "");
+        assert_eq!(h(&r, "accept-ranges"), "bytes");
+    }
+    let _ = std::fs::remove_file(&f.path);
+}
+
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn head_does_not_touch_the_engine(pool: PgPool) {
     let f = fixture(pool, "mp3", TrackStatus::Found).await;

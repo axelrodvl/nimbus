@@ -206,6 +206,11 @@ async fn main() -> anyhow::Result<()> {
     let watcher = nimbus_api::stream::spawn_watcher(state.clone(), shutdown.clone());
     let manager =
         nimbus_api::download_manager::spawn_download_manager(state.clone(), shutdown.clone());
+    let poker = nimbus_api::sync::spawn_sync_poker(
+        state.db.clone(),
+        state.events.clone(),
+        shutdown.clone(),
+    );
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind(bind)
@@ -221,6 +226,9 @@ async fn main() -> anyhow::Result<()> {
     shutdown.cancel();
     if let Err(e) = watcher.await {
         tracing::warn!(error = %e, "download watcher did not stop cleanly");
+    }
+    if let Err(e) = poker.await {
+        tracing::warn!(error = %e, "sync poker did not stop cleanly");
     }
     if let Err(e) = manager.await {
         tracing::warn!(error = %e, "download manager did not stop cleanly");

@@ -176,9 +176,23 @@ HTTP-запроса): TPB/apibay — 250 мс и 4; Torznab (свой индек
 **Автозагрузка** (`storage.auto_download = "added"`): `LibraryService` закрепляет добавляемое в той же транзакции,
 что и `in_library`; удаление из библиотеки снимает закрепления.
 
+## Синхронизация клиента
+
+Шаг 34. Контракт и формат — `docs/api.md` («Синхронизация»). Устройство: миграция `0012_sync.sql` добавляет
+`sync_txid` в пять таблиц (`artists`, `albums`, `tracks`, `playlists`, `playlist_tracks`) с триггером `sync_stamp`
+(`BEFORE INSERT OR UPDATE`, ставит `txid_current()` и шлёт `pg_notify('nimbus_sync')`), таблицу надгробий
+`sync_tombstones` и триггеры уровня оператора на `track_sources`/`track_plays`, «касающиеся» треков (производные поля).
+Репозиторий `db::repo::sync` — снимок (`begin_snapshot`, потоковые выборки), дельта (`changes_since`), курсор, чистка
+надгробий; общие SQL-выражения `needs_confirmation`/`transcode` вынесены из `views.rs` макросами и используются и
+старым API, и синхронизацией. `api::sync` — DTO, обработчики и `spawn_sync_poker`: `PgListener` на `nimbus_sync` в
+отдельной задаче (чтение сокета не прерывается таймером), коалесцер шлёт `sync.poke` в `EventBus` не чаще раза в 300 мс
+(первое сразу, внутри окна — одно замыкающее); при разрыве соединения — переподключение и один `sync.poke`. Снимок
+пишет задача-источник, владеющая транзакцией и отдающая куски через `mpsc`; уход клиента или зависший читатель
+(60 с) завершают её (счётчик `AppState::sync_tasks`). Сжатие (`CompressionLayer`) — только на `/api/sync/*`.
+
 ## Авторизация
 
 Один статический токен (`NIMBUS_API_TOKEN`), сравнение за постоянное время. Источники: `Authorization: Bearer`,
 cookie `nimbus_token` (HttpOnly, SameSite=Lax; значение — hex токена), для WebSocket также `?token=`.
-`/api/health` и `/api/auth/login` открыты. Внутренний `/api/internal/raw/…` (для ffmpeg) требует секрет процесса в заголовке `X-Nimbus-Internal` (32 случайных байта, создаются при старте, не логируются) и loopback; в OpenAPI его нет. Стрим рвётся, если молчит дольше `stream_idle_timeout` (45 с; 120 с для `?download=1`) — плеер переподключается с `Range`.
+`/api/health`, `/api/auth/login` и `/api/auth/session` открыты. Внутренний `/api/internal/raw/…` (для ffmpeg) требует секрет процесса в заголовке `X-Nimbus-Internal` (32 случайных байта, создаются при старте, не логируются) и loopback; в OpenAPI его нет. Стрим рвётся, если молчит дольше `stream_idle_timeout` (45 с; 120 с для `?download=1`) — плеер переподключается с `Range`.
 Веб-сервер (`proxy.ts`) перенаправляет на `/login` без валидной cookie и ходит в API с токеном из своего окружения.

@@ -11,6 +11,7 @@ pub mod jobs;
 pub mod mb_cache;
 pub mod pins;
 pub mod playlists;
+pub mod sync;
 pub mod torrents;
 pub mod track_sources;
 pub mod tracks;
