@@ -26,3 +26,8 @@ export function wsUrl(path: string): string {
   const { host, protocol } = globalThis.location;
   return `${protocol === 'https:' ? 'wss:' : 'ws:'}//${host}${path}`;
 }
+
+/** Адрес live-сокета событий (`/api/ws`). */
+export function liveSocketUrl(): string {
+  return wsUrl('/api/ws');
+}

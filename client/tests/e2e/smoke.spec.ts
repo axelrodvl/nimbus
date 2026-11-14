@@ -1,4 +1,7 @@
 import { expect, test } from '@playwright/test';
+import { resetMock } from './mock';
+
+test.beforeEach(async ({ request }) => resetMock(request));
 
 test('страница открывается, тема переключается и переживает перезагрузку', async ({ page }) => {
   await page.goto('/');

@@ -1,7 +1,7 @@
 # Nimbus client
 
 Одностраничное приложение (Vite + React 19 + TypeScript) на bun. Заменит `web/` (Next.js) на шаге 48;
-правила — `docs/DEVELOPMENT.md` §5–6. Сейчас — каркас: токены дизайна, примитивы, темы, i18n, API-слой, тесты.
+правила — `docs/DEVELOPMENT.md` §5–6. Сейчас — каркас и оболочка: вход, навигация, live-соединение, индикаторы, темы, i18n, API-слой, локальные данные.
 
 ## Команды
 
@@ -20,6 +20,8 @@ index.html               корень; инлайн-скрипт темы ста
 src/main.tsx app.tsx router.tsx
 src/styles/              tokens.css (@theme), base.css, animations.css, index.css
 src/components/ui/       примитивы (button, skeleton, spinner, empty/error-state, error-boundary, …)
+src/components/          оболочка: app-shell, sidebar, mobile-tab-bar, session-routes (защита маршрутов), индикаторы
+src/app-routes.tsx       маршруты внутри оболочки; пункты навигации появляются сами (src/lib/nav/items.ts)
 src/screens/             экраны (шаги 39+)
 src/lib/api/             openapi-fetch клиент, ApiError, сгенерированный schema.d.ts (не править)
 src/lib/platform/        apiUrl()/wsUrl()/authHeaders()/platform() — единственное место адресов бэкенда
@@ -27,10 +29,13 @@ src/lib/i18n/            словари (en в бандле, остальные 
 src/lib/db/              IndexedDB `nimbus` (idb): loadAll/applyBatch/replaceAll/outbox, запасной режим в памяти
 src/lib/store/           library (zustand vanilla, Table + индексы), selectors, live, mutations, hooks
 src/lib/sync/            движок синхронизации (снимок/дельта/события), вкладки (Web Locks + BroadcastChannel), статус
-src/lib/app-data.ts      сборка db + store + движок + мутации; `appData()` — синглтон, `bootstrap()` (подключит шаг 38)
+src/lib/app-data.ts      сборка db + store + движок + сокет + мутации; `appData()` — синглтон, `resetAppData()`
+src/lib/auth/            сессия (unknown | anonymous | authenticated, кэш в localStorage), вход/выход/401
+src/lib/live/            WebSocket с переподключением (`socket.ts`), хуки `useLiveEvent`, `useConnectionState`
+src/lib/nav/             пункты навигации, `useTitle`, восстановление прокрутки
 src/lib/theme/           light | dark | system, localStorage['nimbus:theme']
 src/test/                setup, renderWithProviders, фабрики
-tests/e2e/               Playwright; tests/mock-backend.ts — мок бэкенда (каждый шаг его дополняет)
+tests/e2e/               Playwright; tests/mock-backend.ts — мок бэкенда (bun): вход, синхронизация, WebSocket, служебные `/__test/{reset,emit,mutate,ws,log}`
 ```
 
 ## Соглашения
@@ -39,3 +44,5 @@ tests/e2e/               Playwright; tests/mock-backend.ts — мок бэкен
 - Адреса бэкенда — только через `@/lib/platform/urls`; литерал `'/api/…'` вне `lib/platform` и `lib/api` запрещён линтом.
 - Сеть из `src/screens` и `src/components` — только через `src/lib/**` (линт запрещает `fetch` и импорт `@/lib/api/client`).
 - Инструменты запускаются под Node (vitest, playwright, eslint — через `bun run`), сборка и установка — bun.
+- Добавить экран: запись в `src/app-routes.tsx` (+ пункт в `NAV_ITEMS`, если он в навигации). Оболочку, защиту маршрутов и 404 трогать не нужно.
+- e2e идут по одному (`workers: 1`): мок бэкенда общий, каждый тест начинает с `resetMock()`.

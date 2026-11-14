@@ -260,3 +260,32 @@ export class FakeSyncServer {
     return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
   }
 }
+
+/** Небольшая библиотека для мока бэкенда: 3 артиста, 8 альбомов, 80 треков, 2 плейлиста. */
+export function makeSmallLibrary(): LibraryRows {
+  resetFactories();
+  const rows: LibraryRows = { albums: [], artists: [], playlistTracks: [], playlists: [], tracks: [] };
+  const albumsOf = [3, 3, 2];
+  let alid = 1;
+  let tid = 1;
+  albumsOf.forEach((count, a) => {
+    const artist = makeArtist({ added_at: iso(a + 1), id: a + 1 });
+    rows.artists.push(artist);
+    for (let al = 0; al < count; al++) {
+      const album = makeAlbum({ added_at: iso(alid), artist_id: artist.id, id: alid++ });
+      rows.albums.push(album);
+      for (let t = 0; t < 10; t++) {
+        rows.tracks.push(
+          makeTrack({ added_at: iso(tid), album_id: album.id, artist_id: artist.id, id: tid++, position: t + 1 }),
+        );
+      }
+    }
+  });
+  rows.playlists.push(makePlaylist({ id: 1, name: 'Дорога' }), makePlaylist({ id: 2, name: 'Фокус' }));
+  rows.playlistTracks.push(
+    makePlaylistTrack({ id: 1, playlist_id: 1, track_id: 1 }),
+    makePlaylistTrack({ id: 2, playlist_id: 1, track_id: 12 }),
+    makePlaylistTrack({ id: 3, playlist_id: 2, track_id: 25 }),
+  );
+  return rows;
+}

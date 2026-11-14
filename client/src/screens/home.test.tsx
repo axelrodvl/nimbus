@@ -4,9 +4,9 @@ import { renderWithProviders } from '@/test/render';
 import { Home } from './home';
 
 describe('Home', () => {
-  it('показывает название и переключатель темы', () => {
+  it('показывает название и ставит заголовок вкладки', () => {
     renderWithProviders(<Home />, { path: '/' });
     expect(screen.getByRole('heading', { name: 'Nimbus' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Светлая тема' })).toBeInTheDocument();
+    expect(document.title).toBe('Nimbus · Nimbus');
   });
 });

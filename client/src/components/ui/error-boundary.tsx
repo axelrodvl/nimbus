@@ -3,7 +3,14 @@ import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/ui/error-state';
 import { useT } from '@/lib/i18n/provider';
 
-type Props = { children: ReactNode; title?: string; body?: string; compact?: boolean };
+type Props = {
+  children: ReactNode;
+  title?: string;
+  body?: string;
+  compact?: boolean;
+  /** Свой экран ошибки вместо `ErrorState` с кнопкой повтора. */
+  fallback?: ReactNode;
+};
 type State = { error: Error | null };
 
 function Fallback({ body, compact, onRetry, title }: Omit<Props, 'children'> & { onRetry: () => void }) {
@@ -33,7 +40,8 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.error === null) return this.props.children;
-    const { children: _children, ...rest } = this.props;
+    if (this.props.fallback) return this.props.fallback;
+    const { children: _children, fallback: _fallback, ...rest } = this.props;
     return <Fallback {...rest} onRetry={() => this.setState({ error: null })} />;
   }
 }

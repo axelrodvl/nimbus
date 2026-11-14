@@ -1,10 +1,12 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiClient } from '@/lib/api/client';
 import { createSyncApi } from '@/lib/api/sync';
 import { createDb } from '@/lib/db';
 import { FakeSyncServer, makeLibrary, resetFactories } from '@/test/factories';
-import { appData, createAppData, setUnauthorizedHandler } from './app-data';
+import { appData, createAppData, resetAppData, setUnauthorizedHandler } from './app-data';
+import { useConnectionState, useLiveEvent } from './live/hooks';
+import type { SocketLike } from './live/socket';
 import * as hooks from './store/hooks';
 import { useAlbumView, useFavorites, useHydrated, useLibraryAlbums, useLive } from './store/hooks';
 import { createTabs } from './sync/tabs';
@@ -103,5 +105,93 @@ describe('остальные хуки', () => {
       track: 1,
       tracks: 2,
     });
+  });
+});
+
+class FakeSocket implements SocketLike {
+  static last: FakeSocket;
+  readyState = 0;
+  onopen: SocketLike['onopen'] = null;
+  onmessage: SocketLike['onmessage'] = null;
+  onerror: SocketLike['onerror'] = null;
+  onclose: SocketLike['onclose'] = null;
+  constructor() {
+    FakeSocket.last = this;
+  }
+  close() {
+    this.readyState = 3;
+  }
+}
+
+describe('live-соединение в данных приложения', () => {
+  async function boot(rows = makeLibrary({ albumsPerArtist: 1, artists: 1, tracksPerAlbum: 2 })) {
+    const server = new FakeSyncServer().load(rows);
+    const app = createAppData({
+      createSocket: () => new FakeSocket(),
+      db: createDb({ name: `app-data-ws-${Math.random()}` }),
+      syncApi: createSyncApi(createApiClient({ baseUrl: 'http://fake', fetch: server.fetch })),
+      tabs: createTabs({ channel: null, locks: null }),
+    });
+    await app.bootstrap();
+    await app.engine.settled();
+    return { app, server };
+  }
+
+  it('открытие сокета запрашивает дельту, события идут в движок и подписчикам, shutdown закрывает сокет', async () => {
+    const { app, server } = await boot();
+    const before = server.changesRequests;
+    const seen = vi.fn();
+    app.socket.subscribe(seen, 'custom');
+    FakeSocket.last.readyState = 1;
+    FakeSocket.last.onopen?.({});
+    await app.engine.settled();
+    expect(server.changesRequests).toBe(before + 1);
+
+    FakeSocket.last.onmessage?.({
+      data: JSON.stringify({ album_id: 1, done: 3, stage: 'searching', total: 9, type: 'job.progress' }),
+    });
+    expect(app.live.getState().albumProgress.get(1)?.done).toBe(3);
+    FakeSocket.last.onmessage?.({ data: JSON.stringify({ type: 'custom' }) });
+    expect(seen).toHaveBeenCalledTimes(1);
+
+    app.shutdown();
+    expect(app.socket.state.getState().state).toBe('closed');
+  });
+
+  it('useLiveEvent и useConnectionState работают поверх сокета синглтона', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket);
+    const handler = vi.fn();
+    function Probe() {
+      useLiveEvent('ping', handler);
+      return <p>{useConnectionState()}</p>;
+    }
+    const { unmount } = render(<Probe />);
+    appData().socket.start();
+    FakeSocket.last.readyState = 1;
+    act(() => void FakeSocket.last.onopen?.({}));
+    await waitFor(() => expect(screen.getByText('open')).toBeInTheDocument());
+    act(() => {
+      FakeSocket.last.onmessage?.({ data: JSON.stringify({ n: 1, type: 'ping' }) });
+      FakeSocket.last.onmessage?.({ data: JSON.stringify({ type: 'other' }) });
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith({ n: 1, type: 'ping' });
+    unmount();
+    FakeSocket.last.onmessage?.({ data: JSON.stringify({ type: 'ping' }) });
+    expect(handler).toHaveBeenCalledTimes(1);
+    await resetAppData(false);
+  });
+
+  it('resetAppData: останавливает всё, очищает базу по запросу и отдаёт чистый экземпляр', async () => {
+    const first = appData();
+    first.library.getState().hydrate(makeLibrary({ artists: 1 }));
+    await first.db.replaceAll({ ...makeLibrary({ artists: 1 }), meta: { cursor: '1.x.2', schema: 1, syncedAt: 1 } });
+    await resetAppData(true);
+    const second = appData();
+    expect(second).not.toBe(first);
+    expect(second.library.getState().hydrated).toBe(false);
+    expect((await second.db.loadAll()).artists).toHaveLength(0);
+    await resetAppData(false);
+    await resetAppData(true); // без экземпляра: очищает базу напрямую
   });
 });

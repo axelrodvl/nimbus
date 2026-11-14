@@ -5,7 +5,8 @@ const previewPort = 4173;
 
 export default defineConfig({
   forbidOnly: !!process.env.CI,
-  fullyParallel: true,
+  // Мок бэкенда общий и хранит состояние: тесты идут по одному и сбрасывают его через /__test/reset.
+  fullyParallel: false,
   projects: [
     {
       name: 'chromium',
@@ -37,5 +38,5 @@ export default defineConfig({
       url: `http://localhost:${previewPort}`,
     },
   ],
-  workers: process.env.CI ? 1 : undefined,
+  workers: 1,
 });

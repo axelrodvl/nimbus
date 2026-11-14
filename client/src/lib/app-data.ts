@@ -3,6 +3,7 @@ import { createSyncApi, type SyncApi } from '@/lib/api/sync';
 import { postPlayed } from '@/lib/api/tracks';
 import { createDb, type Db } from '@/lib/db';
 import { createLibraryStore } from '@/lib/store/library';
+import { createLiveSocket, type SocketLike } from '@/lib/live/socket';
 import { createLiveStore } from '@/lib/store/live';
 import { createMutations } from '@/lib/store/mutations';
 import { createSelectors } from '@/lib/store/selectors';
@@ -15,6 +16,7 @@ export type AppDataDeps = {
   tabs?: Tabs;
   postPlayed?: (trackId: number) => Promise<unknown>;
   onUnauthorized?: () => void;
+  createSocket?: (url: string) => SocketLike;
 };
 
 /** Собирает данные приложения: база, store, движок синхронизации, мутации. В тестах всё создаётся заново. */
@@ -32,6 +34,12 @@ export function createAppData(deps: AppDataDeps = {}) {
     store: library,
     tabs: deps.tabs ?? createTabs(),
   });
+  // Каждое событие — в движок (раньше подписчиков); при (пере)подключении — дельта.
+  const socket = createLiveSocket({
+    createSocket: deps.createSocket,
+    onEvent: e => engine.handleEvent(e),
+    onOpen: () => engine.requestSync('ws-open'),
+  });
   const mutations = createMutations({
     db,
     postPlayed: deps.postPlayed ?? (id => postPlayed(id, client)),
@@ -44,14 +52,17 @@ export function createAppData(deps: AppDataDeps = {}) {
     async bootstrap() {
       await engine.start();
       mutations.start();
+      socket.start();
     },
     db,
     engine,
     library,
     live,
     mutations,
+    socket,
     selectors,
     shutdown() {
+      socket.stop();
       mutations.stop();
       engine.stop();
       db.close();
@@ -63,10 +74,31 @@ export type AppData = ReturnType<typeof createAppData>;
 
 let instance: AppData | null = null;
 
-/** Синглтон приложения (создаётся при первом обращении; `main.tsx` подключит `bootstrap()` на шаге 38). */
+/** Синглтон приложения (создаётся при первом обращении; `bootstrap()` вызывает сессия после входа). */
 export function appData(): AppData {
-  instance ??= createAppData({ onUnauthorized: () => unauthorizedBridge() });
+  // База закрыта другой вкладкой (смена схемы): текущее состояние непригодно — перезагружаем страницу.
+  instance ??= createAppData({
+    db: createDb({ onClosed: () => globalThis.location?.reload() }),
+    onUnauthorized: () => unauthorizedBridge(),
+  });
   return instance;
+}
+
+/**
+ * Останавливает приложение и забывает синглтон: следующий `appData()` создаст чистый экземпляр
+ * (с повторным чтением IndexedDB). `clearData` стирает локальную базу (выход из аккаунта).
+ */
+export async function resetAppData(clearData: boolean): Promise<void> {
+  const current = instance;
+  instance = null;
+  const db = current?.db ?? (clearData ? createDb() : null);
+  if (current) {
+    current.socket.stop();
+    current.mutations.stop();
+    current.engine.stop();
+  }
+  if (clearData) await db?.clear().catch(() => undefined);
+  db?.close();
 }
 
 // 401 в движке и в обычных запросах идут в один обработчик (его ставит оболочка через `onUnauthorized`).

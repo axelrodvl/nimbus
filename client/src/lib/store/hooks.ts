@@ -13,6 +13,9 @@ function useLibrary<T>(select: (s: LibraryState) => T): T {
 /** Данные из локальной базы уже загружены (экраны могут рисовать). */
 export const useHydrated = (): boolean => useLibrary(s => s.hydrated);
 
+/** Число строк в локальной библиотеке (0 — данных ещё нет). */
+export const useRowCount = (): number => useLibrary(s => s.artists.size + s.tracks.size);
+
 export const useAlbumView = (id: number): AlbumView | undefined =>
   useLibrary(s => appData().selectors.albumView(s, id));
 export const useArtistView = (id: number): ArtistView | undefined =>
