@@ -1,13 +1,16 @@
 import { Navigate, useParams } from 'react-router';
 import { AlbumTabView } from '@/components/downloads/album-tab';
+import { DeviceTab } from '@/components/downloads/device-tab';
 import { DownloadAllButton, PauseAllButton, StorageLine } from '@/components/downloads/header-actions';
 import { JobsTab } from '@/components/downloads/jobs-tab';
 import { TorrentsTab } from '@/components/downloads/torrents-tab';
 import { PageLayout } from '@/components/page-layout';
 import { Tabs } from '@/components/ui/tabs';
 import { useAcquisitionSummary } from '@/lib/acquisition/hooks';
-import { defaultTab, DOWNLOAD_TABS, isAlbumTab, isDownloadTab, tabCount } from '@/lib/acquisition/model';
+import { defaultTab, downloadTabs, isAlbumTab, isDownloadTab, tabCount } from '@/lib/acquisition/model';
 import { useT } from '@/lib/i18n/provider';
+import { useOnline } from '@/lib/live/hooks';
+import { useOfflineSupported, usePendingCount } from '@/lib/offline/hooks';
 import { NotFound } from '../not-found';
 
 /**
@@ -18,24 +21,31 @@ export function DownloadsScreen() {
   const t = useT();
   const param = useParams().tab;
   const summary = useAcquisitionSummary();
-  if (param && !isDownloadTab(param)) return <NotFound />;
+  const supported = useOfflineSupported();
+  const online = useOnline();
+  const pending = usePendingCount();
+  const tabs = downloadTabs(supported, !online);
+  if (param && (!isDownloadTab(param) || !tabs.includes(param))) return <NotFound />;
   // Пока сводка не пришла, вкладка по умолчанию неизвестна — показываем «Требуют внимания» без редиректа.
-  const tab = param && isDownloadTab(param) ? param : defaultTab(summary.data);
+  // Без связи серверные вкладки пусты, поэтому открывается «На устройстве».
+  const tab = param && isDownloadTab(param) ? param : !online && supported ? 'device' : defaultTab(summary.data);
   return (
     <PageLayout title={t('nav.downloads')}>
-      <div className="mb-4 flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <PauseAllButton />
-          <DownloadAllButton />
+      {tab === 'device' ? null : (
+        <div className="mb-4 flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <PauseAllButton />
+            <DownloadAllButton />
+          </div>
+          <StorageLine />
         </div>
-        <StorageLine />
-      </div>
+      )}
       <div className="mb-4 overflow-x-auto pb-1" data-testid="acq-tabs-scroll">
         <Tabs
           aria-label={t('acq.tabs')}
           className="w-max flex-nowrap"
-          items={DOWNLOAD_TABS.map(id => {
-            const count = tabCount(id, summary.data);
+          items={tabs.map(id => {
+            const count = id === 'device' ? (pending > 0 ? pending : undefined) : tabCount(id, summary.data);
             return {
               'data-testid': `acq-tab-link-${id}`,
               id,
@@ -51,7 +61,15 @@ export function DownloadsScreen() {
           selectedId={tab}
         />
       </div>
-      {isAlbumTab(tab) ? <AlbumTabView key={tab} tab={tab} /> : tab === 'torrents' ? <TorrentsTab /> : <JobsTab />}
+      {isAlbumTab(tab) ? (
+        <AlbumTabView key={tab} tab={tab} />
+      ) : tab === 'torrents' ? (
+        <TorrentsTab />
+      ) : tab === 'device' ? (
+        <DeviceTab />
+      ) : (
+        <JobsTab />
+      )}
     </PageLayout>
   );
 }

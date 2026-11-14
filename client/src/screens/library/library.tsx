@@ -13,6 +13,8 @@ import { Tabs } from '@/components/ui/tabs';
 import { VirtualGrid, useGridColumns } from '@/components/ui/virtual-grid';
 import { VirtualList } from '@/components/ui/virtual-list';
 import { useT } from '@/lib/i18n/provider';
+import { useDownloadedSets, useOfflineSupported } from '@/lib/offline/hooks';
+import type { DownloadedSets } from '@/lib/offline/derive';
 import {
   LIBRARY_TABS,
   STATUS_FILTERS,
@@ -44,12 +46,18 @@ function EmptyLibrary() {
   );
 }
 
-function AlbumsList({ q, status }: { q: string; status: StatusFilterId }) {
+type ListProps = { q: string; status: StatusFilterId; downloaded: DownloadedSets | null };
+
+function AlbumsList({ q, status, downloaded }: ListProps) {
   const statuses = STATUS_FILTERS.find(s => s.id === status)?.statuses;
   const all = useLibraryList('albums', statuses);
-  const items = filterByName(all, useDeferredValue(q), a => a.title);
+  const items = filterByName(
+    downloaded ? all.filter(a => downloaded.albums.has(a.id)) : all,
+    useDeferredValue(q),
+    a => a.title,
+  );
   const columns = useGridColumns(5);
-  if (items.length === 0) return <Empty hasData={all.length > 0} status={status} />;
+  if (items.length === 0) return <Empty downloaded={downloaded !== null} hasData={all.length > 0} status={status} />;
   return (
     <VirtualGrid
       columns={columns}
@@ -70,12 +78,16 @@ function AlbumsList({ q, status }: { q: string; status: StatusFilterId }) {
   );
 }
 
-function ArtistsList({ q, status }: { q: string; status: StatusFilterId }) {
+function ArtistsList({ q, status, downloaded }: ListProps) {
   const statuses = STATUS_FILTERS.find(s => s.id === status)?.statuses;
   const all = useLibraryList('artists', statuses);
-  const items = filterByName(all, useDeferredValue(q), a => a.name);
+  const items = filterByName(
+    downloaded ? all.filter(a => downloaded.artists.has(a.id)) : all,
+    useDeferredValue(q),
+    a => a.name,
+  );
   const columns = useGridColumns(5);
-  if (items.length === 0) return <Empty hasData={all.length > 0} status={status} />;
+  if (items.length === 0) return <Empty downloaded={downloaded !== null} hasData={all.length > 0} status={status} />;
   return (
     <VirtualGrid
       columns={columns}
@@ -88,12 +100,16 @@ function ArtistsList({ q, status }: { q: string; status: StatusFilterId }) {
   );
 }
 
-function TracksList({ q, status }: { q: string; status: StatusFilterId }) {
+function TracksList({ q, status, downloaded }: ListProps) {
   const statuses = STATUS_FILTERS.find(s => s.id === status)?.statuses;
   const all = useLibraryList('tracks', statuses);
-  const items = filterByName(all, useDeferredValue(q), tr => tr.title);
+  const items = filterByName(
+    downloaded ? all.filter(tr => downloaded.tracks.has(tr.id)) : all,
+    useDeferredValue(q),
+    tr => tr.title,
+  );
   const queueIds = items.map(tr => tr.id);
-  if (items.length === 0) return <Empty hasData={all.length > 0} status={status} />;
+  if (items.length === 0) return <Empty downloaded={downloaded !== null} hasData={all.length > 0} status={status} />;
   return (
     <VirtualList
       count={items.length}
@@ -106,16 +122,17 @@ function TracksList({ q, status }: { q: string; status: StatusFilterId }) {
 }
 
 /** Пусто: библиотека без фильтров — призыв к поиску; иначе — «ничего не подходит». */
-function Empty({ hasData, status }: { hasData: boolean; status: StatusFilterId }) {
+function Empty({ hasData, status, downloaded }: { hasData: boolean; status: StatusFilterId; downloaded: boolean }) {
   const t = useT();
+  if (downloaded && hasData) return <EmptyState title={t('offline.library.none')} />;
   if (!hasData && status === 'all') return <EmptyLibrary />;
   return <EmptyState title={hasData ? t('search.none') : t('library.noTracksStatus')} />;
 }
 
-const LISTS: Record<LibraryTabId, typeof AlbumsList> = {
+const LISTS: Record<LibraryTabId, (props: ListProps) => React.ReactNode> = {
   albums: AlbumsList,
   artists: ArtistsList,
-  playlists: PlaylistsTab,
+  playlists: ({ q }) => <PlaylistsTab q={q} />,
   tracks: TracksList,
 };
 
@@ -128,6 +145,9 @@ export function LibraryScreen() {
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';
   const status = parseStatusFilter(params.get('status'));
+  const supported = useOfflineSupported();
+  const onlyDownloaded = supported && params.get('offline') === '1';
+  const downloaded = useDownloadedSets(onlyDownloaded && tab !== 'playlists');
   if (!hydrated) {
     return (
       <PageLayout title={t('nav.library')}>
@@ -149,7 +169,7 @@ export function LibraryScreen() {
                 {t(item.label)} <span className="tabular-nums opacity-70">{counts[item.id]}</span>
               </>
             ),
-            to: libraryHref(item.id, { q, status }),
+            to: libraryHref(item.id, { offline: onlyDownloaded, q, status }),
           }))}
           selectedId={tab}
         />
@@ -181,14 +201,24 @@ export function LibraryScreen() {
               aria-current={s.id === status ? 'true' : undefined}
               className={cn(pill, 'text-xs', s.id === status ? pillActive : pillIdle)}
               key={s.id}
-              to={libraryHref(tab, { q, status: s.id })}
+              to={libraryHref(tab, { offline: onlyDownloaded, q, status: s.id })}
             >
               {t(s.label)}
             </Link>
           ))}
+          {supported ? (
+            <Link
+              aria-current={onlyDownloaded ? 'true' : undefined}
+              className={cn(pill, 'text-xs', onlyDownloaded ? pillActive : pillIdle)}
+              data-testid="filter-downloaded"
+              to={libraryHref(tab, { offline: !onlyDownloaded, q, status })}
+            >
+              {t('offline.library.filter')}
+            </Link>
+          ) : null}
         </div>
       )}
-      <List q={q} status={status} />
+      <List downloaded={downloaded} q={q} status={status} />
     </PageLayout>
   );
 }

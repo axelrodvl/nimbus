@@ -5,6 +5,7 @@ import {
   Database,
   Download,
   Globe,
+  HardDriveDownload,
   Info,
   Music,
   Palette,
@@ -22,10 +23,12 @@ import type { MessageKey } from '@/lib/i18n/messages';
 import { useT } from '@/lib/i18n/provider';
 import { OfflineNotice } from '@/components/offline-notice';
 import { useOnline } from '@/lib/live/hooks';
+import { useOfflineSupported } from '@/lib/offline/hooks';
 import { useSettings } from '@/lib/settings/hooks';
 import type { ServerSettings } from '@/lib/settings/types';
 import { cn } from '@/lib/utils';
 import { AboutSection, AppearanceSection } from './local-sections';
+import { OfflineSection } from './offline-section';
 import {
   MusicbrainzSection,
   PerformanceSection,
@@ -45,6 +48,8 @@ type Section = {
   render: (settings: ServerSettings, readOnly: boolean) => ReactNode;
   /** Пункт-ссылка на другой экран вместо раздела (`/settings/:id` для него не существует). */
   href?: string;
+  /** Раздел нужен только там, где есть офлайн-хранилище (в браузере без OPFS он скрыт). */
+  needsOfflineStorage?: boolean;
 };
 
 /** Разделы настроек в порядке показа. Новый раздел — запись здесь (шаг 44 добавит «Загрузки», шаг 47 — «Офлайн»). */
@@ -99,6 +104,14 @@ export const SETTINGS_SECTIONS: readonly Section[] = [
     render: () => null,
     server: false,
   },
+  {
+    icon: HardDriveDownload,
+    id: 'offline',
+    label: 'settings.offline',
+    needsOfflineStorage: true,
+    render: () => <OfflineSection />,
+    server: false,
+  },
   { icon: Palette, id: 'appearance', label: 'settings.appearance', render: () => <AppearanceSection />, server: false },
   { icon: Info, id: 'about', label: 'settings.about', render: () => <AboutSection />, server: false },
 ];
@@ -123,10 +136,12 @@ export function SettingsScreen() {
   const param = useParams().section;
   const offline = !useOnline();
   const settings = useSettings();
+  const storageSupported = useOfflineSupported();
+  const sections = SETTINGS_SECTIONS.filter(s => storageSupported || !s.needsOfflineStorage);
 
-  const current = SETTINGS_SECTIONS.find(s => s.id === param && !s.href);
+  const current = sections.find(s => s.id === param && !s.href);
   if (param && !current) return <NotFound />;
-  const active = current ?? SETTINGS_SECTIONS.find(s => !s.href);
+  const active = current ?? sections.find(s => !s.href);
   if (!active) return null;
 
   let body: ReactNode;
@@ -151,7 +166,7 @@ export function SettingsScreen() {
           data-testid="settings-nav"
         >
           <ul className="flex flex-col gap-1">
-            {SETTINGS_SECTIONS.map(s => {
+            {sections.map(s => {
               const Icon = s.icon;
               const selected = s.id === active.id;
               return (

@@ -1,5 +1,6 @@
 import { AlertTriangle, Headphones } from 'lucide-react';
 import { Link } from 'react-router';
+import { TrackOfflineIndicator } from '@/components/offline/track-offline';
 import { useT } from '@/lib/i18n/provider';
 import type { AlbumProgressInfo } from '@/lib/library/status';
 import type { TrackView } from '@/lib/store/selectors';
@@ -127,6 +128,7 @@ export function TrackRow({
           </span>
         )
       ) : null}
+      <TrackOfflineIndicator trackId={track.id} />
       {track.in_library ? (
         <TrackStatusBadge progress={progress} reason={track.status_reason ?? null} status={track.status} />
       ) : null}

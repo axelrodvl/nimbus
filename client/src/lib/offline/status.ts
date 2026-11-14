@@ -19,6 +19,8 @@ export type OfflineStatus = {
   files: Map<number, OfflineFileStatus>;
   /** Ключи закреплений `"<kind>:<id>"`. */
   pins: Set<string>;
+  /** Когда закреплено (мс, по ключу): сортировка списка «На устройстве». */
+  pinTimes: Record<string, number>;
   usage: { bytes: number; quota: number | null; limit: number };
   paused: boolean;
   queueLength: number;
@@ -34,6 +36,7 @@ export const initialOfflineStatus = (supported = false): OfflineStatus => ({
   files: new Map(),
   paused: false,
   pins: new Set(),
+  pinTimes: {},
   queueLength: 0,
   supported,
   usage: { bytes: 0, limit: 0, quota: null },
@@ -54,6 +57,7 @@ export const toSnapshot = (s: OfflineStatus): OfflineSnapshot => ({
   files: [...s.files],
   paused: s.paused,
   pins: [...s.pins],
+  pinTimes: s.pinTimes,
   queueLength: s.queueLength,
   usage: s.usage,
 });
@@ -120,6 +124,9 @@ export function albumTrackIds(lib: LibraryState, albumId: number): number[] {
   }
   return out.sort((a, b) => a.disc - b.disc || a.pos - b.pos || a.id - b.id).map(t => t.id);
 }
+
+/** Закрепление «Избранного» (динамического плейлиста) — `playlist:0`: настоящие id плейлистов начинаются с 1. */
+export const FAVORITES_PIN_ID = 0;
 
 /** Треки плейлиста в порядке воспроизведения (по возрастанию id строк), только существующие в библиотеке. */
 export function playlistTrackIds(lib: LibraryState, playlistId: number): number[] {

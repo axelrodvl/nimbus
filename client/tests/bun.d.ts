@@ -13,4 +13,5 @@ declare const Bun: {
     ): Response | undefined | Promise<Response | undefined>;
     websocket: { open(ws: MockWebSocket): void; close(ws: MockWebSocket): void; message(ws: MockWebSocket): void };
   }): unknown;
+  sleep(ms: number): Promise<void>;
 };

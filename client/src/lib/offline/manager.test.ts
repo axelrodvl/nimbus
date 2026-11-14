@@ -10,7 +10,7 @@ import {
   STATUS_BROADCAST_MS,
 } from './manager';
 import type { DownloadErrorCode, DownloadMessage } from './types';
-import { albumOfflineState, playlistOfflineState, trackOfflineState } from './status';
+import { albumOfflineState, FAVORITES_PIN_ID, playlistOfflineState, trackOfflineState } from './status';
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
@@ -187,6 +187,39 @@ describe('закрепления и сверка', () => {
     await vi.advanceTimersByTimeAsync(RECONCILE_DEBOUNCE_MS);
     await h2.settle();
     expect([...h2.db.pins.keys()]).toEqual(['album:1']);
+  });
+});
+
+describe('«Избранное» и время закрепления', () => {
+  it('закрепление «Избранного» (playlist:0) качает его треки и следит за изменениями набора', async () => {
+    let favorites = [1, 4];
+    const h = offlineHarness({ deps: { favoriteIds: () => favorites } });
+    await h.start();
+    await h.manager.pin('playlist', FAVORITES_PIN_ID);
+    await h.settle();
+    expect(h.downloader.startedIds.sort()).toEqual([1, 4]);
+    // Избранное изменилось вместе с библиотекой: лишний трек уходит, новый — в очередь.
+    favorites = [1, 5];
+    h.library.getState().applyBatch({ tracks: [{ ...makeTrack({ album_id: 2, id: 5, position: 2 }), play_count: 9 }] });
+    await vi.advanceTimersByTimeAsync(RECONCILE_DEBOUNCE_MS + 10);
+    await h.settle();
+    expect([...h.status.getState().files.keys()].sort()).toEqual([1, 5]);
+    // Без функции «Избранное» не закрепляется: закрепление остаётся, но файлов нет.
+    const bare = offlineHarness();
+    await bare.start();
+    await bare.manager.pin('playlist', FAVORITES_PIN_ID);
+    await bare.settle();
+    expect(bare.status.getState().files.size).toBe(0);
+    expect(bare.status.getState().pins.has('playlist:0')).toBe(true);
+  });
+
+  it('время закрепления попадает в состояние', async () => {
+    const h = offlineHarness();
+    await h.start();
+    await h.manager.pin('album', 1);
+    expect(h.status.getState().pinTimes).toEqual({ 'album:1': 1_000_000 });
+    await h.manager.unpin('album', 1);
+    expect(h.status.getState().pinTimes).toEqual({});
   });
 });
 
@@ -574,13 +607,14 @@ describe('вкладки', () => {
         blocked: 'none',
         files: [[7, { bytesDone: 1, bytesTotal: 2, error: null, mime: 'a', state: 'downloading' }]],
         paused: false,
+        pinTimes: { 'album:1': 5 },
         pins: ['album:1'],
         queueLength: 0,
         usage: { bytes: 1, limit: 2, quota: null },
       },
       type: 'status',
     });
-    expect(h.status.getState()).toMatchObject({ activeCount: 1, pins: new Set(['album:1']) });
+    expect(h.status.getState()).toMatchObject({ activeCount: 1, pinTimes: { 'album:1': 5 }, pins: new Set(['album:1']) });
     expect(h.state(7)).toBe('downloading');
     h.tabs.deliver({ type: 'pins' });
     await h.settle();
@@ -615,7 +649,7 @@ describe('вкладки', () => {
     await h.settle();
     expect(h.status.getState().files.size).toBe(0);
     // Собственный снимок лидер не применяет к себе.
-    h.tabs.deliver({ snapshot: { activeCount: 9, blocked: 'none', files: [], paused: false, pins: [], queueLength: 0, usage: { bytes: 0, limit: 0, quota: null } }, type: 'status' });
+    h.tabs.deliver({ snapshot: { activeCount: 9, blocked: 'none', files: [], paused: false, pinTimes: {}, pins: [], queueLength: 0, usage: { bytes: 0, limit: 0, quota: null } }, type: 'status' });
     expect(h.status.getState().activeCount).toBe(0);
   });
 

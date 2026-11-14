@@ -9,7 +9,7 @@ import {
 } from './install';
 import { onLogout, runLogoutHandlers } from './logout';
 import { warmDictionaryCache } from './warm';
-import { PERSIST_KEY, readStorageInfo, requestPersistentStorage } from './storage';
+import { PERSIST_KEY, readStorageInfo, requestPersistentStorage, requestPersistNow } from './storage';
 import {
   CHECK_INTERVAL_MS,
   createUpdater,
@@ -250,6 +250,14 @@ describe('storage.ts', () => {
       setItem: () => undefined,
     };
     expect(await requestPersistentStorage({ persist: async () => true }, broken)).toBe(true);
+  });
+
+  it('requestPersistNow: результат браузера; без API и при отказе — false', async () => {
+    expect(await requestPersistNow({ persist: async () => true })).toBe(true);
+    expect(await requestPersistNow({ persist: async () => false })).toBe(false);
+    expect(await requestPersistNow({})).toBe(false);
+    expect(await requestPersistNow(undefined)).toBe(false);
+    expect(await requestPersistNow({ persist: () => Promise.reject(new Error('no')) })).toBe(false);
   });
 
   it('readStorageInfo: размер, квота, признак постоянства; без API — пусто', async () => {

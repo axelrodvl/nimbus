@@ -6,6 +6,8 @@ import { RowMenu } from '@/components/library/row-menu';
 import type { TrackRow } from '@/components/library/track-row';
 import { AddToPlaylistDialog } from '@/components/playlists/add-to-playlist-dialog';
 import { TrackSourceDialog } from '@/components/sources/track-source-dialog';
+import { toast } from 'sonner';
+import { useOnline } from '@/lib/live/hooks';
 import { useT } from '@/lib/i18n/provider';
 import { toPlayerTrack } from '@/lib/player';
 import { useCanPlay, useIsCurrentTrack, useIsTrackPlaying, usePlayerActions, usePlayerState } from '@/lib/player/hooks';
@@ -22,14 +24,19 @@ function useToggleTrack(id: number, queue: () => ReturnType<typeof queueFromIds>
   const isCurrent = useIsCurrentTrack(id);
   const isPlaying = useIsTrackPlaying(id);
   const canPlay = useCanPlay();
+  const t = useT();
+  const online = useOnline();
   const playable = view ? canPlay(view) : false;
+  // Без связи трек, который сервер мог бы отдать, но на устройстве его нет: кнопка нажимается и объясняет причину.
+  const hint = !!view && !playable && !online && (view.status === 'found' || view.status === 'ready');
   const toggle = () => {
+    if (hint) return void toast.info(t('offline.hint.notDownloaded'), { id: 'offline-hint' });
     if (!view || !playable) return;
     if (isPlaying) player.pause();
     else if (isCurrent) player.resume();
     else player.play(toPlayerTrack(view), queue());
   };
-  return { isCurrent, isPlaying, playable, title: view?.title ?? '', toggle };
+  return { hint, isCurrent, isPlaying, playable, title: view?.title ?? '', toggle };
 }
 
 /** Кнопка воспроизведения в строке трека. Недоступный трек — заблокирована и приглушена. */
@@ -37,11 +44,14 @@ function PlayButton({
   title,
   isPlaying,
   playable,
+  hint,
   onToggle,
 }: {
   title: string;
   isPlaying: boolean;
   playable: boolean;
+  /** Недоступен только из-за отсутствия связи: нажатие объясняет причину. */
+  hint: boolean;
   onToggle: () => void;
 }) {
   const t = useT();
@@ -54,7 +64,8 @@ function PlayButton({
       )}
       data-playing={isPlaying || undefined}
       data-testid="play-track"
-      disabled={!playable}
+      aria-disabled={hint || undefined}
+      disabled={!playable && !hint}
       onClick={e => {
         e.stopPropagation();
         onToggle();
@@ -155,7 +166,7 @@ type RowProps = Omit<
  * трека («В плейлист», «Источник…»), если слот не передан; бейдж «требует подтверждения» открывает выбор источника.
  */
 export function PlayableTrackRow({ id, queueIds, playlistId, actions, ...rest }: RowProps) {
-  const { isCurrent, isPlaying, playable, title, toggle } = useToggleTrack(id, () => queueFromIds(queueIds));
+  const { hint, isCurrent, isPlaying, playable, title, toggle } = useToggleTrack(id, () => queueFromIds(queueIds));
   const view = useTrackView(id);
   const playlistDialog = Ariakit.useDialogStore();
   const sourceDialog = Ariakit.useDialogStore();
@@ -179,8 +190,8 @@ export function PlayableTrackRow({ id, queueIds, playlistId, actions, ...rest }:
         }
         current={isCurrent}
         id={id}
-        leading={<PlayButton isPlaying={isPlaying} onToggle={toggle} playable={playable} title={title} />}
-        onActivate={playable ? toggle : undefined}
+        leading={<PlayButton hint={hint} isPlaying={isPlaying} onToggle={toggle} playable={playable} title={title} />}
+        onActivate={playable || hint ? toggle : undefined}
         onCheckSource={() => sourceDialog.show()}
         unavailable={!playable}
       />

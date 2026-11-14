@@ -20,6 +20,9 @@ import { albumKey, downloadsKey, jobsKey, listKey, MAX_REFETCH_PAGES } from './k
 import {
   attentionCount,
   defaultTab,
+  downloadTabs,
+  DOWNLOAD_TABS,
+  isAlbumTab,
   isActiveDownload,
   jobKindKey,
   jobTarget,
@@ -307,5 +310,18 @@ describe('массовое закрепление', () => {
     const pin = vi.fn();
     expect(await pinAlbums([], { queryClient: client(), requests: { pinAlbum: pin } })).toEqual({ done: 0, failed: 0 });
     expect(pin).not.toHaveBeenCalled();
+  });
+});
+
+describe('вкладки «Загрузок»', () => {
+  it('«На устройстве»: нет поддержки — нет вкладки; есть — в конце, без связи — первой; серверной не считается', () => {
+    expect(DOWNLOAD_TABS).toContain('device');
+    expect(downloadTabs(false, false)).not.toContain('device');
+    expect(downloadTabs(false, true)).not.toContain('device');
+    expect(downloadTabs(true, false).at(-1)).toBe('device');
+    expect(downloadTabs(true, true)[0]).toBe('device');
+    expect(downloadTabs(true, true)).toHaveLength(downloadTabs(true, false).length);
+    expect(isAlbumTab('device')).toBe(false);
+    expect(isAlbumTab('attention')).toBe(true);
   });
 });

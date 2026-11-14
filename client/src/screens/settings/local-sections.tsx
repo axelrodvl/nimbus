@@ -15,6 +15,7 @@ import { setLocale } from '@/lib/i18n/store';
 import { fetchServerVersion } from '@/lib/api/settings';
 import { needsIosInstallHint, promptInstall, useCanInstall } from '@/lib/pwa/install';
 import { readStorageInfo, type StorageInfo } from '@/lib/pwa/storage';
+import { useOfflineSupported } from '@/lib/offline/hooks';
 import { useTheme, type Theme } from '@/lib/theme/theme';
 import { version as clientVersion } from '../../../package.json';
 import { PageHeader } from './section-frame';
@@ -75,6 +76,7 @@ export function AboutSection() {
   const storage = useStorageInfo();
   const canInstall = useCanInstall();
   const iosHint = needsIosInstallHint();
+  const offlineSupported = useOfflineSupported();
   const server = useQuery({
     queryFn: ({ signal }) => fetchServerVersion(signal),
     queryKey: ['health', 'version'],
@@ -107,6 +109,13 @@ export function AboutSection() {
             </span>
           </SettingsRow>
         ) : null}
+        {offlineSupported ? null : (
+          <SettingsRow group label={t('settings.offline')}>
+            <span className="text-muted text-sm" data-testid="offline-unsupported">
+              {t('offline.unsupported')}
+            </span>
+          </SettingsRow>
+        )}
         {canInstall ? (
           <SettingsRow description={t('settings.about.installHint')} group label={t('settings.about.install')}>
             <Button data-testid="install-app" onClick={() => void promptInstall()} variant="secondary">

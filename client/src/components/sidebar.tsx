@@ -1,6 +1,7 @@
 import { LogOut, Search } from 'lucide-react';
 import { AppNavLink } from '@/components/app-nav-link';
 import { DownloadsBadge } from '@/components/nav-badge';
+import { OfflineQueueIndicator } from '@/components/offline/queue-indicator';
 import { ConnectionIndicator } from '@/components/connection-indicator';
 import { useCommandPalette } from '@/components/search/command-palette';
 import { ShortcutHint } from '@/components/shortcut-hint';
@@ -60,6 +61,7 @@ export function Sidebar({ items }: { items: readonly NavItem[] }) {
       <div className="bg-card dark:bg-card-dark mt-auto flex flex-col gap-3 rounded-lg p-3 lg:px-4">
         <div className="flex flex-col items-center gap-2 lg:flex-row lg:justify-between">
           <ConnectionIndicator showLabel />
+          <OfflineQueueIndicator />
           <ThemeToggle variant="inline" />
         </div>
         <div className="flex justify-center lg:justify-start">

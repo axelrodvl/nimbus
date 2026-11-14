@@ -4,6 +4,7 @@ import type { Tabs } from '@/lib/sync/tabs';
 import { effectiveLimit, type OfflineSettingsStore } from './settings';
 import {
   albumTrackIds,
+  FAVORITES_PIN_ID,
   fromSnapshot,
   initialOfflineStatus,
   playlistTrackIds,
@@ -62,6 +63,8 @@ export type ManagerDeps = {
   onUnauthorized?(): void;
   /** Неожиданный сбой фоновой операции (IndexedDB закрыта, хранилище отказало): менеджер продолжает, повтор — со следующим событием. */
   onError?(error: unknown): void;
+  /** Id треков «Избранного» (динамический плейлист) по текущей библиотеке; без функции «Избранное» не закрепляется. */
+  favoriteIds?(): number[];
   /** Можно ли удалять закрепления и файлы по данным библиотеки (нет, пока идёт снимок: библиотека неполна). */
   libraryComplete?(): boolean;
   now?(): number;
@@ -149,7 +152,7 @@ export function createOfflineManager(deps: ManagerDeps) {
   /** Лидер публикует всё состояние; остальные вкладки — только закрепления (файлы им присылает лидер). */
   function publish(full = leader) {
     if (!full) {
-      status.setState({ pins: new Set(pins.keys()) });
+      status.setState({ pinTimes: pinTimes(), pins: new Set(pins.keys()) });
       return;
     }
     const map = new Map<number, ReturnType<typeof statusOf>>();
@@ -163,12 +166,15 @@ export function createOfflineManager(deps: ManagerDeps) {
       blocked: block(),
       files: map,
       paused,
+      pinTimes: pinTimes(),
       pins: new Set(pins.keys()),
       queueLength,
       usage: { ...usage, limit: effectiveLimit(settings.getState(), usage.quota) },
     });
     if (leader && !stopped) scheduleBroadcast();
   }
+
+  const pinTimes = () => Object.fromEntries([...pins].map(([k, p]) => [k, p.created_at]));
 
   const statusOf = (f: OfflineFile) => ({
     bytesDone: f.bytes_done,
@@ -250,7 +256,8 @@ export function createOfflineManager(deps: ManagerDeps) {
       } else if (p.kind === 'album') {
         if (lib.albums.has(p.id)) albumTrackIds(lib, p.id).forEach(add);
         else stale.push(p);
-      } else if (lib.playlists.has(p.id)) playlistTrackIds(lib, p.id).forEach(add);
+      } else if (p.id === FAVORITES_PIN_ID) deps.favoriteIds?.().forEach(add);
+      else if (lib.playlists.has(p.id)) playlistTrackIds(lib, p.id).forEach(add);
       else stale.push(p);
     }
     // Библиотека неполна (идёт снимок) — ничего не удаляем.

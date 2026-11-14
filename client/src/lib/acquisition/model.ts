@@ -10,6 +10,7 @@ export const DOWNLOAD_TABS = [
   'downloaded',
   'torrents',
   'jobs',
+  'device',
 ] as const;
 export type DownloadTab = (typeof DOWNLOAD_TABS)[number];
 
@@ -18,7 +19,18 @@ export type AlbumTab = 'attention' | 'searching' | 'downloading' | 'available' |
 
 export const isDownloadTab = (value: string | undefined): value is DownloadTab =>
   DOWNLOAD_TABS.includes(value as DownloadTab);
-export const isAlbumTab = (tab: DownloadTab): tab is AlbumTab => tab !== 'torrents' && tab !== 'jobs';
+export const isAlbumTab = (tab: DownloadTab): tab is AlbumTab =>
+  tab !== 'torrents' && tab !== 'jobs' && tab !== 'device';
+
+/**
+ * Вкладки в порядке показа. «На устройстве» есть, только если поддерживается офлайн-хранилище: в конце списка,
+ * а без связи — первой (серверные вкладки без сервера недоступны).
+ */
+export function downloadTabs(deviceSupported: boolean, offline: boolean): readonly DownloadTab[] {
+  const server = DOWNLOAD_TABS.filter(tab => tab !== 'device');
+  if (!deviceSupported) return server;
+  return offline ? ['device', ...server] : [...server, 'device'];
+}
 
 /** Какие состояния сервера запрашивает вкладка. «Загружаются» и «Доступны» дополнительно фильтруются на клиенте. */
 export const TAB_STATES: Record<AlbumTab, readonly AcquisitionState[]> = {

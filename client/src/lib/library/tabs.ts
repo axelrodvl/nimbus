@@ -28,10 +28,14 @@ export function parseStatusFilter(value: string | null | undefined): StatusFilte
 }
 
 /** Адрес вкладки с фильтрами: состояние живёт в URL, «назад» возвращает то же. */
-export function libraryHref(tab: LibraryTabId, { q, status }: { q?: string; status?: StatusFilterId }): string {
+export function libraryHref(
+  tab: LibraryTabId,
+  { q, status, offline }: { q?: string; status?: StatusFilterId; offline?: boolean },
+): string {
   const params = new URLSearchParams();
   if (status && status !== 'all') params.set('status', status);
   if (q) params.set('q', q);
+  if (offline) params.set('offline', '1');
   const query = params.toString();
   return `/library/${tab}${query ? `?${query}` : ''}`;
 }

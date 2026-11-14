@@ -28,6 +28,17 @@ export async function requestPersistentStorage(
   return true;
 }
 
+/** Просит постоянное хранилище по нажатию кнопки (жест пользователя); возвращает, стало ли оно постоянным. */
+export async function requestPersistNow(
+  manager: StorageManagerLike | undefined = globalThis.navigator?.storage,
+): Promise<boolean> {
+  try {
+    return (await manager?.persist?.()) ?? false;
+  } catch {
+    return false;
+  }
+}
+
 export type StorageInfo = { usage: number | null; quota: number | null; persistent: boolean };
 
 /** Занятое место и признак постоянного хранилища для экрана «О приложении». */

@@ -5,7 +5,6 @@ import { authHeaders } from '@/lib/platform/auth-transport';
 import { platform } from '@/lib/platform/platform';
 import { downloadUrl } from '@/lib/platform/urls';
 import { createTabs } from '@/lib/sync/tabs';
-import { installOfflineE2eHook } from './e2e-hook';
 import { createOfflineManager, type OfflineManager, type OfflineTabMessage } from './manager';
 import { browserOpfsDeps, createOpfsStorage } from './opfs-storage';
 import { createOfflinePlayback, type OfflinePlayback } from './playback';
@@ -126,6 +125,7 @@ export async function startOffline(over: OfflineStartDeps = {}): Promise<Offline
     db: data.db,
     downloadUrl,
     headers: authHeaders,
+    favoriteIds: () => data.selectors.favorites(data.library.getState()).map(t => t.id),
     libraryComplete: () => {
       const s = data.engine.status.getState().state;
       return s !== 'snapshot' && s !== 'hydrating';
@@ -139,7 +139,6 @@ export async function startOffline(over: OfflineStartDeps = {}): Promise<Offline
   });
   rt.manager = manager;
   await manager.start();
-  if (import.meta.env.DEV || import.meta.env.VITE_UI_GALLERY === '1') installOfflineE2eHook(manager, rt.status);
   return manager;
 }
 

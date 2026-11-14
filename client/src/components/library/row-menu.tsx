@@ -1,6 +1,7 @@
 import * as Ariakit from '@ariakit/react';
 import { MoreHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTrackOfflineMenu } from '@/components/offline/track-offline';
 import { apiErrorMessage } from '@/lib/api/error-message';
 import { useT } from '@/lib/i18n/provider';
 import { removeTrackFromPlaylist } from '@/lib/playlists/actions';
@@ -26,6 +27,7 @@ type Props = {
 export function RowMenu({ trackId, albumId, title, status, playlistId, onAddToPlaylist, onSource }: Props) {
   const t = useT();
   const queryClient = useQueryClient();
+  const offlineMenu = useTrackOfflineMenu({ albumId, id: trackId, title });
 
   async function removeFromPlaylist() {
     if (playlistId === undefined) return;
@@ -70,12 +72,14 @@ export function RowMenu({ trackId, albumId, title, status, playlistId, onAddToPl
         <Ariakit.MenuItem className={menuItemClass} onClick={onSource}>
           {t('menu.chooseSource')}
         </Ariakit.MenuItem>
+        {offlineMenu.item}
         {status === 'not_found' ? (
           <Ariakit.MenuItem className={menuItemClass} onClick={() => void retry()}>
             {t('sources.retry')}
           </Ariakit.MenuItem>
         ) : null}
       </Ariakit.Menu>
+      {offlineMenu.dialog}
     </Ariakit.MenuProvider>
   );
 }

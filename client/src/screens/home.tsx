@@ -6,6 +6,8 @@ import { PageLayout } from '@/components/page-layout';
 import { PlayAlbumButton, PlayableTrackRow, PlayTracksButton } from '@/components/player/play-buttons';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useT } from '@/lib/i18n/provider';
+import { useOnline } from '@/lib/live/hooks';
+import { useCanPlay } from '@/lib/player/hooks';
 import { SEARCH_ENTRY } from '@/lib/nav/items';
 import { useHydrated, useLibraryList, useRecentlyPlayedAlbums } from '@/lib/store/hooks';
 import type { AlbumView, ArtistView } from '@/lib/store/selectors';
@@ -41,8 +43,12 @@ export function Home() {
   const played = useRecentlyPlayedAlbums(PLAYED_ALBUMS);
   const albums = useLibraryList('albums');
   const artists = useLibraryList('artists');
-  const ready = useLibraryList('tracks', READY);
+  const readyAll = useLibraryList('tracks', READY);
+  const online = useOnline();
+  const canPlay = useCanPlay();
   if (!hydrated) return <HomeSkeleton />;
+  // Без связи «готово к прослушиванию» — только то, что есть на устройстве.
+  const ready = online ? readyAll : readyAll.filter(canPlay);
 
   const recent = recentItems(albums, artists);
   const readyTracks = ready.slice(0, READY_TRACKS);
@@ -103,11 +109,11 @@ export function Home() {
         ) : null}
         <section aria-labelledby="home-ready" data-testid="home-ready">
           <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 id="home-ready">{t('home.ready')}</h2>
+            <h2 id="home-ready">{t(online ? 'home.ready' : 'home.readyOffline')}</h2>
             {readyTracks.length > 0 ? <PlayTracksButton testId="play-ready" tracks={ready} /> : null}
           </div>
           {readyTracks.length === 0 ? (
-            <p className="text-muted text-sm">{t('home.readyEmpty')}</p>
+            <p className="text-muted text-sm">{t(online ? 'home.readyEmpty' : 'home.readyOfflineEmpty')}</p>
           ) : (
             <ul className="flex flex-col gap-0.5">
               {readyTracks.map(tr => (

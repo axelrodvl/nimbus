@@ -324,7 +324,9 @@ async function playbackRoute(req: Request, id: number, kind: string): Promise<Re
       start(ctl) {
         ctl.enqueue(slice.subarray(0, cutAt));
       },
-      pull(ctl) {
+      async pull(ctl) {
+        // Даём отправленной части дойти до клиента (через прокси), иначе обрыв приходит раньше первого байта.
+        await Bun.sleep(150);
         ctl.error(new Error('connection reset'));
       },
     });

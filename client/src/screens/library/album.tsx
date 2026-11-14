@@ -5,9 +5,11 @@ import { AlbumProgress } from '@/components/library/album-progress';
 import { RemoveFromLibraryButton } from '@/components/library/remove-from-library-button';
 import { StatusMiniBar } from '@/components/library/status-mini-bar';
 import { ServerDownloadButton } from '@/components/downloads/server-download-button';
+import { OfflineControl } from '@/components/offline/subject-control';
 import { PageLayout } from '@/components/page-layout';
 import { PlayAlbumButton, PlayableTrackRow } from '@/components/player/play-buttons';
 import { useT } from '@/lib/i18n/provider';
+import { useAlbumOffline } from '@/lib/offline/hooks';
 import { albumMeta, statusSummary } from '@/lib/library/status';
 import { useAlbumProgress, useAlbumTracks, useAlbumView } from '@/lib/store/hooks';
 import { AlbumSkeleton } from './skeletons';
@@ -21,6 +23,7 @@ export function AlbumScreen() {
   const tracks = useAlbumTracks(id ?? -1);
   const progress = useAlbumProgress(id ?? -1);
   const state = useEntityState(album !== undefined);
+  const offlineSummary = useAlbumOffline(id ?? -1);
 
   if (id === null) return <ItemNotFound />;
   if (state === 'loading') return <AlbumSkeleton />;
@@ -60,6 +63,10 @@ export function AlbumScreen() {
           <div className="flex flex-wrap items-center gap-3">
             <PlayAlbumButton albumId={album.id} />
             <ServerDownloadButton albumId={album.id} title={album.title} />
+            <OfflineControl
+              subject={{ id: album.id, kind: 'album', title: album.title, trackIds: queueIds }}
+              summary={offlineSummary}
+            />
             {tracks.some(tr => tr.in_library && tr.needs_confirmation) ? (
               <span
                 className="text-warning inline-flex items-center gap-1 text-xs"

@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router';
 import { PageLayout } from '@/components/page-layout';
 import { TRACK_ROW_HEIGHT } from '@/components/library/track-row';
+import { OfflineControl } from '@/components/offline/subject-control';
 import { DeletePlaylistButton } from '@/components/playlists/delete-playlist-button';
 import { PlaylistCover } from '@/components/playlists/playlist-cover';
 import { PlayableTrackRow, PlayTracksButton } from '@/components/player/play-buttons';
@@ -8,6 +9,8 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { VirtualList } from '@/components/ui/virtual-list';
 import { parsePlaylistRef, type PlaylistRef } from '@/lib/api/playlists';
 import { useT } from '@/lib/i18n/provider';
+import { favoritesSubject, type OfflineSubject } from '@/lib/offline/actions';
+import { useTracksOffline } from '@/lib/offline/hooks';
 import { useFavorites, usePlaylistCard, usePlaylistTracks } from '@/lib/store/hooks';
 import type { TrackView } from '@/lib/store/selectors';
 import { formatLongDuration } from '@/lib/utils';
@@ -27,6 +30,7 @@ export function PlaylistScreen() {
   const card = usePlaylistCard(ref ?? -1);
   const tracks = useRefTracks(ref);
   const state = useEntityState(card !== undefined);
+  const offlineSummary = useTracksOffline(tracks.map(tr => tr.id));
 
   if (ref === null) return <ItemNotFound />;
   if (state === 'loading') {
@@ -41,6 +45,10 @@ export function PlaylistScreen() {
   const favorites = card.kind === 'favorites';
   const name = favorites ? t('playlist.favorites') : card.name;
   const queueIds = tracks.map(tr => tr.id);
+  const subject: OfflineSubject =
+    favorites || typeof card.id !== 'number'
+      ? favoritesSubject(name, queueIds)
+      : { id: card.id, kind: 'playlist', title: name, trackIds: queueIds };
   return (
     <PageLayout documentTitle={name}>
       <header className="mb-8 flex flex-col gap-6 sm:flex-row sm:items-end">
@@ -63,6 +71,9 @@ export function PlaylistScreen() {
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <PlayTracksButton label={t('play.playlist')} tracks={tracks} />
+            {tracks.length > 0 || offlineSummary.state.kind !== 'none' ? (
+              <OfflineControl subject={subject} summary={offlineSummary} />
+            ) : null}
             {favorites || typeof card.id !== 'number' ? null : <DeletePlaylistButton id={card.id} name={card.name} />}
           </div>
         </div>

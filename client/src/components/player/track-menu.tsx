@@ -1,5 +1,6 @@
 import * as Ariakit from '@ariakit/react';
 import { MoreHorizontal } from 'lucide-react';
+import { useTrackOfflineMenu } from '@/components/offline/track-offline';
 import { AddToPlaylistDialog } from '@/components/playlists/add-to-playlist-dialog';
 import { useNavigate } from 'react-router';
 import { useT } from '@/lib/i18n/provider';
@@ -34,6 +35,7 @@ export function TrackMenu({
   const navigate = useNavigate();
   const player = usePlayerActions();
   const playlistDialog = Ariakit.useDialogStore();
+  const offlineMenu = useTrackOfflineMenu({ albumId: track.albumId, id: track.id, title: track.title });
   const go = (to: string) => {
     onNavigate?.();
     void navigate(to);
@@ -56,6 +58,7 @@ export function TrackMenu({
           <Ariakit.MenuItem className={itemClass} onClick={() => playlistDialog.show()}>
             {t('playlist.addTo')}
           </Ariakit.MenuItem>
+          {offlineMenu.item}
           {track.albumId !== undefined ? (
             <Ariakit.MenuItem className={itemClass} onClick={() => go(`/album/${track.albumId}`)}>
               {t('player.goAlbum')}
@@ -73,6 +76,7 @@ export function TrackMenu({
           ) : null}
         </Ariakit.Menu>
       </Ariakit.MenuProvider>
+      {offlineMenu.dialog}
       <AddToPlaylistDialog store={playlistDialog} title={track.title} trackId={track.id} />
     </>
   );
