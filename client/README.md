@@ -24,6 +24,10 @@ src/screens/             экраны (шаги 39+)
 src/lib/api/             openapi-fetch клиент, ApiError, сгенерированный schema.d.ts (не править)
 src/lib/platform/        apiUrl()/wsUrl()/authHeaders()/platform() — единственное место адресов бэкенда
 src/lib/i18n/            словари (en в бандле, остальные — по требованию), store, провайдер, useT/useLocale
+src/lib/db/              IndexedDB `nimbus` (idb): loadAll/applyBatch/replaceAll/outbox, запасной режим в памяти
+src/lib/store/           library (zustand vanilla, Table + индексы), selectors, live, mutations, hooks
+src/lib/sync/            движок синхронизации (снимок/дельта/события), вкладки (Web Locks + BroadcastChannel), статус
+src/lib/app-data.ts      сборка db + store + движок + мутации; `appData()` — синглтон, `bootstrap()` (подключит шаг 38)
 src/lib/theme/           light | dark | system, localStorage['nimbus:theme']
 src/test/                setup, renderWithProviders, фабрики
 tests/e2e/               Playwright; tests/mock-backend.ts — мок бэкенда (каждый шаг его дополняет)
