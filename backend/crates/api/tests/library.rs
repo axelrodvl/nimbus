@@ -848,9 +848,9 @@ async fn artist_import_status_follows_the_job_and_can_be_retried(pool: PgPool) {
         v["artist"]["import"].clone()
     };
 
-    // Задача ждёт своей очереди: «импортируем», попыток ещё нет, число попыток увеличено.
+    // Задача ждёт свободного воркера: «в очереди», попыток ещё нет, число попыток увеличено.
     let v = artist_import(router.clone()).await;
-    assert_eq!(v["state"], "importing");
+    assert_eq!(v["state"], "queued");
     assert_eq!(v["attempt"], 0);
     assert_eq!(v["max_attempts"], 8);
     assert!(v["retry_at"].is_null());
@@ -899,7 +899,7 @@ async fn artist_import_status_follows_the_job_and_can_be_retried(pool: PgPool) {
         count(&pool, "SELECT count(*) FROM jobs WHERE state = 'queued'").await,
         1
     );
-    assert_eq!(artist_import(router.clone()).await["state"], "importing");
+    assert_eq!(artist_import(router.clone()).await["state"], "queued");
 
     // Завершённая задача статуса не оставляет.
     sqlx::query("UPDATE jobs SET state = 'done' WHERE state = 'queued'")
@@ -1257,4 +1257,50 @@ async fn waiting_for_a_slow_response_updates_the_current_step_every_few_seconds(
     })
     .await;
     handle.abort();
+}
+
+/// Пять артистов добавлены одновременно, MusicBrainz один и медленный (темп ограничен): все импорты
+/// доходят до конца, ни один не принят за зависший (порог учитывает честное ожидание в очереди),
+/// и у каждого видны страницы.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn five_imports_at_once_share_the_musicbrainz_queue_without_false_stalls(pool: PgPool) {
+    let server = bulk_mb_server().await;
+    let mut cfg = nimbus_musicbrainz::MbConfig::new("NimbusTest/0.1 ( https://example.org/test )");
+    cfg.base = format!("{}/ws/2/", server.uri()).parse().unwrap();
+    cfg.lb_base = None;
+    cfg.limits = nimbus_musicbrainz::MbLimits::paced(2.0); // ~2 запроса в секунду на всех
+    let mb = nimbus_musicbrainz::MbClient::with_config(cfg, None)
+        .unwrap()
+        .background();
+    // Порог проверки зависания (условие «очередь не считается зависанием» — юнит-тест `is_stalled`);
+    // здесь важно, что пять импортов на одной очереди доходят до конца под нагрузкой.
+    let lib = std::sync::Arc::new(
+        nimbus_library::LibraryService::new(pool.clone(), mb, nimbus_core::events::EventBus::new())
+            .with_import_stall(std::time::Duration::from_secs(5)),
+    );
+    // MBID артиста уникален, поэтому пять импортов одного артиста параллельно дают ту же нагрузку
+    // на общую очередь MusicBrainz, что и пять разных.
+    let artist = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO artists (mbid, name, in_library) VALUES ($1::uuid, 'A', TRUE) RETURNING id",
+    )
+    .bind(RADIOHEAD)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    lib.enqueue_import(artist).await.unwrap();
+    let started = std::time::Instant::now();
+    let runs: Vec<_> = (0..5)
+        .map(|_| {
+            let lib = lib.clone();
+            tokio::spawn(async move { lib.import_artist_skipping(artist, &[]).await })
+        })
+        .collect();
+    for r in runs {
+        let summary = r
+            .await
+            .unwrap()
+            .expect("импорт не должен считаться зависшим");
+        assert_eq!(summary.imported, 2);
+    }
+    assert!(started.elapsed() < std::time::Duration::from_secs(60));
 }

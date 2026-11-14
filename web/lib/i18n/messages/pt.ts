@@ -30,6 +30,7 @@ const messages: Messages = {
   'artist.import.step.discover': 'Álbuns importados: {imported}. Procurando fontes…',
   'artist.import.step.groups': 'Obtendo a lista de álbuns do MusicBrainz…',
   'artist.importing': 'Importando a discografia…',
+  'artist.import.queued': 'Aguardando uma vaga livre para importar…',
   'artist.noAlbums': 'Não há álbuns na biblioteca.',
   'backend.down': 'O backend está indisponível — inicie-o (just backend)',
   'backend.ok': 'Backend v{version} em execução',

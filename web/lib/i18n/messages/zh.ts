@@ -28,6 +28,7 @@ const messages: Messages = {
   'artist.import.step.discover': '已导入专辑：{imported}。正在查找音源…',
   'artist.import.step.groups': '正在从 MusicBrainz 获取专辑列表…',
   'artist.importing': '正在导入全部作品…',
+  'artist.import.queued': '正在排队等待导入…',
   'artist.noAlbums': '音乐库中没有专辑。',
   'backend.down': '后端不可用——请启动它（just backend）',
   'backend.ok': '后端 v{version} 运行中',

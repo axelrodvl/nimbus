@@ -29,6 +29,7 @@ const messages: Messages = {
   'artist.import.step.discover': 'İçe aktarılan albüm: {imported}. Kaynaklar aranıyor…',
   'artist.import.step.groups': "Albüm listesi MusicBrainz'ten alınıyor…",
   'artist.importing': 'Diskografi içe aktarılıyor…',
+  'artist.import.queued': 'Boş bir içe aktarma sırası bekleniyor…',
   'artist.noAlbums': 'Kitaplıkta albüm yok.',
   'backend.down': 'Arka uç kullanılamıyor — başlatın (just backend)',
   'backend.ok': 'Arka uç v{version} çalışıyor',

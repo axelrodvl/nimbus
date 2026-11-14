@@ -105,6 +105,8 @@ pub(crate) struct Limiter {
     slots: Arc<Semaphore>,
     max_concurrent: usize,
     interactive_waiting: AtomicUsize,
+    /// Сколько запросов (любого приоритета) сейчас ждут токен или слот.
+    waiting: AtomicUsize,
     /// Сколько раз ожидающий просыпался (для теста «нет busy-loop»).
     wakeups: AtomicUsize,
 }
@@ -112,6 +114,15 @@ pub(crate) struct Limiter {
 /// Разрешение на один HTTP-запрос; слот параллелизма освобождается при `drop`.
 pub(crate) struct Permit {
     _slot: OwnedSemaphorePermit,
+}
+
+/// Считает ожидающих запросы (любого приоритета) для [`Limiter::expected_wait`].
+struct QueueGuard<'a>(&'a Limiter);
+
+impl Drop for QueueGuard<'_> {
+    fn drop(&mut self) {
+        self.0.waiting.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 struct WaitGuard<'a>(&'a Limiter);
@@ -151,8 +162,23 @@ impl Limiter {
             slots: Arc::new(Semaphore::new(max_concurrent)),
             max_concurrent,
             interactive_waiting: AtomicUsize::new(0),
+            waiting: AtomicUsize::new(0),
             wakeups: AtomicUsize::new(0),
         }
+    }
+
+    /// Сколько нового запроса в худшем случае придётся ждать из-за уже стоящих в очереди и
+    /// летящих: `(ждут + в полёте) / темп`. Для «без ограничения темпа» — ноль.
+    pub(crate) fn expected_wait(&self) -> Duration {
+        let rate = self.state().rate;
+        if !rate.is_finite() || rate <= 0.0 {
+            return Duration::ZERO;
+        }
+        let in_flight = self
+            .max_concurrent
+            .saturating_sub(self.slots.available_permits());
+        let ahead = self.waiting.load(Ordering::SeqCst) + in_flight;
+        Duration::from_secs_f64(ahead as f64 / rate)
     }
 
     pub(crate) fn max_concurrent(&self) -> usize {
@@ -165,6 +191,8 @@ impl Limiter {
 
     /// Ждёт токен и слот параллелизма.
     pub(crate) async fn acquire(&self, priority: Priority) -> Permit {
+        self.waiting.fetch_add(1, Ordering::SeqCst);
+        let _queued = QueueGuard(self);
         let _guard = (priority == Priority::Interactive).then(|| {
             self.interactive_waiting.fetch_add(1, Ordering::SeqCst);
             WaitGuard(self)
@@ -307,6 +335,27 @@ mod tests {
         let t = Instant::now();
         drop(l.acquire(p).await);
         t.elapsed()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn expected_wait_grows_with_the_queue_and_falls_with_the_rate() {
+        let l = Arc::new(Limiter::new(MbLimits::paced(2.0)));
+        assert_eq!(l.expected_wait(), Duration::ZERO);
+        let first = l.acquire(Priority::Interactive).await; // токен взят, слот занят
+        assert_eq!(l.expected_wait(), Duration::from_millis(500));
+        let l2 = l.clone();
+        let waiter = tokio::spawn(async move { l2.acquire(Priority::Background).await });
+        tokio::task::yield_now().await;
+        assert_eq!(
+            l.expected_wait(),
+            Duration::from_secs(1),
+            "в полёте один и один ждёт"
+        );
+        drop(first);
+        drop(waiter.await.unwrap());
+        assert_eq!(l.expected_wait(), Duration::ZERO);
+        let unlimited = Limiter::new(MbLimits::unlimited(4));
+        assert_eq!(unlimited.expected_wait(), Duration::ZERO);
     }
 
     #[tokio::test(start_paused = true)]

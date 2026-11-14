@@ -194,6 +194,12 @@ impl MbClient {
         }
     }
 
+    /// Сколько нового запроса сейчас ждать из-за очереди перед ним (см. лимитер): нижняя оценка
+    /// «молчание — это нормально» для долгих операций.
+    pub fn expected_queue_wait(&self) -> Duration {
+        self.inner.limiter().expected_wait()
+    }
+
     fn emit(&self, event: MbEvent) {
         if let Some(o) = &self.observer {
             o(event);

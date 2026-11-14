@@ -78,7 +78,10 @@ pub struct ArtistDto {
 #[derive(Debug, Clone, Copy, Serialize, ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ImportState {
-    /// Импорт идёт или ждёт своей очереди.
+    /// Импорт ещё не начался: ждёт свободного воркера (одновременно идут не больше
+    /// `performance.import_workers` импортов).
+    Queued,
+    /// Импорт идёт.
     Importing,
     /// Попытка не удалась (обычно MusicBrainz недоступен), будет повтор.
     Retrying,
@@ -209,17 +212,17 @@ pub enum PlaybackMode {
 fn import_status(a: &ArtistView) -> Option<ImportStatusDto> {
     let attempt = a.import_attempts.unwrap_or(0);
     let state = match (a.import_state.as_deref()?, attempt) {
-        ("running", _) | ("queued", 0) => ImportState::Importing,
+        ("running", _) => ImportState::Importing,
+        ("queued", 0) => ImportState::Queued,
         ("queued", _) => ImportState::Retrying,
         ("failed", _) => ImportState::Failed,
         _ => return None,
     };
     Some(ImportStatusDto {
         attempt,
-        error: a
-            .import_error
-            .clone()
-            .filter(|_| state != ImportState::Importing || attempt > 1),
+        error: a.import_error.clone().filter(|_| {
+            !matches!(state, ImportState::Importing | ImportState::Queued) || attempt > 1
+        }),
         max_attempts: a.import_max_attempts.unwrap_or(0),
         retry_at: (state == ImportState::Retrying)
             .then_some(a.import_run_after)

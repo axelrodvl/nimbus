@@ -28,6 +28,7 @@ export const en = {
   'artist.import.step.discover': 'Albums imported: {imported}. Looking for sources…',
   'artist.import.step.groups': 'Fetching the album list from MusicBrainz…',
   'artist.importing': 'Importing the discography…',
+  'artist.import.queued': 'Waiting for a free import slot…',
   'artist.noAlbums': 'No albums in the library.',
   'backend.down': 'Backend is unavailable — start it (just backend)',
   'backend.ok': 'Backend v{version} is running',

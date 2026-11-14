@@ -1269,7 +1269,7 @@ export interface components {
             total: number;
         };
         /** @enum {string} */
-        ImportState: "importing" | "retrying" | "failed";
+        ImportState: "queued" | "importing" | "retrying" | "failed";
         ImportStatusDto: {
             /**
              * Format: int32

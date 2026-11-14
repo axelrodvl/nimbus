@@ -100,8 +100,10 @@ pub struct LibraryService {
     import_stall: Duration,
 }
 
-/// Тишина от MusicBrainz дольше этого — импорт считается зависшим и перезапускается.
-pub const IMPORT_STALL: Duration = Duration::from_secs(120);
+/// Тишина от MusicBrainz дольше этого (плюс честное ожидание в очереди лимитера и паузы после 503) —
+/// импорт считается зависшим и перезапускается. Меньше таймаута одного HTTP-запроса (15 с) делать
+/// нельзя: медленный, но живой ответ был бы принят за зависание.
+pub const IMPORT_STALL: Duration = Duration::from_secs(20);
 /// Как часто в интерфейсе обновляется «ждём ответа N с», пока MusicBrainz молчит.
 const IMPORT_HEARTBEAT: Duration = Duration::from_secs(3);
 /// Не чаще раза в это время прогресс из потока событий пишется в БД.
@@ -467,6 +469,8 @@ impl LibraryService {
             let mut heartbeat = tokio::time::interval(IMPORT_HEARTBEAT);
             heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             let mut last_activity = Instant::now();
+            // До этого момента молчание законно: MusicBrainz попросил подождать (503/429).
+            let mut quiet_until = Instant::now();
             let mut last_save = Instant::now();
             let mut step = String::from("Requesting the release list");
             loop {
@@ -477,6 +481,9 @@ impl LibraryService {
                     }
                     Some(event) = rx.recv() => {
                         last_activity = Instant::now();
+                        if let MbEvent::Throttled { wait, .. } = &event {
+                            quiet_until = last_activity + *wait;
+                        }
                         apply_mb_event(&mut progress, &mut step, event);
                         if last_save.elapsed() >= IMPORT_SAVE_EVERY {
                             last_save = Instant::now();
@@ -485,7 +492,7 @@ impl LibraryService {
                     }
                     _ = heartbeat.tick() => {
                         let silent = last_activity.elapsed();
-                        if silent >= self.import_stall {
+                        if is_stalled(silent, self.import_stall, mb.expected_queue_wait(), Instant::now(), quiet_until) {
                             progress.log(format!(
                                 "No response from MusicBrainz for {}s: the import is stuck and will be restarted automatically",
                                 silent.as_secs()
@@ -642,6 +649,19 @@ impl LibraryService {
     }
 }
 
+/// Импорт завис? Тишина `silent` законна, пока она не дольше порога `base` плюс честного ожидания
+/// в очереди лимитера (`queue_wait`: там стоят и другие импорты, и поиски) и пока не прошла пауза,
+/// о которой просил сервер (`quiet_until`).
+fn is_stalled(
+    silent: Duration,
+    base: Duration,
+    queue_wait: Duration,
+    now: Instant,
+    quiet_until: Instant,
+) -> bool {
+    silent >= base + queue_wait && now >= quiet_until
+}
+
 /// Переносит событие клиента MusicBrainz в прогресс импорта: `current` — что делаем сейчас,
 /// `log` — то, что пользователю важно увидеть (страницы, повторы).
 fn apply_mb_event(progress: &mut ImportProgress, step: &mut String, event: MbEvent) {
@@ -692,5 +712,26 @@ fn apply_mb_event(progress: &mut ImportProgress, step: &mut String, event: MbEve
                 progress.log(format!("Tracklists fetched: {done} of {total}"));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod stall_tests {
+    use super::*;
+
+    #[test]
+    fn silence_is_legit_while_queued_or_asked_to_wait() {
+        let now = Instant::now();
+        let base = Duration::from_secs(20);
+        let s = Duration::from_secs;
+        // Тихо дольше порога, очередь пуста, просьб подождать нет → завис.
+        assert!(is_stalled(s(21), base, s(0), now, now));
+        // Не дольше порога → нет.
+        assert!(!is_stalled(s(19), base, s(0), now, now));
+        // Стоим в очереди за пятью запросами по 2 с: порог 30 с, а не 20.
+        assert!(!is_stalled(s(25), base, s(10), now, now));
+        assert!(is_stalled(s(31), base, s(10), now, now));
+        // Сервер просил подождать ещё минуту → пока ждём, не завис.
+        assert!(!is_stalled(s(300), base, s(0), now, now + s(60)));
     }
 }

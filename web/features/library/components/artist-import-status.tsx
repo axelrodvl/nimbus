@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown, Loader2, TriangleAlert } from 'lucide-react';
+import { ChevronDown, Hourglass, Loader2, TriangleAlert } from 'lucide-react';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { retryArtistImport } from '@/app/actions/library';
@@ -91,15 +91,20 @@ export function ArtistImportStatus({ artistId, status }: { artistId: number; sta
   }
 
   const retrying = status.state === 'retrying';
+  const queued = status.state === 'queued';
   const text = retrying
     ? t('artist.import.retrying', { ...params, minutes: minutesUntil(status.retry_at) })
-    : progress
+    : queued
+      ? t('artist.import.queued')
+      : progress
       ? progressLine(t, progress)
       : status.attempt > 1
         ? t('artist.import.attempt', params)
         : t('artist.importing');
   const icon = retrying ? (
     <TriangleAlert className="text-warning h-4 w-4 shrink-0" aria-hidden />
+  ) : queued ? (
+    <Hourglass className="h-4 w-4 shrink-0" aria-hidden />
   ) : (
     <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
   );

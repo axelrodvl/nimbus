@@ -30,6 +30,7 @@ const messages: Messages = {
   'artist.import.step.discover': 'インポート済みアルバム：{imported}。ソースを検索しています…',
   'artist.import.step.groups': 'MusicBrainz からアルバム一覧を取得しています…',
   'artist.importing': 'ディスコグラフィをインポート中…',
+  'artist.import.queued': 'インポートの順番待ち…',
   'artist.noAlbums': 'ライブラリにアルバムがありません。',
   'backend.down': 'バックエンドに接続できません — 起動してください（just backend）',
   'backend.ok': 'バックエンド v{version} は稼働中です',

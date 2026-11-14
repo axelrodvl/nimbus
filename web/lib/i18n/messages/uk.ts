@@ -29,6 +29,7 @@ const messages: Messages = {
   'artist.import.step.discover': 'Альбомів додано: {imported}. Шукаємо джерела…',
   'artist.import.step.groups': 'Отримуємо список альбомів із MusicBrainz…',
   'artist.importing': 'Дискографія імпортується…',
+  'artist.import.queued': 'Чекає своєї черги на імпорт…',
   'artist.noAlbums': 'У бібліотеці немає альбомів.',
   'backend.down': 'Бекенд недоступний — запустіть його (just backend)',
   'backend.ok': 'Бекенд v{version} працює',

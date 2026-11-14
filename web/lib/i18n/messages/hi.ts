@@ -30,6 +30,7 @@ const messages: Messages = {
   'artist.import.step.discover': 'इम्पोर्ट किए गए एल्बम: {imported}। स्रोत खोजे जा रहे हैं…',
   'artist.import.step.groups': 'MusicBrainz से एल्बम सूची ली जा रही है…',
   'artist.importing': 'डिस्कोग्राफ़ी इंपोर्ट हो रही है…',
+  'artist.import.queued': 'आयात की बारी की प्रतीक्षा में…',
   'artist.noAlbums': 'लाइब्रेरी में कोई एल्बम नहीं है।',
   'backend.down': 'बैकएंड उपलब्ध नहीं है — उसे शुरू करें (just backend)',
   'backend.ok': 'बैकएंड v{version} चल रहा है',

@@ -30,6 +30,7 @@ const messages: Messages = {
   'artist.import.step.discover': '가져온 앨범: {imported}개. 소스를 찾는 중…',
   'artist.import.step.groups': 'MusicBrainz에서 앨범 목록을 가져오는 중…',
   'artist.importing': '디스코그래피를 가져오는 중…',
+  'artist.import.queued': '가져오기 순서를 기다리는 중…',
   'artist.noAlbums': '라이브러리에 앨범이 없습니다.',
   'backend.down': '백엔드를 사용할 수 없습니다 — 실행하세요 (just backend)',
   'backend.ok': '백엔드 v{version} 실행 중',
