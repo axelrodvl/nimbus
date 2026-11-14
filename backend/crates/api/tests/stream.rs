@@ -40,6 +40,10 @@ enum Mode {
     StallAfterFirst,
     EnsureStorage,
     OpenStorage,
+    /// Читатель сразу отдаёт ошибку ввода-вывода.
+    ReadError,
+    /// Читатель сразу сообщает конец файла (0 байт).
+    Empty,
 }
 
 struct Fake {
@@ -73,6 +77,26 @@ impl Fake {
             refs: Default::default(),
             engine_file: Default::default(),
         })
+    }
+}
+
+/// Читатель, который сразу падает с ошибкой.
+struct Broken;
+impl AsyncRead for Broken {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _: &mut Context<'_>,
+        _: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Err(std::io::Error::other("boom")))
+    }
+}
+impl AsyncSeek for Broken {
+    fn start_seek(self: Pin<&mut Self>, _: std::io::SeekFrom) -> std::io::Result<()> {
+        Ok(())
+    }
+    fn poll_complete(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<u64>> {
+        Poll::Ready(Ok(0))
     }
 }
 
@@ -171,6 +195,8 @@ impl FileProvider for Fake {
         match self.mode {
             Mode::Hang => return Ok(Box::new(Hang)),
             Mode::OpenStorage => return Err(EngineError::Storage("disk full".into())),
+            Mode::ReadError => return Ok(Box::new(Broken)),
+            Mode::Empty => return Ok(Box::new(std::io::Cursor::new(Vec::<u8>::new()))),
             _ => {}
         }
         self.readers_alive.fetch_add(1, Ordering::SeqCst);
@@ -1699,5 +1725,93 @@ async fn watcher_handles_fifty_downloads_with_correct_events(pool: PgPool) {
     assert_eq!(progress, all);
     assert_eq!(ready, all);
     assert!(downloads::list_active(&pool).await.unwrap().is_empty());
+    let _ = std::fs::remove_file(&f.path);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn stream_without_engine_is_503_for_stream_and_prefetch(pool: PgPool) {
+    let f = fixture(pool.clone(), "flac", TrackStatus::Found).await;
+    let st = state(pool.clone()); // без движка
+    let r = call(
+        &st,
+        "GET",
+        &format!("/api/tracks/{}/stream", f.track_id),
+        None,
+    )
+    .await;
+    assert_eq!(r.status, 503);
+    assert!(String::from_utf8_lossy(&r.body).contains("engine_unavailable"));
+    // prefetch отвечает 202, а фоновая задача тихо заканчивается ошибкой (строки downloads нет).
+    let r = post(&st, &format!("/api/tracks/{}/prefetch", f.track_id)).await;
+    assert_eq!(r.status, 202);
+    assert!(downloads::get(&pool, f.torrent_id, 0)
+        .await
+        .unwrap()
+        .is_none());
+    let _ = std::fs::remove_file(&f.path);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn reader_error_and_empty_file_give_502(pool: PgPool) {
+    for (mode, expect) in [
+        (Mode::ReadError, "boom"),
+        (Mode::Empty, "unexpected end of file"),
+    ] {
+        let f = fixture(pool.clone(), "flac", TrackStatus::Found).await;
+        let fake = Fake::new(f.path.clone(), mode);
+        let st = app(&f, &fake);
+        let r = call(
+            &st,
+            "GET",
+            &format!("/api/tracks/{}/stream", f.track_id),
+            None,
+        )
+        .await;
+        assert_eq!(r.status, 502);
+        let body = String::from_utf8_lossy(&r.body);
+        assert!(
+            body.contains("stream_error") && body.contains(expect),
+            "{body}"
+        );
+        let _ = std::fs::remove_file(&f.path);
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn prefetch_failures_are_swallowed_and_do_not_register_a_read(pool: PgPool) {
+    for mode in [Mode::ReadError, Mode::Hang] {
+        let f = fixture(pool.clone(), "flac", TrackStatus::Found).await;
+        let fake = Fake::new(f.path.clone(), mode);
+        let mut st = app(&f, &fake);
+        st.first_byte_timeout = Duration::from_millis(100);
+        let r = post(&st, &format!("/api/tracks/{}/prefetch", f.track_id)).await;
+        assert_eq!(r.status, 202);
+        nimbus_testkit::eventually(Duration::from_secs(5), || async {
+            fake.open_calls.load(Ordering::SeqCst) > 0
+        })
+        .await;
+        let _ = std::fs::remove_file(&f.path);
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn internal_raw_rejects_non_loopback_peers(pool: PgPool) {
+    let f = fixture(pool.clone(), "ape", TrackStatus::Found).await;
+    let fake = Fake::new(f.path.clone(), Mode::Normal);
+    let st = app(&f, &fake);
+    let tok = st.internal_token.to_string();
+    let uri = format!("/api/internal/raw/{}/0", f.torrent_id);
+    for (ip, expect) in [("203.0.113.9:5000", 403), ("127.0.0.1:5000", 206)] {
+        let mut req = Request::get(&uri)
+            .header("x-nimbus-internal", tok.as_str())
+            .header("range", "bytes=0-9")
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut().insert(axum::extract::ConnectInfo(
+            ip.parse::<std::net::SocketAddr>().unwrap(),
+        ));
+        let res = router(st.clone()).oneshot(req).await.unwrap();
+        assert_eq!(res.status(), expect, "{ip}");
+    }
     let _ = std::fs::remove_file(&f.path);
 }

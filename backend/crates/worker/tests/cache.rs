@@ -291,3 +291,40 @@ async fn pinned_usage_counts_only_pinned_files(pool: PgPool) {
     assert_eq!((u.bytes, u.files), (1000, 1));
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn undeletable_file_is_skipped_and_vanished_file_is_ignored(pool: PgPool) {
+    let root = root();
+    let stuck = item(&pool, &root, 1, 1000, 10).await;
+    let gone = item(&pool, &root, 2, 1000, 5).await;
+    let keep = item(&pool, &root, 3, 1000, 1).await;
+    // На месте файла непустой каталог: `remove_file` падает не с NotFound.
+    std::fs::remove_file(&stuck.path).unwrap();
+    std::fs::create_dir(&stuck.path).unwrap();
+    std::fs::write(stuck.path.join("x"), b"x").unwrap();
+    // Файл удалили снаружи: размер на диске 0, выселять нечего — строку не трогаем.
+    std::fs::remove_file(&gone.path).unwrap();
+    let ctx = ctx(&pool, Activity::default());
+
+    // Лимит 10: надо выселять всё, что можно.
+    let r = evict_cache(&ctx, 10).await.unwrap();
+    assert!(
+        !r.evicted.contains(&(stuck.torrent_id, 0)),
+        "{:?}",
+        r.evicted
+    );
+    assert!(!r.evicted.contains(&(gone.torrent_id, 0)));
+    assert!(r.evicted.contains(&(keep.torrent_id, 0)));
+    assert!(downloads::get(&pool, stuck.torrent_id, 0)
+        .await
+        .unwrap()
+        .is_some());
+    assert!(downloads::get(&pool, gone.torrent_id, 0)
+        .await
+        .unwrap()
+        .is_some());
+    assert_eq!(status(&pool, stuck.track_id).await, TrackStatus::Ready);
+    assert_eq!(status(&pool, gone.track_id).await, TrackStatus::Ready);
+    assert_eq!(status(&pool, keep.track_id).await, TrackStatus::Found);
+    let _ = std::fs::remove_dir_all(&root);
+}

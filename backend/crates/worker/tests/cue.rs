@@ -25,6 +25,8 @@ struct Fake {
     refs: std::sync::Mutex<Vec<TorrentRef>>,
     /// `.torrent`, который «получил из сети» движок.
     engine_file: Option<nimbus_torrent::Bytes>,
+    /// Режим отказа движка: `metadata_timeout`, `storage`, `no_path`; пусто — без отказов.
+    fail: &'static str,
 }
 
 #[async_trait]
@@ -35,6 +37,11 @@ impl FileProvider for Fake {
         _: usize,
     ) -> Result<TorrentHandleId, EngineError> {
         self.refs.lock().unwrap().push(torrent.clone());
+        match self.fail {
+            "metadata_timeout" => return Err(EngineError::MetadataTimeout),
+            "storage" => return Err(EngineError::Storage("disk full".into())),
+            _ => {}
+        }
         Ok(TorrentHandleId(
             InfoHash::from_magnet(&torrent.magnet).unwrap(),
         ))
@@ -59,6 +66,9 @@ impl FileProvider for Fake {
         })
     }
     fn file_path(&self, _: &TorrentHandleId, _: usize) -> Option<PathBuf> {
+        if self.fail == "no_path" {
+            return None;
+        }
         Some(self.path.clone())
     }
 }
@@ -195,6 +205,7 @@ fn ctx_with(
         path,
         refs: Default::default(),
         engine_file: engine_file.map(nimbus_torrent::Bytes::from_static),
+        fail: "",
     });
     let ctx = JobCtx::new(
         pool.clone(),
@@ -361,4 +372,72 @@ async fn cue_download_saves_torrent_file_received_by_the_engine(pool: PgPool) {
             .as_deref(),
         Some(&b"engine"[..])
     );
+}
+
+fn failing_ctx(pool: &PgPool, fail: &'static str) -> JobCtx {
+    let path = std::env::temp_dir().join(format!("nimbus-cue-{}.cue", Uuid::new_v4()));
+    if fail != "missing_file" {
+        std::fs::write(&path, CUE).unwrap();
+    }
+    let fake = Arc::new(Fake {
+        path,
+        refs: Default::default(),
+        engine_file: None,
+        fail,
+    });
+    JobCtx::new(
+        pool.clone(),
+        EventBus::new(),
+        nimbus_musicbrainz::MbClient::new("NimbusTest/0.1 ( https://example.org )", None).unwrap(),
+        Arc::new(nimbus_trackers::ProviderRegistry::new(vec![])),
+    )
+    .with_files(fake)
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn engine_failures_while_fetching_the_cue_map_to_job_errors(pool: PgPool) {
+    let w = world(&pool).await;
+    type Check = fn(&JobError) -> bool;
+    let cases: [(&str, Check); 4] = [
+        ("metadata_timeout", |e| matches!(e, JobError::Retry { .. })),
+        (
+            "storage",
+            |e| matches!(e, JobError::Unexpected(m) if m.contains("disk full")),
+        ),
+        (
+            "no_path",
+            |e| matches!(e, JobError::Unexpected(m) if m.contains("path is unknown")),
+        ),
+        (
+            "missing_file",
+            |e| matches!(e, JobError::Unexpected(m) if m.starts_with("read ")),
+        ),
+    ];
+    for (fail, check) in cases {
+        let err = ProcessCueHandler
+            .handle(job(&w), &failing_ctx(&pool, fail))
+            .await
+            .unwrap_err();
+        assert!(check(&err), "{fail}: {err:?}");
+    }
+    // Ничего не привязано, кандидат остаётся необработанным (повтор возможен).
+    assert!(
+        !cue_candidates::list_for_album(&pool, w.album_id)
+            .await
+            .unwrap()[0]
+            .processed
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn a_cue_without_engine_is_fatal(pool: PgPool) {
+    let w = world(&pool).await;
+    let ctx = JobCtx::new(
+        pool.clone(),
+        EventBus::new(),
+        nimbus_musicbrainz::MbClient::new("NimbusTest/0.1 ( https://example.org )", None).unwrap(),
+        Arc::new(nimbus_trackers::ProviderRegistry::new(vec![])),
+    );
+    let err = ProcessCueHandler.handle(job(&w), &ctx).await.unwrap_err();
+    assert!(matches!(err, JobError::Fatal(_)));
 }

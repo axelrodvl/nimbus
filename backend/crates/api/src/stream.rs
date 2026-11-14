@@ -1123,6 +1123,17 @@ mod range_props {
             prop_assert_eq!(parse_range(Some(&h), size), RangeSpec::Partial { start: a, end: b });
         }
 
+        /// `a-b` с любыми числами: конец обрезается по размеру, начало за файлом — 416.
+        #[test]
+        fn closed_range_is_clamped_to_the_file(a in 0u64..2_000, b in 0u64..2_000, size in 1u64..2_000) {
+            let got = parse_range(Some(&format!("bytes={a}-{b}")), size);
+            if a <= b && a < size {
+                prop_assert_eq!(got, RangeSpec::Partial { start: a, end: b.min(size - 1) });
+            } else {
+                prop_assert_eq!(got, RangeSpec::Unsatisfiable);
+            }
+        }
+
         #[test]
         fn open_range_runs_to_end(a in 0u64..5_000, extra in 1u64..5_000) {
             let size = a + extra;

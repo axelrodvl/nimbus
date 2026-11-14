@@ -723,10 +723,11 @@ async fn busy_listen_port_falls_back_to_a_random_one() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn configured_free_listen_port_is_used() {
-    // Находим свободный порт и освобождаем его перед стартом движка.
-    let probe = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
-    let port = probe.local_addr().unwrap().port();
-    drop(probe);
+    // Свободный порт ищем вне диапазона эфемерных портов ОС (32768+): параллельные тесты берут
+    // порты `bind(0)` именно оттуда и могли бы занять «наш» между проверкой и стартом движка.
+    let port = (20_000u16..30_000)
+        .find(|p| std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, *p)).is_ok())
+        .expect("a free port below the ephemeral range");
     let base = tempdir();
     let mut cfg = base_cfg(base.path(), vec![], true);
     cfg.listen_port = Some(port);
@@ -1056,4 +1057,81 @@ async fn default_ensure_files_loops_over_ensure_file() {
         r.ensure_files(&TorrentRef::magnet("m"), &[]).await,
         Err(EngineError::Internal(_))
     ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pause_resume_and_release_work_through_the_provider_trait() {
+    let swarm = start_swarm().await;
+    let (e, _base) = engine(&swarm, true).await;
+    let files: &dyn FileProvider = &e;
+    let id = files
+        .ensure_files(&TorrentRef::magnet(swarm.magnet()), &[0, 1])
+        .await
+        .unwrap();
+    wait_finished(&e, &id, 0).await;
+    wait_state(&e, &id, TorrentState::Seeding).await;
+
+    files.pause_torrent(&id).await.unwrap();
+    assert_eq!(state_of(&e, &id), Some(TorrentState::Paused));
+    files.resume_torrent(&id).await.unwrap();
+    wait_state(&e, &id, TorrentState::Seeding).await;
+    files.release_file(&id, 0, false).await.unwrap();
+    assert_eq!(e.selected_files(&id).await, [1]);
+    let unknown = TorrentHandleId(nimbus_core::model::InfoHash::parse(&"ab".repeat(20)).unwrap());
+    assert!(matches!(
+        files.release_file(&unknown, 0, true).await,
+        Err(EngineError::NotFound)
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn release_with_delete_tolerates_a_missing_file_and_reports_other_errors() {
+    let swarm = start_swarm().await;
+    let (e, _base) = engine(&swarm, true).await;
+    let id = e
+        .ensure_files(&TorrentRef::magnet(swarm.magnet()), &[0, 1, 2])
+        .await
+        .unwrap();
+    for i in 0..3 {
+        wait_finished(&e, &id, i).await;
+    }
+    // Файла уже нет — удаление данных не ошибка.
+    let p0 = e.file_path(&id, 0).unwrap();
+    std::fs::remove_file(&p0).unwrap();
+    e.release_file(&id, 0, true).await.unwrap();
+    // На месте файла каталог: `remove_file` падает не с NotFound → Storage.
+    let p1 = e.file_path(&id, 1).unwrap();
+    std::fs::remove_file(&p1).unwrap();
+    std::fs::create_dir(&p1).unwrap();
+    assert!(matches!(
+        e.release_file(&id, 1, true).await,
+        Err(EngineError::Storage(_))
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn seeding_and_ratio_setters_are_idempotent() {
+    let swarm = start_swarm().await;
+    let (e, _base) = engine(&swarm, true).await;
+    let id = e
+        .ensure_file(&TorrentRef::magnet(swarm.magnet()), 0)
+        .await
+        .unwrap();
+    wait_finished(&e, &id, 0).await;
+    wait_state(&e, &id, TorrentState::Seeding).await;
+    e.set_seeding(true).await; // уже включено — ничего не меняется
+    e.set_seed_ratio(None).await; // уже None
+    assert!(e.seeding());
+    assert_eq!(state_of(&e, &id), Some(TorrentState::Seeding));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dht_with_persistence_starts_and_stops_cleanly() {
+    let base = tempdir();
+    let mut cfg = base_cfg(base.path(), vec![], true);
+    cfg.dht = true;
+    cfg.persistence = true;
+    let e = TorrentEngine::new(cfg).await.unwrap();
+    assert!(e.listen_addr().is_some());
+    e.shutdown().await;
 }

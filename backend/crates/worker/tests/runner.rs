@@ -639,3 +639,48 @@ async fn handlers_use_worker_counts_from_settings(pool: PgPool) {
     assert_eq!(of("verify_torrent"), 5);
     assert_eq!(of("import_artist"), 7);
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn unparsable_payload_fails_the_job_without_running_the_handler(pool: PgPool) {
+    let probe = Probe::new(Behavior::Ok);
+    let id = enqueue_album(&pool, None).await;
+    sqlx::query(
+        "UPDATE jobs SET payload = '{\"album_id\": \"not a number\"}'::jsonb WHERE id = $1",
+    )
+    .bind(id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let w = spawn_probe(&pool, &probe, fast_cfg());
+    let row = wait_state(&pool, id, "failed").await;
+    assert!(row.last_error.unwrap().starts_with("bad payload"));
+    assert_eq!(probe.calls(), 0);
+    w.shutdown().await;
+}
+
+#[test]
+fn database_errors_become_unexpected_job_errors() {
+    let e: JobError = sqlx::Error::RowNotFound.into();
+    assert!(matches!(e, JobError::Unexpected(_)));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn missing_engine_and_fetcher_are_fatal_not_retried(pool: PgPool) {
+    let c = ctx(&pool);
+    assert!(matches!(c.engine(), Err(JobError::Fatal(_))));
+    assert!(matches!(c.fetcher(), Err(JobError::Fatal(_))));
+    assert!(matches!(c.files(), Err(JobError::Fatal(_))));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn with_engine_wires_engine_fetcher_and_files(pool: PgPool) {
+    let dir = nimbus_testkit::tempdir();
+    let mut cfg = nimbus_torrent::EngineConfig::new(dir.path(), false);
+    cfg.dht = false;
+    cfg.persistence = false;
+    cfg.localhost_only = true;
+    let engine = Arc::new(nimbus_torrent::TorrentEngine::new(cfg).await.unwrap());
+    let c = ctx(&pool).with_engine(engine.clone());
+    assert!(c.engine().is_ok() && c.fetcher().is_ok() && c.files().is_ok());
+    engine.shutdown().await;
+}
