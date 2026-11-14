@@ -242,6 +242,11 @@ pub struct StorageDto {
     pub files: i64,
     /// Торрентов с незавершёнными загрузками.
     pub torrents_active: i64,
+    /// Занято закреплёнными файлами (их вытеснение не трогает).
+    pub pinned_bytes: u64,
+    pub pinned_files: i64,
+    /// Закреплённое одно превышает лимит кэша: вытеснять больше нечего, место не освободится.
+    pub over_limit: bool,
 }
 
 #[utoipa::path(
@@ -256,10 +261,15 @@ pub async fn get_storage(
 ) -> Result<Json<StorageDto>, ApiError> {
     authorize(&state, &headers)?;
     let u = nimbus_worker::cache::usage(&state.db).await?;
+    let pinned = nimbus_worker::cache::pinned_usage(&state.db).await?;
+    let limit_bytes = state.settings.get().cache_limit_bytes();
     Ok(Json(StorageDto {
         used_bytes: u.used_bytes,
-        limit_bytes: state.settings.get().cache_limit_bytes(),
+        limit_bytes,
         files: u.files,
         torrents_active: u.torrents_active,
+        pinned_bytes: pinned.bytes,
+        pinned_files: pinned.files,
+        over_limit: pinned.bytes > limit_bytes,
     }))
 }

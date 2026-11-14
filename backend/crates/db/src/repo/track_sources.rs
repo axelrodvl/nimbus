@@ -64,6 +64,8 @@ pub async fn set_primary(
     .bind(track_id)
     .fetch_one(&mut *tx)
     .await?;
+    // Закреплённому треку нужен новый файл: возвращаем закрепление в очередь (в той же транзакции).
+    super::pins::requeue(&mut *tx, track_id).await?;
     tx.commit().await?;
     Ok(src)
 }

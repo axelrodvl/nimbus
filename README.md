@@ -21,6 +21,9 @@ A self-hosted web music player: metadata from [MusicBrainz](https://musicbrainz.
 - Streaming playback directly from the torrent (HTTP Range, seeking); ffmpeg transcoding for CUE images and APE/WV/DSD.
 - Live track statuses over WebSocket: searching → playable → downloaded.
 - Manual source selection, custom magnet links, search retry.
+- Pinning: download an album or track to the server on demand (queue, concurrency limit, pause); pinned files are
+  never evicted from the cache, so they count against — and may exceed — the cache limit. Optional auto-download
+  of everything added to the library.
 - Settings in the UI, cache size limit with eviction, next-track prefetch, optional seeding.
 - Simple single-user token authentication.
 - UI in 14 languages (English, Русский, Español, Français, Deutsch, 中文, Português, Italiano, 日本語, 한국어,

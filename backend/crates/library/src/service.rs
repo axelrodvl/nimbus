@@ -2,10 +2,10 @@ use nimbus_core::events::{Entity, Event, EventBus};
 use nimbus_core::jobs::{Job, PRIORITY_INTERACTIVE, PRIORITY_NORMAL};
 use nimbus_core::model::{Album, Artist, NewAlbum, NewArtist, NewTrack, Track, TrackStatus};
 use nimbus_db::repo::jobs::{EnqueueOpts, ImportPhase, ImportProgress};
-use nimbus_db::repo::{albums, artists, jobs, tracks};
+use nimbus_db::repo::{albums, artists, jobs, pins, tracks};
 use nimbus_db::PgPool;
 use nimbus_musicbrainz::{cover_url, BulkGroup, MbClient, ReleaseGroupHit, ReleaseTracklist};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
 use uuid::Uuid;
 
@@ -91,6 +91,8 @@ pub struct LibraryService {
     db: PgPool,
     mb: MbClient,
     events: EventBus,
+    /// Включена ли автозагрузка (`storage.auto_download = "added"`): добавляемое сразу закрепляется.
+    auto_download: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
 }
 
 /// Попыток задачи `ImportArtist` (с растущей паузой это около получаса).
@@ -100,7 +102,23 @@ impl LibraryService {
     /// `mb` задаёт приоритет MB-запросов: для запросов пользователя — обычный клиент,
     /// для фоновых задач — `mb.background()`.
     pub fn new(db: PgPool, mb: MbClient, events: EventBus) -> Self {
-        Self { db, mb, events }
+        Self {
+            db,
+            mb,
+            events,
+            auto_download: None,
+        }
+    }
+
+    /// Подключает проверку автозагрузки: пока она возвращает `true`, всё, что попадает в библиотеку
+    /// (альбом, трек, импорт артиста), закрепляется в той же транзакции.
+    pub fn with_auto_download(mut self, f: impl Fn() -> bool + Send + Sync + 'static) -> Self {
+        self.auto_download = Some(Arc::new(f));
+        self
+    }
+
+    fn auto_pin(&self) -> bool {
+        self.auto_download.as_ref().is_some_and(|f| f())
     }
 
     fn changed(&self, entity: Entity, id: i64) {
@@ -235,6 +253,9 @@ impl LibraryService {
         albums::set_in_library(&mut *tx, album.id, true).await?;
         artists::set_in_library(&mut *tx, album.artist_id, true).await?;
         tracks::set_in_library_for_album(&mut *tx, album.id, true).await?;
+        if self.auto_pin() {
+            pins::pin_album(&mut tx, album.id).await?;
+        }
         let reset = tracks::set_status_for_album(
             &mut *tx,
             album.id,
@@ -296,6 +317,9 @@ impl LibraryService {
         let mut tx = self.db.begin().await?;
         tracks::set_in_library(&mut *tx, track.id, true).await?;
         artists::set_in_library(&mut *tx, track.artist_id, true).await?;
+        if self.auto_pin() {
+            pins::pin_tracks(&mut *tx, &[track.id], false).await?;
+        }
         if track.status == TrackStatus::NotFound {
             tracks::set_status(&mut *tx, track.id, TrackStatus::Adding, None).await?;
         }
@@ -519,6 +543,7 @@ impl LibraryService {
                 artists::set_in_library(&mut *tx, id, false).await?;
                 albums::set_in_library_for_artist(&mut *tx, id, false).await?;
                 tracks::set_in_library_for_artist(&mut *tx, id, false).await?;
+                pins::unpin_artist(&mut *tx, id).await?;
                 tx.commit().await?;
                 self.changed(Entity::Artist, artist.id);
             }
@@ -529,6 +554,7 @@ impl LibraryService {
                 let mut tx = self.db.begin().await?;
                 albums::set_in_library(&mut *tx, id, false).await?;
                 tracks::set_in_library_for_album(&mut *tx, id, false).await?;
+                pins::unpin_album(&mut *tx, id).await?;
                 tx.commit().await?;
                 self.changed(Entity::Album, album.id);
             }
@@ -537,6 +563,7 @@ impl LibraryService {
                     .await?
                     .ok_or(LibraryError::NotFound("track"))?;
                 tracks::set_in_library(&self.db, id, false).await?;
+                pins::unpin_track(&self.db, id).await?;
                 self.changed(Entity::Track, track.id);
             }
         }

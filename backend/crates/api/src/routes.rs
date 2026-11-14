@@ -98,6 +98,16 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
         )
         .route("/jobs", get(crate::jobs::list_jobs))
         .route("/jobs/{id}/retry", post(crate::jobs::retry_job))
+        .route(
+            "/albums/{id}/download",
+            post(crate::downloads::pin_album).delete(crate::downloads::unpin_album),
+        )
+        .route(
+            "/tracks/{id}/download",
+            post(crate::downloads::pin_track).delete(crate::downloads::unpin_track),
+        )
+        .route("/downloads/pause-all", post(crate::downloads::pause_all))
+        .route("/downloads/resume-all", post(crate::downloads::resume_all))
         .route("/downloads", get(crate::downloads::list_downloads))
         .route(
             "/downloads/{info_hash}/pause",

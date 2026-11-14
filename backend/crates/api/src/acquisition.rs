@@ -6,7 +6,7 @@ use axum::http::HeaderMap;
 use axum::Json;
 use chrono::{DateTime, Utc};
 use nimbus_core::jobs::PRIORITY_INTERACTIVE;
-use nimbus_core::model::{AcquisitionState, SearchOutcome};
+use nimbus_core::model::{AcquisitionState, PinState, SearchOutcome};
 use nimbus_db::repo::acquisition::{self, AcquisitionRow, Cursor, MAX_BULK_RETRY, MAX_PAGE};
 use nimbus_db::repo::jobs;
 use nimbus_library::retry::{retry_album, RetryOptions};
@@ -66,11 +66,21 @@ pub struct AcquisitionSearch {
     pub next_retry_at: Option<DateTime<Utc>>,
 }
 
-/// Прогресс активной загрузки файлов альбома.
+/// Загрузка файлов альбома: прогресс активной загрузки и состояние закрепления (шаг 33).
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AcquisitionDownload {
     pub bytes_done: i64,
     pub bytes_total: i64,
+    /// У альбома есть закреплённые треки.
+    pub pinned: bool,
+    /// Агрегат закреплений альбома: `downloading` > `queued` > `failed` > `waiting_source` > `done`;
+    /// `null` — ничего не закреплено.
+    pub state: Option<PinState>,
+    /// Скорость закреплённых загрузок (из менеджера; 0, если не качается).
+    pub down_bps: u64,
+    pub peers: u32,
+    /// Причина `failed` (например `stalled`).
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -108,15 +118,18 @@ fn count(v: i32) -> u32 {
     u32::try_from(v).unwrap_or(0)
 }
 
-impl From<AcquisitionRow> for AcquisitionItem {
-    fn from(r: AcquisitionRow) -> Self {
-        let download = match (r.bytes_done, r.bytes_total) {
-            (Some(bytes_done), Some(bytes_total)) => Some(AcquisitionDownload {
-                bytes_done,
-                bytes_total,
-            }),
-            _ => None,
-        };
+impl AcquisitionItem {
+    /// `live` — скорость и пиры закреплённых загрузок альбома из менеджера.
+    fn from_row(r: AcquisitionRow, live: crate::download_manager::Live) -> Self {
+        let download = (r.pinned || r.bytes_done.is_some()).then(|| AcquisitionDownload {
+            bytes_done: r.bytes_done.unwrap_or(0),
+            bytes_total: r.bytes_total.unwrap_or(0),
+            pinned: r.pinned,
+            state: r.pin_state,
+            down_bps: live.down_bps,
+            peers: live.peers,
+            error: r.pin_error.clone(),
+        });
         Self {
             album: AcquisitionAlbum {
                 id: r.album_id,
@@ -207,7 +220,14 @@ pub async fn list_acquisition(
     let page = acquisition::list(&state.db, states.as_deref(), cursor.as_ref(), limit).await?;
     Ok(Json(AcquisitionPage {
         next_cursor: page.next.as_ref().map(Cursor::encode),
-        items: page.items.into_iter().map(AcquisitionItem::from).collect(),
+        items: page
+            .items
+            .into_iter()
+            .map(|r| {
+                let live = state.downloads.live(r.album_id);
+                AcquisitionItem::from_row(r, live)
+            })
+            .collect(),
     }))
 }
 

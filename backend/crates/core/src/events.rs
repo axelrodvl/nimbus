@@ -59,6 +59,15 @@ pub enum Event {
     /// стоит перечитать `GET /api/acquisition`. Коалесцируется: [`ACQUISITION_DEBOUNCE`].
     #[serde(rename = "acquisition.changed")]
     AcquisitionChanged { album_id: i64 },
+    /// Агрегат по закреплённым загрузкам альбома (раз в секунду, пока они идут).
+    #[serde(rename = "download.progress")]
+    DownloadProgress {
+        album_id: i64,
+        bytes_done: u64,
+        bytes_total: u64,
+        down_bps: u64,
+        peers: u32,
+    },
 }
 
 /// Состояние коалесцирования событий одного альбома.

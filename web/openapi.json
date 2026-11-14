@@ -167,6 +167,90 @@
         }
       }
     },
+    "/api/albums/{id}/download": {
+      "post": {
+        "tags": [
+          "downloads"
+        ],
+        "operationId": "pin_album",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID альбома",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Треки альбома из библиотеки закреплены: сервер скачает их и не вытеснит из кэша (идемпотентно)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Нет такого альбома",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "downloads"
+        ],
+        "operationId": "unpin_album",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID альбома",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "delete_files",
+            "in": "query",
+            "description": "Удалить скачанные файлы (кроме нужных другому закреплённому треку и играющих сейчас). По умолчанию `false`.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Закрепление снято; недокачанное отменено, скачанное остаётся (или удалено при `delete_files=true`)"
+          },
+          "404": {
+            "description": "Нет такого альбома",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/albums/{id}/retry": {
       "post": {
         "tags": [
@@ -614,6 +698,46 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/downloads/pause-all": {
+      "post": {
+        "tags": [
+          "downloads"
+        ],
+        "operationId": "pause_all",
+        "responses": {
+          "200": {
+            "description": "Новые закреплённые загрузки не стартуют, активные ради закреплений торренты на паузе (стримящиеся не трогаются); флаг переживает рестарт",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PausedResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/downloads/resume-all": {
+      "post": {
+        "tags": [
+          "downloads"
+        ],
+        "operationId": "resume_all",
+        "responses": {
+          "200": {
+            "description": "Закреплённые загрузки продолжаются",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PausedResponse"
                 }
               }
             }
@@ -1776,6 +1900,100 @@
         }
       }
     },
+    "/api/tracks/{id}/download": {
+      "post": {
+        "tags": [
+          "downloads"
+        ],
+        "operationId": "pin_track",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID трека",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Трек закреплён (идемпотентно)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Нет такого трека",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Трека нет в библиотеке (`not_in_library`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "downloads"
+        ],
+        "operationId": "unpin_track",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID трека",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "delete_files",
+            "in": "query",
+            "description": "Удалить скачанные файлы (кроме нужных другому закреплённому треку и играющих сейчас). По умолчанию `false`.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Закрепление снято (идемпотентно)"
+          },
+          "404": {
+            "description": "Нет такого трека",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tracks/{id}/played": {
       "post": {
         "tags": [
@@ -2252,10 +2470,13 @@
       },
       "AcquisitionDownload": {
         "type": "object",
-        "description": "Прогресс активной загрузки файлов альбома.",
+        "description": "Загрузка файлов альбома: прогресс активной загрузки и состояние закрепления (шаг 33).",
         "required": [
           "bytes_done",
-          "bytes_total"
+          "bytes_total",
+          "pinned",
+          "down_bps",
+          "peers"
         ],
         "properties": {
           "bytes_done": {
@@ -2265,6 +2486,39 @@
           "bytes_total": {
             "type": "integer",
             "format": "int64"
+          },
+          "down_bps": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Скорость закреплённых загрузок (из менеджера; 0, если не качается).",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Причина `failed` (например `stalled`)."
+          },
+          "peers": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "pinned": {
+            "type": "boolean",
+            "description": "У альбома есть закреплённые треки."
+          },
+          "state": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PinState",
+                "description": "Агрегат закреплений альбома: `downloading` > `queued` > `failed` > `waiting_source` > `done`;\n`null` — ничего не закреплено."
+              }
+            ]
           }
         }
       },
@@ -3079,6 +3333,34 @@
           }
         }
       },
+      "DownloadQueue": {
+        "type": "object",
+        "description": "Закрепления по состояниям (`done` не считается: их история — в `/api/acquisition`).",
+        "required": [
+          "queued",
+          "downloading",
+          "waiting_source",
+          "failed"
+        ],
+        "properties": {
+          "downloading": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "queued": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "waiting_source": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "DownloadState": {
         "type": "string",
         "enum": [
@@ -3094,13 +3376,22 @@
         "required": [
           "torrents",
           "down_bps",
-          "up_bps"
+          "up_bps",
+          "paused",
+          "queue"
         ],
         "properties": {
           "down_bps": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "paused": {
+            "type": "boolean",
+            "description": "Включена глобальная пауза закреплённых загрузок."
+          },
+          "queue": {
+            "$ref": "#/components/schemas/DownloadQueue"
           },
           "torrents": {
             "type": "array",
@@ -3489,6 +3780,41 @@
           "timeout",
           "dead",
           "error"
+        ]
+      },
+      "PausedResponse": {
+        "type": "object",
+        "required": [
+          "paused"
+        ],
+        "properties": {
+          "paused": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PinResponse": {
+        "type": "object",
+        "required": [
+          "pinned"
+        ],
+        "properties": {
+          "pinned": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Сколько треков закреплено (уже закреплённые тоже считаются: операция идемпотентна).",
+            "minimum": 0
+          }
+        }
+      },
+      "PinState": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "downloading",
+          "done",
+          "waiting_source",
+          "failed"
         ]
       },
       "PlayCountResponse": {
@@ -3886,7 +4212,10 @@
           "used_bytes",
           "limit_bytes",
           "files",
-          "torrents_active"
+          "torrents_active",
+          "pinned_bytes",
+          "pinned_files",
+          "over_limit"
         ],
         "properties": {
           "files": {
@@ -3898,6 +4227,20 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "over_limit": {
+            "type": "boolean",
+            "description": "Закреплённое одно превышает лимит кэша: вытеснять больше нечего, место не освободится."
+          },
+          "pinned_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Занято закреплёнными файлами (их вытеснение не трогает).",
+            "minimum": 0
+          },
+          "pinned_files": {
+            "type": "integer",
+            "format": "int64"
           },
           "torrents_active": {
             "type": "integer",

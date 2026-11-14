@@ -250,9 +250,29 @@ async fn performance_defaults_are_exposed(pool: PgPool) {
         body["performance"],
         json!({
             "discover_workers": 8, "verify_workers": 16, "import_workers": 2,
-            "metadata_concurrency": 16, "metadata_timeout_secs": 30
+            "metadata_concurrency": 16, "metadata_timeout_secs": 30, "download_concurrency": 4
         })
     );
+    assert_eq!(body["storage"]["auto_download"], "off");
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn download_settings_are_validated(pool: PgPool) {
+    let app = router(state(pool));
+    for bad in [0, 33] {
+        let (code, body) = put(
+            app.clone(),
+            json!({"performance": {"download_concurrency": bad}}),
+        )
+        .await;
+        assert_eq!(code, 400, "{bad}");
+        assert_eq!(body["error"]["code"], "invalid_settings");
+    }
+    let (code, _) = put(app.clone(), json!({"storage": {"auto_download": "always"}})).await;
+    assert_eq!(code, 400);
+    let (code, body) = put(app, json!({"storage": {"auto_download": "added"}})).await;
+    assert_eq!(code, 200);
+    assert_eq!(body["storage"]["auto_download"], "added");
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]

@@ -281,6 +281,23 @@ pub trait FileProvider: Send + Sync {
     ) -> Result<Box<dyn AsyncReadSeek + Send + Unpin>, EngineError>;
     fn file_progress(&self, id: &TorrentHandleId, file_index: usize) -> Option<FileProgress>;
     fn file_path(&self, id: &TorrentHandleId, file_index: usize) -> Option<PathBuf>;
+    /// Пауза торрента (для менеджера загрузок). По умолчанию — ничего не делает.
+    async fn pause_torrent(&self, _id: &TorrentHandleId) -> Result<(), EngineError> {
+        Ok(())
+    }
+    /// Возобновление торрента (идемпотентно). По умолчанию — ничего не делает.
+    async fn resume_torrent(&self, _id: &TorrentHandleId) -> Result<(), EngineError> {
+        Ok(())
+    }
+    /// Убрать файл из набора скачиваемых, при `delete_data` — удалить данные. По умолчанию — ничего.
+    async fn release_file(
+        &self,
+        _id: &TorrentHandleId,
+        _file_index: usize,
+        _delete_data: bool,
+    ) -> Result<(), EngineError> {
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -314,6 +331,20 @@ impl FileProvider for TorrentEngine {
     }
     fn file_path(&self, id: &TorrentHandleId, file_index: usize) -> Option<PathBuf> {
         TorrentEngine::file_path(self, id, file_index)
+    }
+    async fn pause_torrent(&self, id: &TorrentHandleId) -> Result<(), EngineError> {
+        TorrentEngine::pause_torrent(self, id).await
+    }
+    async fn resume_torrent(&self, id: &TorrentHandleId) -> Result<(), EngineError> {
+        TorrentEngine::resume_torrent(self, id).await
+    }
+    async fn release_file(
+        &self,
+        id: &TorrentHandleId,
+        file_index: usize,
+        delete_data: bool,
+    ) -> Result<(), EngineError> {
+        TorrentEngine::release_file(self, id, file_index, delete_data).await
     }
 }
 

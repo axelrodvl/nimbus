@@ -121,6 +121,17 @@ text_enum!(
 );
 
 text_enum!(
+    /// Состояние закрепления трека (`pinned_tracks.state`, шаг 33); тот же набор — агрегат по альбому.
+    PinState {
+        Queued => "queued",
+        Downloading => "downloading",
+        Done => "done",
+        WaitingSource => "waiting_source",
+        Failed => "failed",
+    }
+);
+
+text_enum!(
     /// Итог последнего завершённого поиска раздач альбома (`album_search_state.last_outcome`).
     SearchOutcome {
         Found => "found",

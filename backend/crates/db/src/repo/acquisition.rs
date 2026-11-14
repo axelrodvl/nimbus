@@ -43,15 +43,26 @@ macro_rules! state_cte {
               JOIN downloads d ON d.torrent_id = ts.torrent_id AND d.file_index = ts.file_index
             WHERE t.in_library AND d.completed_at IS NULL
             GROUP BY t.album_id
+         ), pn AS (
+            SELECT t.album_id,
+                   CASE WHEN bool_or(p.state = 'downloading') THEN 'downloading'
+                        WHEN bool_or(p.state = 'queued') THEN 'queued'
+                        WHEN bool_or(p.state = 'failed') THEN 'failed'
+                        WHEN bool_or(p.state = 'waiting_source') THEN 'waiting_source'
+                        ELSE 'done' END AS pin_state,
+                   min(p.error) FILTER (WHERE p.state = 'failed') AS pin_error
+            FROM pinned_tracks p JOIN tracks t ON t.id = p.track_id
+            WHERE t.in_library GROUP BY t.album_id
          ), st AS (
             SELECT tr.*, dl.bytes_done, dl.bytes_total,
+                   (pn.album_id IS NOT NULL) AS pinned, pn.pin_state, pn.pin_error,
                    CASE WHEN tr.adding > 0 THEN 'searching'
                         WHEN dl.album_id IS NOT NULL THEN 'downloading'
                         WHEN tr.not_found > 0 AND tr.found + tr.ready > 0 THEN 'partial'
                         WHEN tr.not_found > 0 THEN 'missing'
                         WHEN tr.ready = tr.total THEN 'downloaded'
                         ELSE 'available' END AS state
-            FROM tr LEFT JOIN dl USING (album_id)
+            FROM tr LEFT JOIN dl USING (album_id) LEFT JOIN pn USING (album_id)
          )"
     };
 }
@@ -254,6 +265,11 @@ pub struct AcquisitionRow {
     pub next_retry_at: Option<DateTime<Utc>>,
     pub bytes_done: Option<i64>,
     pub bytes_total: Option<i64>,
+    /// Есть закрепления у треков альбома из библиотеки.
+    pub pinned: bool,
+    /// Агрегат закреплений: downloading > queued > failed > waiting_source > done.
+    pub pin_state: Option<nimbus_core::model::PinState>,
+    pub pin_error: Option<String>,
     /// Задачи `discover_album`/`verify_torrent`/`process_cue` альбома в очереди или в работе.
     pub active_jobs: i64,
     /// Позиция для курсора (см. [`Cursor`]).
@@ -361,6 +377,7 @@ pub async fn list(
         ")[p.reason_rank] AS reason,
                 p.attempts, p.last_finished_at, p.last_outcome, p.candidates, p.provider_errors,
                 p.next_retry_at, p.bytes_done, p.bytes_total,
+                p.pinned, p.pin_state, p.pin_error,
                 (SELECT count(*) FROM jobs j
                   WHERE j.state IN ('queued','running')
                     AND j.payload->>'album_id' = p.album_id::text

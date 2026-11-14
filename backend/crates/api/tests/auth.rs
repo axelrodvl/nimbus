@@ -209,6 +209,12 @@ async fn every_api_route_is_closed_without_a_token(pool: PgPool) {
         ("POST", "/api/tracks/1/retry"),
         ("POST", "/api/jobs/1/retry"),
         ("POST", "/api/acquisition/retry"),
+        ("POST", "/api/albums/1/download"),
+        ("DELETE", "/api/albums/1/download"),
+        ("POST", "/api/tracks/1/download"),
+        ("DELETE", "/api/tracks/1/download"),
+        ("POST", "/api/downloads/pause-all"),
+        ("POST", "/api/downloads/resume-all"),
         ("PUT", "/api/settings"),
         ("POST", "/api/settings/providers/test"),
     ] {

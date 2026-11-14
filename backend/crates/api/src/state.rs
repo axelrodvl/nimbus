@@ -38,6 +38,16 @@ pub struct AppState {
     pub internal_token: Arc<str>,
     /// Общий таймаут эндпоинта поиска.
     pub search_timeout: Duration,
+    /// Связь менеджера загрузок с API: будильник и живая статистика (скорость, пиры) по альбомам.
+    pub downloads: crate::download_manager::DownloadHub,
+}
+
+/// Включена ли автозагрузка в текущих настройках.
+fn auto_download_flag(
+    settings: &nimbus_db::settings::SettingsStore,
+) -> impl Fn() -> bool + Send + Sync + 'static {
+    let settings = settings.clone();
+    move || settings.get().storage.auto_download == "added"
 }
 
 /// 32 случайных байта в hex.
@@ -54,12 +64,15 @@ impl AppState {
             db.clone(),
             nimbus_core::Settings::from_config(&config),
         );
+        let library = LibraryService::new(db.clone(), mb.clone(), events.clone())
+            .with_auto_download(auto_download_flag(&settings));
         Self {
             boot_performance: settings.get().performance.clone(),
+            downloads: crate::download_manager::DownloadHub::default(),
             settings,
             providers: Arc::new(nimbus_trackers::ProviderRegistry::new(vec![])),
             activity: nimbus_core::activity::Activity::default(),
-            library: LibraryService::new(db.clone(), mb.clone(), events.clone()),
+            library,
             engine: None,
             files: None,
             transcoder: crate::transcode::Transcoder::new("ffmpeg"),
@@ -96,6 +109,9 @@ impl AppState {
 impl AppState {
     pub fn with_settings(mut self, settings: nimbus_db::settings::SettingsStore) -> Self {
         self.boot_performance = settings.get().performance.clone();
+        self.library = self
+            .library
+            .with_auto_download(auto_download_flag(&settings));
         self.settings = settings;
         self
     }

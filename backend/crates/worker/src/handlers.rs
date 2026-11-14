@@ -22,7 +22,9 @@ impl JobHandler for ImportArtistHandler {
         let Job::ImportArtist { artist_id } = job else {
             return Err(JobError::Fatal("unexpected job kind".into()));
         };
-        let service = LibraryService::new(ctx.db.clone(), ctx.mb.background(), ctx.events.clone());
+        let settings = ctx.settings.clone();
+        let service = LibraryService::new(ctx.db.clone(), ctx.mb.background(), ctx.events.clone())
+            .with_auto_download(move || settings.get().storage.auto_download == "added");
         let skip = ctx.settings.get().search.skip_secondary_types.clone();
         match ctx
             .run(service.import_artist_skipping(artist_id, &skip))

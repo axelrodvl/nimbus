@@ -1,12 +1,14 @@
 //! Менеджер загрузок: список торрентов движка и ручная пауза / запуск.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
+use nimbus_core::events::{Entity, Event};
 use nimbus_core::model::InfoHash;
+use nimbus_db::repo::{albums, pins, tracks};
 use nimbus_torrent::{EngineError, TorrentEngine, TorrentHandleId, TorrentInfo, TorrentState};
-use serde::Serialize;
-use utoipa::ToSchema;
+use serde::{Deserialize, Serialize};
+use utoipa::{IntoParams, ToSchema};
 
 use crate::auth::authorize;
 use crate::error::ApiError;
@@ -73,11 +75,23 @@ impl From<TorrentInfo> for DownloadDto {
     }
 }
 
+/// Закрепления по состояниям (`done` не считается: их история — в `/api/acquisition`).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DownloadQueue {
+    pub queued: i64,
+    pub downloading: i64,
+    pub waiting_source: i64,
+    pub failed: i64,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct DownloadsResponse {
     pub torrents: Vec<DownloadDto>,
     pub down_bps: u64,
     pub up_bps: u64,
+    /// Включена глобальная пауза закреплённых загрузок.
+    pub paused: bool,
+    pub queue: DownloadQueue,
 }
 
 fn engine(state: &AppState) -> Result<&TorrentEngine, ApiError> {
@@ -109,10 +123,18 @@ pub async fn list_downloads(
         .into_iter()
         .map(Into::into)
         .collect();
+    let q = pins::counts(&state.db).await?;
     Ok(Json(DownloadsResponse {
         down_bps: torrents.iter().map(|t| t.down_bps).sum(),
         up_bps: torrents.iter().map(|t| t.up_bps).sum(),
         torrents,
+        paused: nimbus_db::settings::downloads_paused(&state.db).await?,
+        queue: DownloadQueue {
+            queued: q.queued,
+            downloading: q.downloading,
+            waiting_source: q.waiting_source,
+            failed: q.failed,
+        },
     }))
 }
 
@@ -176,4 +198,186 @@ pub async fn resume_download(
         .await
         .map_err(map_err)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ------------------------------------------------------------ закрепление (шаг 33)
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PinResponse {
+    /// Сколько треков закреплено (уже закреплённые тоже считаются: операция идемпотентна).
+    pub pinned: u32,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PausedResponse {
+    pub paused: bool,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct UnpinParams {
+    /// Удалить скачанные файлы (кроме нужных другому закреплённому треку и играющих сейчас). По умолчанию `false`.
+    delete_files: Option<bool>,
+}
+
+/// Сообщает клиентам об изменении закрепления и будит менеджер.
+fn pins_changed(state: &AppState, album_id: i64, track_ids: &[i64]) {
+    state.events.publish_acquisition_changed(album_id);
+    for &id in track_ids {
+        state.events.publish(Event::LibraryChanged {
+            entity: Entity::Track,
+            id,
+        });
+    }
+    state.downloads.wake();
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/albums/{id}/download",
+    tag = "downloads",
+    params(("id" = i64, Path, description = "ID альбома")),
+    responses(
+        (status = 200, description = "Треки альбома из библиотеки закреплены: сервер скачает их и не вытеснит из кэша (идемпотентно)", body = PinResponse),
+        (status = 404, description = "Нет такого альбома", body = crate::error::ErrorResponse),
+    )
+)]
+pub async fn pin_album(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> Result<Json<PinResponse>, ApiError> {
+    authorize(&state, &headers)?;
+    albums::get(&state.db, id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("album not found"))?;
+    let mut conn = state.db.acquire().await?;
+    let pinned = pins::pin_album(&mut conn, id).await?;
+    pins_changed(&state, id, &[]);
+    Ok(Json(PinResponse {
+        pinned: u32::try_from(pinned).unwrap_or(u32::MAX),
+    }))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/albums/{id}/download",
+    tag = "downloads",
+    params(("id" = i64, Path, description = "ID альбома"), UnpinParams),
+    responses(
+        (status = 204, description = "Закрепление снято; недокачанное отменено, скачанное остаётся (или удалено при `delete_files=true`)"),
+        (status = 404, description = "Нет такого альбома", body = crate::error::ErrorResponse),
+    )
+)]
+pub async fn unpin_album(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Query(p): Query<UnpinParams>,
+) -> Result<StatusCode, ApiError> {
+    authorize(&state, &headers)?;
+    albums::get(&state.db, id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("album not found"))?;
+    let removed = pins::unpin_album(&state.db, id).await?;
+    crate::download_manager::release_files(&state, &removed, p.delete_files.unwrap_or(false))
+        .await?;
+    pins_changed(&state, id, &removed);
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/tracks/{id}/download",
+    tag = "downloads",
+    params(("id" = i64, Path, description = "ID трека")),
+    responses(
+        (status = 200, description = "Трек закреплён (идемпотентно)", body = PinResponse),
+        (status = 404, description = "Нет такого трека", body = crate::error::ErrorResponse),
+        (status = 409, description = "Трека нет в библиотеке (`not_in_library`)", body = crate::error::ErrorResponse),
+    )
+)]
+pub async fn pin_track(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> Result<Json<PinResponse>, ApiError> {
+    authorize(&state, &headers)?;
+    let track = tracks::get(&state.db, id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("track not found"))?;
+    if !track.in_library {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "not_in_library",
+            "track is not in the library",
+        ));
+    }
+    let pinned = pins::pin_tracks(&state.db, &[id], false).await?;
+    pins_changed(&state, track.album_id, &[id]);
+    Ok(Json(PinResponse {
+        pinned: u32::try_from(pinned).unwrap_or(u32::MAX),
+    }))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/tracks/{id}/download",
+    tag = "downloads",
+    params(("id" = i64, Path, description = "ID трека"), UnpinParams),
+    responses(
+        (status = 204, description = "Закрепление снято (идемпотентно)"),
+        (status = 404, description = "Нет такого трека", body = crate::error::ErrorResponse),
+    )
+)]
+pub async fn unpin_track(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Query(p): Query<UnpinParams>,
+) -> Result<StatusCode, ApiError> {
+    authorize(&state, &headers)?;
+    let track = tracks::get(&state.db, id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("track not found"))?;
+    if pins::unpin_track(&state.db, id).await? {
+        crate::download_manager::release_files(&state, &[id], p.delete_files.unwrap_or(false))
+            .await?;
+    }
+    pins_changed(&state, track.album_id, &[id]);
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn set_paused(state: &AppState, paused: bool) -> Result<Json<PausedResponse>, ApiError> {
+    nimbus_db::settings::set_downloads_paused(&state.db, paused).await?;
+    state.downloads.wake();
+    Ok(Json(PausedResponse { paused }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/downloads/pause-all",
+    tag = "downloads",
+    responses((status = 200, description = "Новые закреплённые загрузки не стартуют, активные ради закреплений торренты на паузе (стримящиеся не трогаются); флаг переживает рестарт", body = PausedResponse))
+)]
+pub async fn pause_all(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<PausedResponse>, ApiError> {
+    authorize(&state, &headers)?;
+    set_paused(&state, true).await
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/downloads/resume-all",
+    tag = "downloads",
+    responses((status = 200, description = "Закреплённые загрузки продолжаются", body = PausedResponse))
+)]
+pub async fn resume_all(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<PausedResponse>, ApiError> {
+    authorize(&state, &headers)?;
+    set_paused(&state, false).await
 }

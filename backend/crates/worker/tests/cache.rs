@@ -6,8 +6,8 @@ use std::sync::Arc;
 use nimbus_core::activity::Activity;
 use nimbus_core::events::EventBus;
 use nimbus_core::model::*;
-use nimbus_db::repo::{albums, artists, downloads, torrents, track_sources, tracks};
-use nimbus_worker::cache::{evict_cache, usage};
+use nimbus_db::repo::{albums, artists, downloads, pins, torrents, track_sources, tracks};
+use nimbus_worker::cache::{evict_cache, pinned_usage, usage};
 use nimbus_worker::JobCtx;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -249,5 +249,45 @@ async fn missing_file_is_cleaned_up_without_error(pool: PgPool) {
         .unwrap();
     assert_eq!(r.evicted, vec![(b.torrent_id, 0)]);
     assert_eq!(status(&pool, b.track_id).await, TrackStatus::Found);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn pinned_files_are_never_evicted(pool: PgPool) {
+    let root = root();
+    let a = item(&pool, &root, 1, 1000, 10).await; // самый старый, но закреплён
+    let b = item(&pool, &root, 2, 1000, 5).await;
+    let c = item(&pool, &root, 3, 1000, 1).await;
+    pins::pin_tracks(&pool, &[a.track_id], false).await.unwrap();
+    let ctx = ctx(&pool, Activity::default());
+
+    // Лимит 1500, цель 1350: самый старый закреплён — уходят b и c, a остаётся даже сверх цели.
+    let r = evict_cache(&ctx, 1500).await.unwrap();
+    assert_eq!(r.evicted, vec![(b.torrent_id, 0), (c.torrent_id, 0)]);
+    assert!(a.path.exists() && !b.path.exists() && !c.path.exists());
+    assert_eq!(status(&pool, a.track_id).await, TrackStatus::Ready);
+
+    // Одно закреплённое превышает лимит: вытеснять нечего, файл цел (в лог уходит warn).
+    let r = evict_cache(&ctx, 500).await.unwrap();
+    assert!(r.evicted.is_empty());
+    assert!(a.path.exists());
+    assert_eq!(r.used_after, 1000);
+
+    // Закрепление снято — файл снова можно вытеснить.
+    pins::unpin_track(&pool, a.track_id).await.unwrap();
+    let r = evict_cache(&ctx, 500).await.unwrap();
+    assert_eq!(r.evicted, vec![(a.torrent_id, 0)]);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn pinned_usage_counts_only_pinned_files(pool: PgPool) {
+    let root = root();
+    let a = item(&pool, &root, 1, 1000, 10).await;
+    let _b = item(&pool, &root, 2, 700, 5).await;
+    assert_eq!(pinned_usage(&pool).await.unwrap().bytes, 0);
+    pins::pin_tracks(&pool, &[a.track_id], false).await.unwrap();
+    let u = pinned_usage(&pool).await.unwrap();
+    assert_eq!((u.bytes, u.files), (1000, 1));
     let _ = std::fs::remove_dir_all(&root);
 }

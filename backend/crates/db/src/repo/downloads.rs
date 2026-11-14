@@ -147,3 +147,22 @@ pub async fn delete(db: impl PgExecutor<'_>, torrent_id: i64, file_index: i32) -
         .await?;
     Ok(())
 }
+
+/// Строки `downloads` для набора файлов `(torrent_id, file_index)` одним запросом.
+pub async fn get_many(
+    db: impl PgExecutor<'_>,
+    files: &[(i64, i32)],
+) -> sqlx::Result<Vec<Download>> {
+    if files.is_empty() {
+        return Ok(vec![]);
+    }
+    let (torrents, indexes): (Vec<i64>, Vec<i32>) = files.iter().copied().unzip();
+    sqlx::query_as(
+        "SELECT d.* FROM unnest($1::bigint[], $2::int[]) AS f(torrent_id, file_index)
+         JOIN downloads d ON d.torrent_id = f.torrent_id AND d.file_index = f.file_index",
+    )
+    .bind(torrents)
+    .bind(indexes)
+    .fetch_all(db)
+    .await
+}

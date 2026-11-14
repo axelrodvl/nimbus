@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use nimbus_core::jobs::Job;
 use nimbus_core::model::{InfoHash, TrackStatus};
 use nimbus_db::helpers::set_track_status_and_publish;
-use nimbus_db::repo::{downloads, torrents, track_sources};
+use nimbus_db::repo::{downloads, pins, torrents, track_sources};
 use nimbus_torrent::TorrentHandleId;
 
 use crate::runner::{JobCtx, JobError, JobHandler};
@@ -56,6 +56,32 @@ pub async fn usage(db: &sqlx::PgPool) -> sqlx::Result<Usage> {
     Ok(u)
 }
 
+/// Сколько места занимает закреплённое (файлы, являющиеся primary-источником закреплённых треков).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PinnedUsage {
+    pub bytes: u64,
+    pub files: i64,
+}
+
+pub async fn pinned_usage(db: &sqlx::PgPool) -> sqlx::Result<PinnedUsage> {
+    let pinned = pins::protected_files(db).await?;
+    let mut u = PinnedUsage::default();
+    if pinned.is_empty() {
+        return Ok(u);
+    }
+    for d in downloads::list_all(db).await? {
+        if !pinned.contains(&(d.torrent_id, d.file_index)) {
+            continue;
+        }
+        let size = on_disk_size(&d.local_path);
+        if size > 0 {
+            u.bytes += size;
+            u.files += 1;
+        }
+    }
+    Ok(u)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct EvictReport {
     pub used_before: u64,
@@ -64,7 +90,7 @@ pub struct EvictReport {
 }
 
 /// Удаляет пустые каталоги вверх от файла до каталога `torrents` (не включая).
-fn prune_empty_dirs(file: &Path) {
+pub fn prune_empty_dirs(file: &Path) {
     let mut dir = file.parent();
     while let Some(d) = dir {
         if d.file_name().is_some_and(|n| n == "torrents") {
@@ -90,6 +116,9 @@ pub async fn evict_cache(ctx: &JobCtx, limit_bytes: u64) -> Result<EvictReport, 
         return Ok(report);
     }
     let target = (limit_bytes as f64 * TARGET_FRACTION) as u64;
+    // Закреплённое не вытесняется никогда (шаг 33).
+    let pinned = pins::protected_files(&ctx.db).await?;
+    let mut skipped_pinned = 0usize;
 
     // Самые давно игравшие первыми; никогда не игравшие — по времени завершения; без обоих — раньше всех.
     let mut order: Vec<usize> = (0..all.len()).collect();
@@ -108,6 +137,10 @@ pub async fn evict_cache(ctx: &JobCtx, limit_bytes: u64) -> Result<EvictReport, 
         }
         let d = &all[i];
         if sizes[i] == 0 || ctx.activity.is_protected(d.torrent_id, d.file_index) {
+            continue;
+        }
+        if pinned.contains(&(d.torrent_id, d.file_index)) {
+            skipped_pinned += 1;
             continue;
         }
         if let (Some(engine), Ok(Some(t))) = (
@@ -148,6 +181,14 @@ pub async fn evict_cache(ctx: &JobCtx, limit_bytes: u64) -> Result<EvictReport, 
             file_index = d.file_index,
             bytes = sizes[i],
             "evicted cached file"
+        );
+    }
+    if report.used_after > limit_bytes && skipped_pinned > 0 {
+        tracing::warn!(
+            used = report.used_after,
+            limit = limit_bytes,
+            pinned_files = skipped_pinned,
+            "pinned files exceed the cache limit, eviction stopped"
         );
     }
     Ok(report)

@@ -68,6 +68,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/albums/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pin_album"];
+        delete: operations["unpin_album"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/albums/{id}/retry": {
         parameters: {
             query?: never;
@@ -238,6 +254,38 @@ export interface paths {
         get: operations["list_downloads"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/downloads/pause-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pause_all"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/downloads/resume-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resume_all"];
         delete?: never;
         options?: never;
         head?: never;
@@ -612,6 +660,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tracks/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pin_track"];
+        delete: operations["unpin_track"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tracks/{id}/played": {
         parameters: {
             query?: never;
@@ -760,12 +824,24 @@ export interface components {
             id: number;
             name: string;
         };
-        /** @description Прогресс активной загрузки файлов альбома. */
+        /** @description Загрузка файлов альбома: прогресс активной загрузки и состояние закрепления (шаг 33). */
         AcquisitionDownload: {
             /** Format: int64 */
             bytes_done: number;
             /** Format: int64 */
             bytes_total: number;
+            /**
+             * Format: int64
+             * @description Скорость закреплённых загрузок (из менеджера; 0, если не качается).
+             */
+            down_bps: number;
+            /** @description Причина `failed` (например `stalled`). */
+            error?: string | null;
+            /** Format: int32 */
+            peers: number;
+            /** @description У альбома есть закреплённые треки. */
+            pinned: boolean;
+            state?: null | components["schemas"]["PinState"];
         };
         AcquisitionItem: {
             /**
@@ -1047,11 +1123,25 @@ export interface components {
              */
             uploaded_bytes: number;
         };
+        /** @description Закрепления по состояниям (`done` не считается: их история — в `/api/acquisition`). */
+        DownloadQueue: {
+            /** Format: int64 */
+            downloading: number;
+            /** Format: int64 */
+            failed: number;
+            /** Format: int64 */
+            queued: number;
+            /** Format: int64 */
+            waiting_source: number;
+        };
         /** @enum {string} */
         DownloadState: "initializing" | "downloading" | "seeding" | "paused" | "error";
         DownloadsResponse: {
             /** Format: int64 */
             down_bps: number;
+            /** @description Включена глобальная пауза закреплённых загрузок. */
+            paused: boolean;
+            queue: components["schemas"]["DownloadQueue"];
             torrents: components["schemas"]["DownloadDto"][];
             /** Format: int64 */
             up_bps: number;
@@ -1181,6 +1271,18 @@ export interface components {
         };
         /** @enum {string} */
         MetaStatus: "pending" | "fetching" | "ok" | "timeout" | "dead" | "error";
+        PausedResponse: {
+            paused: boolean;
+        };
+        PinResponse: {
+            /**
+             * Format: int32
+             * @description Сколько треков закреплено (уже закреплённые тоже считаются: операция идемпотентна).
+             */
+            pinned: number;
+        };
+        /** @enum {string} */
+        PinState: "queued" | "downloading" | "done" | "waiting_source" | "failed";
         PlayCountResponse: {
             /** Format: int32 */
             play_count: number;
@@ -1319,6 +1421,15 @@ export interface components {
             files: number;
             /** Format: int64 */
             limit_bytes: number;
+            /** @description Закреплённое одно превышает лимит кэша: вытеснять больше нечего, место не освободится. */
+            over_limit: boolean;
+            /**
+             * Format: int64
+             * @description Занято закреплёнными файлами (их вытеснение не трогает).
+             */
+            pinned_bytes: number;
+            /** Format: int64 */
+            pinned_files: number;
             /**
              * Format: int64
              * @description Торрентов с незавершёнными загрузками.
@@ -1549,6 +1660,71 @@ export interface operations {
                     "application/json": components["schemas"]["AlbumDetailDto"];
                 };
             };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    pin_album: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID альбома */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Треки альбома из библиотеки закреплены: сервер скачает их и не вытеснит из кэша (идемпотентно) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinResponse"];
+                };
+            };
+            /** @description Нет такого альбома */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    unpin_album: {
+        parameters: {
+            query?: {
+                /** @description Удалить скачанные файлы (кроме нужных другому закреплённому треку и играющих сейчас). По умолчанию `false`. */
+                delete_files?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description ID альбома */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Закрепление снято; недокачанное отменено, скачанное остаётся (или удалено при `delete_files=true`) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Нет такого альбома */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -1917,6 +2093,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    pause_all: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Новые закреплённые загрузки не стартуют, активные ради закреплений торренты на паузе (стримящиеся не трогаются); флаг переживает рестарт */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PausedResponse"];
+                };
+            };
+        };
+    };
+    resume_all: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Закреплённые загрузки продолжаются */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PausedResponse"];
                 };
             };
         };
@@ -2775,6 +2991,80 @@ export interface operations {
             };
             /** @description Трек не играбелен (`track_not_playable`) */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    pin_track: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID трека */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Трек закреплён (идемпотентно) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinResponse"];
+                };
+            };
+            /** @description Нет такого трека */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Трека нет в библиотеке (`not_in_library`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    unpin_track: {
+        parameters: {
+            query?: {
+                /** @description Удалить скачанные файлы (кроме нужных другому закреплённому треку и играющих сейчас). По умолчанию `false`. */
+                delete_files?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description ID трека */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Закрепление снято (идемпотентно) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Нет такого трека */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -80,3 +80,32 @@ impl SettingsStore {
         Ok(merged)
     }
 }
+
+const RUNTIME_KEY: &str = "runtime";
+
+/// Глобальная пауза загрузок (`settings.runtime.downloads_paused`): отдельный ключ, не часть
+/// конфигурации, переживает рестарт.
+pub async fn downloads_paused(pool: &PgPool) -> sqlx::Result<bool> {
+    let v: Option<Value> = sqlx::query_scalar("SELECT value FROM settings WHERE key = $1")
+        .bind(RUNTIME_KEY)
+        .fetch_optional(pool)
+        .await?;
+    Ok(
+        v.and_then(|v| v.get("downloads_paused").and_then(Value::as_bool))
+            .unwrap_or(false),
+    )
+}
+
+pub async fn set_downloads_paused(pool: &PgPool, paused: bool) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO settings (key, value) VALUES ($1, jsonb_build_object('downloads_paused', $2::boolean))
+         ON CONFLICT (key) DO UPDATE SET
+            value = settings.value || jsonb_build_object('downloads_paused', $2::boolean),
+            updated_at = now()",
+    )
+    .bind(RUNTIME_KEY)
+    .bind(paused)
+    .execute(pool)
+    .await?;
+    Ok(())
+}

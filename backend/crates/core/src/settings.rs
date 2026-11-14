@@ -120,6 +120,8 @@ pub struct PerformanceSettings {
     pub metadata_concurrency: u8,
     /// Сколько секунд ждать метаданные торрента по magnet.
     pub metadata_timeout_secs: u16,
+    /// Сколько торрентов менеджер закреплений качает одновременно (1..=32).
+    pub download_concurrency: u8,
 }
 
 impl Default for PerformanceSettings {
@@ -130,6 +132,7 @@ impl Default for PerformanceSettings {
             import_workers: 2,
             metadata_concurrency: 16,
             metadata_timeout_secs: 30,
+            download_concurrency: 4,
         }
     }
 }
@@ -196,6 +199,8 @@ pub struct StorageSettings {
     pub cache_limit_gb: u64,
     pub seeding: bool,
     pub seed_ratio: Option<f64>,
+    /// `off` | `added`: при `added` всё добавляемое в библиотеку сразу закрепляется (скачивается на сервер).
+    pub auto_download: String,
 }
 
 pub const FORMAT_KEYS: [&str; 7] = [
@@ -270,6 +275,7 @@ impl Default for StorageSettings {
             cache_limit_gb: 50,
             seeding: true,
             seed_ratio: Some(1.0),
+            auto_download: "off".into(),
         }
     }
 }
@@ -301,6 +307,7 @@ impl Settings {
                 cache_limit_gb: c.cache_limit_gb,
                 seeding: c.seeding,
                 seed_ratio: c.seed_ratio,
+                ..StorageSettings::default()
             },
             ..Self::default()
         }
@@ -345,6 +352,12 @@ impl Settings {
         }
         if !(5..=300).contains(&p.metadata_timeout_secs) {
             return Err("performance.metadata_timeout_secs must be between 5 and 300".into());
+        }
+        if !(1..=32).contains(&p.download_concurrency) {
+            return Err("performance.download_concurrency must be between 1 and 32".into());
+        }
+        if !["off", "added"].contains(&self.storage.auto_download.as_str()) {
+            return Err("storage.auto_download must be \"off\" or \"added\"".into());
         }
         self.musicbrainz.validate()?;
         if self.storage.cache_limit_gb == 0 {
@@ -507,10 +520,33 @@ mod tests {
                 import_workers: 64,
                 metadata_concurrency: 64,
                 metadata_timeout_secs: 300,
+                download_concurrency: 32,
             },
             ..Settings::default()
         };
         assert!(s.validate().is_ok());
+    }
+
+    #[test]
+    fn download_concurrency_and_auto_download_are_validated() {
+        let d = Settings::default();
+        assert_eq!(d.performance.download_concurrency, 4);
+        assert_eq!(d.storage.auto_download, "off");
+        for bad in [0u8, 33] {
+            let mut s = Settings::default();
+            s.performance.download_concurrency = bad;
+            assert!(s.validate().is_err(), "{bad}");
+        }
+        for ok in [1u8, 32] {
+            let mut s = Settings::default();
+            s.performance.download_concurrency = ok;
+            assert!(s.validate().is_ok(), "{ok}");
+        }
+        let mut s = Settings::default();
+        s.storage.auto_download = "added".into();
+        assert!(s.validate().is_ok());
+        s.storage.auto_download = "always".into();
+        assert!(s.validate().is_err());
     }
 
     #[test]

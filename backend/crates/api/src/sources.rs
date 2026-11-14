@@ -331,8 +331,8 @@ pub async fn set_source(
 
 /// Старый файл качается и больше никому не нужен — снимаем с загрузки (данные не удаляем:
 /// их вытеснит кэш, шаг 22).
-async fn release_unneeded(state: &AppState, old: &TrackSource) {
-    let Some(engine) = state.engine.as_ref() else {
+pub(crate) async fn release_unneeded(state: &AppState, old: &TrackSource) {
+    let Some(files) = state.files.as_ref() else {
         return;
     };
     let in_progress = matches!(
@@ -352,7 +352,7 @@ async fn release_unneeded(state: &AppState, old: &TrackSource) {
     let Ok(hash) = InfoHash::parse(&t.info_hash) else {
         return;
     };
-    if let Err(e) = engine
+    if let Err(e) = files
         .release_file(&TorrentHandleId(hash), old.file_index as usize, false)
         .await
     {

@@ -551,30 +551,52 @@ pub(crate) fn map_engine_error(e: EngineError) -> ApiError {
     }
 }
 
-/// Нет пиров / источник не отвечает: следующий запрос пойдёт через другой источник
-/// (внутри одного HTTP-ответа не переключаемся).
-async fn failover(state: &AppState, current: &TrackSource) {
-    let Ok(sources) = track_sources::list_for_track(&state.db, current.track_id).await else {
-        return;
-    };
-    let next = sources
+/// Следующий по качеству источник трека, кроме `current_id` и `exclude` (не CUE-доля, лучшее
+/// совпадение). Общая логика failover стриминга и менеджера загрузок.
+pub(crate) fn next_source<'a>(
+    sources: &'a [TrackSource],
+    current_id: i64,
+    exclude: &[i64],
+) -> Option<&'a TrackSource> {
+    sources
         .iter()
-        .filter(|s| s.id != current.id && s.cue_start_ms.is_none())
+        .filter(|s| s.id != current_id && !exclude.contains(&s.id) && s.cue_start_ms.is_none())
         .min_by(|a, b| {
             a.needs_confirmation
                 .cmp(&b.needs_confirmation)
                 .then(b.match_score.total_cmp(&a.match_score))
                 .then(a.id.cmp(&b.id))
-        });
-    if let Some(next) = next {
-        tracing::warn!(
-            track_id = current.track_id,
-            from = current.id,
-            to = next.id,
-            "primary source is unavailable, switching for the next request"
-        );
-        let _ = track_sources::set_primary(&state.db, current.track_id, next.id).await;
-    }
+        })
+}
+
+/// Переключает primary трека на следующий источник (минуя `exclude`); `true`, если было куда
+/// переключаться. Закрепление трека (если есть) возвращается в очередь самим `set_primary`.
+pub(crate) async fn switch_to_next_source(
+    state: &AppState,
+    current: &TrackSource,
+    exclude: &[i64],
+) -> bool {
+    let Ok(sources) = track_sources::list_for_track(&state.db, current.track_id).await else {
+        return false;
+    };
+    let Some(next) = next_source(&sources, current.id, exclude) else {
+        return false;
+    };
+    tracing::warn!(
+        track_id = current.track_id,
+        from = current.id,
+        to = next.id,
+        "primary source is unavailable, switching"
+    );
+    track_sources::set_primary(&state.db, current.track_id, next.id)
+        .await
+        .is_ok()
+}
+
+/// Нет пиров / источник не отвечает: следующий запрос пойдёт через другой источник
+/// (внутри одного HTTP-ответа не переключаемся).
+async fn failover(state: &AppState, current: &TrackSource) {
+    switch_to_next_source(state, current, &[]).await;
 }
 
 /// Позиционирует поток, ждёт первые байты (с таймаутом) и строит тело ответа.

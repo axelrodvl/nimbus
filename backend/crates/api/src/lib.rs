@@ -2,6 +2,7 @@ pub mod acquisition;
 pub mod artist_image;
 pub mod audio_info;
 pub mod auth;
+pub mod download_manager;
 pub mod downloads;
 pub mod error;
 pub mod extract;
