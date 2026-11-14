@@ -29,3 +29,18 @@ pub fn build_magnet(info_hash: &InfoHash, name: &str, trackers: &[&str]) -> Stri
     }
     m
 }
+
+#[cfg(test)]
+mod props {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn build_then_parse_keeps_info_hash(hash in "[0-9a-f]{40}", name in ".{0,40}") {
+            let ih = InfoHash::parse(&hash).unwrap();
+            let m = build_magnet(&ih, &name, PUBLIC_TRACKERS);
+            prop_assert_eq!(InfoHash::from_magnet(&m), Some(ih));
+        }
+    }
+}

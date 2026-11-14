@@ -11,6 +11,7 @@ strsim = "0.11.1"
 thiserror.workspace = true
 
 [dev-dependencies]
+proptest.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 

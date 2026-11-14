@@ -635,3 +635,71 @@ mod tests {
         assert_eq!(normalize("Кино"), "kino");
     }
 }
+
+#[cfg(test)]
+mod props {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn cand(title: String, seeders: Option<u32>, size: Option<u64>) -> TorrentCandidate {
+        TorrentCandidate {
+            source: nimbus_core::model::TorrentSource::Tpb,
+            source_topic_id: None,
+            title,
+            info_hash: None,
+            magnet: None,
+            download_url: None,
+            size_bytes: size,
+            seeders,
+            leechers: None,
+            category: None,
+            files_count: None,
+            torrent_file: None,
+        }
+    }
+
+    fn ranked(cs: &[TorrentCandidate], input: &RankInput) -> Vec<String> {
+        let prefs = FormatPrefs::default();
+        let mut v: Vec<(f32, &str)> = cs
+            .iter()
+            .map(|c| (score(c, input, &prefs), c.title.as_str()))
+            .collect();
+        v.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.1.cmp(b.1)));
+        v.into_iter().map(|(_, t)| t.to_string()).collect()
+    }
+
+    proptest! {
+        /// Оценки конечны на любом вводе.
+        #[test]
+        fn score_is_finite(
+            title in ".{0,80}", artist in ".{0,20}", album in ".{0,20}",
+            seeders in proptest::option::of(any::<u32>()),
+            size in proptest::option::of(any::<u64>()),
+            year in proptest::option::of(1900i32..2100),
+        ) {
+            let s = score(&cand(title, seeders, size), &RankInput { artist: &artist, album: &album, year }, &FormatPrefs::default());
+            prop_assert!(s.is_finite());
+        }
+
+        /// Порядок выдачи не зависит от порядка входа.
+        #[test]
+        fn ranking_ignores_input_order(
+            titles in proptest::collection::vec("(Radiohead )?(OK Computer )?[A-Za-z0-9 \\[\\]]{0,20}", 0..8),
+            seed in any::<u64>(),
+        ) {
+            let cs: Vec<_> = titles.iter().map(|t| cand(t.clone(), Some(3), Some(300 << 20))).collect();
+            let mut shuffled = cs.clone();
+            // детерминированная перестановка по seed
+            let n = shuffled.len();
+            for i in (1..n).rev() { shuffled.swap(i, (seed.wrapping_mul(i as u64 + 7) % (i as u64 + 1)) as usize); }
+            let input = RankInput { artist: "Radiohead", album: "OK Computer", year: Some(1997) };
+            prop_assert_eq!(ranked(&cs, &input), ranked(&shuffled, &input));
+        }
+
+        #[test]
+        fn normalize_is_idempotent(s in ".{0,60}") {
+            let n = normalize(&s);
+            prop_assert_eq!(normalize(&n), n);
+        }
+    }
+}

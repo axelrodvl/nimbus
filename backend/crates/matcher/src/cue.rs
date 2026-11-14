@@ -58,12 +58,13 @@ fn arg(rest: &str) -> String {
 
 fn parse_time(s: &str) -> Option<u32> {
     let mut it = s.split(':');
-    let (m, sec, f): (u32, u32, u32) = (
+    let (m, sec, f): (u64, u64, u64) = (
         it.next()?.parse().ok()?,
         it.next()?.parse().ok()?,
         it.next()?.parse().ok()?,
     );
-    Some((m * 60 + sec) * 1000 + f * 1000 / 75)
+    // u64: поля u32 при умножении не переполняются; результат обязан влезть в u32.
+    u32::try_from((m * 60 + sec) * 1000 + f * 1000 / 75).ok()
 }
 
 pub fn parse_cue(bytes: &[u8]) -> Result<CueSheet, CueError> {
@@ -343,5 +344,63 @@ mod tests {
             tr(3, "Stop Whispering", 3),
         ];
         assert!(match_cue(&s, &album(&tracks)).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod props {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn fmt_time(ms_frames: u32) -> (String, u32) {
+        // кадры (1/75 с) → mm:ss:ff и ожидаемые миллисекунды
+        let (m, rem) = (ms_frames / (60 * 75), ms_frames % (60 * 75));
+        let (s, f) = (rem / 75, rem % 75);
+        (
+            format!("{m:02}:{s:02}:{f:02}"),
+            (m * 60 + s) * 1000 + f * 1000 / 75,
+        )
+    }
+
+    proptest! {
+        #[test]
+        fn never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..300)) {
+            let _ = parse_cue(&bytes);
+        }
+
+        /// Регрессия: огромные числа во времени не переполняют u32 (в debug — паника).
+        #[test]
+        fn huge_time_is_error_not_panic(m in 71_582_789u32..=u32::MAX, f in 0u32..=u32::MAX) {
+            let cue = format!("FILE \"a.flac\" WAVE\n TRACK 01 AUDIO\n  INDEX 01 {m}:59:{f}\n");
+            prop_assert!(parse_cue(cue.as_bytes()).is_err());
+        }
+
+        #[test]
+        fn never_panics_on_cue_like_text(s in "(FILE|TRACK|INDEX 01|TITLE|[ 0-9:\"a-z\n]){0,40}") {
+            let _ = parse_cue(s.as_bytes());
+        }
+
+        /// Сгенерированный валидный CUE → те же номера, названия и времена; времена монотонны.
+        #[test]
+        fn valid_cue_roundtrips(steps in proptest::collection::vec((1u32..20_000, "[A-Za-z ]{1,12}"), 1..12)) {
+            let mut cue = String::from("PERFORMER \"X\"\nTITLE \"Album\"\nFILE \"a.flac\" WAVE\n");
+            let mut at = 0u32;
+            let mut expected = vec![];
+            for (i, (delta, title)) in steps.iter().enumerate() {
+                at += delta;
+                let (txt, ms) = fmt_time(at);
+                cue.push_str(&format!("  TRACK {:02} AUDIO\n    TITLE \"{title}\"\n    INDEX 01 {txt}\n", i + 1));
+                expected.push((i as u32 + 1, title.clone(), ms));
+            }
+            let sheet = parse_cue(cue.as_bytes()).expect("valid");
+            let tracks = &sheet.files[0].tracks;
+            prop_assert_eq!(tracks.len(), expected.len());
+            for (t, (n, title, ms)) in tracks.iter().zip(&expected) {
+                prop_assert_eq!(t.number, *n);
+                prop_assert_eq!(t.title.as_deref(), Some(title.as_str()));
+                prop_assert_eq!(t.start_ms, *ms);
+            }
+            prop_assert!(tracks.windows(2).all(|w| w[0].start_ms <= w[1].start_ms));
+        }
     }
 }

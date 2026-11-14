@@ -76,3 +76,48 @@ mod tests {
         assert_eq!(search_query("   "), None);
     }
 }
+
+#[cfg(test)]
+mod props {
+    use super::*;
+    use proptest::prelude::*;
+
+    const SPECIAL: &str = "+-&|!(){}[]^\"~*?:\\/";
+
+    proptest! {
+        /// Каждый спецсимвол в результате предварён обратной косой чертой.
+        #[test]
+        fn no_unescaped_specials(s in ".{0,60}") {
+            let out: Vec<char> = lucene_escape(&s).chars().collect();
+            let mut i = 0;
+            while i < out.len() {
+                if out[i] == '\\' {
+                    prop_assert!(i + 1 < out.len(), "dangling backslash");
+                    prop_assert!(SPECIAL.contains(out[i + 1]));
+                    i += 2;
+                } else {
+                    prop_assert!(!SPECIAL.contains(out[i]), "unescaped {:?}", out[i]);
+                    i += 1;
+                }
+            }
+        }
+
+        /// Без спецсимволов строка не меняется; убрав экранирование, получаем исходную.
+        #[test]
+        fn unescape_restores_input(s in ".{0,60}") {
+            let esc = lucene_escape(&s);
+            let mut back = String::new();
+            let mut it = esc.chars();
+            while let Some(c) = it.next() {
+                if c == '\\' { back.push(it.next().unwrap()); } else { back.push(c); }
+            }
+            prop_assert_eq!(back, s);
+        }
+
+        #[test]
+        fn search_query_never_panics(s in ".{0,60}") {
+            let q = search_query(&s);
+            prop_assert_eq!(q.is_none(), s.split_whitespace().next().is_none());
+        }
+    }
+}

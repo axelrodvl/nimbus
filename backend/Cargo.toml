@@ -38,6 +38,7 @@ nimbus-matcher = { path = "crates/matcher" }
 nimbus-testkit = { path = "crates/testkit" }
 tokio-util = "0.7"
 bytes = "1"
+proptest = "1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

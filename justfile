@@ -30,13 +30,15 @@ backend-test:
 backend-check:
     cd backend && cargo fmt --all -- --check && cargo clippy --workspace --all-targets --features nimbus-api/test-fakes -- -D warnings
 
-# Покрытие бэкенда: тесты + проверка порога из backend/coverage-threshold.txt (порог только растёт).
+# Покрытие бэкенда: один прогон тестов, JSON-отчёт используется дважды —
+# общий порог из backend/coverage-threshold.txt (только растёт) и пороги по крейтам (scripts/cov-check.sh).
 # Исключены main.rs (сборка зависимостей) и тестовые двойники fakes.rs / fake_swarm.rs.
 backend-cov:
     ./scripts/prune-target.sh
     cd backend && cargo llvm-cov --workspace --features nimbus-api/test-fakes \
       --ignore-filename-regex '(/main\.rs|/fakes\.rs|/fake_swarm\.rs)$' \
-      --fail-under-lines "$(cat coverage-threshold.txt)" --summary-only
+      --fail-under-lines "$(cat coverage-threshold.txt)" --json --output-path target/cov.json
+    ./scripts/cov-check.sh backend/target/cov.json
 
 backend-cov-html:
     cd backend && cargo llvm-cov --workspace --features nimbus-api/test-fakes \

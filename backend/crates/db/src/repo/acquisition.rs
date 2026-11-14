@@ -497,3 +497,35 @@ mod tests {
         assert_eq!(Cursor::decode(&hex("1|-infinity")), None);
     }
 }
+
+#[cfg(test)]
+mod cursor_props {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn encode_decode_is_identity(
+            group in 0i32..=1,
+            finished in prop_oneof![Just("-infinity".to_string()), "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:.]{8}\\+00"],
+            album_id in any::<i64>(),
+        ) {
+            let c = Cursor { group, finished, album_id };
+            prop_assert_eq!(Cursor::decode(&c.encode()), Some(c));
+        }
+
+        #[test]
+        fn garbage_never_panics(s in ".{0,300}") {
+            let _ = Cursor::decode(&s);
+        }
+
+        /// Валидный hex чужого содержимого не пропускает опасные символы во время.
+        #[test]
+        fn hex_of_arbitrary_text_is_safe(raw in ".{0,80}") {
+            let hex: String = raw.bytes().map(|b| format!("{b:02x}")).collect();
+            if let Some(c) = Cursor::decode(&hex) {
+                prop_assert!(c.finished == "-infinity" || c.finished.chars().all(|ch| ch.is_ascii_digit() || "-:. +".contains(ch)));
+            }
+        }
+    }
+}

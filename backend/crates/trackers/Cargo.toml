@@ -23,6 +23,7 @@ regex = "1.13.1"
 deunicode = "1.6.2"
 
 [dev-dependencies]
+proptest.workspace = true
 wiremock.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 encoding_rs = "0.8.44"

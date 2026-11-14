@@ -718,3 +718,39 @@ pub async fn get_track(
         .ok_or_else(|| ApiError::not_found("track not found"))?;
     Ok(Json(track.into()))
 }
+
+#[cfg(test)]
+mod cursor_props {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn encode_decode_is_identity(secs in 0i64..4_000_000_000, micros in 0u32..1_000_000, id in any::<i64>()) {
+            let at = DateTime::from_timestamp(secs, micros * 1000).expect("in range");
+            let raw = encode_cursor((at, id));
+            prop_assert_eq!(decode_cursor(Some(&raw)).ok().flatten(), Some((at, id)));
+        }
+
+        /// Мусор → `bad_cursor` (400), не паника.
+        #[test]
+        fn garbage_is_rejected_or_parsed_without_panic(s in ".{1,60}") {
+            let _ = decode_cursor(Some(&s));
+        }
+    }
+
+    #[test]
+    fn garbage_is_bad_request() {
+        for bad in [
+            "x",
+            "2024-01-01T00:00:00Z",
+            "|1",
+            "nope|1",
+            "2024-01-01T00:00:00Z|x",
+        ] {
+            assert!(decode_cursor(Some(bad)).is_err(), "{bad}");
+        }
+        assert!(decode_cursor(None).unwrap().is_none());
+        assert!(decode_cursor(Some("")).unwrap().is_none());
+    }
+}

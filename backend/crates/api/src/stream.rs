@@ -1099,3 +1099,42 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod range_props {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Любой ввод: без паники; `Partial` всегда внутри `[0, size)` и `start <= end`.
+        #[test]
+        fn never_panics_and_stays_in_bounds(h in ".{0,40}", size in 0u64..10_000) {
+            if let RangeSpec::Partial { start, end } = parse_range(Some(&h), size) {
+                prop_assert!(start <= end);
+                prop_assert!(end < size);
+            }
+        }
+
+        #[test]
+        fn closed_range_roundtrips(a in 0u64..5_000, len in 0u64..5_000, extra in 1u64..5_000) {
+            let b = a + len;
+            let size = b + extra; // b < size
+            let h = format!("bytes={a}-{b}");
+            prop_assert_eq!(parse_range(Some(&h), size), RangeSpec::Partial { start: a, end: b });
+        }
+
+        #[test]
+        fn open_range_runs_to_end(a in 0u64..5_000, extra in 1u64..5_000) {
+            let size = a + extra;
+            let h = format!("bytes={a}-");
+            prop_assert_eq!(parse_range(Some(&h), size), RangeSpec::Partial { start: a, end: size - 1 });
+        }
+
+        #[test]
+        fn suffix_range_is_last_n_bytes(n in 1u64..5_000, size in 1u64..5_000) {
+            let h = format!("bytes=-{n}");
+            let start = size.saturating_sub(n);
+            prop_assert_eq!(parse_range(Some(&h), size), RangeSpec::Partial { start, end: size - 1 });
+        }
+    }
+}

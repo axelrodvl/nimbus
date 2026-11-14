@@ -594,3 +594,27 @@ mod tests {
         assert_eq!(Entity::parse("nope"), None);
     }
 }
+
+#[cfg(test)]
+mod cursor_props {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn encode_parse_is_identity(
+            base in 0i64..i64::MAX,
+            after in proptest::option::of((0i64..i64::MAX, 0i32..i32::MAX, 0i64..i64::MAX)),
+            epoch in "[a-z0-9-]{1,12}",
+        ) {
+            let c = SyncCursor { base, after: after.map(|(txid, rank, id)| Position { txid, rank, id }) };
+            prop_assert_eq!(SyncCursor::parse(&c.encode(&epoch), &epoch), Ok(c));
+        }
+
+        /// Мусор — ошибка (в API это 400/снимок), но не паника.
+        #[test]
+        fn garbage_never_panics(s in ".{0,60}") {
+            let _ = SyncCursor::parse(&s, "e");
+        }
+    }
+}

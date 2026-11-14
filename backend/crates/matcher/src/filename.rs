@@ -184,3 +184,32 @@ mod tests {
         assert!(is_audio("x/y.Flac") && !is_audio("x/cover.jpg") && !is_audio("x/a.cue"));
     }
 }
+
+#[cfg(test)]
+mod props {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn never_panics(s in ".{0,60}") {
+            let _ = parse_filename(&s);
+            let _ = disc_dir_number(&s);
+        }
+
+        /// `NN<sep>Title` → номер и название извлекаются.
+        #[test]
+        fn number_and_title_extracted(
+            n in 1u32..=99,
+            pad in proptest::bool::ANY,
+            sep in prop::sample::select(vec![" - ", ". ", " ", "_", "-"]),
+            title in "[A-Za-z][A-Za-z ]{0,20}[A-Za-z]",
+        ) {
+            let num = if pad { format!("{n:02}") } else { n.to_string() };
+            let p = parse_filename(&format!("{num}{sep}{title}"));
+            prop_assert_eq!(p.track, Some(n));
+            prop_assert!(p.rest.contains(title.trim()) || p.title.contains(title.trim()),
+                "title lost: {:?}", p);
+        }
+    }
+}

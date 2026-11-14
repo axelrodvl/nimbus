@@ -88,3 +88,32 @@ mod tests {
         assert!(info_hash_of_torrent(b"d4:info").is_none());
     }
 }
+
+#[cfg(test)]
+mod props {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Сгенерированный торрент → info-hash равен SHA-1 от байтов словаря `info`.
+        #[test]
+        fn hash_matches_info_bytes(name in "[a-z]{1,12}", len in 0u32..1_000_000, announce in "[a-z]{0,20}") {
+            let info = format!("d6:lengthi{len}e4:name{}:{name}12:piece lengthi16384e6:pieces20:AAAAAAAAAAAAAAAAAAAAe", name.len());
+            let t = format!("d8:announce{}:{announce}4:info{info}e", announce.len());
+            let expected: String = Sha1::digest(info.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+            let got = info_hash_of_torrent(t.as_bytes()).expect("valid torrent");
+            prop_assert_eq!(got.to_string(), expected);
+        }
+
+        #[test]
+        fn random_bytes_never_panic(data in proptest::collection::vec(any::<u8>(), 0..200)) {
+            let _ = info_hash_of_torrent(&data);
+        }
+
+        /// Случайные «похожие на bencode» данные тоже не паникуют.
+        #[test]
+        fn bencode_like_never_panics(s in "[dil0-9:eAx]{0,60}") {
+            let _ = info_hash_of_torrent(s.as_bytes());
+        }
+    }
+}

@@ -68,7 +68,7 @@
 | 32 | [x] | [Состояние приобретения альбомов, массовый и автоматический повтор поиска](docs/roadmap/32-acquisition-backend.md) | 29 |
 | 33 | [x] | [Скачивание альбомов на сервер: закрепление, очередь, пауза](docs/roadmap/33-album-downloads-backend.md) | 31, 32 |
 | 34 | [x] | [API синхронизации: снимок, дельта, сессия](docs/roadmap/34-sync-api.md) | 25 |
-| 35 | [ ] | [Закрытие покрытия бэкенда до цели, property-тесты, отказоустойчивость](docs/roadmap/35-backend-coverage-hardening.md) | 26–34 |
+| 35 | [~] | [Закрытие покрытия бэкенда до цели, property-тесты, отказоустойчивость](docs/roadmap/35-backend-coverage-hardening.md) | 26–34 |
 
 ### Фаза 2 — клиент: local-first SPA на bun
 

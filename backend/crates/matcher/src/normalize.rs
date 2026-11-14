@@ -149,3 +149,19 @@ mod tests {
         assert_eq!(s("", "x"), 0.0);
     }
 }
+
+#[cfg(test)]
+mod props {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Нормализованная строка нормализуется в себя же.
+        #[test]
+        fn norm_is_idempotent(s in ".{0,60}") {
+            let n = norm(&s);
+            prop_assert_eq!(norm(&n.plain).plain, n.plain.clone());
+            prop_assert_eq!(norm(&n.translit).translit, n.translit.clone());
+        }
+    }
+}
