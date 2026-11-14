@@ -108,6 +108,31 @@ text_enum!(
 );
 
 text_enum!(
+    /// Вычисляемое состояние «приобретения» альбома по его трекам из библиотеки (шаг 32).
+    /// Приоритет при совпадении условий: `searching` > `downloading` > `partial` > `missing` > `available` > `downloaded`.
+    AcquisitionState {
+        Searching => "searching",
+        Downloading => "downloading",
+        Partial => "partial",
+        Missing => "missing",
+        Available => "available",
+        Downloaded => "downloaded",
+    }
+);
+
+text_enum!(
+    /// Итог последнего завершённого поиска раздач альбома (`album_search_state.last_outcome`).
+    SearchOutcome {
+        Found => "found",
+        Partial => "partial",
+        NoTorrents => "no_torrents",
+        DeadTorrents => "dead_torrents",
+        NoMatch => "no_match",
+        SearchFailed => "search_failed",
+    }
+);
+
+text_enum!(
     TorrentKind {
         Album => "album",
         Discography => "discography",

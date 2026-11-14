@@ -75,7 +75,7 @@ fn publish_artist_changed(ctx: &JobCtx, artist_id: i64) {
 }
 
 /// Обработчики с параллелизмом из настроек (`performance`): discover_* — `discover_workers`,
-/// verify_torrent — `verify_workers`, import_artist — `import_workers`; process_cue — 2, evict_cache — 1.
+/// verify_torrent — `verify_workers`, import_artist — `import_workers`; process_cue — 2, evict_cache и retry_missing — 1.
 pub fn handlers(perf: &PerformanceSettings) -> Vec<(Arc<dyn JobHandler>, usize)> {
     vec![
         (
@@ -88,6 +88,7 @@ pub fn handlers(perf: &PerformanceSettings) -> Vec<(Arc<dyn JobHandler>, usize)>
         ),
         (Arc::new(crate::cue::ProcessCueHandler), 2),
         (Arc::new(crate::cache::EvictHandler), 1),
+        (Arc::new(crate::acquisition::RetryMissingHandler), 1),
         (
             Arc::new(ImportArtistHandler),
             usize::from(perf.import_workers),

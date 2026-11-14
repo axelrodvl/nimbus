@@ -11,8 +11,11 @@ sqlx.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 serde_json.workspace = true
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "rt", "time"] }
 utoipa.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "test-util", "time"] }
 
 [lints]
 workspace = true

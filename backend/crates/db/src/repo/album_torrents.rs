@@ -198,3 +198,22 @@ pub async fn reset_verified_timeouts(db: impl PgExecutor<'_>, album_id: i64) -> 
     .await?
     .rows_affected())
 }
+
+/// Раздачам альбома с `meta_status in (dead, timeout, error)` возвращает `pending` и обнуляет
+/// счётчик попыток; связи снова непроверены (их проверят заново). Возвращает число раздач.
+pub async fn reset_dead(db: impl PgExecutor<'_>, album_id: i64) -> sqlx::Result<u64> {
+    Ok(sqlx::query(
+        "WITH d AS (
+            UPDATE torrents SET meta_status = 'pending', meta_attempts = 0, meta_error = NULL
+            WHERE id IN (SELECT torrent_id FROM album_torrents WHERE album_id = $1)
+              AND meta_status IN ('dead', 'timeout', 'error')
+            RETURNING id
+         )
+         UPDATE album_torrents SET verified = FALSE
+         WHERE album_id = $1 AND torrent_id IN (SELECT id FROM d)",
+    )
+    .bind(album_id)
+    .execute(db)
+    .await?
+    .rows_affected())
+}

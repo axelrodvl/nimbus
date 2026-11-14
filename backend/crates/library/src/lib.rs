@@ -3,6 +3,7 @@
 //! Логика вынесена из HTTP-хендлеров, чтобы её могли использовать и API, и фоновые задачи.
 
 mod error;
+pub mod retry;
 mod service;
 
 pub use error::LibraryError;

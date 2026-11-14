@@ -10,7 +10,8 @@ use nimbus_core::model::{
 };
 use nimbus_db::repo::jobs::EnqueueOpts;
 use nimbus_db::repo::{
-    album_torrents, albums, artists, cue_candidates, jobs, torrents, track_sources, tracks,
+    acquisition, album_torrents, albums, artists, cue_candidates, jobs, torrents, track_sources,
+    tracks,
 };
 use nimbus_matcher::{match_album, AlbumInput, FileInput, MatchConfig, TrackInput};
 use nimbus_torrent::{parse_torrent_file, EngineError, TorrentMeta};
@@ -374,6 +375,9 @@ async fn finalize(ctx: &JobCtx, album_id: i64, own_key: Option<&str>) -> Result<
         Some(reason),
     )
     .await?;
+    // Поиск закончен (больше нет ни непроверенных раздач, ни активных discover): итог и расписание
+    // повтора. Срабатывает один раз на поиск — повторные вызовы finalize ничего не пишут.
+    let finished = acquisition::finish_search(&mut *tx, album_id, Some(reason)).await?;
     tx.commit().await?;
     for t in changed {
         ctx.events.publish(Event::TrackStatus {
@@ -382,6 +386,9 @@ async fn finalize(ctx: &JobCtx, album_id: i64, own_key: Option<&str>) -> Result<
             status: t.status,
             reason: t.status_reason.clone(),
         });
+    }
+    if finished.is_some() {
+        ctx.events.publish_acquisition_changed(album_id);
     }
     Ok(())
 }

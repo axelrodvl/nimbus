@@ -37,6 +37,8 @@ pub enum Job {
     },
     /// Вытеснение давно не игравших файлов, когда кэш больше лимита (шаг 22).
     EvictCache,
+    /// Автоматический повтор поиска для альбомов `missing`/`partial`, у которых подошёл `next_retry_at` (шаг 32).
+    RetryMissing,
 }
 
 impl Job {
@@ -46,6 +48,7 @@ impl Job {
     pub const VERIFY_TORRENT: &'static str = "verify_torrent";
     pub const PROCESS_CUE: &'static str = "process_cue";
     pub const EVICT_CACHE: &'static str = "evict_cache";
+    pub const RETRY_MISSING: &'static str = "retry_missing";
 
     pub fn kind(&self) -> &'static str {
         match self {
@@ -55,6 +58,7 @@ impl Job {
             Job::VerifyTorrent { .. } => Self::VERIFY_TORRENT,
             Job::ProcessCue { .. } => Self::PROCESS_CUE,
             Job::EvictCache => Self::EVICT_CACHE,
+            Job::RetryMissing => Self::RETRY_MISSING,
         }
     }
 
@@ -74,6 +78,7 @@ impl Job {
                 cue_file_index,
             } => format!("process_cue:{torrent_id}:{album_id}:{cue_file_index}"),
             Job::EvictCache => "evict_cache".to_string(),
+            Job::RetryMissing => "retry_missing".to_string(),
         })
     }
 
@@ -99,6 +104,17 @@ mod tests {
         assert_eq!(kind, "evict_cache");
         assert_eq!(Job::from_parts(kind, payload).unwrap(), Job::EvictCache);
         assert_eq!(Job::EvictCache.dedup_key().as_deref(), Some("evict_cache"));
+    }
+
+    #[test]
+    fn retry_missing_roundtrips_without_payload() {
+        let (kind, payload) = Job::RetryMissing.to_parts();
+        assert_eq!(kind, "retry_missing");
+        assert_eq!(Job::from_parts(kind, payload).unwrap(), Job::RetryMissing);
+        assert_eq!(
+            Job::RetryMissing.dedup_key().as_deref(),
+            Some("retry_missing")
+        );
     }
 
     #[test]

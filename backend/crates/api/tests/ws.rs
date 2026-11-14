@@ -63,6 +63,10 @@ async fn ws_receives_published_events(pool: PgPool) {
     assert_eq!(v["type"], "track.status");
     assert_eq!(v["track_id"], 5);
     assert_eq!(v["status"], "found");
+    // смена статуса трека сообщает и об изменении приобретения его альбома
+    let v: serde_json::Value = serde_json::from_str(&next_text(&mut ws).await).unwrap();
+    assert_eq!(v["type"], "acquisition.changed");
+    assert_eq!(v["album_id"], 2);
     let v: serde_json::Value = serde_json::from_str(&next_text(&mut ws).await).unwrap();
     assert_eq!(v["type"], "library.changed");
 

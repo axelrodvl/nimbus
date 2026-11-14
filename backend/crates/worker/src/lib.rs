@@ -1,5 +1,6 @@
 //! Исполнители фоновых задач.
 
+pub mod acquisition;
 pub mod cache;
 pub mod cue;
 pub mod discover;

@@ -1,6 +1,7 @@
 //! Репозитории: функции принимают `impl PgExecutor` (пул или транзакцию),
 //! если нужна атомарность нескольких запросов — `&PgPool`.
 
+pub mod acquisition;
 pub mod album_torrents;
 pub mod albums;
 pub mod artists;

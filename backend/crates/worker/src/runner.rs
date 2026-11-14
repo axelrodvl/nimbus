@@ -192,6 +192,9 @@ pub struct WorkerConfig {
     pub shutdown_timeout: Duration,
     /// Как часто ставить задачу вытеснения кэша (`None` — не ставить).
     pub evict_interval: Option<Duration>,
+    /// Как часто ставить `RetryMissing` (автоповтор поиска, шаг 32), если включён `search.auto_retry`
+    /// (`None` — не ставить).
+    pub retry_missing_interval: Option<Duration>,
 }
 
 impl Default for WorkerConfig {
@@ -206,6 +209,7 @@ impl Default for WorkerConfig {
             done_retention: Duration::from_secs(7 * 24 * 3600),
             shutdown_timeout: Duration::from_secs(10),
             evict_interval: Some(Duration::from_secs(10 * 60)),
+            retry_missing_interval: Some(Duration::from_secs(15 * 60)),
         }
     }
 }
@@ -384,6 +388,7 @@ async fn maintenance_loop(
     let db = &ctx.db;
     let mut last_purge = std::time::Instant::now() - Duration::from_secs(24 * 3600);
     let mut last_evict = std::time::Instant::now();
+    let mut last_retry_missing = std::time::Instant::now();
     loop {
         match jobs::requeue_stale(db, cfg.stale_after).await {
             Ok(out) => {
@@ -423,6 +428,23 @@ async fn maintenance_loop(
             .await
             {
                 tracing::error!(error = %e, "cannot enqueue cache eviction");
+            }
+        }
+        if cfg
+            .retry_missing_interval
+            .is_some_and(|i| last_retry_missing.elapsed() >= i)
+        {
+            last_retry_missing = std::time::Instant::now();
+            if ctx.settings.get().search.auto_retry {
+                if let Err(e) = jobs::enqueue(
+                    db,
+                    &Job::RetryMissing,
+                    jobs::EnqueueOpts::priority(PRIORITY_BACKGROUND),
+                )
+                .await
+                {
+                    tracing::error!(error = %e, "cannot enqueue retry_missing");
+                }
             }
         }
         if sleep_or_cancel(cfg.maintenance_interval, &token).await {

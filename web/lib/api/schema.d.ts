@@ -4,6 +4,54 @@
  */
 
 export interface paths {
+    "/api/acquisition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_acquisition"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/acquisition/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retry_acquisition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/acquisition/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["acquisition_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/albums/{id}": {
         parameters: {
             query?: never;
@@ -698,6 +746,99 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AcquisitionAlbum: {
+            artist: components["schemas"]["AcquisitionArtist"];
+            cover_url?: string | null;
+            /** Format: int64 */
+            id: number;
+            title: string;
+            /** Format: int32 */
+            year?: number | null;
+        };
+        AcquisitionArtist: {
+            /** Format: int64 */
+            id: number;
+            name: string;
+        };
+        /** @description Прогресс активной загрузки файлов альбома. */
+        AcquisitionDownload: {
+            /** Format: int64 */
+            bytes_done: number;
+            /** Format: int64 */
+            bytes_total: number;
+        };
+        AcquisitionItem: {
+            /**
+             * Format: int32
+             * @description Задачи поиска/проверки/CUE по альбому в очереди или в работе.
+             */
+            active_jobs: number;
+            album: components["schemas"]["AcquisitionAlbum"];
+            download?: null | components["schemas"]["AcquisitionDownload"];
+            /** @description Преобладающая причина `not_found`-треков: `search_failed` > `no_torrents` > `dead_torrents` > `no_match`. */
+            reason?: string | null;
+            search: components["schemas"]["AcquisitionSearch"];
+            state: components["schemas"]["AcquisitionState"];
+            tracks: components["schemas"]["AcquisitionTracks"];
+        };
+        AcquisitionPage: {
+            items: components["schemas"]["AcquisitionItem"][];
+            next_cursor?: string | null;
+        };
+        /** @description Что известно о поиске раздач альбома. */
+        AcquisitionSearch: {
+            /**
+             * Format: int32
+             * @description Сколько поисков завершено.
+             */
+            attempts: number;
+            /**
+             * Format: int32
+             * @description Сколько раздач дал последний поиск.
+             */
+            candidates: number;
+            /** Format: date-time */
+            last_finished_at?: string | null;
+            last_outcome?: null | components["schemas"]["SearchOutcome"];
+            /**
+             * Format: date-time
+             * @description Когда сработает авто-повтор (`null` — не запланирован).
+             */
+            next_retry_at?: string | null;
+            provider_errors: components["schemas"]["ProviderErrorDto"][];
+        };
+        /** @enum {string} */
+        AcquisitionState: "searching" | "downloading" | "partial" | "missing" | "available" | "downloaded";
+        /** @description Сколько альбомов в каждом состоянии и сколько задач очереди провалено. */
+        AcquisitionSummary: {
+            /** Format: int64 */
+            available: number;
+            /** Format: int64 */
+            downloaded: number;
+            /** Format: int64 */
+            downloading: number;
+            /** Format: int64 */
+            failed_jobs: number;
+            /** Format: int64 */
+            missing: number;
+            /** Format: int64 */
+            partial: number;
+            /** Format: int64 */
+            searching: number;
+        };
+        /** @description Треки альбома из библиотеки по статусам. */
+        AcquisitionTracks: {
+            /** Format: int32 */
+            adding: number;
+            /** Format: int32 */
+            found: number;
+            /** Format: int32 */
+            not_found: number;
+            /** Format: int32 */
+            ready: number;
+            /** Format: int32 */
+            total: number;
+        };
         AddMagnetRequest: {
             magnet: string;
         };
@@ -1076,6 +1217,11 @@ export interface components {
             /** @description `started` — предзагрузка запущена, `ready` — файл уже на диске, `skipped` — нечего грузить. */
             state: string;
         };
+        /** @description Отказ провайдера при последнем поиске. */
+        ProviderErrorDto: {
+            error: string;
+            source: string;
+        };
         ProviderHealthDto: {
             /** @description Последняя ошибка провайдера (сбрасывается первым успешным запросом). */
             last_error?: string | null;
@@ -1103,6 +1249,20 @@ export interface components {
             /** @description Сколько артистов поставлено на повторный импорт дискографии. */
             queued: number;
         };
+        RetryAcquisitionRequest: {
+            /** @description Нужен при `scope = "albums"` (не больше 5000). */
+            album_ids?: number[] | null;
+            /** @description Раздачи с `dead|timeout|error` вернуть в `pending`: их проверят заново. */
+            reset_dead?: boolean;
+            scope: components["schemas"]["RetryScope"];
+        };
+        RetryAcquisitionResponse: {
+            /**
+             * Format: int32
+             * @description Сколько существующих альбомов поставлено на повтор.
+             */
+            queued: number;
+        };
         RetryResponse: {
             /** @description Была ли поставлена новая задача (`false` — такая уже в очереди). */
             queued: boolean;
@@ -1112,6 +1272,13 @@ export interface components {
              */
             tracks_reset: number;
         };
+        /**
+         * @description Какие альбомы повторять.
+         * @enum {string}
+         */
+        RetryScope: "missing" | "albums";
+        /** @enum {string} */
+        SearchOutcome: "found" | "partial" | "no_torrents" | "dead_torrents" | "no_match" | "search_failed";
         SearchResponse: {
             albums: components["schemas"]["AlbumResult"][];
             artists: components["schemas"]["ArtistResult"][];
@@ -1274,6 +1441,95 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_acquisition: {
+        parameters: {
+            query?: {
+                /** @description Фильтр по состояниям через запятую: searching, missing, partial, available, downloading, downloaded. */
+                state?: string;
+                /** @description Курсор из `next_cursor` предыдущей страницы. */
+                cursor?: string;
+                /** @description 1..200, по умолчанию 50. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Альбомы библиотеки с состоянием приобретения: сначала ищущиеся, затем по времени последнего поиска */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionPage"];
+                };
+            };
+            /** @description Неверный `state` (`invalid_state`) или курсор (`invalid_cursor`) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    retry_acquisition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetryAcquisitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Поиск поставлен в очередь с интерактивным приоритетом; счёт авто-повторов начат заново */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetryAcquisitionResponse"];
+                };
+            };
+            /** @description Нет `album_ids` при `scope = albums` или их больше 5000 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    acquisition_summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Число альбомов по состояниям и проваленных задач */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionSummary"];
+                };
+            };
+        };
+    };
     get_album: {
         parameters: {
             query?: never;
@@ -2333,7 +2589,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Сохранённые настройки (секреты замаскированы) и поле `restart_required` — true, если изменился раздел `performance` (применится после перезапуска) */
+            /** @description Сохранённые настройки (секреты замаскированы), поле `restart_required` — true, если изменился раздел `performance` (применится после перезапуска), и `suggest_retry_missing` — true, если появился новый включённый провайдер или изменились его учётные данные (альбомам `missing`/`partial` назначен авто-повтор) */
             200: {
                 headers: {
                     [name: string]: unknown;

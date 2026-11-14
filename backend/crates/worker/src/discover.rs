@@ -13,7 +13,7 @@ use nimbus_core::model::{
     TrackStatus,
 };
 use nimbus_db::repo::jobs::EnqueueOpts;
-use nimbus_db::repo::{album_torrents, albums, artists, jobs, torrents, tracks};
+use nimbus_db::repo::{acquisition, album_torrents, albums, artists, jobs, torrents, tracks};
 use nimbus_torrent::parse_torrent_file;
 use nimbus_trackers::rank::{classify, score, FormatPrefs, RankInput};
 use nimbus_trackers::{
@@ -100,7 +100,18 @@ struct Scored {
 
 struct SearchOutcome {
     ranked: Vec<Scored>,
-    provider_errors: usize,
+    /// Отказы провайдеров (источник, текст ошибки); одинаковые пары не повторяются.
+    provider_errors: Vec<(String, String)>,
+}
+
+impl SearchOutcome {
+    /// `[{source, error}]` для `album_search_state.provider_errors`.
+    fn provider_errors_json(&self) -> serde_json::Value {
+        self.provider_errors
+            .iter()
+            .map(|(source, error)| serde_json::json!({ "source": source, "error": error }))
+            .collect()
+    }
 }
 
 fn dedup_key(c: &TorrentCandidate) -> String {
@@ -125,7 +136,7 @@ async fn search_and_rank(
     let prefs = FormatPrefs::from_keys(&settings.search.format_prefs);
     let total = queries.len() as u32;
     let mut best: HashMap<String, Scored> = HashMap::new();
-    let mut provider_errors = 0;
+    let mut provider_errors: Vec<(String, String)> = Vec::new();
 
     let progress = |done: u32| {
         if let Some(album_id) = progress_album {
@@ -178,7 +189,10 @@ async fn search_and_rank(
                     }
                 }
                 Err(e) => {
-                    provider_errors += 1;
+                    let failure = (source.as_str().to_string(), e.to_string());
+                    if !provider_errors.contains(&failure) {
+                        provider_errors.push(failure);
+                    }
                     tracing::warn!(?source, query = %q.text, error = %e, "provider failed");
                 }
             }
@@ -294,19 +308,28 @@ async fn remember_torrent_file(ctx: &JobCtx, t: &Torrent, bytes: &[u8]) -> Resul
     Ok(changed)
 }
 
+/// Оставшиеся `adding` → `not_found` и завершение поиска альбома (итог и расписание повтора)
+/// одной транзакцией под блокировкой строки альбома.
 async fn mark_not_found(
     ctx: &JobCtx,
     album_id: i64,
     reason: NotFoundReason,
 ) -> Result<(), JobError> {
+    let mut tx = ctx.db.begin().await?;
+    sqlx::query("SELECT id FROM albums WHERE id = $1 FOR UPDATE")
+        .bind(album_id)
+        .fetch_optional(&mut *tx)
+        .await?;
     let changed = tracks::set_status_for_album(
-        &ctx.db,
+        &mut *tx,
         album_id,
         &[TrackStatus::Adding],
         TrackStatus::NotFound,
         Some(reason),
     )
     .await?;
+    let finished = acquisition::finish_search(&mut *tx, album_id, Some(reason)).await?;
+    tx.commit().await?;
     for t in changed {
         ctx.events.publish(Event::TrackStatus {
             track_id: t.id,
@@ -314,6 +337,9 @@ async fn mark_not_found(
             status: t.status,
             reason: t.status_reason.clone(),
         });
+    }
+    if finished.is_some() {
+        ctx.events.publish_acquisition_changed(album_id);
     }
     Ok(())
 }
@@ -340,6 +366,7 @@ pub async fn discover_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError>
         tracing::debug!(album_id, "nothing to discover");
         return Ok(());
     }
+    acquisition::mark_search_started(&ctx.db, album_id).await?;
 
     // Дискографии артиста, найденные `discover_artist` до импорта этого альбома, привязываем сразу.
     // Так не важно, в каком порядке завершились импорт альбома и поиск дискографий.
@@ -373,6 +400,14 @@ pub async fn discover_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError>
         ))
         .await?;
 
+    acquisition::record_search_results(
+        &ctx.db,
+        album_id,
+        i32::try_from(outcome.ranked.len()).unwrap_or(i32::MAX),
+        &outcome.provider_errors_json(),
+    )
+    .await?;
+
     let kind_of = |s: &Scored| classify(&s.cand.title, &artist.name, &album.title);
     let (first, rest) = outcome
         .ranked
@@ -400,12 +435,12 @@ pub async fn discover_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError>
     // Учитываем и раздачи, прилинкованные ранее (например, дискографии из DiscoverArtist).
     let linked = album_torrents::list_for_album(&ctx.db, album_id).await?;
     if linked.is_empty() {
-        if outcome.provider_errors > 0 && !ctx.is_last_attempt() {
+        if !outcome.provider_errors.is_empty() && !ctx.is_last_attempt() {
             return Err(JobError::Retry {
                 after: RETRY_AFTER,
                 reason: format!(
                     "no candidates, {} provider error(s); retrying",
-                    outcome.provider_errors
+                    outcome.provider_errors.len()
                 ),
             });
         }

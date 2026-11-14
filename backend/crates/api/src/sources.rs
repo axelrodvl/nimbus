@@ -11,6 +11,7 @@ use nimbus_core::model::{
 use nimbus_db::helpers::set_track_status_and_publish;
 use nimbus_db::repo::jobs::EnqueueOpts;
 use nimbus_db::repo::{album_torrents, albums, downloads, jobs, torrents, track_sources, tracks};
+use nimbus_library::retry::{self as library_retry, queue_search, RetryOptions};
 use nimbus_torrent::TorrentHandleId;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -420,15 +421,7 @@ pub async fn retry_track(
             .await?;
         reset = 1;
     }
-    let queued = jobs::enqueue(
-        &state.db,
-        &Job::DiscoverAlbum {
-            album_id: track.album_id,
-        },
-        EnqueueOpts::priority(PRIORITY_INTERACTIVE),
-    )
-    .await?
-    .is_some();
+    let queued = queue_search(&state.db, track.album_id, PRIORITY_INTERACTIVE, true).await?;
     Ok((
         StatusCode::ACCEPTED,
         Json(RetryResponse {
@@ -457,35 +450,22 @@ pub async fn retry_album(
     albums::get(&state.db, id)
         .await?
         .ok_or_else(|| not_found("album"))?;
-    let changed = tracks::set_status_for_album(
+    let report = library_retry::retry_album(
         &state.db,
+        &state.events,
         id,
-        &[TrackStatus::NotFound],
-        TrackStatus::Adding,
-        None,
+        RetryOptions {
+            priority: PRIORITY_INTERACTIVE,
+            reset_dead: false,
+            manual: true,
+        },
     )
     .await?;
-    for t in &changed {
-        state.events.publish(Event::TrackStatus {
-            track_id: t.id,
-            album_id: t.album_id,
-            status: t.status,
-            reason: t.status_reason.clone(),
-        });
-    }
-    album_torrents::reset_verified_timeouts(&state.db, id).await?;
-    let queued = jobs::enqueue(
-        &state.db,
-        &Job::DiscoverAlbum { album_id: id },
-        EnqueueOpts::priority(PRIORITY_INTERACTIVE),
-    )
-    .await?
-    .is_some();
     Ok((
         StatusCode::ACCEPTED,
         Json(RetryResponse {
-            queued,
-            tracks_reset: changed.len() as i64,
+            queued: report.queued,
+            tracks_reset: report.tracks_reset as i64,
         }),
     ))
 }

@@ -116,6 +116,33 @@ HTTP-запроса): TPB/apibay — 250 мс и 4; Torznab (свой индек
   меняется); таблица маршрутизации DHT лежит в `{data_dir}/session/dht.json`.
 - **API**: `GET /api/jobs`, `POST /api/jobs/{id}/retry` (см. `docs/api.md`).
 
+## Приобретение альбомов
+
+Шаг 32. Состояние **вычисляется** запросом по трекам с `in_library` (`db::repo::acquisition`), не хранится.
+Приоритет при совпадении: `searching` (есть `adding`) > `downloading` (есть `downloads` без `completed_at` у файла
+основного источника трека) > `partial` (есть `not_found` и `found/ready`) > `missing` (только `not_found`) >
+`available` (всё `found/ready`, не всё `ready`) > `downloaded` (всё `ready`).
+
+Таблица `album_search_state` хранит историю поиска. `discover_album` отмечает начало (`last_started_at`) и
+число кандидатов/ошибки провайдеров (`[{source, error}]`). Поиск **заканчивается** там, где альбом финализируется
+(`verify::finalize`, `mark_not_found` в discover): когда нет непроверенных раздач и активных discover. Тогда
+`finish_search` в той же транзакции под блокировкой альбома ставит `attempts += 1`, `last_finished_at`,
+`last_outcome` (`found` / `partial` / причина `not_found`) и расписание. Запись срабатывает ровно один раз на поиск:
+только если `last_started_at > last_finished_at`. Поиск без начала (ручной magnet) состояние не трогает.
+
+**Авто-повтор.** После неудачи `next_retry_at = now() + backoff(auto_retries)`: 6 ч, 1 д, 3 д, 7 д, далее 30 д;
+`found` сбрасывает `auto_retries` и расписание. `maintenance_loop` раз в 15 минут (`WorkerConfig::retry_missing_interval`),
+если `search.auto_retry`, ставит `Job::RetryMissing`: он в одной транзакции берёт до 50 просроченных альбомов
+`missing`/`partial` (`take_due`, `SKIP LOCKED`; `auto_retries += 1`, `next_retry_at = NULL`), возвращает `not_found`
+треки в `adding` и ставит `DiscoverAlbum` с приоритетом `BACKGROUND`. Просроченные записи альбомов в других
+состояниях просто сбрасываются. Повторный поиск проверяет только новых кандидатов (`album_torrents.verified`) и
+раздачи, возвращённые `reset_dead`. Смена провайдеров (`PUT /api/settings`) назначает `next_retry_at = now()`
+всем `missing`/`partial`.
+
+**Событие `acquisition.changed { album_id }`** публикуется `EventBus` при любом `track.status` альбома и при записи
+итога поиска (то есть чаще, чем меняется вычисленное состояние); коалесцируется на шине: первое сразу, остальные в
+пределах 500 мс — одно замыкающее.
+
 ## Авторизация
 
 Один статический токен (`NIMBUS_API_TOKEN`), сравнение за постоянное время. Источники: `Authorization: Bearer`,

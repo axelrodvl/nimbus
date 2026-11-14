@@ -44,6 +44,22 @@ pub async fn apply_settings(
     Ok(())
 }
 
+/// Включён ли провайдер, которого раньше не было или чьи настройки (адрес, ключ, учётные данные) изменились.
+/// Отключение или удаление провайдера повторного поиска не требует.
+pub fn providers_gained(prev: &ProvidersSettings, new: &ProvidersSettings) -> bool {
+    let torznab = |p: &ProvidersSettings| p.torznab.clone().filter(|t| !t.url.trim().is_empty());
+    let rutracker = |p: &ProvidersSettings| {
+        p.rutracker.clone().filter(|r| {
+            r.cookie.as_deref().is_some_and(|c| !c.is_empty())
+                || (r.username.as_deref().is_some_and(|u| !u.is_empty())
+                    && r.password.as_deref().is_some_and(|p| !p.is_empty()))
+        })
+    };
+    (new.tpb_enabled && !prev.tpb_enabled)
+        || (torznab(new).is_some() && torznab(new) != torznab(prev))
+        || (rutracker(new).is_some() && rutracker(new) != rutracker(prev))
+}
+
 #[utoipa::path(
     get,
     path = "/api/settings",
@@ -64,7 +80,7 @@ pub async fn get_settings(
     tag = "settings",
     request_body(content = Object, description = "Частичный объект настроек (merge). Пустой секрет или «••••» не меняет сохранённое значение; `null` сбрасывает необязательное поле."),
     responses(
-        (status = 200, description = "Сохранённые настройки (секреты замаскированы) и поле `restart_required` — true, если изменился раздел `performance` (применится после перезапуска)", body = Object),
+        (status = 200, description = "Сохранённые настройки (секреты замаскированы), поле `restart_required` — true, если изменился раздел `performance` (применится после перезапуска), и `suggest_retry_missing` — true, если появился новый включённый провайдер или изменились его учётные данные (альбомам `missing`/`partial` назначен авто-повтор)", body = Object),
         (status = 400, description = "Некорректные значения (`invalid_settings`)", body = ErrorResponse),
     )
 )]
@@ -85,6 +101,12 @@ pub async fn put_settings(
         SettingsError::Db(e) => e.into(),
     })?;
     apply_settings(&state, &previous, &saved).await?;
+    // Появился новый провайдер или изменились его учётные данные: альбомы, которые не нашлись,
+    // стоит поискать снова — ставим им авто-повтор «сейчас» (подхватит ближайший `RetryMissing`).
+    let suggest_retry = providers_gained(&previous.providers, &saved.providers);
+    if suggest_retry {
+        nimbus_db::repo::acquisition::schedule_missing_now(&state.db).await?;
+    }
     let mut out = mask_secrets(&saved);
     // Параллелизм воркеров читается при старте: перезапуск нужен, пока значения отличаются от стартовых.
     if let Some(o) = out.as_object_mut() {
@@ -92,6 +114,7 @@ pub async fn put_settings(
             "restart_required".into(),
             Value::Bool(saved.performance != state.boot_performance),
         );
+        o.insert("suggest_retry_missing".into(), Value::Bool(suggest_retry));
     }
     Ok(Json(out))
 }

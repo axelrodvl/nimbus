@@ -168,6 +168,8 @@ pub struct SearchSettings {
     pub format_prefs: Vec<String>,
     /// Release group'ы с такими типами (primary `EP` или secondary) не импортируются вместе с артистом.
     pub skip_secondary_types: Vec<String>,
+    /// Автоматически повторять поиск для альбомов, которые не нашлись (с растущими интервалами).
+    pub auto_retry: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -238,6 +240,7 @@ impl Default for SearchSettings {
             .iter()
             .map(|s| s.to_string())
             .collect(),
+            auto_retry: true,
         }
     }
 }

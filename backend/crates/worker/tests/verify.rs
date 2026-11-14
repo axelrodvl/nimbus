@@ -1024,3 +1024,123 @@ async fn batched_verify_publishes_one_status_event_per_found_track(pool: PgPool)
         .count();
     assert_eq!(found, OK.len(), "повторный verify статусы не публикует");
 }
+
+// ------------------------------------------------------------------ состояние поиска (шаг 32)
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn finishing_a_found_search_resets_retries_and_counts_once(pool: PgPool) {
+    use nimbus_db::repo::acquisition;
+    let s = setup(&pool, &OK).await;
+    let tid = add_torrent(&pool, s.album_id, 1, 0.9).await;
+    let fetcher = FakeFetcher::new(vec![(hash(1), Reply::Files(good_files()))]);
+    let (ctx, events) = ctx(&pool, fetcher);
+    let mut rx = events.subscribe();
+
+    acquisition::mark_search_started(&pool, s.album_id)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE album_search_state SET auto_retries = 2, next_retry_at = now() + interval '3 days' WHERE album_id = $1",
+    )
+    .bind(s.album_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    verify_torrent(&ctx, tid, s.album_id).await.unwrap();
+    let st = acquisition::get_state(&pool, s.album_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (
+            st.attempts,
+            st.last_outcome,
+            st.auto_retries,
+            st.next_retry_at
+        ),
+        (1, Some(SearchOutcome::Found), 0, None)
+    );
+    assert!(drain(&mut rx)
+        .iter()
+        .any(|e| matches!(e, Event::AcquisitionChanged { album_id } if *album_id == s.album_id)));
+
+    // Повторные verify/finalize того же поиска ничего не пишут.
+    verify_torrent(&ctx, tid, s.album_id).await.unwrap();
+    let again = acquisition::get_state(&pool, s.album_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(again.attempts, 1);
+    assert_eq!(again.last_finished_at, st.last_finished_at);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn partial_match_schedules_a_retry(pool: PgPool) {
+    use nimbus_db::repo::acquisition;
+    let s = setup(&pool, &OK).await;
+    let tid = add_torrent(&pool, s.album_id, 1, 0.9).await;
+    let two: Vec<_> = good_files().into_iter().take(2).collect();
+    let fetcher = FakeFetcher::new(vec![(hash(1), Reply::Files(two))]);
+    let (ctx, _) = ctx(&pool, fetcher);
+
+    acquisition::mark_search_started(&pool, s.album_id)
+        .await
+        .unwrap();
+    verify_torrent(&ctx, tid, s.album_id).await.unwrap();
+    let st = acquisition::get_state(&pool, s.album_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(st.last_outcome, Some(SearchOutcome::Partial));
+    let wait = st.next_retry_at.unwrap() - st.last_finished_at.unwrap();
+    assert_eq!(wait.num_hours(), 6);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn dead_torrents_outcome_and_exhausted_verify_finish_the_search(pool: PgPool) {
+    use nimbus_db::repo::acquisition;
+    let s = setup(&pool, &OK).await;
+    let tid = add_torrent(&pool, s.album_id, 1, 0.9).await;
+    let fetcher = FakeFetcher::new(vec![(hash(1), Reply::Timeout)]);
+    let (ctx, _) = ctx(&pool, fetcher);
+    acquisition::mark_search_started(&pool, s.album_id)
+        .await
+        .unwrap();
+
+    VerifyHandler
+        .on_exhausted(
+            &Job::VerifyTorrent {
+                torrent_id: tid,
+                album_id: s.album_id,
+            },
+            &ctx,
+            "metadata timeout",
+        )
+        .await
+        .unwrap();
+    let st = acquisition::get_state(&pool, s.album_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (st.attempts, st.last_outcome),
+        (1, Some(SearchOutcome::DeadTorrents))
+    );
+    assert!(st.next_retry_at.is_some());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn verify_without_an_active_search_does_not_touch_search_state(pool: PgPool) {
+    use nimbus_db::repo::acquisition;
+    // Ручной magnet: поиск не запускался, итог поиска не пишется.
+    let s = setup(&pool, &OK).await;
+    let tid = add_torrent(&pool, s.album_id, 1, 1.0).await;
+    let fetcher = FakeFetcher::new(vec![(hash(1), Reply::Files(good_files()))]);
+    let (ctx, _) = ctx(&pool, fetcher);
+    verify_torrent(&ctx, tid, s.album_id).await.unwrap();
+    assert!(acquisition::get_state(&pool, s.album_id)
+        .await
+        .unwrap()
+        .is_none());
+}

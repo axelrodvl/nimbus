@@ -1,3 +1,4 @@
+pub mod acquisition;
 pub mod artist_image;
 pub mod audio_info;
 pub mod auth;

@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use nimbus_core::events::{Event, EventBus, JobStage};
 use nimbus_core::jobs::Job;
 use nimbus_core::model::*;
-use nimbus_db::repo::{album_torrents, albums, artists, jobs, torrents, tracks};
+use nimbus_db::repo::{acquisition, album_torrents, albums, artists, jobs, torrents, tracks};
 use nimbus_trackers::*;
 use nimbus_worker::discover::{discover_album, discover_artist, DiscoverHandler, EARLY_WAVE};
 use nimbus_worker::{JobCtx, JobError, JobHandler};
@@ -841,4 +841,290 @@ async fn exhausted_discover_artist_finalizes_its_albums(pool: PgPool) {
     for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
         assert_eq!(t.status, TrackStatus::NotFound);
     }
+}
+
+// ------------------------------------------------------------------ состояние поиска (шаг 32)
+
+fn opts(reset_dead: bool) -> nimbus_library::retry::RetryOptions {
+    nimbus_library::retry::RetryOptions {
+        priority: nimbus_core::jobs::PRIORITY_INTERACTIVE,
+        reset_dead,
+        manual: true,
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn search_without_candidates_is_recorded_with_first_backoff(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    let (c, events) = ctx(&pool, Some(Fake::new(|_| Ok(vec![]))), 1, 5);
+    let mut rx = events.subscribe();
+    discover_album(&c, album_id).await.unwrap();
+
+    let s = acquisition::get_state(&pool, album_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(s.attempts, 1);
+    assert_eq!(s.last_outcome, Some(SearchOutcome::NoTorrents));
+    assert_eq!(s.candidates, 0);
+    assert_eq!(s.provider_errors, serde_json::json!([]));
+    assert!(s.last_started_at.unwrap() <= s.last_finished_at.unwrap());
+    let wait = s.next_retry_at.unwrap() - s.last_finished_at.unwrap();
+    assert_eq!(wait.num_hours(), 6);
+    assert!(drain(&mut rx)
+        .iter()
+        .any(|e| matches!(e, Event::AcquisitionChanged { album_id: a } if *a == album_id)));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn backoff_follows_auto_retries_in_the_worker(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 1, true).await;
+    let (c, _) = ctx(&pool, Some(Fake::new(|_| Ok(vec![]))), 1, 5);
+    for (auto, hours) in [(0, 6), (1, 24), (2, 72), (3, 168), (4, 720)] {
+        sqlx::query(
+            "UPDATE tracks SET status = 'adding', status_reason = NULL WHERE album_id = $1",
+        )
+        .bind(album_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO album_search_state (album_id, auto_retries) VALUES ($1, $2)
+             ON CONFLICT (album_id) DO UPDATE SET auto_retries = $2",
+        )
+        .bind(album_id)
+        .bind(auto)
+        .execute(&pool)
+        .await
+        .unwrap();
+        discover_album(&c, album_id).await.unwrap();
+        let s = acquisition::get_state(&pool, album_id)
+            .await
+            .unwrap()
+            .unwrap();
+        let wait = s.next_retry_at.unwrap() - s.last_finished_at.unwrap();
+        assert_eq!(wait.num_hours(), hours, "auto_retries = {auto}");
+    }
+    let s = acquisition::get_state(&pool, album_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(s.attempts, 5);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn provider_errors_are_stored_with_source_and_text(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    let failing = || Fake::new(|_| Err(ProviderError::Blocked("cloudflare".into())));
+
+    // Первая попытка: повтор позже; поиск начат, но не закончен — итога ещё нет.
+    let (c, _) = ctx(&pool, Some(failing()), 1, 5);
+    assert!(matches!(
+        discover_album(&c, album_id).await,
+        Err(JobError::Retry { .. })
+    ));
+    let s = acquisition::get_state(&pool, album_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((s.attempts, s.last_outcome), (0, None));
+    assert!(s.last_started_at.is_some() && s.last_finished_at.is_none());
+    let errors = s.provider_errors.as_array().unwrap();
+    assert_eq!(errors.len(), 1, "три запроса с одной ошибкой — одна запись");
+    assert_eq!(errors[0]["source"], "tpb");
+    assert!(errors[0]["error"].as_str().unwrap().contains("cloudflare"));
+
+    // Последняя попытка: поиск закончен, ошибки остались в состоянии.
+    let (c, _) = ctx(&pool, Some(failing()), 5, 5);
+    discover_album(&c, album_id).await.unwrap();
+    let s = acquisition::get_state(&pool, album_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (s.attempts, s.last_outcome),
+        (1, Some(SearchOutcome::NoTorrents))
+    );
+    assert_eq!(s.provider_errors.as_array().unwrap().len(), 1);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn exhausted_search_finishes_as_search_failed(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    let (c, _) = ctx(
+        &pool,
+        Some(Fake::new(|_| Err(ProviderError::Blocked("down".into())))),
+        1,
+        5,
+    );
+    assert!(discover_album(&c, album_id).await.is_err());
+    DiscoverHandler
+        .on_exhausted(&Job::DiscoverAlbum { album_id }, &c, "attempts exhausted")
+        .await
+        .unwrap();
+
+    let s = acquisition::get_state(&pool, album_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (s.attempts, s.last_outcome),
+        (1, Some(SearchOutcome::SearchFailed))
+    );
+    assert!(s.next_retry_at.is_some());
+    for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
+        assert_eq!(t.status_reason.as_deref(), Some("search_failed"));
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn candidates_are_counted_and_finish_waits_for_verification(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    let provider = Fake::new(|_| {
+        Ok(vec![
+            cand("Radiohead - OK Computer (1997) [FLAC]", Some(1), 50),
+            cand("Radiohead - OK Computer (1997) [MP3 320]", Some(2), 20),
+        ])
+    });
+    let (c, _) = ctx(&pool, Some(provider), 1, 5);
+    discover_album(&c, album_id).await.unwrap();
+    let s = acquisition::get_state(&pool, album_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(s.candidates, 2);
+    assert_eq!(
+        s.attempts, 0,
+        "раздачи ещё не проверены — поиск не закончен"
+    );
+    assert!(s.last_started_at.is_some() && s.last_finished_at.is_none());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn repeat_search_skips_verified_torrents_unless_reset_dead(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    let provider = Fake::new(|_| {
+        Ok(vec![cand(
+            "Radiohead - OK Computer (1997) [FLAC]",
+            Some(1),
+            50,
+        )])
+    });
+    let (c, events) = ctx(&pool, Some(provider), 1, 5);
+
+    // Первый поиск: раздача привязана, verify поставлен.
+    discover_album(&c, album_id).await.unwrap();
+    assert_eq!(queued(&pool, "verify_torrent").await.len(), 1);
+    let torrent_id = album_torrents::list_for_album(&pool, album_id)
+        .await
+        .unwrap()[0]
+        .torrent
+        .id;
+
+    // «Проверили»: раздача отмечена, треки не нашлись.
+    let settle = |dead: bool| {
+        let pool = pool.clone();
+        async move {
+            album_torrents::mark_verified(&pool, album_id, torrent_id)
+                .await
+                .unwrap();
+            if dead {
+                torrents::set_meta_status(&pool, torrent_id, MetaStatus::Dead, Some("timeout"))
+                    .await
+                    .unwrap();
+            }
+            tracks::set_status_for_album(
+                &pool,
+                album_id,
+                &[TrackStatus::Adding],
+                TrackStatus::NotFound,
+                Some(NotFoundReason::NoMatch),
+            )
+            .await
+            .unwrap();
+            sqlx::query("DELETE FROM jobs")
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+    };
+    settle(false).await;
+
+    // Обычный повтор: те же кандидаты уже проверены — verify не ставится.
+    let report = nimbus_library::retry::retry_album(&pool, &events, album_id, opts(false))
+        .await
+        .unwrap();
+    assert_eq!((report.queued, report.tracks_reset), (true, 2));
+    sqlx::query("DELETE FROM jobs")
+        .execute(&pool)
+        .await
+        .unwrap();
+    discover_album(&c, album_id).await.unwrap();
+    assert!(queued(&pool, "verify_torrent").await.is_empty());
+
+    // Раздача признана мёртвой; `reset_dead` отдаёт её на повторную проверку.
+    settle(true).await;
+    nimbus_library::retry::retry_album(&pool, &events, album_id, opts(true))
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM jobs")
+        .execute(&pool)
+        .await
+        .unwrap();
+    discover_album(&c, album_id).await.unwrap();
+    assert_eq!(queued(&pool, "verify_torrent").await.len(), 1);
+    let t = torrents::get(&pool, torrent_id).await.unwrap().unwrap();
+    assert_eq!((t.meta_status, t.meta_attempts), (MetaStatus::Pending, 0));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn manual_retry_resets_auto_retries_and_raises_priority(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, false).await;
+    tracks::set_in_library_for_album(&pool, album_id, true)
+        .await
+        .unwrap();
+    tracks::set_status_for_album(
+        &pool,
+        album_id,
+        &[TrackStatus::Adding],
+        TrackStatus::NotFound,
+        Some(NotFoundReason::NoMatch),
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO album_search_state (album_id, auto_retries, next_retry_at) VALUES ($1, 3, now() + interval '7 days')",
+    )
+    .bind(album_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    // Авто-повтор уже ждёт в очереди с фоновым приоритетом.
+    jobs::enqueue(
+        &pool,
+        &Job::DiscoverAlbum { album_id },
+        nimbus_db::repo::jobs::EnqueueOpts::priority(nimbus_core::jobs::PRIORITY_BACKGROUND),
+    )
+    .await
+    .unwrap();
+
+    let events = EventBus::new();
+    let report = nimbus_library::retry::retry_album(&pool, &events, album_id, opts(false))
+        .await
+        .unwrap();
+    assert!(!report.queued, "задача уже была, дубликат не ставится");
+    let job = &queued(&pool, "discover_album").await[0];
+    assert_eq!(job.priority, nimbus_core::jobs::PRIORITY_INTERACTIVE);
+    let s = acquisition::get_state(&pool, album_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((s.auto_retries, s.next_retry_at), (0, None));
 }
