@@ -78,9 +78,23 @@ struct State {
     /// До этого момента запросы не выдаются (`Retry-After`).
     blocked_until: Option<Instant>,
     successes: u32,
+    /// Следующий номер в очереди.
+    next_ticket: u64,
+    /// Очереди ожидающих токен: строго по порядку прихода внутри класса; фоновые идут, только когда
+    /// интерактивных нет. Справедливая очередь вместо «кто первым проснулся»: ожидание
+    /// предсказуемо (`место / темп`), никто не голодает.
+    queue_interactive: std::collections::VecDeque<u64>,
+    queue_background: std::collections::VecDeque<u64>,
 }
 
 impl State {
+    fn queue(&mut self, priority: Priority) -> &mut std::collections::VecDeque<u64> {
+        match priority {
+            Priority::Interactive => &mut self.queue_interactive,
+            Priority::Background => &mut self.queue_background,
+        }
+    }
+
     fn refill(&mut self, now: Instant) {
         if self.rate.is_finite() {
             let dt = now
@@ -97,16 +111,14 @@ impl State {
 /// Лимитер: token bucket (темп + burst), семафор на параллелизм, приоритет интерактивных
 /// запросов и адаптация темпа к 503/429.
 ///
-/// Фоновый запрос не берёт токен, пока ждёт хотя бы один интерактивный, и никогда не берёт
-/// последний токен ведра (он остаётся интерактивным). Ожидание — на `Notify` и таймере, без опроса.
+/// Очередь справедливая (FIFO внутри класса). Фоновый запрос не берёт токен, пока ждёт хотя бы один
+/// интерактивный, и никогда не берёт последний токен ведра (он остаётся интерактивным).
+/// Ожидание — на `Notify` и таймере, без опроса.
 pub(crate) struct Limiter {
     state: Mutex<State>,
     wake: Notify,
     slots: Arc<Semaphore>,
     max_concurrent: usize,
-    interactive_waiting: AtomicUsize,
-    /// Сколько запросов (любого приоритета) сейчас ждут токен или слот.
-    waiting: AtomicUsize,
     /// Сколько раз ожидающий просыпался (для теста «нет busy-loop»).
     wakeups: AtomicUsize,
 }
@@ -116,22 +128,21 @@ pub(crate) struct Permit {
     _slot: OwnedSemaphorePermit,
 }
 
-/// Считает ожидающих запросы (любого приоритета) для [`Limiter::expected_wait`].
-struct QueueGuard<'a>(&'a Limiter);
-
-impl Drop for QueueGuard<'_> {
-    fn drop(&mut self) {
-        self.0.waiting.fetch_sub(1, Ordering::SeqCst);
-    }
+/// Место в очереди: при `drop` (запрос отменён или токен взят) освобождает его и будит остальных.
+struct TicketGuard<'a> {
+    limiter: &'a Limiter,
+    priority: Priority,
+    ticket: u64,
 }
 
-struct WaitGuard<'a>(&'a Limiter);
-
-impl Drop for WaitGuard<'_> {
+impl Drop for TicketGuard<'_> {
     fn drop(&mut self) {
-        self.0.interactive_waiting.fetch_sub(1, Ordering::SeqCst);
-        // Фоновые ожидающие могли ждать именно этого.
-        self.0.wake.notify_waiters();
+        self.limiter
+            .state()
+            .queue(self.priority)
+            .retain(|t| *t != self.ticket);
+        // Следующие в очереди могли ждать именно этого.
+        self.limiter.wake.notify_waiters();
     }
 }
 
@@ -157,12 +168,13 @@ impl Limiter {
                 last_refill: Instant::now(),
                 blocked_until: None,
                 successes: 0,
+                next_ticket: 0,
+                queue_interactive: std::collections::VecDeque::new(),
+                queue_background: std::collections::VecDeque::new(),
             }),
             wake: Notify::new(),
             slots: Arc::new(Semaphore::new(max_concurrent)),
             max_concurrent,
-            interactive_waiting: AtomicUsize::new(0),
-            waiting: AtomicUsize::new(0),
             wakeups: AtomicUsize::new(0),
         }
     }
@@ -170,14 +182,20 @@ impl Limiter {
     /// Сколько нового запроса в худшем случае придётся ждать из-за уже стоящих в очереди и
     /// летящих: `(ждут + в полёте) / темп`. Для «без ограничения темпа» — ноль.
     pub(crate) fn expected_wait(&self) -> Duration {
-        let rate = self.state().rate;
+        let (rate, queued) = {
+            let st = self.state();
+            (
+                st.rate,
+                st.queue_interactive.len() + st.queue_background.len(),
+            )
+        };
         if !rate.is_finite() || rate <= 0.0 {
             return Duration::ZERO;
         }
         let in_flight = self
             .max_concurrent
             .saturating_sub(self.slots.available_permits());
-        let ahead = self.waiting.load(Ordering::SeqCst) + in_flight;
+        let ahead = queued + in_flight;
         Duration::from_secs_f64(ahead as f64 / rate)
     }
 
@@ -191,18 +209,24 @@ impl Limiter {
 
     /// Ждёт токен и слот параллелизма.
     pub(crate) async fn acquire(&self, priority: Priority) -> Permit {
-        self.waiting.fetch_add(1, Ordering::SeqCst);
-        let _queued = QueueGuard(self);
-        let _guard = (priority == Priority::Interactive).then(|| {
-            self.interactive_waiting.fetch_add(1, Ordering::SeqCst);
-            WaitGuard(self)
-        });
+        let ticket = {
+            let mut st = self.state();
+            let t = st.next_ticket;
+            st.next_ticket += 1;
+            st.queue(priority).push_back(t);
+            t
+        };
+        let _place = TicketGuard {
+            limiter: self,
+            priority,
+            ticket,
+        };
         loop {
             // Подписка до проверки состояния: событие между проверкой и ожиданием не теряется.
             let notified = self.wake.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
-            let wait = match self.try_take(priority) {
+            let wait = match self.try_take(priority, ticket) {
                 Ok(()) => break,
                 Err(wait) => wait,
             };
@@ -228,12 +252,15 @@ impl Limiter {
     }
 
     /// `Ok` — токен взят; `Err(Some(d))` — повторить через `d`; `Err(None)` — ждать события.
-    fn try_take(&self, priority: Priority) -> Result<(), Option<Duration>> {
+    fn try_take(&self, priority: Priority, ticket: u64) -> Result<(), Option<Duration>> {
         let background = priority == Priority::Background;
-        if background && self.interactive_waiting.load(Ordering::SeqCst) > 0 {
+        let mut st = self.state();
+        // Брать токен может только первый в своей очереди, и фоновый — только если интерактивных нет.
+        if st.queue(priority).front() != Some(&ticket)
+            || (background && !st.queue_interactive.is_empty())
+        {
             return Err(None);
         }
-        let mut st = self.state();
         let now = Instant::now();
         if let Some(until) = st.blocked_until {
             if until > now {
@@ -243,12 +270,19 @@ impl Limiter {
         }
         st.refill(now);
         if !st.rate.is_finite() {
+            st.queue(priority).pop_front();
+            drop(st);
+            self.wake.notify_waiters();
             return Ok(());
         }
         // Фоновый оставляет в ведре последний токен; при burst = 1 резерв невозможен.
         let need = if background { st.burst.min(2.0) } else { 1.0 };
         if st.tokens >= need {
             st.tokens -= 1.0;
+            st.queue(priority).pop_front();
+            drop(st);
+            // Следующий в очереди проверит своё время.
+            self.wake.notify_waiters();
             return Ok(());
         }
         let secs = (need - st.tokens) / st.rate;
@@ -535,5 +569,52 @@ mod tests {
         assert!(woke <= 2, "пробуждений: {woke}");
         ui.await.unwrap();
         bg.await.unwrap();
+    }
+
+    /// Справедливость: пять фоновых ожидающих получают токены строго в порядке прихода, и каждый
+    /// ждёт не дольше `место / темп` (раньше «кто первым проснулся» обделял часть ожидающих).
+    #[tokio::test(start_paused = true)]
+    async fn background_waiters_are_served_in_arrival_order() {
+        let l = Arc::new(Limiter::new(MbLimits::paced(2.0)));
+        let first = l.acquire(Priority::Interactive).await; // токен ведра занят
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let t0 = Instant::now();
+        let mut tasks = vec![];
+        for i in 0..5 {
+            let (l, order) = (l.clone(), order.clone());
+            tasks.push(tokio::spawn(async move {
+                let _p = l.acquire(Priority::Background).await;
+                order.lock().unwrap().push((i, t0.elapsed()));
+            }));
+            tokio::task::yield_now().await; // порядок прихода — по номеру
+        }
+        drop(first);
+        for t in tasks {
+            t.await.unwrap();
+        }
+        let got = order.lock().unwrap().clone();
+        assert_eq!(
+            got.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+            [0, 1, 2, 3, 4]
+        );
+        // Темп 2/с: пятый получает токен примерно через 5 × 0,5 с, а не «когда повезёт».
+        assert!(got[4].1 <= Duration::from_secs(4), "{:?}", got[4].1);
+    }
+
+    /// Отменённый ожидающий освобождает своё место: очередь не «зависает» на мёртвом билете.
+    #[tokio::test(start_paused = true)]
+    async fn cancelled_head_of_the_queue_does_not_block_the_rest() {
+        let l = Arc::new(Limiter::new(MbLimits::paced(2.0)));
+        let first = l.acquire(Priority::Interactive).await;
+        let l2 = l.clone();
+        let doomed = tokio::spawn(async move { l2.acquire(Priority::Background).await });
+        tokio::task::yield_now().await;
+        let l3 = l.clone();
+        let next = tokio::spawn(async move { l3.acquire(Priority::Background).await });
+        tokio::task::yield_now().await;
+        doomed.abort();
+        drop(first);
+        let got = tokio::time::timeout(Duration::from_secs(5), next).await;
+        assert!(got.is_ok(), "очередь застряла за отменённым запросом");
     }
 }
