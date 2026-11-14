@@ -61,6 +61,35 @@ impl MbConfig {
     }
 }
 
+/// Что клиент делает прямо сейчас — для отображения прогресса долгих операций (импорт артиста).
+#[derive(Debug, Clone)]
+pub enum MbEvent {
+    /// Запрос ждёт очередь лимитера (темп, `Retry-After`).
+    Waiting { what: String },
+    /// Запрос отправлен (`attempt` с нуля).
+    Sent { what: String, attempt: u32 },
+    /// Ответ получен.
+    Received { what: String, millis: u64 },
+    /// MusicBrainz ответил 503/429; повтор через `wait` (`attempt` из `max`).
+    Throttled {
+        status: u16,
+        wait: Duration,
+        attempt: u32,
+        max: u32,
+    },
+    /// Пачка страниц: загружено `loaded` из `total` (`what` — «release groups», «releases»).
+    Pages {
+        what: &'static str,
+        loaded: usize,
+        total: usize,
+    },
+    /// Добор релизов по одной группе: готово `done` из `total`.
+    Fallback { done: usize, total: usize },
+}
+
+/// Получатель событий [`MbEvent`]; вызывается синхронно, из любой задачи — должен быть быстрым.
+pub type MbObserver = Arc<dyn Fn(MbEvent) + Send + Sync>;
+
 type Flight = Shared<BoxFuture<'static, Result<Arc<Value>>>>;
 
 /// Результат пакетного импорта дискографии.
@@ -95,6 +124,7 @@ struct Inner {
 pub struct MbClient {
     inner: Arc<Inner>,
     priority: Priority,
+    observer: Option<MbObserver>,
 }
 
 impl MbClient {
@@ -120,6 +150,7 @@ impl MbClient {
                 inflight: Mutex::new(HashMap::new()),
             }),
             priority: Priority::Interactive,
+            observer: None,
         })
     }
 
@@ -150,6 +181,22 @@ impl MbClient {
         Self {
             inner: self.inner.clone(),
             priority: Priority::Background,
+            observer: self.observer.clone(),
+        }
+    }
+
+    /// Клон, сообщающий о ходе запросов `observer`-у (кэш, лимитер и single-flight общие).
+    pub fn with_observer(&self, observer: MbObserver) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            priority: self.priority,
+            observer: Some(observer),
+        }
+    }
+
+    fn emit(&self, event: MbEvent) {
+        if let Some(o) = &self.observer {
+            o(event);
         }
     }
 
@@ -190,6 +237,7 @@ impl MbClient {
                 None => {
                     let inner = self.inner.clone();
                     let priority = self.priority;
+                    let observer = self.observer.clone();
                     let owned_query: Vec<(String, String)> = query
                         .iter()
                         .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -202,7 +250,14 @@ impl MbClient {
                     // отслеживать её отдельно не нужно; запись из карты убирает она сама.
                     let task = tokio::spawn(async move {
                         let r = inner
-                            .fetch_and_cache(priority, &path, &owned_query, ttl, &k)
+                            .fetch_and_cache(
+                                priority,
+                                observer.as_ref(),
+                                &path,
+                                &owned_query,
+                                ttl,
+                                &k,
+                            )
                             .await;
                         inner
                             .inflight
@@ -416,6 +471,11 @@ impl MbClient {
             let page: BrowseReleaseGroups =
                 self.get_typed("release-group", &query, LOOKUP_TTL).await?;
             let got = page.release_groups.len();
+            self.emit(MbEvent::Pages {
+                what: "release groups",
+                loaded: (offset + got).min(page.count),
+                total: page.count,
+            });
             for g in page.release_groups {
                 out.push(g.into_hit(Some(artist))?);
             }
@@ -542,14 +602,24 @@ impl MbClient {
         }
 
         let concurrency = self.inner.limiter().max_concurrent();
-        let fetched: Vec<_> = stream::iter(missing)
+        let total = missing.len();
+        if total > 0 {
+            self.emit(MbEvent::Fallback { done: 0, total });
+        }
+        let mut pending = stream::iter(missing)
             .map(|(i, group)| async move {
                 let r = self.canonical_release_with_tracklist(group.mbid).await;
                 (i, group, r)
             })
-            .buffer_unordered(concurrency)
-            .collect()
-            .await;
+            .buffer_unordered(concurrency);
+        let mut fetched = Vec::with_capacity(total);
+        while let Some(item) = pending.next().await {
+            fetched.push(item);
+            self.emit(MbEvent::Fallback {
+                done: fetched.len(),
+                total,
+            });
+        }
         let mut unavailable = Vec::new();
         let mut fetched_ok = Vec::new();
         for (i, group, r) in fetched {
@@ -608,6 +678,11 @@ impl MbClient {
                 return Ok(HashMap::new());
             }
             let got = page.releases.len();
+            self.emit(MbEvent::Pages {
+                what: "releases",
+                loaded: (offset + got).min(page.count),
+                total: page.count,
+            });
             for r in page.releases {
                 if !seen.insert(r.id) {
                     continue;
@@ -644,12 +719,13 @@ impl Inner {
     async fn fetch_and_cache(
         &self,
         priority: Priority,
+        observer: Option<&MbObserver>,
         path: &str,
         query: &[(String, String)],
         ttl: Duration,
         key: &str,
     ) -> Result<Value> {
-        let value = self.fetch(priority, path, query).await?;
+        let value = self.fetch(priority, observer, path, query).await?;
         if let Some(pool) = &self.cache {
             if let Err(e) = mb_cache::put(pool, key, &value, ttl).await {
                 tracing::warn!(error = %e, "mb_cache write failed");
@@ -668,9 +744,15 @@ impl Inner {
     async fn fetch(
         &self,
         priority: Priority,
+        observer: Option<&MbObserver>,
         path: &str,
         query: &[(String, String)],
     ) -> Result<Value> {
+        let emit = |e: MbEvent| {
+            if let Some(o) = observer {
+                o(e);
+            }
+        };
         let base = self
             .base
             .read()
@@ -691,7 +773,15 @@ impl Inner {
         loop {
             // Лимитер берём заново на каждой попытке: `reconfigure` действует и на повторы.
             let limiter = self.limiter();
+            emit(MbEvent::Waiting {
+                what: path.to_string(),
+            });
             let permit = limiter.acquire(priority).await;
+            emit(MbEvent::Sent {
+                what: path.to_string(),
+                attempt,
+            });
+            let sent = std::time::Instant::now();
             let resp = self
                 .http
                 .get(url.clone())
@@ -699,6 +789,10 @@ impl Inner {
                 .await
                 .map_err(|e| MbError::Transport(e.to_string()))?;
             let status = resp.status();
+            emit(MbEvent::Received {
+                what: path.to_string(),
+                millis: u64::try_from(sent.elapsed().as_millis()).unwrap_or(u64::MAX),
+            });
             match status {
                 s if s.is_success() => {
                     let body = resp.json().await.map_err(|e| MbError::Parse(e.to_string()));
@@ -719,6 +813,12 @@ impl Inner {
                         return Err(MbError::RateLimited);
                     }
                     attempt += 1;
+                    emit(MbEvent::Throttled {
+                        status: status.as_u16(),
+                        wait,
+                        attempt,
+                        max: MAX_RETRIES,
+                    });
                     tracing::warn!(%status, ?wait, attempt, "MusicBrainz throttled, retrying");
                 }
                 other => {

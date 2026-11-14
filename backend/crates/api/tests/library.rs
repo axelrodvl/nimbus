@@ -1119,3 +1119,142 @@ async fn import_falls_back_when_bulk_browse_is_unsupported(pool: PgPool) {
         "по запросу на группу, как до пакетного пути"
     );
 }
+
+// ------------------------------------------------------------------ видимый прогресс и зависание
+
+async fn import_progress_json(pool: &PgPool) -> serde_json::Value {
+    sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        "SELECT progress FROM jobs WHERE kind = 'import_artist'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
+    .unwrap_or(serde_json::Value::Null)
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn import_progress_shows_every_page_of_the_musicbrainz_phase(pool: PgPool) {
+    let server = bulk_mb_server().await;
+    let lib = nimbus_library::LibraryService::new(
+        pool.clone(),
+        mb_client(&server),
+        nimbus_core::events::EventBus::new(),
+    );
+    let artist = lib
+        .ensure_artist(Uuid::parse_str(RADIOHEAD).unwrap())
+        .await
+        .unwrap();
+    lib.enqueue_import(artist.id).await.unwrap();
+    lib.import_artist_skipping(artist.id, &[]).await.unwrap();
+
+    let log = import_progress_json(&pool).await["log"].to_string();
+    assert!(
+        log.contains("release groups"),
+        "страницы групп не видны: {log}"
+    );
+    assert!(
+        log.contains("of 2 releases"),
+        "страницы релизов не видны: {log}"
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn import_progress_shows_musicbrainz_busy_and_retries(pool: PgPool) {
+    let server = bulk_mb_server().await;
+    // Первый запрос списка релизов получает 503 (приоритет выше обычных заглушек), затем всё штатно.
+    Mock::given(method("GET"))
+        .and(path("/ws/2/release"))
+        .respond_with(ResponseTemplate::new(503))
+        .up_to_n_times(1)
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    let lib = nimbus_library::LibraryService::new(
+        pool.clone(),
+        mb_client(&server),
+        nimbus_core::events::EventBus::new(),
+    );
+    let artist = lib
+        .ensure_artist(Uuid::parse_str(RADIOHEAD).unwrap())
+        .await
+        .unwrap();
+    lib.enqueue_import(artist.id).await.unwrap();
+    lib.import_artist_skipping(artist.id, &[]).await.unwrap();
+    let log = import_progress_json(&pool).await["log"].to_string();
+    assert!(
+        log.contains("MusicBrainz is busy (HTTP 503)") && log.contains("retry 1 of 3"),
+        "повтор после 503 не виден: {log}"
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn silent_musicbrainz_stalls_the_import_into_a_retry_instead_of_hanging(pool: PgPool) {
+    let server = MockServer::start().await;
+    // Любой запрос к MusicBrainz «висит» дольше теста.
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(60)))
+        .mount(&server)
+        .await;
+    let lib = nimbus_library::LibraryService::new(
+        pool.clone(),
+        mb_client(&server),
+        nimbus_core::events::EventBus::new(),
+    )
+    .with_import_stall(std::time::Duration::from_secs(1));
+    let artist = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO artists (mbid, name, in_library) VALUES ($1::uuid, 'A', TRUE) RETURNING id",
+    )
+    .bind(RADIOHEAD)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    lib.enqueue_import(artist).await.unwrap();
+
+    let started = std::time::Instant::now();
+    let res = lib.import_artist_skipping(artist, &[]).await;
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    match res {
+        Err(nimbus_library::LibraryError::MbUnavailable(m)) => {
+            assert!(m.contains("stalled"), "{m}")
+        }
+        other => panic!("ожидали MbUnavailable(stalled), получили {other:?}"),
+    }
+    let p = import_progress_json(&pool).await;
+    assert!(p["log"].to_string().contains("stuck"), "{p}");
+    assert!(p["current"].is_null());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn waiting_for_a_slow_response_updates_the_current_step_every_few_seconds(pool: PgPool) {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(60)))
+        .mount(&server)
+        .await;
+    let lib = nimbus_library::LibraryService::new(
+        pool.clone(),
+        mb_client(&server),
+        nimbus_core::events::EventBus::new(),
+    )
+    .with_import_stall(std::time::Duration::from_secs(30));
+    let lib = std::sync::Arc::new(lib);
+    let artist = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO artists (mbid, name, in_library) VALUES ($1::uuid, 'A', TRUE) RETURNING id",
+    )
+    .bind(RADIOHEAD)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    lib.enqueue_import(artist).await.unwrap();
+    let handle = tokio::spawn({
+        let lib = lib.clone();
+        async move { lib.import_artist_skipping(artist, &[]).await }
+    });
+    nimbus_testkit::eventually(std::time::Duration::from_secs(20), || async {
+        import_progress_json(&pool).await["current"]
+            .as_str()
+            .is_some_and(|c| c.contains("waiting for a response"))
+    })
+    .await;
+    handle.abort();
+}

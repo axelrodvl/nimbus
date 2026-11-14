@@ -4,9 +4,11 @@ use nimbus_core::model::{Album, Artist, NewAlbum, NewArtist, NewTrack, Track, Tr
 use nimbus_db::repo::jobs::{EnqueueOpts, ImportPhase, ImportProgress};
 use nimbus_db::repo::{albums, artists, jobs, pins, tracks};
 use nimbus_db::PgPool;
-use nimbus_musicbrainz::{cover_url, BulkGroup, MbClient, ReleaseGroupHit, ReleaseTracklist};
+use nimbus_musicbrainz::{
+    cover_url, BulkGroup, MbClient, MbEvent, ReleaseGroupHit, ReleaseTracklist,
+};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use crate::error::LibraryError;
@@ -93,7 +95,17 @@ pub struct LibraryService {
     events: EventBus,
     /// Включена ли автозагрузка (`storage.auto_download = "added"`): добавляемое сразу закрепляется.
     auto_download: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    /// Сколько импорт может не получать от MusicBrainz ни одного события, прежде чем считаться
+    /// зависшим (задача перезапускается с паузой, а не висит).
+    import_stall: Duration,
 }
+
+/// Тишина от MusicBrainz дольше этого — импорт считается зависшим и перезапускается.
+pub const IMPORT_STALL: Duration = Duration::from_secs(120);
+/// Как часто в интерфейсе обновляется «ждём ответа N с», пока MusicBrainz молчит.
+const IMPORT_HEARTBEAT: Duration = Duration::from_secs(3);
+/// Не чаще раза в это время прогресс из потока событий пишется в БД.
+const IMPORT_SAVE_EVERY: Duration = Duration::from_millis(400);
 
 /// Попыток задачи `ImportArtist` (с растущей паузой это около получаса).
 pub const IMPORT_MAX_ATTEMPTS: i32 = 8;
@@ -107,11 +119,18 @@ impl LibraryService {
             mb,
             events,
             auto_download: None,
+            import_stall: IMPORT_STALL,
         }
     }
 
     /// Подключает проверку автозагрузки: пока она возвращает `true`, всё, что попадает в библиотеку
     /// (альбом, трек, импорт артиста), закрепляется в той же транзакции.
+    /// Порог «MusicBrainz молчит» для импорта (по умолчанию [`IMPORT_STALL`]).
+    pub fn with_import_stall(mut self, stall: Duration) -> Self {
+        self.import_stall = stall;
+        self
+    }
+
     pub fn with_auto_download(mut self, f: impl Fn() -> bool + Send + Sync + 'static) -> Self {
         self.auto_download = Some(Arc::new(f));
         self
@@ -410,9 +429,15 @@ impl LibraryService {
 
         // Отсеянные группы (тип, чужой артист) в MusicBrainz за треклистами не ходят.
         let skipped_groups = Mutex::new(Vec::<(String, String)>::new());
-        let bulk = self
-            .mb
-            .artist_releases_bulk_filtered(artist.mbid, &["album", "ep"], |group| {
+        // События клиента MusicBrainz идут в прогресс импорта: пользователь видит каждую страницу,
+        // повтор после 503 и «ждём ответа N с», а тишина дольше `import_stall` перезапускает задачу.
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<MbEvent>();
+        let mb = self.mb.with_observer(Arc::new(move |e| {
+            // Получатель закрыт, когда импорт уже закончился: событие никому не нужно.
+            let _ = tx.send(e);
+        }));
+        let bulk = {
+            let fetch = mb.artist_releases_bulk_filtered(artist.mbid, &["album", "ep"], |group| {
                 let excluded = group
                     .primary_type
                     .iter()
@@ -437,14 +462,60 @@ impl LibraryService {
                     }
                     None => true,
                 }
-            })
-            .await?;
+            });
+            tokio::pin!(fetch);
+            let mut heartbeat = tokio::time::interval(IMPORT_HEARTBEAT);
+            heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            let mut last_activity = Instant::now();
+            let mut last_save = Instant::now();
+            let mut step = String::from("Requesting the release list");
+            loop {
+                tokio::select! {
+                    res = &mut fetch => {
+                        // Хвост событий, пришедших вместе с ответом, в журнал не нужен.
+                        break res?;
+                    }
+                    Some(event) = rx.recv() => {
+                        last_activity = Instant::now();
+                        apply_mb_event(&mut progress, &mut step, event);
+                        if last_save.elapsed() >= IMPORT_SAVE_EVERY {
+                            last_save = Instant::now();
+                            self.save_progress(artist_id, &progress).await;
+                        }
+                    }
+                    _ = heartbeat.tick() => {
+                        let silent = last_activity.elapsed();
+                        if silent >= self.import_stall {
+                            progress.log(format!(
+                                "No response from MusicBrainz for {}s: the import is stuck and will be restarted automatically",
+                                silent.as_secs()
+                            ));
+                            progress.current = None;
+                            self.save_progress(artist_id, &progress).await;
+                            return Err(LibraryError::MbUnavailable(format!(
+                                "no activity from MusicBrainz for {}s (stalled)",
+                                silent.as_secs()
+                            )));
+                        }
+                        progress.current = Some(if silent >= Duration::from_secs(3) {
+                            format!("{step} — waiting for a response, {}s", silent.as_secs())
+                        } else {
+                            step.clone()
+                        });
+                        last_save = Instant::now();
+                        self.save_progress(artist_id, &progress).await;
+                    }
+                }
+            }
+        };
         let skipped_groups = skipped_groups
             .into_inner()
             .unwrap_or_else(PoisonError::into_inner);
 
         let mut summary = ImportSummary::default();
         progress.phase = ImportPhase::Albums;
+        progress.done = 0;
+        progress.current = None;
         progress.total =
             u32::try_from(bulk.groups.len() + bulk.unavailable.len() + skipped_groups.len())
                 .unwrap_or(u32::MAX);
@@ -568,5 +639,58 @@ impl LibraryService {
             }
         }
         Ok(())
+    }
+}
+
+/// Переносит событие клиента MusicBrainz в прогресс импорта: `current` — что делаем сейчас,
+/// `log` — то, что пользователю важно увидеть (страницы, повторы).
+fn apply_mb_event(progress: &mut ImportProgress, step: &mut String, event: MbEvent) {
+    match event {
+        MbEvent::Waiting { .. } => {
+            *step = "Waiting in the MusicBrainz request queue (1 request per second)".into();
+        }
+        MbEvent::Sent { what, attempt } => {
+            *step = if attempt == 0 {
+                format!("Requesting {what} from MusicBrainz")
+            } else {
+                format!("Requesting {what} from MusicBrainz (retry {attempt})")
+            };
+        }
+        MbEvent::Received { .. } => {}
+        MbEvent::Throttled {
+            status,
+            wait,
+            attempt,
+            max,
+        } => {
+            progress.log(format!(
+                "MusicBrainz is busy (HTTP {status}); retrying in {}s (retry {attempt} of {max})",
+                wait.as_secs().max(1)
+            ));
+            *step = format!(
+                "MusicBrainz is busy, retrying in {}s",
+                wait.as_secs().max(1)
+            );
+        }
+        MbEvent::Pages {
+            what,
+            loaded,
+            total,
+        } => {
+            progress.done = u32::try_from(loaded).unwrap_or(u32::MAX);
+            progress.total = u32::try_from(total).unwrap_or(u32::MAX);
+            progress.log(format!("Loaded {loaded} of {total} {what}"));
+        }
+        MbEvent::Fallback { done, total } => {
+            progress.done = u32::try_from(done).unwrap_or(u32::MAX);
+            progress.total = u32::try_from(total).unwrap_or(u32::MAX);
+            if done == 0 {
+                progress.log(format!(
+                    "Fetching tracklists one release group at a time: {total} left"
+                ));
+            } else if done == total || done % 5 == 0 {
+                progress.log(format!("Tracklists fetched: {done} of {total}"));
+            }
+        }
     }
 }

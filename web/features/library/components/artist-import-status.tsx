@@ -23,7 +23,14 @@ function progressLine(t: ReturnType<typeof useT>, p: Progress) {
   if (p.phase === 'albums')
     return t('artist.import.step.albums', { done: p.done, title: p.current ?? '…', total: p.total });
   if (p.phase === 'discover') return t('artist.import.step.discover', { imported: p.imported });
-  return t('artist.import.step.groups');
+  // Фаза MusicBrainz: страницы списка групп/релизов (done из total), пока total неизвестен — без числа.
+  const pages = p.total > 0 ? ` ${p.done}/${p.total}` : '';
+  return `${t('artist.import.step.groups')}${pages}`;
+}
+
+/** Живая строка «что именно сейчас происходит» (текст от бэкенда): виден, даже когда журнал свёрнут. */
+function liveDetail(p: Progress | null) {
+  return p && p.phase === 'groups' && p.current ? p.current : null;
 }
 
 /** Журнал шагов (по нажатию): новые записи сверху. Текст — от бэкенда, на английском. */
@@ -122,6 +129,19 @@ export function ArtistImportStatus({ artistId, status }: { artistId: number; sta
           {text}
         </p>
       )}
+      {liveDetail(progress) ? (
+        <p className="text-muted/80 max-w-full truncate text-xs" data-testid="artist-import-live">
+          {liveDetail(progress)}
+        </p>
+      ) : null}
+      {progress && progress.phase === 'groups' && progress.total > 0 ? (
+        <div className="bg-card dark:bg-card-dark h-1 w-full max-w-xl overflow-hidden rounded-full" aria-hidden>
+          <div
+            className="bg-accent h-full transition-[width]"
+            style={{ width: `${Math.min(100, Math.round((progress.done / progress.total) * 100))}%` }}
+          />
+        </div>
+      ) : null}
       {open && progress ? <ImportLog log={progress.log} /> : null}
     </div>
   );
