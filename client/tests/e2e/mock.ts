@@ -73,6 +73,22 @@ export async function seedSources(request: APIRequestContext) {
 }
 
 /** Изменяющие запросы плейлистов отвечают `failStatus` и/или медленнее на `delayMs`. */
-export async function setPlaylists(request: APIRequestContext, faults: { failStatus?: number | null; delayMs?: number }) {
+export async function setPlaylists(
+  request: APIRequestContext,
+  faults: { failStatus?: number | null; delayMs?: number },
+) {
   await request.post(`${MOCK}/__test/playlists`, { data: faults });
+}
+
+/** Неисправности настроек: `failStatus` — `PUT /api/settings`, `providerTestOk: false` — проверка провайдера отклонена. */
+export async function setSettingsFaults(
+  request: APIRequestContext,
+  faults: { failStatus?: number | null; providerTestOk?: boolean },
+) {
+  await request.post(`${MOCK}/__test/settings`, { data: faults });
+}
+
+/** Настройки сервера как они сохранены на моке (с секретами без маски). */
+export async function mockSettings(request: APIRequestContext): Promise<Record<string, unknown>> {
+  return (await request.get(`${MOCK}/__test/settings`)).json();
 }

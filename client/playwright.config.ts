@@ -36,7 +36,7 @@ export default defineConfig({
     },
     {
       command: `bun run build && bun run preview --port ${previewPort} --strictPort`,
-      env: { VITE_BACKEND_URL: `http://localhost:${mockPort}` },
+      env: { VITE_BACKEND_URL: `http://localhost:${mockPort}`, VITE_UI_GALLERY: '1' },
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
       url: `http://localhost:${previewPort}`,

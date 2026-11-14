@@ -79,3 +79,22 @@ describe('клиент', () => {
     expect((fetch.mock.calls[0]?.[0] as Request).credentials).toBe('include');
   });
 });
+
+describe('ApiError.field из тела ошибки', () => {
+  it('поле валидации попадает в ApiError; нестроковое игнорируется', async () => {
+    const make = (field: unknown) =>
+      createApiClient({
+        baseUrl: 'http://x',
+        fetch: async () =>
+          new Response(JSON.stringify({ error: { code: 'invalid_settings', field, message: 'bad' } }), {
+            headers: { 'content-type': 'application/json' },
+            status: 400,
+          }),
+      });
+    await expect(make('musicbrainz.burst').GET('/api/settings').then(unwrap)).rejects.toMatchObject({
+      code: 'invalid_settings',
+      field: 'musicbrainz.burst',
+    });
+    await expect(make(5).GET('/api/settings').then(unwrap)).rejects.toMatchObject({ field: undefined });
+  });
+});

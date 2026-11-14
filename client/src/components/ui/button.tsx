@@ -6,7 +6,7 @@ type Variant = 'primary' | 'secondary' | 'ghost';
 type Size = 'default' | 'sm' | 'icon';
 
 type Props = {
-  children: ReactNode;
+  children?: ReactNode;
   variant?: Variant;
   size?: Size;
   /** Показывает спиннер и блокирует кнопку (например, пока идёт запрос). */

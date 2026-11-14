@@ -1,7 +1,6 @@
 import { LogOut, Search } from 'lucide-react';
 import { AppNavLink } from '@/components/app-nav-link';
 import { ConnectionIndicator } from '@/components/connection-indicator';
-import { LanguageSelect } from '@/components/language-select';
 import { useCommandPalette } from '@/components/search/command-palette';
 import { ShortcutHint } from '@/components/shortcut-hint';
 import { SyncStatus } from '@/components/sync-status';
@@ -62,8 +61,7 @@ export function Sidebar({ items }: { items: readonly NavItem[] }) {
         <div className="flex justify-center lg:justify-start">
           <SyncStatus labelClassName="hidden lg:inline" />
         </div>
-        <div className="hidden items-center gap-2 lg:flex">
-          <LanguageSelect className="min-w-0 flex-1" />
+        <div className="hidden items-center justify-end gap-2 lg:flex">
           <button
             aria-label={t('login.logout')}
             className="text-gray focus-visible:ring-accent/40 rounded-full p-1.5 hover:text-black focus-visible:ring-2 focus-visible:outline-none dark:hover:text-white"

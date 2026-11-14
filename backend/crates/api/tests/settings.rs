@@ -389,3 +389,19 @@ async fn musicbrainz_settings_apply_on_the_fly(pool: PgPool) {
     assert!(st.mb.search_artists("radiohead again", 5).await.is_ok());
     assert_eq!(mirror.received_requests().await.unwrap().len(), 2);
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn validation_error_names_the_field(pool: PgPool) {
+    let app = router(state(pool));
+    let (code, body) = put(
+        app.clone(),
+        json!({"performance": {"download_concurrency": 0}}),
+    )
+    .await;
+    assert_eq!(code, 400);
+    assert_eq!(body["error"]["field"], "performance.download_concurrency");
+    // Сообщение без пути поля — без `field`.
+    let (code, body) = put(app, json!({"storage": {"cache_limit_gb": "x"}})).await;
+    assert_eq!(code, 400);
+    assert!(body["error"].get("field").is_none(), "{body}");
+}

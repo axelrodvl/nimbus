@@ -9,6 +9,7 @@ import { PlaylistsTab } from '@/components/playlists/playlists-tab';
 import { PageLayout } from '@/components/page-layout';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Tabs } from '@/components/ui/tabs';
 import { VirtualGrid, useGridColumns } from '@/components/ui/virtual-grid';
 import { VirtualList } from '@/components/ui/virtual-list';
 import { useT } from '@/lib/i18n/provider';
@@ -138,19 +139,20 @@ export function LibraryScreen() {
   return (
     <PageLayout title={t('nav.library')}>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <nav aria-label={t('library.tabs')} className="flex gap-2">
-          {LIBRARY_TABS.map(item => (
-            <Link
-              aria-current={item.id === tab ? 'page' : undefined}
-              className={cn(pill, item.id === tab ? pillActive : pillIdle)}
-              data-testid={`tab-${item.id}`}
-              key={item.id}
-              to={libraryHref(item.id, { q, status })}
-            >
-              {t(item.label)} <span className="tabular-nums opacity-70">{counts[item.id]}</span>
-            </Link>
-          ))}
-        </nav>
+        <Tabs
+          aria-label={t('library.tabs')}
+          items={LIBRARY_TABS.map(item => ({
+            'data-testid': `tab-${item.id}`,
+            id: item.id,
+            label: (
+              <>
+                {t(item.label)} <span className="tabular-nums opacity-70">{counts[item.id]}</span>
+              </>
+            ),
+            to: libraryHref(item.id, { q, status }),
+          }))}
+          selectedId={tab}
+        />
         <label className="relative block w-full sm:w-64">
           <span className="sr-only">{t('library.search.label')}</span>
           <Search

@@ -3614,6 +3614,13 @@
           "code": {
             "type": "string"
           },
+          "field": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Путь поля запроса, к которому относится ошибка валидации (`musicbrainz.burst`), если он известен."
+          },
           "message": {
             "type": "string"
           }

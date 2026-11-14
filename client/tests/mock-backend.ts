@@ -1,6 +1,13 @@
 // Мок бэкенда для Playwright (запускается под bun). Состояние живёт в памяти процесса; тесты идут последовательно
 // и сбрасывают его через `POST /__test/reset`. Данные синхронизации отдаёт тот же `FakeSyncServer`, что и unit-тесты.
-import { FakeSyncServer, makeAlbum, makeArtist, makeBigLibrary, makeSmallLibrary, makeTrack } from '../src/test/factories';
+import {
+  FakeSyncServer,
+  makeAlbum,
+  makeArtist,
+  makeBigLibrary,
+  makeSmallLibrary,
+  makeTrack,
+} from '../src/test/factories';
 import searchFixture from './fixtures/search-radiohead.json';
 
 const PORT = Number(process.env.MOCK_BACKEND_PORT ?? 4011);
@@ -52,6 +59,10 @@ const state = {
   snapshotDelayMs: 0,
   streamDelayMs: new Map<number, number>(),
   prefetchNext: true,
+  settings: defaultSettings(),
+  /** HTTP-статус, которым отвечает `PUT /api/settings` (`null` — норма). */
+  settingsFault: null as number | null,
+  providerTestOk: true,
 };
 const clients = new Set<MockWebSocket>();
 
@@ -73,7 +84,8 @@ const WAV = (() => {
   buf.writeUInt16LE(16, 34);
   buf.write('data', 36);
   buf.writeUInt32LE(samples * 2, 40);
-  for (let i = 0; i < samples; i++) buf.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 440 * i) / RATE) * 8000), 44 + i * 2);
+  for (let i = 0; i < samples; i++)
+    buf.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 440 * i) / RATE) * 8000), 44 + i * 2);
   return buf;
 })();
 
@@ -98,6 +110,9 @@ function reset(opts: { authRequired?: boolean; snapshotDelayMs?: number }) {
   state.faults = { ...NO_SEARCH_FAULTS };
   state.streamDelayMs.clear();
   state.prefetchNext = true;
+  state.settings = defaultSettings();
+  state.settingsFault = null;
+  state.providerTestOk = true;
   state.imports.clear();
   state.failPlaylists = null;
   state.playlistDelayMs = 0;
@@ -186,7 +201,10 @@ function addToLibrary(body: AddBody): { status: number; body: unknown } | null {
     if (!hit) return null;
     const exists = state.server.all('artist').some(a => a.mbid === body.mbid && a.in_library);
     const artist = ensureArtist(hit.mbid, hit.name, true);
-    return { body: { id: artist.id, status: exists ? 'exists' : 'importing', type: 'artist' }, status: exists ? 200 : 202 };
+    return {
+      body: { id: artist.id, status: exists ? 'exists' : 'importing', type: 'artist' },
+      status: exists ? 200 : 202,
+    };
   }
   if (body.type === 'album') {
     const album = ensureAlbum(body.mbid, true);
@@ -196,7 +214,15 @@ function addToLibrary(body: AddBody): { status: number; body: unknown } | null {
       for (let position = 1; position <= 3; position++) {
         state.server.upsert(
           'track',
-          makeTrack({ added_at: now(), album_id: album.id, artist_id: Number(album.artist_id), id: nextId('track'), position, status: 'adding', title: `${String(album.title)} · ${position}` }),
+          makeTrack({
+            added_at: now(),
+            album_id: album.id,
+            artist_id: Number(album.artist_id),
+            id: nextId('track'),
+            position,
+            status: 'adding',
+            title: `${String(album.title)} · ${position}`,
+          }),
         );
       }
     }
@@ -293,7 +319,17 @@ function seedPlayerLibrary() {
   const track = (id: number, albumId: number, position: number, title: string, over: Record<string, unknown> = {}) =>
     state.server.upsert(
       'track',
-      makeTrack({ added_at: now(), album_id: albumId, artist_id: artist.id, duration_ms: 5000, id, position, status: 'found', title, ...over }),
+      makeTrack({
+        added_at: now(),
+        album_id: albumId,
+        artist_id: artist.id,
+        duration_ms: 5000,
+        id,
+        position,
+        status: 'found',
+        title,
+        ...over,
+      }),
     );
   // Song One → Broken Format (503 ffmpeg_missing) → Song Two → Song Three (ready) → Not Yet (adding)
   track(9031, 903, 1, 'Song One');
@@ -304,7 +340,6 @@ function seedPlayerLibrary() {
   track(9051, 905, 1, 'Image Track', { playback: 'transcode' });
 }
 
-
 // ---------------------------------------------------------------- плейлисты и источники
 
 const err = (status: number, code: string, message: string) => json(status, { error: { code, message } });
@@ -313,13 +348,21 @@ const poke = () => broadcast({ type: 'sync.poke' });
 /** Плейлист в формате `PlaylistDto` (id — строка, как на сервере). */
 function playlistDto(row: { id: number } & Record<string, unknown>) {
   const count = state.server.all('playlist_track').filter(r => r.playlist_id === row.id).length;
-  return { created_at: row.created_at, id: String(row.id), kind: 'user', last_used_at: row.last_used_at, name: row.name, track_count: count };
+  return {
+    created_at: row.created_at,
+    id: String(row.id),
+    kind: 'user',
+    last_used_at: row.last_used_at,
+    name: row.name,
+    track_count: count,
+  };
 }
 
 /** `/api/playlists[/{id}[/tracks[/{track}]]]`: изменяет те же данные, что отдаёт синхронизация. */
 async function playlistRoute(req: Request, parts: string[]): Promise<Response> {
   if (state.playlistDelayMs && req.method !== 'GET') await sleep(state.playlistDelayMs);
-  if (state.failPlaylists && req.method !== 'GET') return err(state.failPlaylists, 'internal', 'playlist request failed');
+  if (state.failPlaylists && req.method !== 'GET')
+    return err(state.failPlaylists, 'internal', 'playlist request failed');
   const [, , rawId, sub, rawTrack] = parts; // api, playlists, id, tracks, track_id
   if (!rawId) {
     if (req.method === 'POST') {
@@ -339,7 +382,8 @@ async function playlistRoute(req: Request, parts: string[]): Promise<Response> {
   const playlist = state.server.get('playlist', id);
   if (!playlist) return err(404, 'not_found', 'playlist not found');
   if (!sub && req.method === 'DELETE') {
-    for (const r of state.server.all('playlist_track')) if (r.playlist_id === id) state.server.remove('playlist_track', r.id);
+    for (const r of state.server.all('playlist_track'))
+      if (r.playlist_id === id) state.server.remove('playlist_track', r.id);
     state.server.remove('playlist', id);
     poke();
     return new Response(null, { status: 204 });
@@ -348,7 +392,12 @@ async function playlistRoute(req: Request, parts: string[]): Promise<Response> {
     const { track_id } = (await req.json()) as { track_id: number };
     if (!state.server.get('track', track_id)) return err(404, 'not_found', 'playlist or track not found');
     if (!state.server.all('playlist_track').some(r => r.playlist_id === id && r.track_id === track_id)) {
-      state.server.upsert('playlist_track', { added_at: now(), id: nextId('playlist_track'), playlist_id: id, track_id });
+      state.server.upsert('playlist_track', {
+        added_at: now(),
+        id: nextId('playlist_track'),
+        playlist_id: id,
+        track_id,
+      });
     }
     state.server.upsert('playlist', { ...playlist, last_used_at: now() });
     poke();
@@ -417,7 +466,8 @@ function sourcesOf(trackId: number): MockSource[] {
 function settleTrack(trackId: number) {
   const track = state.server.get('track', trackId);
   const pending = sourcesOf(trackId).some(s => s.is_primary && s.needs_confirmation);
-  if (track && track.needs_confirmation && !pending) state.server.upsert('track', { ...track, needs_confirmation: false });
+  if (track && track.needs_confirmation && !pending)
+    state.server.upsert('track', { ...track, needs_confirmation: false });
 }
 
 const MAGNET = /^magnet:\?(?:.*&)?xt=urn:btih:([0-9a-f]{40}|[a-z2-7]{32})(?:&|$)/i;
@@ -431,14 +481,23 @@ async function sourcesRoute(req: Request, parts: string[]): Promise<Response | n
     if (req.method === 'GET') {
       return json(
         200,
-        albumTorrents(id).map((t, i) => ({ files_count: 12, matched_tracks: 10 - i, rank_score: 0.9 - i / 10, torrent: t, verified: i === 0 })),
+        albumTorrents(id).map((t, i) => ({
+          files_count: 12,
+          matched_tracks: 10 - i,
+          rank_score: 0.9 - i / 10,
+          torrent: t,
+          verified: i === 0,
+        })),
       );
     }
     if (req.method === 'POST') {
       const { magnet } = (await req.json()) as { magnet: string };
       const hit = MAGNET.exec(magnet.trim());
       if (!hit) return err(400, 'invalid_magnet', 'not a magnet link');
-      const added = { ...torrent(id * 10 + 3 + (state.extraTorrents.get(id)?.length ?? 0), 'manual', `Manual ${hit[1]!.slice(0, 8)}`), meta_status: 'pending' };
+      const added = {
+        ...torrent(id * 10 + 3 + (state.extraTorrents.get(id)?.length ?? 0), 'manual', `Manual ${hit[1]!.slice(0, 8)}`),
+        meta_status: 'pending',
+      };
       state.extraTorrents.set(id, [...(state.extraTorrents.get(id) ?? []), added]);
       return json(202, { queued: true, torrent: added });
     }
@@ -468,13 +527,26 @@ async function sourcesRoute(req: Request, parts: string[]): Promise<Response | n
       return json(200, source);
     }
     if (sub === 'source' && req.method === 'PUT') {
-      const body = (await req.json()) as { source_id?: number | null; torrent_id?: number | null; file_index?: number | null };
+      const body = (await req.json()) as {
+        source_id?: number | null;
+        torrent_id?: number | null;
+        file_index?: number | null;
+      };
       const list = sourcesOf(id);
       let chosen = body.source_id != null ? list.find(s => s.id === body.source_id) : undefined;
       if (!chosen && body.torrent_id != null && body.file_index != null) {
         const tor = albumTorrents(Number(track.album_id)).find(t => t.id === body.torrent_id);
         if (!tor) return err(404, 'not_found', 'torrent not found');
-        chosen = { file_index: body.file_index, id: id * 10 + 5 + list.length, is_primary: false, match_score: 1, needs_confirmation: false, path: `Picked/${body.file_index}.flac`, size_bytes: 1024, torrent: tor };
+        chosen = {
+          file_index: body.file_index,
+          id: id * 10 + 5 + list.length,
+          is_primary: false,
+          match_score: 1,
+          needs_confirmation: false,
+          path: `Picked/${body.file_index}.flac`,
+          size_bytes: 1024,
+          torrent: tor,
+        };
         list.push(chosen);
       }
       if (!chosen) return err(400, 'bad_source', 'choose an existing source or torrent+file');
@@ -505,12 +577,152 @@ async function sourcesRoute(req: Request, parts: string[]): Promise<Response | n
 function seedSourcesLibrary() {
   const artist = makeArtist({ added_at: now(), id: 910, name: 'Sources Band' });
   state.server.upsert('artist', artist);
-  state.server.upsert('album', makeAlbum({ added_at: now(), artist_id: artist.id, id: 913, title: 'Sources Test', year: 2005 }));
+  state.server.upsert(
+    'album',
+    makeAlbum({ added_at: now(), artist_id: artist.id, id: 913, title: 'Sources Test', year: 2005 }),
+  );
   const track = (id: number, position: number, title: string, over: Record<string, unknown> = {}) =>
-    state.server.upsert('track', makeTrack({ added_at: now(), album_id: 913, artist_id: artist.id, duration_ms: 5000, id, position, status: 'found', title, ...over }));
+    state.server.upsert(
+      'track',
+      makeTrack({
+        added_at: now(),
+        album_id: 913,
+        artist_id: artist.id,
+        duration_ms: 5000,
+        id,
+        position,
+        status: 'found',
+        title,
+        ...over,
+      }),
+    );
   track(9131, 1, 'Plain Song');
   track(9132, 2, 'Doubtful Song', { needs_confirmation: true });
   track(9133, 3, 'Lost Song', { status: 'not_found' });
+}
+
+// ---------------------------------------------------------------- настройки сервера
+const MASK = '••••';
+const SECRET_PATHS = ['providers.torznab.api_key', 'providers.rutracker.password', 'providers.rutracker.cookie'];
+type Json = Record<string, unknown>;
+const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+function defaultSettings(): Json {
+  return {
+    matching: { accept: 0.8, confirm: 0.65 },
+    musicbrainz: { base_url: 'https://musicbrainz.org/ws/2/', burst: 3, max_concurrent: 2, rate_per_sec: 1 },
+    performance: {
+      discover_workers: 8,
+      download_concurrency: 4,
+      import_workers: 2,
+      metadata_concurrency: 16,
+      metadata_timeout_secs: 30,
+      verify_workers: 16,
+    },
+    playback: { prefetch_next: true, transcode_alac: false, transcode_lossy_codec: 'opus' },
+    providers: { rutracker: null, tpb_enabled: true, torznab: null },
+    search: {
+      auto_retry: true,
+      format_prefs: ['flac', 'alac', 'mp3_320', 'mp3_v0', 'aac', 'ape_wv', 'mp3_other'],
+      max_candidates: 8,
+      skip_secondary_types: ['EP', 'Compilation', 'Live'],
+    },
+    storage: { auto_download: 'off', cache_limit_gb: 50, seed_ratio: 1, seeding: true },
+  };
+}
+
+function getAt(obj: unknown, path: string): unknown {
+  return path.split('.').reduce<unknown>((cur, k) => (isObj(cur) ? cur[k] : undefined), obj);
+}
+
+/** Слияние патча, как на сервере; пустой секрет и маска сохранённое значение не меняют. */
+function mergeSettings(base: Json, patch: Json, prefix = ''): Json {
+  const out: Json = { ...base };
+  for (const [k, v] of Object.entries(patch)) {
+    const path = prefix + k;
+    if (SECRET_PATHS.includes(path) && (v === '' || v === MASK)) continue;
+    out[k] = isObj(v) ? mergeSettings(isObj(out[k]) ? (out[k] as Json) : {}, v, `${path}.`) : v;
+  }
+  return out;
+}
+
+function maskSettings(settings: Json): Json {
+  const copy = structuredClone(settings);
+  for (const path of SECRET_PATHS) {
+    const keys = path.split('.');
+    const last = keys.pop() as string;
+    const parent = getAt(copy, keys.join('.'));
+    if (isObj(parent) && parent[last]) parent[last] = MASK;
+    else if (isObj(parent)) parent[last] = null;
+  }
+  return copy;
+}
+
+/** Первая ошибка валидации как `[поле, сообщение]` (диапазоны — как в `core/src/settings.rs`). */
+function validateSettings(s: Json): [string, string] | null {
+  const num = (path: string) => getAt(s, path) as number;
+  if (num('matching.confirm') > num('matching.accept'))
+    return ['matching.confirm', 'matching.confirm must not exceed matching.accept'];
+  if (num('storage.cache_limit_gb') < 1) return ['storage.cache_limit_gb', 'storage.cache_limit_gb must be at least 1'];
+  if (num('musicbrainz.burst') < 1 || num('musicbrainz.burst') > 20)
+    return ['musicbrainz.burst', 'musicbrainz.burst must be between 1 and 20'];
+  if (!String(getAt(s, 'musicbrainz.base_url')).endsWith('/'))
+    return ['musicbrainz.base_url', 'musicbrainz.base_url must be an http(s) URL ending with "/"'];
+  for (const k of ['discover_workers', 'verify_workers', 'import_workers', 'metadata_concurrency']) {
+    if (num(`performance.${k}`) < 1 || num(`performance.${k}`) > 64)
+      return [`performance.${k}`, `performance.${k} must be between 1 and 64`];
+  }
+  const url = getAt(s, 'providers.torznab.url');
+  if (isObj(getAt(s, 'providers.torznab')) && !url)
+    return ['providers.torznab.url', 'providers.torznab.url must not be empty'];
+  return null;
+}
+
+const providersFingerprint = (s: Json) => JSON.stringify(getAt(s, 'providers'));
+
+async function settingsRoute(req: Request, path: string): Promise<Response | null> {
+  if (path === '/api/settings' && req.method === 'GET') return json(200, maskSettings(state.settings));
+  if (path === '/api/settings' && req.method === 'PUT') {
+    if (state.settingsFault)
+      return json(state.settingsFault, { error: { code: 'internal', message: 'internal server error' } });
+    const merged = mergeSettings(state.settings, (await req.json()) as Json);
+    const bad = validateSettings(merged);
+    if (bad) return json(400, { error: { code: 'invalid_settings', field: bad[0], message: bad[1] } });
+    const suggest = providersFingerprint(merged) !== providersFingerprint(state.settings);
+    state.settings = merged;
+    state.prefetchNext = getAt(merged, 'playback.prefetch_next') === true;
+    const restart = JSON.stringify(merged.performance) !== JSON.stringify((defaultSettings() as Json).performance);
+    return json(200, { ...maskSettings(merged), restart_required: restart, suggest_retry_missing: suggest });
+  }
+  if (path === '/api/storage') {
+    const gb = 1024 ** 3;
+    return json(200, {
+      files: 412,
+      limit_bytes: (getAt(state.settings, 'storage.cache_limit_gb') as number) * gb,
+      over_limit: false,
+      pinned_bytes: 2 * gb,
+      pinned_files: 38,
+      torrents_active: 1,
+      used_bytes: 12 * gb,
+    });
+  }
+  if (path === '/api/settings/providers/test' && req.method === 'POST') {
+    const { provider } = (await req.json()) as { provider: string };
+    const configured =
+      provider === 'tpb'
+        ? getAt(state.settings, 'providers.tpb_enabled')
+        : getAt(state.settings, `providers.${provider}`);
+    if (!configured) return json(400, { error: { code: 'not_configured', message: `${provider} is not configured` } });
+    return json(
+      200,
+      state.providerTestOk
+        ? { message: 'OK: 12 results', ok: true, sample_count: 12 }
+        : { message: 'Login rejected', ok: false, sample_count: 0 },
+    );
+  }
+  if (path === '/api/settings/reimport-artists' && req.method === 'POST') return json(200, { queued: 3 });
+  if (path === '/api/acquisition/retry' && req.method === 'POST') return json(202, { queued: 2 });
+  return null;
 }
 
 const authed = (req: Request) => !state.authRequired || cookieOf(req) === TOKEN;
@@ -520,7 +732,8 @@ Bun.serve({
   async fetch(req, server) {
     const path = new URL(req.url).pathname;
     // В журнал потока попадает и запрос (`?t=` у перекодируемых треков).
-    if (!path.startsWith('/__test/')) state.log.push(`${req.method} ${path}${path.endsWith('/stream') ? new URL(req.url).search : ''}`);
+    if (!path.startsWith('/__test/'))
+      state.log.push(`${req.method} ${path}${path.endsWith('/stream') ? new URL(req.url).search : ''}`);
 
     if (path === '/api/health') return json(200, { db: true, status: 'ok', version: 'mock' });
     if (path === '/api/auth/session') {
@@ -560,15 +773,24 @@ Bun.serve({
       if (handled) return handled;
     }
 
-    if (path === '/api/settings') {
-      return json(200, { playback: { prefetch_next: state.prefetchNext, transcode_alac: false, transcode_lossy_codec: 'opus' } });
+    if (
+      path === '/api/settings' ||
+      path === '/api/storage' ||
+      path.startsWith('/api/settings/') ||
+      path === '/api/acquisition/retry'
+    ) {
+      if (!authed(req)) return json(401, { error: { code: 'unauthorized', message: 'login required' } });
+      const handled = await settingsRoute(req, path);
+      if (handled) return handled;
     }
 
     if (path === '/api/search') {
       if (!authed(req)) return json(401, { error: { code: 'unauthorized', message: 'login required' } });
       if (state.faults.delayMs) await sleep(state.faults.delayMs);
       if (state.faults.failStatus) {
-        return json(state.faults.failStatus, { error: { code: 'mb_unavailable', message: 'MusicBrainz is unavailable' } });
+        return json(state.faults.failStatus, {
+          error: { code: 'mb_unavailable', message: 'MusicBrainz is unavailable' },
+        });
       }
       const q = new URL(req.url).searchParams.get('q') ?? '';
       return json(200, { ...searchFixture, query: q });
@@ -577,7 +799,9 @@ Bun.serve({
       if (!authed(req)) return json(401, { error: { code: 'unauthorized', message: 'login required' } });
       if (state.faults.addDelayMs) await sleep(state.faults.addDelayMs);
       if (state.faults.addFailStatus) {
-        return json(state.faults.addFailStatus, { error: { code: 'mb_not_found', message: 'not found in MusicBrainz' } });
+        return json(state.faults.addFailStatus, {
+          error: { code: 'mb_not_found', message: 'not found in MusicBrainz' },
+        });
       }
       const result = addToLibrary((await req.json()) as AddBody);
       if (!result) return json(404, { error: { code: 'mb_not_found', message: 'not found in MusicBrainz' } });
@@ -591,7 +815,10 @@ Bun.serve({
         const id = Number(parts[2]);
         const row = state.server.get('artist', id);
         if (!row) return json(404, { error: { code: 'not_found', message: 'no artist' } });
-        return json(200, { albums: [], artist: { ...row, album_count: 0, import: state.imports.get(id), track_count: 0 } });
+        return json(200, {
+          albums: [],
+          artist: { ...row, album_count: 0, import: state.imports.get(id), track_count: 0 },
+        });
       }
       if (parts[1] === 'artists' && parts[3] === 'import' && req.method === 'POST') {
         state.imports.set(Number(parts[2]), { attempt: 1, max_attempts: 8, state: 'importing' });
@@ -648,7 +875,17 @@ Bun.serve({
       seedPlayerLibrary();
       state.streamDelayMs = new Map(Object.entries(body.delayMs ?? {}).map(([id, ms]) => [Number(id), ms]));
       state.prefetchNext = body.prefetchNext ?? true;
+      (state.settings.playback as Json).prefetch_next = state.prefetchNext;
       return json(200, { ok: true });
+    }
+    if (path === '/__test/settings') {
+      if (req.method === 'POST') {
+        const body = (await req.json()) as { failStatus?: number | null; providerTestOk?: boolean };
+        state.settingsFault = body.failStatus ?? null;
+        state.providerTestOk = body.providerTestOk ?? true;
+        return json(200, { ok: true });
+      }
+      return json(200, state.settings);
     }
     if (path === '/__test/sources') {
       seedSourcesLibrary();

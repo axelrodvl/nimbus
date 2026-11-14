@@ -14,6 +14,9 @@ pub struct ErrorResponse {
 pub struct ErrorBody {
     pub code: String,
     pub message: String,
+    /// Путь поля запроса, к которому относится ошибка валидации (`musicbrainz.burst`), если он известен.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
 }
 
 #[derive(Debug)]
@@ -21,6 +24,7 @@ pub struct ApiError {
     pub status: StatusCode,
     pub code: String,
     pub message: String,
+    pub field: Option<String>,
 }
 
 impl ApiError {
@@ -29,7 +33,14 @@ impl ApiError {
             status,
             code: code.into(),
             message: message.into(),
+            field: None,
         }
+    }
+
+    /// Привязывает ошибку к полю запроса (путь через точку).
+    pub fn with_field(mut self, field: impl Into<String>) -> Self {
+        self.field = Some(field.into());
+        self
     }
 
     pub fn bad_request(code: impl Into<String>, message: impl Into<String>) -> Self {
@@ -55,6 +66,7 @@ impl IntoResponse for ApiError {
             error: ErrorBody {
                 code: self.code,
                 message: self.message,
+                field: self.field,
             },
         });
         (self.status, body).into_response()

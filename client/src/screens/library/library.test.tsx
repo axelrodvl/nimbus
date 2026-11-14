@@ -17,7 +17,16 @@ afterEach(() => restore());
 
 function renderLibrary(route: string) {
   return renderRoutes(
-    [{ element: <ScrollHost><LibraryScreen /></ScrollHost>, path: '/library/:tab?' }],
+    [
+      {
+        element: (
+          <ScrollHost>
+            <LibraryScreen />
+          </ScrollHost>
+        ),
+        path: '/library/:tab?',
+      },
+    ],
     route,
   );
 }
@@ -37,7 +46,7 @@ describe('библиотека', () => {
     expect(screen.getByTestId('tab-albums')).toHaveTextContent('Альбомы 6');
     expect(screen.getByTestId('tab-artists')).toHaveTextContent('Артисты 3');
     expect(screen.getByTestId('tab-tracks')).toHaveTextContent('Треки 24');
-    expect(screen.getByTestId('tab-albums')).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByTestId('tab-albums')).toHaveAttribute('aria-selected', 'true');
     expect(within(screen.getByTestId('library-albums')).getAllByTestId('album-card')).toHaveLength(6);
   });
 
@@ -53,7 +62,7 @@ describe('библиотека', () => {
   it('неизвестная вкладка → «Альбомы»', () => {
     seed(makeLibrary({ albumsPerArtist: 1, artists: 1, tracksPerAlbum: 1 }));
     renderLibrary('/library/nonsense');
-    expect(screen.getByTestId('tab-albums')).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByTestId('tab-albums')).toHaveAttribute('aria-selected', 'true');
   });
 
   it('фильтр по статусу: «Готовы к прослушиванию» на вкладке треков', async () => {

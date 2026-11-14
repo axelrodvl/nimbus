@@ -2,7 +2,7 @@
 
 - Схема OpenAPI — `GET /api/openapi.json` (открыта; Swagger UI не встроен — схему можно открыть в любом
   OpenAPI-просмотрщике; она же закоммичена в `web/openapi.json`; типы фронтенда генерируются `just web-gen-api`).
-- Ошибки: `{ "error": { "code": "...", "message": "..." } }`.
+- Ошибки: `{ "error": { "code": "...", "message": "...", "field": "musicbrainz.burst" } }`; `field` (путь поля запроса) есть только у ошибок валидации настроек `invalid_settings`, когда сообщение начинается с пути поля.
 - Авторизация (если задан `NIMBUS_API_TOKEN`): `Authorization: Bearer <token>` или cookie `nimbus_token`
   (`POST /api/auth/login {"token": "..."}` → `204` + cookie; `POST /api/auth/logout`). Без токена — `401 unauthorized`.
   `GET /api/health` открыт всегда и возвращает `db`, `engine {torrents, down_bps, up_bps}`, `jobs {queued, running, failed_24h}` и

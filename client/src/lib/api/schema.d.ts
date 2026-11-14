@@ -1228,6 +1228,8 @@ export interface components {
         };
         ErrorBody: {
             code: string;
+            /** @description Путь поля запроса, к которому относится ошибка валидации (`musicbrainz.burst`), если он известен. */
+            field?: string | null;
             message: string;
         };
         /** @description Тело ошибки: `{ "error": { "code": "...", "message": "..." } }`. */

@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,7 +16,6 @@ import { CrashScreen } from './crash-screen';
 import { OfflineIndicator } from './offline-indicator';
 import { LoginRoute, RequireSession } from './session-routes';
 import { SyncStatus } from './sync-status';
-import { LanguageSelect } from './language-select';
 
 const routes = [
   { element: <LoginRoute />, path: '/login' },
@@ -297,16 +296,6 @@ describe('ошибки и язык', () => {
     }
     renderRoutes([{ element: <Boom />, errorElement: <RouteError />, path: '*' }]);
     expect(screen.getByRole('button', { name: 'Перезагрузить' })).toBeInTheDocument();
-  });
-
-  it('LanguageSelect переключает язык и содержит все языки', async () => {
-    renderRoutes([{ element: <LanguageSelect />, path: '*' }]);
-    const select = screen.getByTestId('language-select');
-    expect(select.querySelectorAll('option')).toHaveLength(14);
-    fireEvent.change(select, { target: { value: 'en' } });
-    await waitFor(() => expect(localStorage.getItem('nimbus:locale')).toBe('en'));
-    fireEvent.change(select, { target: { value: 'zz' } });
-    expect(localStorage.getItem('nimbus:locale')).toBe('en');
   });
 
   it('страница 404 внутри оболочки ведёт на главную', async () => {

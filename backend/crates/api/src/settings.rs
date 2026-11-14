@@ -91,13 +91,12 @@ pub async fn put_settings(
 ) -> Result<Json<Value>, ApiError> {
     authorize(&state, &headers)?;
     // Сначала проверяем слияние и сборку провайдеров, чтобы не сохранить заведомо нерабочие настройки.
-    let merged = merge_patch(&state.settings.get(), &patch)
-        .map_err(|e| ApiError::bad_request("invalid_settings", e))?;
+    let merged = merge_patch(&state.settings.get(), &patch).map_err(|e| invalid_settings(&e))?;
     build_providers(&merged.providers)
         .map_err(|e| ApiError::bad_request("invalid_settings", format!("providers: {e}")))?;
     let previous = state.settings.get();
     let saved = state.settings.update(&patch).await.map_err(|e| match e {
-        SettingsError::Invalid(m) => ApiError::bad_request("invalid_settings", m),
+        SettingsError::Invalid(m) => invalid_settings(&m),
         SettingsError::Db(e) => e.into(),
     })?;
     apply_settings(&state, &previous, &saved).await?;
@@ -117,6 +116,22 @@ pub async fn put_settings(
         o.insert("suggest_retry_missing".into(), Value::Bool(suggest_retry));
     }
     Ok(Json(out))
+}
+
+/// Ошибка валидации настроек. Сообщения начинаются с пути поля (`musicbrainz.burst must be …`) —
+/// его возвращаем отдельно, чтобы клиент подсветил нужную строку.
+fn invalid_settings(message: &str) -> ApiError {
+    let err = ApiError::bad_request("invalid_settings", message);
+    let path = message.split_whitespace().next().unwrap_or_default();
+    let is_path = path.contains('.')
+        && path
+            .split('.')
+            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'));
+    if is_path {
+        err.with_field(path)
+    } else {
+        err
+    }
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
