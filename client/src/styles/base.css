@@ -1,0 +1,37 @@
+@layer base {
+  body {
+    @apply selection:bg-accent bg-surface dark:bg-surface-dark font-sans text-black antialiased selection:text-black dark:text-white;
+  }
+
+  h1 {
+    @apply font-sans text-2xl font-bold tracking-tight text-black dark:text-white;
+  }
+
+  h2 {
+    @apply font-sans text-xl font-bold tracking-tight text-black dark:text-white;
+  }
+
+  h3 {
+    @apply font-sans text-base font-bold tracking-tight text-black dark:text-white;
+  }
+
+  :where(a, button, summary, [role='button']) {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  :where(button, summary, [role='button']) {
+    user-select: none;
+  }
+}
+
+/* На тач-устройствах поля ≥ 16px, иначе iOS приближает страницу при фокусе. */
+@media (pointer: coarse) {
+  :where(input, select, textarea) {
+    font-size: 1rem;
+  }
+
+  :where(a, button, summary, [role='button']):active {
+    opacity: 0.78;
+  }
+}

@@ -55,6 +55,8 @@ jobs:
         run: |
           cargo run -q -p nimbus-api --bin nimbus -- --print-openapi | diff -u ../web/openapi.json - \
             || { echo "::error::web/openapi.json устарел — перегенерируй типы: just web-gen-api"; exit 1; }
+      - name: client/openapi.json совпадает с web/openapi.json
+        run: diff -u ../web/openapi.json ../client/openapi.json || { echo "::error::client/openapi.json устарел — выполни just openapi"; exit 1; }
 
   web:
     runs-on: ubuntu-latest
@@ -75,6 +77,22 @@ jobs:
       - run: pnpm build
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm exec playwright test --trace off
+
+  client:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun run test:cov
+      - run: bun run build
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:e2e --trace off
 
   e2e:
     if: github.event_name == 'workflow_dispatch' && inputs.e2e

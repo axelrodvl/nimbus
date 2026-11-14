@@ -16,3 +16,8 @@ web/out/
 web/playwright-report/
 web/test-results/
 web/tsconfig.tsbuildinfo
+client/dist/
+client/coverage/
+client/playwright-report/
+client/test-results/
+client/tsconfig.tsbuildinfo

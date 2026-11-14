@@ -1,0 +1,39 @@
+@theme {
+  --color-gray: #a1a1aa;
+  --color-muted: #71717a;
+  --color-divider-dark: #282828;
+  --color-divider: #e4e4e7;
+  --color-card-dark: #181818;
+  --color-card: #f4f4f5;
+  --color-surface-dark: #121212;
+  --color-surface: #fafafa;
+
+  --color-primary: #4f6ef7;
+  --color-primary-dark: #3d5bd9;
+  --color-primary-darker: #2c42a0;
+  --color-accent: #4f6ef7;
+  --color-accent-hover: #3d5bd9;
+  --color-accent-fade: #4f6ef722;
+
+  --color-success: #0fa958;
+  --color-danger: #e54848;
+  --color-warning: #f5a524;
+
+  --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+
+  --tracking-tight: -0.02em;
+  --tracking-wide: 0.04em;
+  --breakpoint-3xl: 120rem;
+  --breakpoint-4xl: 140rem;
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  --animate-pending: pending 1.2s ease-in-out 150ms infinite both;
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+

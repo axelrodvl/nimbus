@@ -27,7 +27,9 @@
 - `./scripts/prune-target.sh [ГБ]` — ротация `backend/target`: удаляет его, если он больше лимита (20 ГБ); вызывается из `just backend-test` / `backend-cov` и хуком Claude после каждой Bash-команды (`.claude/settings.json`). Если запускаешь `cargo` напрямую — вызывай перед сборкой, иначе диск забивается устаревшими бинарниками
 - `just db-up` — поднять Postgres (docker compose)
 - `just backend` — запустить бэкенд
-- `just web` — запустить фронтенд
+- `just web` — запустить старый фронтенд (Next.js, до шага 48)
+- `just client` — запустить новый клиент (`client/`, Vite, http://localhost:5173)
+- `just client-test` / `just client-cov` / `just client-e2e` — тесты, покрытие и e2e нового клиента
 - `just test` — все тесты
 - `just check` — fmt + clippy + lint + typecheck
 - `just cov` — покрытие бэкенда с проверкой порога (`backend/coverage-threshold.txt`)

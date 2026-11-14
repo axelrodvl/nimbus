@@ -163,13 +163,14 @@ Without a token everything is open; the backend warns at startup if it listens o
 ## Development without Docker
 
 Only needed to work on the code with hot reload; to just build and run Nimbus use the [scripts](#scripts) above.
-Requirements: Rust (stable), Node 22+ with pnpm, [just](https://github.com/casey/just), Docker (for PostgreSQL), ffmpeg.
+Requirements: Rust (stable), Node 22+ with pnpm (legacy `web/`), [bun](https://bun.sh) (new `client/`), [just](https://github.com/casey/just), Docker (for PostgreSQL), ffmpeg.
 
 ```sh
 cp .env.example .env
 just db-up
 just backend   # http://localhost:8080/api/health
-just web       # http://localhost:3000
+just web       # http://localhost:3000 (legacy Next.js client)
+just client    # http://localhost:5173 (new Vite client, proxies /api to :8080; work in progress)
 ```
 
 If ports 5432/8080 are taken, change `POSTGRES_PORT`, `DATABASE_URL`, `NIMBUS_BIND`, `BACKEND_URL` and
@@ -177,7 +178,8 @@ If ports 5432/8080 are taken, change `POSTGRES_PORT`, `DATABASE_URL`, `NIMBUS_BI
 port, and CORS is opened for `NIMBUS_CORS_ORIGIN`.
 
 Commands: `just test` (backend tests), `just check` (fmt + clippy + lint + typecheck), `just e2e` (full compose stack
-with fake external services; needs Docker), `just web-gen-api` (regenerate API types from OpenAPI).
+with fake external services; needs Docker), `just web-gen-api` / `just client-gen-api` (regenerate API types from OpenAPI).
+New client: `just client-test`, `just client-cov`, `just client-build`, `just client-e2e` (see `client/README.md`).
 Backend coverage: `just cov` (needs `cargo install cargo-llvm-cov --locked` and `rustup component add llvm-tools-preview`;
 runs the tests and fails below `backend/coverage-threshold.txt`, which may only go up); `just backend-cov-html` builds an
 HTML report. Current baseline: `docs/coverage.md`.

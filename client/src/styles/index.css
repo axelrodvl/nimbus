@@ -1,0 +1,6 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+@import './tokens.css';
+@import './base.css';
+@import './animations.css';

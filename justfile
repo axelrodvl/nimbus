@@ -20,8 +20,10 @@ psql:
 backend:
     cd backend && cargo run -p nimbus-api --bin nimbus
 
+# Спецификация пишется и в web/ (старый клиент, до шага 48), и в client/.
 openapi:
     cd backend && cargo run -q -p nimbus-api --bin nimbus -- --print-openapi > ../web/openapi.json
+    cp web/openapi.json client/openapi.json
 
 backend-test:
     ./scripts/prune-target.sh
@@ -44,7 +46,7 @@ backend-cov-html:
     cd backend && cargo llvm-cov --workspace --features nimbus-api/test-fakes \
       --ignore-filename-regex '(/main\.rs|/fakes\.rs|/fake_swarm\.rs)$' --html
 
-cov: backend-cov
+cov: backend-cov client-cov
 
 web:
     cd web && pnpm dev
@@ -60,6 +62,29 @@ web-check:
 
 openapi-check:
     cd backend && cargo run -q -p nimbus-api --bin nimbus -- --print-openapi | diff -q - ../web/openapi.json || (echo 'web/openapi.json устарел: выполните just web-gen-api' && exit 1)
+    diff -q web/openapi.json client/openapi.json || (echo 'client/openapi.json устарел: выполните just openapi' && exit 1)
+
+# Новый клиент (client/, Vite + React на bun).
+client:
+    cd client && bun run dev
+
+client-check:
+    cd client && bun run lint && bun run typecheck
+
+client-test:
+    cd client && bun run test
+
+client-cov:
+    cd client && bun run test:cov
+
+client-build:
+    cd client && bun run build
+
+client-e2e:
+    cd client && bun run test:e2e --trace off
+
+client-gen-api: openapi
+    cd client && bun run gen:api
 
 # Полный стек в контейнерах (сборка тоже в контейнерах): см. scripts/.
 build *args:
@@ -90,6 +115,6 @@ e2e:
     $c down -v
     exit $status
 
-test: backend-test
+test: backend-test client-test
 
-check: backend-check web-check
+check: backend-check web-check client-check
