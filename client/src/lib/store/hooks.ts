@@ -4,7 +4,15 @@ import { appData } from '@/lib/app-data';
 import type { LibraryState } from './library';
 import { createThrottledSource } from './throttled';
 import type { LiveState } from './live';
-import type { AlbumView, ArtistView, PlaylistEntry, SearchResult, TrackStatus, TrackView } from './selectors';
+import type {
+  AlbumView,
+  ArtistView,
+  MbidIndex,
+  PlaylistEntry,
+  SearchResult,
+  TrackStatus,
+  TrackView,
+} from './selectors';
 
 // Тонкие React-хуки поверх store. Селекторы возвращают мемоизированные ссылки, поэтому лишних перерисовок нет.
 
@@ -41,6 +49,9 @@ export const useRecentlyPlayedAlbums = (limit: number): AlbumView[] =>
 export const useFavorites = (): TrackView[] => useLibrary(s => appData().selectors.favorites(s));
 export const useSearchLocal = (query: string, limit: number): SearchResult =>
   useLibrary(s => appData().selectors.searchLocal(s, query, limit));
+
+/** Индекс `mbid → id` объектов библиотеки (для пометки результатов поиска). */
+export const useMbidIndex = (): MbidIndex => useLibrary(s => appData().selectors.mbidIndex(s));
 
 /** Эфемерные live-данные (прогресс поиска и буферизации). */
 export const useLive = <T>(select: (s: LiveState) => T): T => useStore(appData().live, select);

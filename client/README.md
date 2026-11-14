@@ -1,7 +1,7 @@
 # Nimbus client
 
 Одностраничное приложение (Vite + React 19 + TypeScript) на bun. Заменит `web/` (Next.js) на шаге 48;
-правила — `docs/DEVELOPMENT.md` §5–6. Сейчас — каркас и оболочка: вход, навигация, live-соединение, индикаторы, темы, i18n, API-слой, локальные данные.
+правила — `docs/DEVELOPMENT.md` §5–6. Сейчас — оболочка, локальные данные, экраны библиотеки и поиск (локальный сразу + MusicBrainz, добавление в библиотеку, командная палитра).
 
 ## Команды
 
@@ -20,9 +20,10 @@ index.html               корень; инлайн-скрипт темы ста
 src/main.tsx app.tsx router.tsx
 src/styles/              tokens.css (@theme), base.css, animations.css, index.css
 src/components/ui/       примитивы (button, skeleton, spinner, empty/error-state, error-boundary, …)
+src/components/search/   поиск: результаты, кнопка добавления, командная палитра (⌘K, `/`)
 src/components/          оболочка: app-shell, sidebar, mobile-tab-bar, session-routes (защита маршрутов), индикаторы
 src/app-routes.tsx       маршруты внутри оболочки; пункты навигации появляются сами (src/lib/nav/items.ts)
-src/screens/             экраны (шаги 39+)
+src/screens/             экраны: главная, библиотека, артист, альбом (39), поиск (40)
 src/lib/api/             openapi-fetch клиент, ApiError, сгенерированный schema.d.ts (не править)
 src/lib/platform/        apiUrl()/wsUrl()/authHeaders()/platform() — единственное место адресов бэкенда
 src/lib/i18n/            словари (en в бандле, остальные — по требованию), store, провайдер, useT/useLocale
@@ -33,9 +34,10 @@ src/lib/app-data.ts      сборка db + store + движок + сокет + �
 src/lib/auth/            сессия (unknown | anonymous | authenticated, кэш в localStorage), вход/выход/401
 src/lib/live/            WebSocket с переподключением (`socket.ts`), хуки `useLiveEvent`, `useConnectionState`
 src/lib/nav/             пункты навигации, `useTitle`, восстановление прокрутки
+src/lib/search/          поиск: useRemoteSearch (TanStack Query), история запросов, добавление в библиотеку, элементы палитры
 src/lib/theme/           light | dark | system, localStorage['nimbus:theme']
 src/test/                setup, renderWithProviders, фабрики
-tests/e2e/               Playwright; tests/mock-backend.ts — мок бэкенда (bun): вход, синхронизация, WebSocket, служебные `/__test/{reset,emit,mutate,ws,log}`
+tests/e2e/               Playwright; tests/mock-backend.ts — мок бэкенда (bun): вход, синхронизация, WebSocket, служебные `/__test/{reset,emit,mutate,ws,log,search,…}`; `GET /api/search` отдаёт `tests/fixtures/search-radiohead.json`, `POST /api/library` создаёт сущности из неё
 ```
 
 ## Соглашения

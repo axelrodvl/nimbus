@@ -1,8 +1,10 @@
 import type { Messages } from '../messages';
 
 const messages: Messages = {
+  'add.addShort': 'Ekle',
   'add.added': 'Kitaplığa eklendi',
   'add.addedShort': 'Eklendi',
+  'add.adding': 'Ekleniyor…',
   'add.inLibrary': 'Kitaplıkta',
   'add.toLibrary': 'Kitaplığa ekle',
   'album.addAll': 'Albümün tamamını ekle',
@@ -155,6 +157,7 @@ const messages: Messages = {
   'notFound.title': 'Sayfa bulunamadı',
   'offline.toast': 'Çevrimdışısınız — yeniden bağlanılıyor…',
   'page.home.title': 'Tekrar hoş geldiniz',
+  'palette.actions': 'Eylemler',
   'palette.empty': 'Hiçbir şey bulunamadı',
   'palette.failed': 'Arama başarısız: {error}',
   'palette.failedPlain': 'Arama başarısız',
@@ -236,8 +239,12 @@ const messages: Messages = {
   'search.error': 'Arama yapılamadı',
   'search.failed': 'Arama başarısız',
   'search.formLabel': 'MusicBrainz’de ara',
+  'search.history': 'Son aramalar',
+  'search.historyClear': 'Temizle',
+  'search.local': 'Kitaplığınızda',
   'search.none': 'Hiçbir şey bulunamadı',
   'search.noneBody': '“{query}” için sonuç yok.',
+  'search.offline': 'Çevrimdışısınız — yalnızca kitaplığınızdaki sonuçlar gösteriliyor.',
   'search.open': 'Aç',
   'search.partial': 'Bazı sonuçlar kullanılamıyor',
   'search.prompt.body': 'Bir sanatçı, albüm veya parça adı girin.',

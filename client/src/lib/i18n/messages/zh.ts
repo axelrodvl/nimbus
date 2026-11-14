@@ -1,8 +1,10 @@
 import type { Messages } from '../messages';
 
 const messages: Messages = {
+  'add.addShort': '添加',
   'add.added': '已添加到音乐库',
   'add.addedShort': '已添加',
+  'add.adding': '正在添加…',
   'add.inLibrary': '已在音乐库',
   'add.toLibrary': '添加到音乐库',
   'album.addAll': '添加整张专辑',
@@ -154,6 +156,7 @@ const messages: Messages = {
   'notFound.title': '页面未找到',
   'offline.toast': '你已离线，正在重新连接…',
   'page.home.title': '欢迎回来',
+  'palette.actions': '操作',
   'palette.empty': '没有找到结果',
   'palette.failed': '搜索失败：{error}',
   'palette.failedPlain': '搜索失败',
@@ -235,8 +238,12 @@ const messages: Messages = {
   'search.error': '无法执行搜索',
   'search.failed': '搜索失败',
   'search.formLabel': '搜索 MusicBrainz',
+  'search.history': '最近搜索',
+  'search.historyClear': '清除',
+  'search.local': '在你的资料库中',
   'search.none': '没有找到结果',
   'search.noneBody': '没有找到与“{query}”相关的内容。',
+  'search.offline': '你已离线——仅显示资料库中的结果。',
   'search.open': '打开',
   'search.partial': '部分结果不可用',
   'search.prompt.body': '输入艺术家名称、专辑或曲目名称。',

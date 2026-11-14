@@ -1,7 +1,9 @@
-import { LogOut } from 'lucide-react';
+import { LogOut, Search } from 'lucide-react';
 import { AppNavLink } from '@/components/app-nav-link';
 import { ConnectionIndicator } from '@/components/connection-indicator';
 import { LanguageSelect } from '@/components/language-select';
+import { useCommandPalette } from '@/components/search/command-palette';
+import { ShortcutHint } from '@/components/shortcut-hint';
 import { SyncStatus } from '@/components/sync-status';
 import { MusicNote } from '@/components/ui/music-note';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
@@ -15,6 +17,7 @@ export const sidebarLink =
 /** Боковая панель (от `sm`): узкая с иконками, на `lg` — с подписями. */
 export function Sidebar({ items }: { items: readonly NavItem[] }) {
   const t = useT();
+  const palette = useCommandPalette();
   return (
     <aside className="hidden w-[4.5rem] shrink-0 flex-col gap-2 p-2 sm:flex lg:w-[17.5rem]" data-testid="sidebar">
       <div className="bg-card dark:bg-card-dark rounded-lg p-3 lg:p-4">
@@ -29,6 +32,18 @@ export function Sidebar({ items }: { items: readonly NavItem[] }) {
             <span>Nimbus</span>
           </AppNavLink>
         </div>
+        <button
+          aria-haspopup="dialog"
+          aria-label={t('palette.label')}
+          className="text-muted focus-visible:ring-accent/40 mb-3 flex w-full items-center justify-center gap-2 rounded-md border border-white/10 p-2 text-sm hover:text-black focus-visible:ring-2 focus-visible:outline-none lg:justify-start lg:px-3 dark:hover:text-white"
+          data-testid="palette-button"
+          onClick={palette.open}
+          type="button"
+        >
+          <Search aria-hidden className="size-4" />
+          <span className="hidden flex-1 truncate text-left lg:inline">{t('palette.label')}</span>
+          <ShortcutHint className="hidden font-mono text-xs lg:inline" />
+        </button>
         <nav aria-label={t('nav.primary')} className="flex flex-col gap-1 text-sm font-medium">
           {items.map(({ end, icon: Icon, label, to }) => (
             <AppNavLink aria-label={t(label)} className={sidebarLink} end={end} key={to} to={to}>

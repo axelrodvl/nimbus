@@ -1,8 +1,10 @@
 import type { Messages } from '../messages';
 
 const messages: Messages = {
+  'add.addShort': 'जोड़ें',
   'add.added': 'लाइब्रेरी में जोड़ा गया',
   'add.addedShort': 'जोड़ा गया',
+  'add.adding': 'जोड़ा जा रहा है…',
   'add.inLibrary': 'लाइब्रेरी में',
   'add.toLibrary': 'लाइब्रेरी में जोड़ें',
   'album.addAll': 'पूरा एल्बम जोड़ें',
@@ -155,6 +157,7 @@ const messages: Messages = {
   'notFound.title': 'पेज नहीं मिला',
   'offline.toast': 'आप ऑफ़लाइन हैं — फिर से कनेक्ट हो रहा है…',
   'page.home.title': 'फिर से स्वागत है',
+  'palette.actions': 'क्रियाएँ',
   'palette.empty': 'कुछ नहीं मिला',
   'palette.failed': 'खोज विफल रही: {error}',
   'palette.failedPlain': 'खोज विफल रही',
@@ -236,8 +239,12 @@ const messages: Messages = {
   'search.error': 'खोज नहीं हो सकी',
   'search.failed': 'खोज विफल रही',
   'search.formLabel': 'MusicBrainz में खोजें',
+  'search.history': 'हाल की खोजें',
+  'search.historyClear': 'साफ़ करें',
+  'search.local': 'आपकी लाइब्रेरी में',
   'search.none': 'कुछ नहीं मिला',
   'search.noneBody': '“{query}” के लिए कुछ नहीं मिला।',
+  'search.offline': 'आप ऑफ़लाइन हैं — केवल आपकी लाइब्रेरी के परिणाम दिख रहे हैं।',
   'search.open': 'खोलें',
   'search.partial': 'कुछ परिणाम उपलब्ध नहीं हैं',
   'search.prompt.body': 'कलाकार का नाम, एल्बम या ट्रैक का शीर्षक लिखें।',

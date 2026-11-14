@@ -1,8 +1,10 @@
 import type { Messages } from '../messages';
 
 const messages: Messages = {
+  'add.addShort': '追加',
   'add.added': 'ライブラリに追加しました',
   'add.addedShort': '追加済み',
+  'add.adding': '追加中…',
   'add.inLibrary': 'ライブラリ内',
   'add.toLibrary': 'ライブラリに追加',
   'album.addAll': 'アルバム全体を追加',
@@ -157,6 +159,7 @@ const messages: Messages = {
   'notFound.title': 'ページが見つかりません',
   'offline.toast': 'オフラインです — 再接続しています…',
   'page.home.title': 'おかえりなさい',
+  'palette.actions': 'アクション',
   'palette.empty': '見つかりませんでした',
   'palette.failed': '検索に失敗しました：{error}',
   'palette.failedPlain': '検索に失敗しました',
@@ -239,8 +242,12 @@ const messages: Messages = {
   'search.error': '検索を実行できませんでした',
   'search.failed': '検索に失敗しました',
   'search.formLabel': 'MusicBrainz を検索',
+  'search.history': '最近の検索',
+  'search.historyClear': 'クリア',
+  'search.local': 'ライブラリ内',
   'search.none': '見つかりませんでした',
   'search.noneBody': '「{query}」に一致するものはありません。',
+  'search.offline': 'オフラインです — ライブラリ内の結果のみ表示しています。',
   'search.open': '開く',
   'search.partial': '一部の結果は利用できません',
   'search.prompt.body': 'アーティスト名、アルバム名、または曲名を入力してください。',

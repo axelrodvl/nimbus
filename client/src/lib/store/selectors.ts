@@ -9,6 +9,13 @@ export type ArtistView = Artist & { albumCount: number; trackCount: number };
 export type AlbumView = Album & { artistName: string; trackCount: number; statusCounts: StatusCounts };
 export type TrackView = Track & { albumTitle: string; artistName: string; coverUrl: string | null };
 export type PlaylistEntry = { id: number; entry: PlaylistTrack; track: TrackView };
+/** Индекс «в библиотеке»: `mbid` артиста / release group альбома / recording трека → локальный id. */
+export type MbidIndex = {
+  artists: ReadonlyMap<string, number>;
+  albums: ReadonlyMap<string, number>;
+  /** Трек → его id и id альбома (ссылка ведёт на альбом). */
+  tracks: ReadonlyMap<string, { id: number; albumId: number }>;
+};
 export type SearchResult = { artists: ArtistView[]; albums: AlbumView[]; tracks: TrackView[] };
 
 /** Сколько треков показывает динамический плейлист «Избранное» (как на сервере). */
@@ -276,6 +283,21 @@ export function createSelectors() {
     }) as SearchResult;
   }
 
+  /** Индекс `mbid → id` для сопоставления результатов MusicBrainz с библиотекой; строится один раз на версию данных. */
+  function mbidIndex(s: LibraryState): MbidIndex {
+    return lists('mbidIndex', [s.artists, s.albums, s.tracks], () => {
+      const artists = new Map<string, number>();
+      const albums = new Map<string, number>();
+      const tracks = new Map<string, { id: number; albumId: number }>();
+      for (const a of s.artists.values()) if (a.in_library) artists.set(a.mbid, a.id);
+      for (const a of s.albums.values()) if (a.in_library) albums.set(a.mbid, a.id);
+      for (const t of s.tracks.values()) {
+        if (t.in_library) tracks.set(t.mbid_recording, { albumId: t.album_id, id: t.id });
+      }
+      return { albums, artists, tracks };
+    }) as MbidIndex;
+  }
+
   return {
     albumTracks,
     albumView,
@@ -285,6 +307,7 @@ export function createSelectors() {
     libraryAlbums,
     libraryArtists,
     libraryTracks,
+    mbidIndex,
     playlistTracks,
     recentlyPlayedAlbums,
     searchLocal,
@@ -300,7 +323,11 @@ const normalized = new WeakMap<object, string>();
  * Быстрый фильтр списка по подстроке названия (регистр, диакритика, «ё/е» не важны), порядок сохраняется.
  * Нормализованные названия кэшируются по объекту строки — повторный ввод по 25 000 трекам не пересчитывает их.
  */
-export function filterByName<V extends object>(items: readonly V[], query: string, name: (v: V) => string): readonly V[] {
+export function filterByName<V extends object>(
+  items: readonly V[],
+  query: string,
+  name: (v: V) => string,
+): readonly V[] {
   const q = normalize(query.trim());
   if (!q) return items;
   return items.filter(v => {

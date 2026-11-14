@@ -1,8 +1,10 @@
 import type { Messages } from '../messages';
 
 const messages: Messages = {
+  'add.addShort': 'Додати',
   'add.added': 'Додано до бібліотеки',
   'add.addedShort': 'Додано',
+  'add.adding': 'Додається…',
   'add.inLibrary': 'У бібліотеці',
   'add.toLibrary': 'Додати до бібліотеки',
   'album.addAll': 'Додати весь альбом',
@@ -160,6 +162,7 @@ const messages: Messages = {
   'notFound.title': 'Сторінку не знайдено',
   'offline.toast': 'Немає мережі — перепідключаємося…',
   'page.home.title': 'З поверненням',
+  'palette.actions': 'Дії',
   'palette.empty': 'Нічого не знайдено',
   'palette.failed': 'Пошук не вдався: {error}',
   'palette.failedPlain': 'Пошук не вдався',
@@ -241,8 +244,12 @@ const messages: Messages = {
   'search.error': 'Не вдалося виконати пошук',
   'search.failed': 'Пошук не вдався',
   'search.formLabel': 'Пошук у MusicBrainz',
+  'search.history': 'Нещодавні запити',
+  'search.historyClear': 'Очистити',
+  'search.local': 'У вашій бібліотеці',
   'search.none': 'Нічого не знайдено',
   'search.noneBody': 'За запитом «{query}» нічого немає.',
+  'search.offline': 'Немає мережі — показано лише результати з вашої бібліотеки.',
   'search.open': 'Відкрити',
   'search.partial': 'Частина результатів недоступна',
   'search.prompt.body': 'Введіть ім’я виконавця, назву альбому чи треку.',

@@ -1,8 +1,10 @@
 import type { Messages } from '../messages';
 
 const messages: Messages = {
+  'add.addShort': 'Добавить',
   'add.added': 'Добавлено в библиотеку',
   'add.addedShort': 'Добавлено',
+  'add.adding': 'Добавляется…',
   'add.inLibrary': 'В библиотеке',
   'add.toLibrary': 'Добавить в библиотеку',
   'album.addAll': 'Добавить весь альбом',
@@ -160,6 +162,7 @@ const messages: Messages = {
   'notFound.title': 'Страница не найдена',
   'offline.toast': 'Нет сети — переподключаемся…',
   'page.home.title': 'Nimbus',
+  'palette.actions': 'Действия',
   'palette.empty': 'Ничего не найдено',
   'palette.failed': 'Поиск не удался: {error}',
   'palette.failedPlain': 'Поиск не удался',
@@ -241,8 +244,12 @@ const messages: Messages = {
   'search.error': 'Не удалось выполнить поиск',
   'search.failed': 'Поиск не удался',
   'search.formLabel': 'Поиск по MusicBrainz',
+  'search.history': 'Недавние запросы',
+  'search.historyClear': 'Очистить',
+  'search.local': 'В вашей библиотеке',
   'search.none': 'Ничего не найдено',
   'search.noneBody': 'По запросу «{query}» ничего нет.',
+  'search.offline': 'Нет сети — показаны только результаты из вашей библиотеки.',
   'search.open': 'Открыть',
   'search.partial': 'Часть результатов недоступна',
   'search.prompt.body': 'Введите имя артиста, название альбома или трека.',

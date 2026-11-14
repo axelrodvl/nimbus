@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Outlet } from 'react-router';
 import { toast } from 'sonner';
 import { registeredPaths } from '@/app-routes';
+import { CommandPaletteProvider } from '@/components/search/command-palette';
 import { MobileTabBar } from '@/components/mobile-tab-bar';
 import { OfflineIndicator } from '@/components/offline-indicator';
 import { Sidebar } from '@/components/sidebar';
@@ -79,25 +80,27 @@ export function AppShell() {
   useScrollRestoration(scroller);
   useStorageWarning();
   return (
-    <div className="bg-surface dark:bg-surface-dark flex h-dvh overflow-hidden pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
-      <Sidebar items={items} />
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <main
-          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain [overflow-anchor:none]"
-          ref={node => {
-            scroller.current = node;
-            setScrollElement(node);
-          }}
-        >
-          <ScrollContainerProvider value={scrollElement}>
-            <Content />
-          </ScrollContainerProvider>
-        </main>
-        {/* Сюда плеер монтируется шагом 41. */}
-        <div data-slot="player" />
-        <MobileTabBar items={items} />
+    <CommandPaletteProvider>
+      <div className="bg-surface dark:bg-surface-dark flex h-dvh overflow-hidden pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
+        <Sidebar items={items} />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <main
+            className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain [overflow-anchor:none]"
+            ref={node => {
+              scroller.current = node;
+              setScrollElement(node);
+            }}
+          >
+            <ScrollContainerProvider value={scrollElement}>
+              <Content />
+            </ScrollContainerProvider>
+          </main>
+          {/* Сюда плеер монтируется шагом 41. */}
+          <div data-slot="player" />
+          <MobileTabBar items={items} />
+        </div>
+        <OfflineIndicator />
       </div>
-      <OfflineIndicator />
-    </div>
+    </CommandPaletteProvider>
   );
 }

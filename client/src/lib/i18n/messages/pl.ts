@@ -1,8 +1,10 @@
 import type { Messages } from '../messages';
 
 const messages: Messages = {
+  'add.addShort': 'Dodaj',
   'add.added': 'Dodano do biblioteki',
   'add.addedShort': 'Dodano',
+  'add.adding': 'Dodawanie…',
   'add.inLibrary': 'W bibliotece',
   'add.toLibrary': 'Dodaj do biblioteki',
   'album.addAll': 'Dodaj cały album',
@@ -161,6 +163,7 @@ const messages: Messages = {
   'notFound.title': 'Nie znaleziono strony',
   'offline.toast': 'Brak sieci — łączę ponownie…',
   'page.home.title': 'Witaj ponownie',
+  'palette.actions': 'Akcje',
   'palette.empty': 'Nic nie znaleziono',
   'palette.failed': 'Wyszukiwanie nie powiodło się: {error}',
   'palette.failedPlain': 'Wyszukiwanie nie powiodło się',
@@ -242,8 +245,12 @@ const messages: Messages = {
   'search.error': 'Nie udało się wykonać wyszukiwania',
   'search.failed': 'Wyszukiwanie nie powiodło się',
   'search.formLabel': 'Szukaj w MusicBrainz',
+  'search.history': 'Ostatnie wyszukiwania',
+  'search.historyClear': 'Wyczyść',
+  'search.local': 'W Twojej bibliotece',
   'search.none': 'Nic nie znaleziono',
   'search.noneBody': 'Brak wyników dla „{query}”.',
+  'search.offline': 'Brak sieci — widoczne są tylko wyniki z Twojej biblioteki.',
   'search.open': 'Otwórz',
   'search.partial': 'Część wyników jest niedostępna',
   'search.prompt.body': 'Wpisz nazwę wykonawcy, albumu lub utworu.',

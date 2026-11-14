@@ -1,8 +1,10 @@
 import type { Messages } from '../messages';
 
 const messages: Messages = {
+  'add.addShort': '추가',
   'add.added': '라이브러리에 추가했습니다',
   'add.addedShort': '추가됨',
+  'add.adding': '추가 중…',
   'add.inLibrary': '라이브러리에 있음',
   'add.toLibrary': '라이브러리에 추가',
   'album.addAll': '앨범 전체 추가',
@@ -156,6 +158,7 @@ const messages: Messages = {
   'notFound.title': '페이지를 찾을 수 없습니다',
   'offline.toast': '오프라인 상태입니다 — 다시 연결하는 중…',
   'page.home.title': '다시 오신 것을 환영합니다',
+  'palette.actions': '작업',
   'palette.empty': '결과가 없습니다',
   'palette.failed': '검색 실패: {error}',
   'palette.failedPlain': '검색 실패',
@@ -238,8 +241,12 @@ const messages: Messages = {
   'search.error': '검색을 수행하지 못했습니다',
   'search.failed': '검색 실패',
   'search.formLabel': 'MusicBrainz 검색',
+  'search.history': '최근 검색',
+  'search.historyClear': '지우기',
+  'search.local': '내 라이브러리',
   'search.none': '결과가 없습니다',
   'search.noneBody': '“{query}”에 대한 결과가 없습니다.',
+  'search.offline': '오프라인입니다. 내 라이브러리의 결과만 표시됩니다.',
   'search.open': '열기',
   'search.partial': '일부 결과를 사용할 수 없습니다',
   'search.prompt.body': '아티스트 이름, 앨범 또는 곡 제목을 입력하세요.',

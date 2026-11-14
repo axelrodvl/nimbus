@@ -1,6 +1,7 @@
 // Мок бэкенда для Playwright (запускается под bun). Состояние живёт в памяти процесса; тесты идут последовательно
 // и сбрасывают его через `POST /__test/reset`. Данные синхронизации отдаёт тот же `FakeSyncServer`, что и unit-тесты.
-import { FakeSyncServer, makeBigLibrary, makeSmallLibrary } from '../src/test/factories';
+import { FakeSyncServer, makeAlbum, makeArtist, makeBigLibrary, makeSmallLibrary, makeTrack } from '../src/test/factories';
+import searchFixture from './fixtures/search-radiohead.json';
 
 const PORT = Number(process.env.MOCK_BACKEND_PORT ?? 4011);
 const TOKEN = 'secret';
@@ -10,8 +11,12 @@ type Entity = Parameters<FakeSyncServer['upsert']>[0];
 
 type ImportStatus = { attempt: number; max_attempts: number; state: string; error?: string; retry_at?: string };
 
+type Search = { delayMs: number; failStatus: number | null; addDelayMs: number; addFailStatus: number | null };
+const NO_SEARCH_FAULTS: Search = { addDelayMs: 0, addFailStatus: null, delayMs: 0, failStatus: null };
+
 const state = {
   authRequired: false,
+  faults: { ...NO_SEARCH_FAULTS },
   failDelete: false,
   imports: new Map<number, ImportStatus>(),
   blockWs: false,
@@ -26,6 +31,7 @@ function reset(opts: { authRequired?: boolean; snapshotDelayMs?: number }) {
   state.snapshotDelayMs = opts.snapshotDelayMs ?? 0;
   state.blockWs = false;
   state.failDelete = false;
+  state.faults = { ...NO_SEARCH_FAULTS };
   state.imports.clear();
   state.log = [];
   state.server = new FakeSyncServer().load(makeSmallLibrary());
@@ -65,6 +71,84 @@ function removeFromLibrary(type: 'artist' | 'album', id: number) {
   }
 }
 
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+const nextId = (entity: Entity) => Math.max(0, ...state.server.all(entity).map(r => r.id)) + 1;
+const now = () => new Date().toISOString();
+
+type AddBody = { type: 'artist' | 'album' | 'track'; mbid: string; album_mbid?: string | null };
+
+/** Находит или создаёт артиста с таким `mbid` (создаётся не в библиотеке — как делает сервер для автора альбома). */
+function ensureArtist(mbid: string, name: string, inLibrary: boolean) {
+  const found = state.server.all('artist').find(a => a.mbid === mbid);
+  if (found) {
+    if (inLibrary && !found.in_library) state.server.upsert('artist', { ...found, added_at: now(), in_library: true });
+    return state.server.get('artist', found.id)!;
+  }
+  const row = makeArtist({ added_at: now(), id: nextId('artist'), in_library: inLibrary, mbid, name });
+  state.server.upsert('artist', row);
+  return row;
+}
+
+function ensureAlbum(mbid: string, inLibrary: boolean) {
+  const found = state.server.all('album').find(a => a.mbid === mbid);
+  if (found) return found;
+  const hit = searchFixture.albums.find(a => a.mbid === mbid);
+  if (!hit) return undefined;
+  const artist = ensureArtist(hit.artist_mbid, hit.artist_name, false);
+  const album = makeAlbum({
+    added_at: now(),
+    artist_id: artist.id,
+    cover_url: hit.cover_url,
+    id: nextId('album'),
+    in_library: inLibrary,
+    mbid,
+    title: hit.title,
+    year: hit.year,
+  });
+  state.server.upsert('album', album);
+  return album;
+}
+
+/** `POST /api/library`: создаёт сущности из фикстуры поиска; `null` — такого mbid нет. */
+function addToLibrary(body: AddBody): { status: number; body: unknown } | null {
+  if (body.type === 'artist') {
+    const hit = searchFixture.artists.find(a => a.mbid === body.mbid);
+    if (!hit) return null;
+    const exists = state.server.all('artist').some(a => a.mbid === body.mbid && a.in_library);
+    const artist = ensureArtist(hit.mbid, hit.name, true);
+    return { body: { id: artist.id, status: exists ? 'exists' : 'importing', type: 'artist' }, status: exists ? 200 : 202 };
+  }
+  if (body.type === 'album') {
+    const album = ensureAlbum(body.mbid, true);
+    if (!album) return null;
+    state.server.upsert('album', { ...album, in_library: true });
+    if (!state.server.all('track').some(t => t.album_id === album.id)) {
+      for (let position = 1; position <= 3; position++) {
+        state.server.upsert(
+          'track',
+          makeTrack({ added_at: now(), album_id: album.id, artist_id: Number(album.artist_id), id: nextId('track'), position, status: 'adding', title: `${String(album.title)} · ${position}` }),
+        );
+      }
+    }
+    return { body: { id: album.id, status: 'added', type: 'album' }, status: 201 };
+  }
+  const hit = searchFixture.tracks.find(t => t.mbid === body.mbid);
+  if (!hit || !hit.album_mbid) return null;
+  const album = ensureAlbum(hit.album_mbid, false);
+  if (!album) return null;
+  const track = makeTrack({
+    added_at: now(),
+    album_id: album.id,
+    artist_id: Number(album.artist_id),
+    id: nextId('track'),
+    mbid_recording: hit.mbid,
+    status: 'adding',
+    title: hit.title,
+  });
+  state.server.upsert('track', track);
+  return { body: { id: track.id, status: 'added', type: 'track' }, status: 201 };
+}
+
 const authed = (req: Request) => !state.authRequired || cookieOf(req) === TOKEN;
 const broadcast = (event: unknown) => clients.forEach(ws => ws.send(JSON.stringify(event)));
 
@@ -94,6 +178,26 @@ Bun.serve({
       });
     }
 
+    if (path === '/api/search') {
+      if (!authed(req)) return json(401, { error: { code: 'unauthorized', message: 'login required' } });
+      if (state.faults.delayMs) await sleep(state.faults.delayMs);
+      if (state.faults.failStatus) {
+        return json(state.faults.failStatus, { error: { code: 'mb_unavailable', message: 'MusicBrainz is unavailable' } });
+      }
+      const q = new URL(req.url).searchParams.get('q') ?? '';
+      return json(200, { ...searchFixture, query: q });
+    }
+    if (path === '/api/library' && req.method === 'POST') {
+      if (!authed(req)) return json(401, { error: { code: 'unauthorized', message: 'login required' } });
+      if (state.faults.addDelayMs) await sleep(state.faults.addDelayMs);
+      if (state.faults.addFailStatus) {
+        return json(state.faults.addFailStatus, { error: { code: 'mb_not_found', message: 'not found in MusicBrainz' } });
+      }
+      const result = addToLibrary((await req.json()) as AddBody);
+      if (!result) return json(404, { error: { code: 'mb_not_found', message: 'not found in MusicBrainz' } });
+      broadcast({ type: 'sync.poke' });
+      return json(result.status, result.body);
+    }
     if (path.startsWith('/api/artists/') || path.startsWith('/api/library/')) {
       if (!authed(req)) return json(401, { error: { code: 'unauthorized', message: 'login required' } });
       const parts = path.split('/').filter(Boolean); // api, artists|library, id|type, [id|import]
@@ -151,6 +255,10 @@ Bun.serve({
       const body = (await req.json()) as { id: number; status: ImportStatus | null };
       if (body.status) state.imports.set(body.id, body.status);
       else state.imports.delete(body.id);
+      return json(200, { ok: true });
+    }
+    if (path === '/__test/search') {
+      state.faults = { ...NO_SEARCH_FAULTS, ...((await req.json()) as Partial<Search>) };
       return json(200, { ok: true });
     }
     if (path === '/__test/fail-delete') {

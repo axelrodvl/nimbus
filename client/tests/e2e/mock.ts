@@ -45,3 +45,11 @@ export async function setImport(request: APIRequestContext, id: number, status: 
 export async function failDelete(request: APIRequestContext, fail: boolean) {
   await request.post(`${MOCK}/__test/fail-delete`, { data: { fail } });
 }
+
+/** Неисправности и задержки поиска: `delayMs`/`failStatus` — `GET /api/search`, `addDelayMs`/`addFailStatus` — `POST /api/library`. */
+export async function setSearch(
+  request: APIRequestContext,
+  faults: { delayMs?: number; failStatus?: number | null; addDelayMs?: number; addFailStatus?: number | null },
+) {
+  await request.post(`${MOCK}/__test/search`, { data: faults });
+}

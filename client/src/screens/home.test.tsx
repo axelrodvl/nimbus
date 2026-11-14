@@ -61,7 +61,7 @@ describe('Home', () => {
     seed();
     renderWithProviders(<Home />);
     expect(screen.getByText('Найдите музыку')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Перейти к поиску/ })).toHaveAttribute('href', '/library');
+    expect(screen.getByRole('link', { name: /Перейти к поиску/ })).toHaveAttribute('href', '/search');
   });
 
   it('новый статус трека приходит без перезагрузки', () => {

@@ -1,0 +1,70 @@
+import { Search as SearchIcon } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router';
+import { PageLayout } from '@/components/page-layout';
+import { SearchResults } from '@/components/search/search-results';
+import { useT } from '@/lib/i18n/provider';
+import { useOnline } from '@/lib/live/hooks';
+import { LOCAL_LIMIT } from '@/lib/search/query';
+import { useRemoteSearch } from '@/lib/search/use-remote-search';
+import { useMbidIndex, useSearchLocal } from '@/lib/store/hooks';
+
+/** Настольное устройство с точным указателем: автофокус на телефоне открыл бы клавиатуру поверх результатов. */
+const wantsAutofocus = () => globalThis.matchMedia?.('(hover: hover) and (pointer: fine)').matches ?? false;
+
+/** `/search?q=…`: локальные совпадения сразу, MusicBrainz — по сети. Запрос живёт в URL (replace, без истории). */
+export function SearchScreen() {
+  const t = useT();
+  const [params, setParams] = useSearchParams();
+  const urlQuery = params.get('q') ?? '';
+  const [value, setValue] = useState(urlQuery);
+  const input = useRef<HTMLInputElement>(null);
+  const online = useOnline();
+  const local = useSearchLocal(value, LOCAL_LIMIT);
+  const remote = useRemoteSearch(value, online);
+  const index = useMbidIndex();
+
+  // Ссылка из истории или палитры меняет `?q=` снаружи — поле следует за ней (набор текста URL уже совпадает).
+  const [prevUrl, setPrevUrl] = useState(urlQuery);
+  if (urlQuery !== prevUrl) {
+    setPrevUrl(urlQuery);
+    if (urlQuery !== value) setValue(urlQuery);
+  }
+  useEffect(() => {
+    if (wantsAutofocus()) input.current?.focus();
+  }, []);
+
+  function onChange(next: string) {
+    setValue(next);
+    setParams(next.trim() ? { q: next } : {}, { replace: true });
+  }
+
+  return (
+    <PageLayout title={t('nav.search')}>
+      <form
+        aria-label={t('search.formLabel')}
+        className="relative mb-8 flex items-center"
+        onSubmit={e => e.preventDefault()}
+        role="search"
+      >
+        <SearchIcon
+          aria-hidden
+          className="text-gray pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2"
+        />
+        <input
+          aria-label={t('palette.inputLabel')}
+          autoComplete="off"
+          className="border-divider dark:border-divider-dark bg-card/50 dark:bg-card-dark/50 focus-visible:ring-accent/40 w-full rounded-full border py-3 pr-4 pl-12 text-base focus-visible:ring-2 focus-visible:outline-none"
+          maxLength={200}
+          name="q"
+          onChange={e => onChange(e.target.value)}
+          placeholder={t('search.prompt.title')}
+          ref={input}
+          type="search"
+          value={value}
+        />
+      </form>
+      <SearchResults index={index} local={local} online={online} query={value} remote={remote} />
+    </PageLayout>
+  );
+}

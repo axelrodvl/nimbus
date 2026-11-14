@@ -1,8 +1,10 @@
 import type { Messages } from '../messages';
 
 const messages: Messages = {
+  'add.addShort': 'Hinzufügen',
   'add.added': 'Zur Bibliothek hinzugefügt',
   'add.addedShort': 'Hinzugefügt',
+  'add.adding': 'Wird hinzugefügt…',
   'add.inLibrary': 'In der Bibliothek',
   'add.toLibrary': 'Zur Bibliothek hinzufügen',
   'album.addAll': 'Ganzes Album hinzufügen',
@@ -158,6 +160,7 @@ const messages: Messages = {
   'notFound.title': 'Seite nicht gefunden',
   'offline.toast': 'Du bist offline – Verbindung wird wiederhergestellt…',
   'page.home.title': 'Willkommen zurück',
+  'palette.actions': 'Aktionen',
   'palette.empty': 'Nichts gefunden',
   'palette.failed': 'Suche fehlgeschlagen: {error}',
   'palette.failedPlain': 'Suche fehlgeschlagen',
@@ -240,8 +243,12 @@ const messages: Messages = {
   'search.error': 'Die Suche konnte nicht ausgeführt werden',
   'search.failed': 'Suche fehlgeschlagen',
   'search.formLabel': 'MusicBrainz durchsuchen',
+  'search.history': 'Letzte Suchen',
+  'search.historyClear': 'Löschen',
+  'search.local': 'In deiner Bibliothek',
   'search.none': 'Nichts gefunden',
   'search.noneBody': 'Keine Treffer für „{query}“.',
+  'search.offline': 'Du bist offline – es werden nur Ergebnisse aus deiner Bibliothek angezeigt.',
   'search.open': 'Öffnen',
   'search.partial': 'Einige Ergebnisse sind nicht verfügbar',
   'search.prompt.body': 'Gib den Namen eines Künstlers, Albums oder Titels ein.',
