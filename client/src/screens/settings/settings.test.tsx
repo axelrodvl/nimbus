@@ -138,7 +138,7 @@ describe('состояния экрана', () => {
     setOnline(false);
     setup('/settings/search');
     expect(await screen.findByTestId('settings-search')).toBeInTheDocument();
-    expect(screen.getByTestId('settings-offline')).toHaveTextContent(L('settings.offlineNote'));
+    expect(screen.getByTestId('offline-notice')).toHaveTextContent(L('settings.offlineNote'));
     expect(screen.getByRole('switch', { name: L('settings.autoRetry') })).toBeDisabled();
     expect(screen.getByRole('spinbutton', { name: L('settings.maxCandidates') })).toBeDisabled();
     expect(screen.getByRole('button', { name: L('form.moveDown').replace('{name}', 'FLAC') })).toBeDisabled();

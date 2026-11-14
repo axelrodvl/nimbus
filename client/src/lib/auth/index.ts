@@ -2,6 +2,8 @@ import { useStore } from 'zustand';
 import { createAuthApi } from '@/lib/api/auth';
 import { appData, resetAppData } from '@/lib/app-data';
 import { resetPlayer } from '@/lib/player';
+import { runLogoutHandlers } from '@/lib/pwa/logout';
+import { requestPersistentStorage } from '@/lib/pwa/storage';
 import { createSession, type SessionState } from './session';
 
 export { safeNext, SESSION_KEY } from './session';
@@ -10,10 +12,15 @@ export type { SessionState, SessionStatus } from './session';
 /** Сессия приложения: вход подтверждён → `bootstrap()` данных и сокета; выход → остановка и очистка. */
 export const session = createSession({
   api: createAuthApi(),
-  onAuthenticated: () => appData().bootstrap(),
+  onAuthenticated: () => {
+    // После первого успешного входа — постоянное хранилище (повторно не спрашивает).
+    void requestPersistentStorage();
+    return appData().bootstrap();
+  },
   onSignedOut: ({ clearData }) => {
     resetPlayer(clearData);
-    return resetAppData(clearData);
+    // Выход стирает и кэш картинок (и, позже, офлайн-треки): обработчики из lib/pwa/logout.
+    return Promise.all([resetAppData(clearData), clearData ? runLogoutHandlers() : undefined]).then(() => undefined);
   },
 });
 

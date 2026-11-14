@@ -1,5 +1,6 @@
 import * as Ariakit from '@ariakit/react';
 import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { SegmentedControl } from '@/components/ui/segmented-control';
@@ -12,6 +13,8 @@ import { LOCALES, isLocale } from '@/lib/i18n/config';
 import { useLocale, useT } from '@/lib/i18n/provider';
 import { setLocale } from '@/lib/i18n/store';
 import { fetchServerVersion } from '@/lib/api/settings';
+import { needsIosInstallHint, promptInstall, useCanInstall } from '@/lib/pwa/install';
+import { readStorageInfo, type StorageInfo } from '@/lib/pwa/storage';
 import { useTheme, type Theme } from '@/lib/theme/theme';
 import { version as clientVersion } from '../../../package.json';
 import { PageHeader } from './section-frame';
@@ -52,10 +55,26 @@ export function AppearanceSection() {
   );
 }
 
+/** «Локальные данные: N МБ, хранилище постоянное: да/нет». */
+function useStorageInfo(): StorageInfo | null {
+  const [info, setInfo] = useState<StorageInfo | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void readStorageInfo().then(v => alive && setInfo(v));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return info;
+}
+
 /** О приложении: версии, синхронизация, сброс локальных данных, выход. */
 export function AboutSection() {
   const t = useT();
   const resetDialog = Ariakit.useDialogStore();
+  const storage = useStorageInfo();
+  const canInstall = useCanInstall();
+  const iosHint = needsIosInstallHint();
   const server = useQuery({
     queryFn: ({ signal }) => fetchServerVersion(signal),
     queryKey: ['health', 'version'],
@@ -78,6 +97,30 @@ export function AboutSection() {
         <SettingsRow group label={t('settings.about.sync')}>
           <SyncStatus />
         </SettingsRow>
+        {storage?.usage != null ? (
+          <SettingsRow group label={t('settings.about.storage')}>
+            <span className="text-sm" data-testid="storage-info">
+              {t('settings.about.storageValue', {
+                persistent: t(storage.persistent ? 'common.yes' : 'common.no'),
+                size: Math.max(0.1, Math.round(storage.usage / 1e5) / 10),
+              })}
+            </span>
+          </SettingsRow>
+        ) : null}
+        {canInstall ? (
+          <SettingsRow description={t('settings.about.installHint')} group label={t('settings.about.install')}>
+            <Button data-testid="install-app" onClick={() => void promptInstall()} variant="secondary">
+              {t('settings.about.install')}
+            </Button>
+          </SettingsRow>
+        ) : null}
+        {iosHint ? (
+          <SettingsRow group label={t('settings.about.install')}>
+            <span className="text-muted text-sm" data-testid="ios-install-hint">
+              {t('pwa.iosHint')}
+            </span>
+          </SettingsRow>
+        ) : null}
         <SettingsRow description={t('settings.about.resetHint')} group label={t('shell.resetData')}>
           <Button onClick={resetDialog.show} variant="secondary">
             {t('settings.about.resetAction')}

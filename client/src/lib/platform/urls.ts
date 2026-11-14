@@ -15,6 +15,16 @@ export function setApiBase(url: string): void {
   base = trim(url);
 }
 
+/** Путь принадлежит API бэкенда (`/api/…`): service worker такие запросы не кэширует. */
+export function isApiPath(pathname: string): boolean {
+  return pathname.startsWith('/api/');
+}
+
+/** Путь фото артиста (`/api/artist-image/…`). */
+export function isArtistImagePath(pathname: string): boolean {
+  return pathname.startsWith('/api/artist-image/');
+}
+
 /** HTTP-адрес эндпоинта бэкенда: `apiUrl('/api/health')`. */
 export function apiUrl(path: string): string {
   return `${base}${path}`;

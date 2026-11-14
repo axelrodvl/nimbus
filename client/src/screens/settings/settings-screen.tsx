@@ -20,7 +20,8 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { MessageKey } from '@/lib/i18n/messages';
 import { useT } from '@/lib/i18n/provider';
-import { useConnectionState, useOnline } from '@/lib/live/hooks';
+import { OfflineNotice } from '@/components/offline-notice';
+import { useOnline } from '@/lib/live/hooks';
 import { useSettings } from '@/lib/settings/hooks';
 import type { ServerSettings } from '@/lib/settings/types';
 import { cn } from '@/lib/utils';
@@ -120,9 +121,7 @@ function SectionSkeleton() {
 export function SettingsScreen() {
   const t = useT();
   const param = useParams().section;
-  const online = useOnline();
-  const socket = useConnectionState();
-  const offline = !online || socket === 'closed';
+  const offline = !useOnline();
   const settings = useSettings();
 
   const current = SETTINGS_SECTIONS.find(s => s.id === param && !s.href);
@@ -144,15 +143,7 @@ export function SettingsScreen() {
 
   return (
     <PageLayout title={t('nav.settings')}>
-      {offline ? (
-        <p
-          className="bg-card dark:bg-card-dark text-muted mb-4 rounded-xl px-4 py-3 text-sm"
-          data-testid="settings-offline"
-          role="status"
-        >
-          {t('settings.offlineNote')}
-        </p>
-      ) : null}
+      <OfflineNotice className="mb-4">{t('settings.offlineNote')}</OfflineNotice>
       <div className="flex flex-col gap-6 md:flex-row md:items-start">
         <nav
           aria-label={t('settings.nav')}

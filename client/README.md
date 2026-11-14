@@ -37,6 +37,8 @@ src/lib/live/            WebSocket с переподключением (`socket.
 src/lib/nav/             пункты навигации, `useTitle`, восстановление прокрутки
 src/lib/player/          плеер (не React): engine.ts (редьюсер, очередь), controller.ts (PlayerController), audio/ (контракт AudioEngine, web-engine на <audio>), media-session.ts, shortcuts.ts, hooks.ts (usePlayerState, useProgress)
 src/lib/search/          поиск: useRemoteSearch (TanStack Query), история запросов, добавление в библиотеку, элементы палитры
+src/sw/                  service worker: sw.ts (precache, fetch), classify.ts и cache.ts — чистые функции, тестируются без воркера
+src/lib/pwa/             регистрация и обновления (update.ts), постоянное хранилище (storage.ts), установка (install.ts), onLogout (logout.ts)
 src/lib/theme/           light | dark | system, localStorage['nimbus:theme']
 src/test/                setup, renderWithProviders, фабрики
 tests/e2e/               Playwright; tests/mock-backend.ts — мок бэкенда (bun): вход, синхронизация, WebSocket, служебные `/__test/{reset,emit,mutate,ws,log,search,player,…}`; поток `GET /api/tracks/{id}/stream` отдаёт 5-секундный WAV (Range, `transcode` с `?t=`, управляемые ошибки), есть `played`, `prefetch`, `audio-info`, `GET /api/settings`; `GET /api/search` отдаёт `tests/fixtures/search-radiohead.json`, `POST /api/library` создаёт сущности из неё
@@ -50,3 +52,20 @@ tests/e2e/               Playwright; tests/mock-backend.ts — мок бэкен
 - Инструменты запускаются под Node (vitest, playwright, eslint — через `bun run`), сборка и установка — bun.
 - Добавить экран: запись в `src/app-routes.tsx` (+ пункт в `NAV_ITEMS`, если он в навигации). Оболочку, защиту маршрутов и 404 трогать не нужно.
 - e2e идут по одному (`workers: 1`): мок бэкенда общий, каждый тест начинает с `resetMock()`.
+
+## PWA и офлайн
+
+- **Сборка.** `vite-plugin-pwa` в режиме `injectManifest`: исходник `src/sw/sw.ts` (отдельный `tsconfig.sw.json`, `lib: webworker`),
+  на выходе `dist/sw.js` (iife) и `dist/manifest.webmanifest`. В `bun run dev` service worker выключен; e2e идут против сборки.
+- **Что кэшируется.** Precache: `index.html`, чанки, шрифты, иконки, словарь `en` (в основном бандле). Остальные словари — runtime-кэш
+  `nimbus-runtime-v1` (stale-while-revalidate; после активации воркера `lib/pwa/warm.ts` дописывает уже загруженный словарь).
+  Обложки (Cover Art Archive, archive.org) и фото артистов — cache-first в `nimbus-images-v2`, до 5000 записей, 404 не пишется.
+  Навигация (кроме `/api/`) отвечается `index.html` из precache. `/api/` (включая поток аудио), WebSocket и запросы с `Range` воркер не трогает.
+- **Обновления.** `registerType: 'prompt'`: новая версия ждёт; toast «Доступна новая версия» → «Обновить» (`SKIP_WAITING` + перезагрузка).
+  Проверки — при старте, при возврате вкладки и раз в час. Перезагрузка никогда не происходит сама (в том числе во время музыки).
+  Версия сборки — `__APP_VERSION__` (`package.json` + git-хэш; `APP_VERSION=… vite build` переопределяет).
+- **Связь.** `useNetworkStatus()` → `online | offline | server-down`; `useOnline()` — `true` только при `online`; `<OfflineNotice />` — пояснение.
+- **Выход.** `onLogout(handler)` (`lib/pwa/logout.ts`) — точка расширения; сейчас очищает кэш картинок, шаг 46 добавит `offline.clear()`.
+- **Как проверять офлайн.** `bun run build && bun run preview`, открыть приложение, дождаться синхронизации, затем DevTools → Network → Offline
+  (или `context.setOffline(true)` в Playwright) и перезагрузить. Сброс: DevTools → Application → Storage → «Clear site data»
+  (или Service Workers → Unregister + Cache Storage → удалить). e2e обновления: `tests/e2e/variants.ts` строит варианты `dist/` с другой версией.

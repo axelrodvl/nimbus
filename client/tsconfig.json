@@ -15,5 +15,6 @@
     "types": ["vite/client", "@testing-library/jest-dom"],
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src", "tests", "*.ts"]
+  "include": ["src", "tests", "*.ts"],
+  "exclude": ["src/sw/sw.ts"]
 }

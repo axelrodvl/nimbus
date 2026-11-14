@@ -73,7 +73,7 @@ test.describe('синхронизация', () => {
     await dropWs(request, true);
     await expect(page.getByRole('status', { name: 'Нет соединения с бэкендом' })).toBeVisible();
     await expect(page.getByText('Офлайн')).toBeVisible();
-    await expect(page.getByText('Нет сети — переподключаемся…')).toBeVisible();
+    await expect(page.getByText('Сервер недоступен — переподключаемся…')).toBeVisible();
 
     const changesBefore = syncRequests(await mockLog(request), 'changes');
     await dropWs(request, false);

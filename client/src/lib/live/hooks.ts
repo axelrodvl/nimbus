@@ -23,11 +23,25 @@ const subscribeOnline = (cb: () => void) => {
   };
 };
 
-/** `navigator.onLine` с подпиской на события браузера. */
-export function useOnline(): boolean {
-  return useSyncExternalStore(
+/** Связь: `online`; `offline` — нет сети в браузере; `server-down` — сеть есть, но сокет к серверу закрыт. */
+export type NetworkStatus = 'online' | 'offline' | 'server-down';
+
+export function networkStatus(browserOnline: boolean, socket: SocketState): NetworkStatus {
+  if (!browserOnline) return 'offline';
+  return socket === 'closed' ? 'server-down' : 'online';
+}
+
+/** Состояние связи: сеть браузера и доступность сервера (по live-сокету). */
+export function useNetworkStatus(): NetworkStatus {
+  const browserOnline = useSyncExternalStore(
     subscribeOnline,
     () => globalThis.navigator?.onLine !== false,
     () => true,
   );
+  return networkStatus(browserOnline, useConnectionState());
+}
+
+/** Можно ли рассчитывать на сервер: сеть браузера есть **и** сервер доступен. */
+export function useOnline(): boolean {
+  return useNetworkStatus() === 'online';
 }

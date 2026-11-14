@@ -44,6 +44,11 @@ type MockSource = {
   needs_confirmation: boolean;
 };
 
+const PIXEL = Uint8Array.from(
+  atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='),
+  c => c.charCodeAt(0),
+);
+
 const state = {
   authRequired: false,
   /** HTTP-статус, которым отвечают изменяющие запросы плейлистов (`null` — норма). */
@@ -745,6 +750,8 @@ Bun.serve({
     if (!path.startsWith('/__test/'))
       state.log.push(`${req.method} ${path}${path.endsWith('/stream') ? new URL(req.url).search : ''}`);
 
+    // Фото артиста: 1×1 PNG (e2e кэша изображений service worker).
+    if (path.startsWith('/api/artist-image/')) return new Response(PIXEL, { headers: { 'content-type': 'image/png' } });
     if (path === '/api/health') return json(200, { db: true, status: 'ok', version: 'mock' });
     if (path === '/api/auth/session') {
       return json(200, { auth_required: state.authRequired, authenticated: authed(req) });
