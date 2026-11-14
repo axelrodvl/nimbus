@@ -1,13 +1,18 @@
 # API
 
 - Схема OpenAPI — `GET /api/openapi.json` (открыта; Swagger UI не встроен — схему можно открыть в любом
-  OpenAPI-просмотрщике; она же закоммичена в `web/openapi.json`; типы фронтенда генерируются `just web-gen-api`).
+  OpenAPI-просмотрщике; она же закоммичена в `client/openapi.json` (`just openapi`); типы клиента генерируются `just client-gen-api`).
 - Ошибки: `{ "error": { "code": "...", "message": "...", "field": "musicbrainz.burst" } }`; `field` (путь поля запроса) есть только у ошибок валидации настроек `invalid_settings`, когда сообщение начинается с пути поля.
 - Авторизация (если задан `NIMBUS_API_TOKEN`): `Authorization: Bearer <token>` или cookie `nimbus_token`
   (`POST /api/auth/login {"token": "..."}` → `204` + cookie; `POST /api/auth/logout`). Без токена — `401 unauthorized`.
   `GET /api/health` открыт всегда и возвращает `db`, `engine {torrents, down_bps, up_bps}`, `jobs {queued, running, failed_24h}` и
   `providers [{ source, state: "ok"|"open", last_error, open_until }]` (`open` — предохранитель провайдера разомкнут:
   запросы к нему временно не отправляются до `open_until`).
+
+- Один origin: бэкенд раздаёт и API, и собранный SPA (`NIMBUS_WEB_DIR`); токен защищает только `/api/*`, статика открыта.
+  Неизвестный путь под `/api/` — JSON `404 not_found`, а не `index.html`.
+- Постраничные списки `/api/library/*` оставлены для сторонних клиентов; **основной способ получить библиотеку — синхронизация**
+  (`/api/sync/*`, ниже): так работает собственный клиент.
 
 ## Очередь задач
 
@@ -129,4 +134,4 @@ primary-источником (CUE или формат файла), поэтом�
 | `resync` | — | клиент отстал: нужно перечитать состояние |
 
 Сервер шлёт ping каждые 25 с; клиент без активности 60 с отключается. Источник истины по типам —
-`backend/crates/core/src/events.rs`, на фронтенде — `web/lib/api/events.ts`.
+`backend/crates/core/src/events.rs`, на фронтенде — `client/src/lib/live/`.

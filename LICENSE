@@ -22,9 +22,9 @@ SOFTWARE.
 
 ---
 
-The frontend in `web/` is derived from next-beats
+The frontend design (`client/`) originates from next-beats
 (https://github.com/nextjs/next-beats), which is distributed under the MIT
-License with the following notice (also kept in web/LICENSE):
+License with the following notice :
 
 Copyright (c) 2026 Vercel, Inc.
 

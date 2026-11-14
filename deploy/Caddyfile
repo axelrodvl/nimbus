@@ -1,11 +1,10 @@
-:80 {
-	# API, WebSocket и аудиострим — без буферизации (важно для Range/стрима).
-	handle /api/* {
-		reverse_proxy backend:8080 {
-			flush_interval -1
-		}
-	}
-	handle {
-		reverse_proxy web:3000
+# НЕОБЯЗАТЕЛЬНЫЙ пример обратного прокси с TLS: Nimbus сам раздаёт интерфейс и API на одном порту.
+# Подставьте свой домен — Caddy получит сертификат автоматически. Контейнер caddy должен быть в одной
+# сети compose с сервисом nimbus (или замените nimbus:8080 на адрес хоста).
+# Прокси обязан передавать X-Forwarded-Proto (Caddy делает это сам): по нему cookie входа получает Secure.
+nimbus.example.com {
+	# flush_interval -1: аудиострим, Range и WebSocket без буферизации.
+	reverse_proxy nimbus:8080 {
+		flush_interval -1
 	}
 }

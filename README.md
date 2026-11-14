@@ -2,9 +2,11 @@
 
 A self-hosted web music player: metadata from [MusicBrainz](https://musicbrainz.org), music streamed straight from torrents.
 
-- **Frontend:** Next.js (`web/`, a fork of [next-beats](https://github.com/nextjs/next-beats))
+- **Frontend:** React SPA (`client/`, Vite, bun) — an installable PWA; the backend serves the built files itself
 - **Backend:** Rust — axum, sqlx, librqbit (`backend/`)
 - **Database:** PostgreSQL
+
+Two containers: `db` (PostgreSQL) and `nimbus` (backend + web client on one port, one origin).
 
 > **Disclaimer.** This is a research / experimental project. Legally, it can only be used to listen to music that is
 > in the public domain (or that you otherwise have the explicit right to download and share). Nimbus does not host or
@@ -32,13 +34,13 @@ A self-hosted web music player: metadata from [MusicBrainz](https://musicbrainz.
 ## Quick start (Linux / macOS)
 
 Requirements: [Docker](https://docs.docker.com/get-docker/) with the Compose v2 plugin (on macOS: Docker Desktop;
-on Linux: Docker Engine, and your user in the `docker` group). Nothing else is needed: Rust, Node and pnpm are only
+on Linux: Docker Engine, and your user in the `docker` group). Nothing else is needed: Rust and bun are only
 used inside the build containers, never on your machine.
 
 ```sh
 git clone https://github.com/axelrodvl/nimbus.git nimbus
 cd nimbus
-./scripts/build.sh   # build all images (inside containers)
+./scripts/build.sh   # build the image (inside containers)
 ./scripts/start.sh   # start the stack
 ```
 
@@ -48,15 +50,18 @@ Then open **http://localhost:8000**.
 
 | Script | What it does |
 |---|---|
-| `./scripts/build.sh` | Builds the `nimbus-backend` and `nimbus-web` images (the Rust and Next.js builds run inside Docker) and pre-pulls Postgres and Caddy. The first build takes several minutes; later builds reuse the BuildKit cache (cargo registry/`target`, pnpm store, Next cache). Arguments go to `docker compose build`, e.g. `--no-cache` or a service name: `./scripts/build.sh web`. |
-| `./scripts/start.sh` | Starts the stack (Postgres, backend, web, Caddy) from the built images and waits until every service is healthy. Builds nothing; if the images are missing it asks you to run `build.sh`. |
+| `./scripts/build.sh` | Builds the single `nimbus:local` image (the Rust and bun/Vite builds run inside Docker) and pre-pulls Postgres. The first build takes several minutes; later builds reuse the BuildKit cache (cargo registry/`target`, bun cache). Arguments go to `docker compose build`, e.g. `--no-cache`. |
+| `./scripts/start.sh` | Starts the stack (Postgres + Nimbus) from the built image and waits until both are healthy. Builds nothing; if the image is missing it asks you to run `build.sh`. |
 | `./scripts/stop.sh` | Stops and removes the containers. Images, the database and `./data` are kept. `--purge` also deletes the database volume. |
 
 `build.sh` and `start.sh` create `.env` from `.env.example` if it does not exist yet. Shortcuts if you have
 [just](https://github.com/casey/just): `just build`, `just start`, `just stop`, `just up` (build + start).
 
-To update: `git pull && ./scripts/build.sh && ./scripts/start.sh` (`start.sh` recreates only the containers whose
-images changed).
+To update: `git pull`, stop (`./scripts/stop.sh`), `./scripts/build.sh`, `./scripts/start.sh`. Data (database, `./data`)
+is kept; the installed app in the browser updates itself (a banner offers the new version).
+
+Upgrading from the old Next.js version (separate `web` and `caddy` containers): same steps; `stop.sh` removes the
+leftover containers (`--remove-orphans`), and the old service worker is replaced by the new one on first load.
 
 - Logs: `docker compose logs -f` (or `just logs`)
 - Data (torrents, cache) lives in `./data`; the database lives in the `nimbus_pgdata` Docker volume.
@@ -77,7 +82,7 @@ Changes to `.env` take effect after `./scripts/start.sh`; no rebuild is needed.
 ## Run from prebuilt images (no build)
 
 Each [GitHub Release](https://github.com/axelrodvl/nimbus/releases) ships a ready-to-run bundle that pulls
-multi-arch (amd64/arm64) images from GHCR (`ghcr.io/axelrodvl/nimbus-backend`, `nimbus-web`):
+multi-arch (amd64/arm64) images from GHCR (`ghcr.io/axelrodvl/nimbus`):
 
 ```sh
 unzip nimbus-vX.Y.Z.zip && cd nimbus
@@ -86,7 +91,7 @@ docker compose up -d
 ```
 
 To publish a release: `git tag vX.Y.Z && git push --tags` (workflow `.github/workflows/release.yml`). After the first
-publish, make the two packages public in the repository's *Packages* settings so anyone can pull them.
+publish, make the package public in the repository's *Packages* settings so anyone can pull them.
 
 ## Windows (via WSL 2)
 
@@ -156,30 +161,31 @@ Troubleshooting:
 
 If `NIMBUS_API_TOKEN` is set, every `/api/*` route except `/api/health` requires the token: an
 `Authorization: Bearer <token>` header or the `nimbus_token` cookie (set by `POST /api/auth/login` and the `/login`
-page; needed for `<audio>` and WebSocket). The web server reads the same token from the environment.
-**If you expose Nimbus to the internet, always set a token and put a TLS-terminating reverse proxy in front of Caddy.**
+page; needed for `<audio>` and WebSocket). The web client files themselves are served without a token (the login screen
+must load).
+**If you expose Nimbus to the internet, always set a token and put a TLS-terminating reverse proxy in front.**
+[`deploy/Caddyfile`](deploy/Caddyfile) is an optional Caddy example (`reverse_proxy nimbus:8080` with
+`flush_interval -1`); the proxy must pass `X-Forwarded-Proto` so the login cookie gets `Secure`.
 Without a token everything is open; the backend warns at startup if it listens on anything other than `127.0.0.1`.
 
 ## Development without Docker
 
 Only needed to work on the code with hot reload; to just build and run Nimbus use the [scripts](#scripts) above.
-Requirements: Rust (stable), Node 22+ with pnpm (legacy `web/`), [bun](https://bun.sh) (new `client/`), [just](https://github.com/casey/just), Docker (for PostgreSQL), ffmpeg.
+Requirements: Rust (stable), [bun](https://bun.sh) (`client/`), [just](https://github.com/casey/just), Docker (for PostgreSQL), ffmpeg.
 
 ```sh
 cp .env.example .env
 just db-up
 just backend   # http://localhost:8080/api/health
-just web       # http://localhost:3000 (legacy Next.js client)
-just client    # http://localhost:5173 (new Vite client, proxies /api to :8080; work in progress)
+just client    # http://localhost:5173 (Vite client, proxies /api to :8080)
 ```
 
-If ports 5432/8080 are taken, change `POSTGRES_PORT`, `DATABASE_URL`, `NIMBUS_BIND`, `BACKEND_URL` and
-`NEXT_PUBLIC_BACKEND_URL` in `.env`. With separate origins (dev) the login cookie is set on `localhost` regardless of
+If ports 5432/8080 are taken, change `POSTGRES_PORT`, `DATABASE_URL` and `NIMBUS_BIND` in `.env` (and `VITE_BACKEND_URL` for the client). With separate origins (dev) the login cookie is set on `localhost` regardless of
 port, and CORS is opened for `NIMBUS_CORS_ORIGIN`.
 
 Commands: `just test` (backend tests), `just check` (fmt + clippy + lint + typecheck), `just e2e` (full compose stack
-with fake external services; needs Docker), `just web-gen-api` / `just client-gen-api` (regenerate API types from OpenAPI).
-New client: `just client-test`, `just client-cov`, `just client-build`, `just client-e2e` (see `client/README.md`).
+with fake external services; needs Docker), `just openapi` + `just client-gen-api` (regenerate the spec and API types).
+Client: `just client-test`, `just client-cov`, `just client-build`, `just client-e2e` (see `client/README.md`).
 Backend coverage: `just cov` (needs `cargo install cargo-llvm-cov --locked` and `rustup component add llvm-tools-preview`;
 runs the tests and fails below `backend/coverage-threshold.txt`, which may only go up); `just backend-cov-html` builds an
 HTML report. Current baseline: `docs/coverage.md`.
@@ -223,8 +229,8 @@ Configured in `.env` or in the UI (*Settings → Sources*, each has a "Test" but
 ## VPN for BitTorrent
 
 You can route the torrent engine through a VPN container such as [gluetun](https://github.com/qdm12/gluetun): start
-`gluetun` and uncomment `network_mode: "service:gluetun"` for the `backend` service in `docker-compose.yml` (move
-`ports`/`depends_on` to `gluetun`; Caddy then proxies to `gluetun:8080`). Off by default.
+`gluetun` and uncomment `network_mode: "service:gluetun"` for the `nimbus` service in `docker-compose.yml` (move
+`ports`/`depends_on` to `gluetun`). Off by default.
 
 ## Limitations
 
@@ -236,9 +242,8 @@ You can route the torrent engine through a VPN container such as [gluetun](https
 
 ## Translations
 
-Dictionaries live in `web/lib/i18n/messages/<lang>.ts`; `en.ts` is the key source and the others are typed against it.
-To add a language: add a dictionary file, an entry in `lib/i18n/config.ts` and a loader in `lib/i18n/messages.ts`.
-The language is stored in the `nimbus_locale` cookie.
+Dictionaries live in `client/src/lib/i18n/messages/<lang>.ts`; `en.ts` is the key source and the others are typed against it.
+To add a language: add a dictionary file and an entry in `client/src/lib/i18n/config.ts`. The language is stored in the browser (`localStorage`).
 
 ## Documentation
 
@@ -248,6 +253,6 @@ The language is stored in the `nimbus_locale` cookie.
 
 ## License
 
-[MIT](LICENSE). The frontend in `web/` is derived from [next-beats](https://github.com/nextjs/next-beats)
-(© Vercel, Inc., MIT); its notice is preserved in [LICENSE](LICENSE) and `web/LICENSE`.
+[MIT](LICENSE). The frontend design originates from [next-beats](https://github.com/nextjs/next-beats)
+(© Vercel, Inc., MIT); its notice is preserved in [LICENSE](LICENSE).
 The license covers the code only, not the content you stream — see the disclaimer above.

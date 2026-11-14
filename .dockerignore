@@ -1,0 +1,12 @@
+.git
+**/target/
+**/node_modules/
+data/
+backend/data/
+client/dist/
+client/coverage/
+client/test-results/
+client/playwright-report/
+docs/
+.env
+.env.*

@@ -20,10 +20,9 @@ psql:
 backend:
     cd backend && cargo run -p nimbus-api --bin nimbus
 
-# Спецификация пишется и в web/ (старый клиент, до шага 48), и в client/.
+# Спецификация API → client/openapi.json (типы клиента: just client-gen-api).
 openapi:
-    cd backend && cargo run -q -p nimbus-api --bin nimbus -- --print-openapi > ../web/openapi.json
-    cp web/openapi.json client/openapi.json
+    cd backend && cargo run -q -p nimbus-api --bin nimbus -- --print-openapi > ../client/openapi.json
 
 backend-test:
     ./scripts/prune-target.sh
@@ -48,21 +47,12 @@ backend-cov-html:
 
 cov: backend-cov client-cov
 
-web:
-    cd web && pnpm dev
-
-web-gen-api: openapi
-    cd web && pnpm gen:api
-
-web-build:
-    cd web && pnpm build
-
-web-check:
-    cd web && pnpm lint && pnpm exec tsc --noEmit
+# Разработка: три терминала — `just db-up`, `just backend`, `just client` (http://localhost:5173, прокси /api на :8080).
+dev:
+    @echo 'Три терминала: just db-up (один раз) · just backend · just client → http://localhost:5173'
 
 openapi-check:
-    cd backend && cargo run -q -p nimbus-api --bin nimbus -- --print-openapi | diff -q - ../web/openapi.json || (echo 'web/openapi.json устарел: выполните just web-gen-api' && exit 1)
-    diff -q web/openapi.json client/openapi.json || (echo 'client/openapi.json устарел: выполните just openapi' && exit 1)
+    cd backend && cargo run -q -p nimbus-api --bin nimbus -- --print-openapi | diff -q - ../client/openapi.json || (echo 'client/openapi.json устарел: выполните just openapi' && exit 1)
 
 # Новый клиент (client/, Vite + React на bun).
 client:
@@ -103,18 +93,19 @@ down: stop
 logs:
     docker compose logs -f --tail=100
 
-# e2e против полного стека (фейковые внешние сервисы), порт 8010.
+# e2e против полного стека (фейковые внешние сервисы), порт 8010: образ собирается из корневого Dockerfile,
+# Playwright — из client/ (client/playwright.stack.config.ts, client/tests/stack/).
 e2e:
     #!/usr/bin/env bash
     set -uo pipefail
     c="docker compose -p nimbus-e2e -f docker-compose.yml -f docker-compose.e2e.yml"
     $c up -d --build --wait || { $c logs --tail=80; $c down -v; exit 1; }
-    (cd web && PLAYWRIGHT_BASE_URL=http://localhost:8010 E2E_TOKEN=e2e-token pnpm exec playwright test --config playwright.e2e.config.ts --trace off)
+    (cd client && PLAYWRIGHT_BASE_URL=http://localhost:8010 E2E_TOKEN=e2e-token bunx playwright test --config playwright.stack.config.ts --trace off)
     status=$?
-    [ $status -ne 0 ] && $c logs --tail=80 backend
+    [ $status -ne 0 ] && $c logs --tail=80 nimbus
     $c down -v
     exit $status
 
 test: backend-test client-test
 
-check: backend-check web-check client-check
+check: backend-check client-check

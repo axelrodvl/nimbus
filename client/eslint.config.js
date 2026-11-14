@@ -20,7 +20,7 @@ const API_LITERALS = [
 ];
 
 export default defineConfig([
-  globalIgnores(['dist/**', 'coverage/**', 'playwright-report/**', 'test-results/**', 'node_modules/**', 'src/lib/api/schema.d.ts']),
+  globalIgnores(['public/theme-init.js', 'dist/**', 'coverage/**', 'playwright-report/**', 'test-results/**', 'node_modules/**', 'src/lib/api/schema.d.ts']),
   js.configs.recommended,
   tseslint.configs.strict,
   reactHooks.configs.flat.recommended,

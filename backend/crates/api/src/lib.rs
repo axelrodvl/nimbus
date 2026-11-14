@@ -21,6 +21,7 @@ pub mod state;
 pub mod stream;
 pub mod sync;
 pub mod transcode;
+pub mod web;
 pub mod ws;
 
 use axum::http::{header, HeaderValue, Method};
@@ -32,8 +33,8 @@ pub use state::AppState;
 
 /// Полный роутер приложения.
 pub fn build_router(state: AppState) -> Router {
-    Router::new()
-        .nest("/api", routes::api_routes(&state))
+    let app = Router::new().nest("/api", routes::api_routes(&state));
+    web::mount(app, state.config.web_dir.as_deref())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth::require_token,

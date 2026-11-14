@@ -2,7 +2,8 @@
 services:
   db:
     ports: !reset []
-  backend:
+  nimbus:
+    image: nimbus:e2e
     build:
       args:
         CARGO_FEATURES: test-fakes
@@ -11,12 +12,7 @@ services:
       NIMBUS_API_TOKEN: e2e-token
     volumes: !override
       - e2e-data:/data
-    ports: !reset []
-  web:
-    environment:
-      NIMBUS_API_TOKEN: e2e-token
-  caddy:
     ports: !override
-      - "8010:80"
+      - "8010:8080"
 volumes:
   e2e-data:

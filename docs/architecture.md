@@ -1,15 +1,16 @@
 # Архитектура
 
 ```
-Браузер (Next.js) ──REST──► Rust API (axum) ──► PostgreSQL
-   │   ▲                      │   │
-   │   └──── WebSocket ───────┘   ├──► MusicBrainz API / Cover Art Archive
-   │                              ├──► Провайдеры: TPB (apibay), RuTracker, Torznab
-   └── <audio src=/api/.../stream> ┴──► librqbit (торрент-движок) ──► диск (кэш)
+Браузер (React SPA, PWA) ──REST──► Rust API (axum) ──► PostgreSQL
+   │   ▲                            │   │
+   │   └──────── WebSocket ─────────┘   ├──► MusicBrainz API / Cover Art Archive
+   │                                    ├──► Провайдеры: TPB (apibay), RuTracker, Torznab
+   └── <audio src=/api/.../stream> ─────┴──► librqbit (торрент-движок) ──► диск (кэш)
 ```
 
-В Docker перед веб-частью и API стоит Caddy (единый origin: `/` → web, `/api` → backend, без буферизации стрима).
-Сервер Next.js ходит в API с `BACKEND_URL`; браузер — на тот же origin (`NEXT_PUBLIC_BACKEND_URL` пуст).
+Два контейнера: `db` (PostgreSQL) и `nimbus` (бэкенд + собранный SPA). Бэкенд сам раздаёт файлы клиента
+(`NIMBUS_WEB_DIR`, в образе `/app/web`; `crates/api/src/web.rs`): всё не под `/api/` — статика, а для навигации по
+маршрутам SPA — `index.html`. Один origin, CORS не нужен. Обратный прокси с TLS — по желанию (`deploy/Caddyfile`).
 
 ## Крейты бэкенда
 

@@ -41,6 +41,7 @@ http-body-util = "0.1"
 wiremock.workspace = true
 tokio-tungstenite = "0.26"
 nimbus-testkit.workspace = true
+tempfile = "3"
 async-trait.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 

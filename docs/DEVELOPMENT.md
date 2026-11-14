@@ -153,11 +153,11 @@
 | `just test` | все тесты бэкенда и unit-тесты клиента |
 | `just cov` | покрытие бэкенда и клиента с проверкой порогов |
 | `just backend-test` / `just backend-cov` | только бэкенд |
-| `just client-test` / `just client-e2e` / `just client-build` | только клиент (появляются на шаге 36) |
+| `just client-test` / `just client-e2e` / `just client-build` | только клиент (e2e — против мок-бэкенда) |
 | `just openapi` / `just client-gen-api` | OpenAPI → `openapi.json` → типы |
-| `just e2e` | полный стек в Docker с фейковыми внешними сервисами |
+| `just e2e` | полный стек в Docker с фейковыми внешними сервисами (Playwright из `client/`, `tests/stack/`) |
 
-Актуальный список — в `justfile`. До шага 36 клиентские рецепты относятся к старому `web/` (`web-check`, `web-build`).
+Актуальный список — в `justfile`.
 
 ## 9. Коммиты
 

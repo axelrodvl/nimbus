@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the Nimbus stack (Postgres, backend, web, Caddy) from images built by ./scripts/build.sh.
+# Start the Nimbus stack (Postgres + Nimbus) from images built by ./scripts/build.sh.
 # Does not build anything. Usage: ./scripts/start.sh
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
@@ -12,7 +12,7 @@ for image in $(built_images); do
   docker image inspect "$image" >/dev/null 2>&1 || missing+=("$image")
 done
 if [ ${#missing[@]} -gt 0 ]; then
-  echo "error: images not built: ${missing[*]}" >&2
+  echo "error: image not built: ${missing[*]}" >&2
   echo "Run ./scripts/build.sh first." >&2
   exit 1
 fi

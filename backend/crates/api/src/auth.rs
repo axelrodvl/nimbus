@@ -117,8 +117,10 @@ pub async fn require_token(
     next: axum::middleware::Next,
 ) -> Result<Response, ApiError> {
     let path = req.uri().path();
+    // Токен защищает только API: статика SPA должна загружаться без входа (на ней сам экран входа).
     if state.config.api_token.is_none()
         || req.method() == axum::http::Method::OPTIONS
+        || !(path == "/api" || path.starts_with("/api/"))
         || is_public(path)
     {
         return Ok(next.run(req).await);

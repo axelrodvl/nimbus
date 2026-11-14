@@ -21,6 +21,8 @@ pub struct Config {
     pub data_dir: PathBuf,
     pub mb_user_agent: String,
     pub cors_origin: String,
+    /// NIMBUS_WEB_DIR: каталог собранного SPA, который бэкенд раздаёт сам. Не задан — только API.
+    pub web_dir: Option<PathBuf>,
     pub tpb_enabled: bool,
     pub torznab_url: Option<String>,
     pub torznab_api_key: Option<String>,
@@ -124,6 +126,7 @@ impl Config {
                 "Nimbus/0.1 ( https://github.com/your/nimbus )",
             ),
             cors_origin: or("NIMBUS_CORS_ORIGIN", "http://localhost:3000"),
+            web_dir: opt("NIMBUS_WEB_DIR").map(PathBuf::from),
             tpb_enabled: parse_bool("NIMBUS_TPB_ENABLED", true)?,
             torznab_url: opt("NIMBUS_TORZNAB_URL"),
             torznab_api_key: opt("NIMBUS_TORZNAB_API_KEY"),
@@ -162,6 +165,15 @@ mod tests {
         assert_eq!(c.cache_limit_gb, 50);
         assert_eq!(c.torrent_port, 6881);
         assert!(c.torznab_url.is_none() && c.api_token.is_none());
+        assert!(c.web_dir.is_none());
+    }
+
+    #[test]
+    fn web_dir_is_read_from_env() {
+        let mut m = base();
+        m.insert("NIMBUS_WEB_DIR", "/app/web");
+        let c = Config::from_map(&m).unwrap();
+        assert_eq!(c.web_dir, Some(PathBuf::from("/app/web")));
     }
 
     #[test]

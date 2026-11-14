@@ -30,8 +30,7 @@ ensure_env() {
   fi
 }
 
-# Images built from this repo. Compose names them <project>-<service>; the project name is fixed
-# to "nimbus" in docker-compose.yml.
+# Images built from this repo: a single image (backend + SPA), tagged in docker-compose.yml.
 built_images() {
-  printf '%s\n' nimbus-backend nimbus-web
+  printf '%s\n' nimbus:local
 }

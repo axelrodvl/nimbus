@@ -1,6 +1,6 @@
 # Nimbus
 
-Веб-плеер: метаданные из MusicBrainz, музыка — потоково из торрентов. Фронтенд — Next.js (`web/`, форк next-beats), бэкенд — Rust (`backend/`), БД — PostgreSQL.
+Веб-плеер: метаданные из MusicBrainz, музыка — потоково из торрентов. Фронтенд — React SPA (`client/`, Vite, bun), которую бэкенд раздаёт сам, бэкенд — Rust (`backend/`), БД — PostgreSQL.
 
 ## Главное правило
 
@@ -21,15 +21,15 @@
 
 ## Полезные команды
 
-- `./scripts/build.sh` — собрать все образы (сборка Rust и Next.js идёт внутри контейнеров; на хосте нужен только Docker)
-- `./scripts/start.sh` — поднять весь стек из собранных образов (http://localhost:8000)
+- `./scripts/build.sh` — собрать образ (сборка Rust и клиента на bun идёт внутри контейнера; на хосте нужен только Docker)
+- `./scripts/start.sh` — поднять весь стек (Postgres + `nimbus`) из собранного образа (http://localhost:8000)
 - `./scripts/stop.sh` — опустить контейнеры (`--purge` — ещё и том БД)
 - `./scripts/prune-target.sh [ГБ]` — ротация `backend/target`: удаляет его, если он больше лимита (20 ГБ); вызывается из `just backend-test` / `backend-cov` и хуком Claude после каждой Bash-команды (`.claude/settings.json`). Если запускаешь `cargo` напрямую — вызывай перед сборкой, иначе диск забивается устаревшими бинарниками
 - `just db-up` — поднять Postgres (docker compose)
 - `just backend` — запустить бэкенд
-- `just web` — запустить старый фронтенд (Next.js, до шага 48)
-- `just client` — запустить новый клиент (`client/`, Vite, http://localhost:5173)
-- `just client-test` / `just client-cov` / `just client-e2e` — тесты, покрытие и e2e нового клиента
+- `just client` — запустить клиент (`client/`, Vite, http://localhost:5173)
+- `just client-test` / `just client-cov` / `just client-e2e` — тесты, покрытие и e2e клиента (мок-бэкенд)
+- `just e2e` — сквозной сценарий на полном стеке в Docker (`client/tests/stack/`)
 - `just test` — все тесты
 - `just check` — fmt + clippy + lint + typecheck
 - `just cov` — покрытие бэкенда с проверкой порога (`backend/coverage-threshold.txt`)

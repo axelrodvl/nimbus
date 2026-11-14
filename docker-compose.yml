@@ -1,5 +1,5 @@
 # Полный стек Nimbus. Собирать — ./scripts/build.sh, запускать — ./scripts/start.sh, останавливать — ./scripts/stop.sh.
-# Фиксированное имя проекта: имена образов (nimbus-backend, nimbus-web) не зависят от имени каталога.
+# Фиксированное имя проекта и образа: не зависят от имени каталога. Два сервиса: db и nimbus (бэкенд + SPA).
 name: nimbus
 
 services:
@@ -19,9 +19,10 @@ services:
       timeout: 3s
       retries: 30
 
-  backend:
+  nimbus:
+    image: nimbus:local
     build:
-      context: ./backend
+      context: .
       args:
         CARGO_FEATURES: ${CARGO_FEATURES:-}
     env_file:
@@ -32,11 +33,11 @@ services:
       NIMBUS_BIND: 0.0.0.0:8080
       NIMBUS_DATA_DIR: /data
       NIMBUS_TORRENT_PORT: ${NIMBUS_TORRENT_PORT:-6881}
-      # Один origin через caddy: CORS не нужен.
-      NIMBUS_CORS_ORIGIN: http://localhost:8000
     volumes:
       - ./data:/data
     ports:
+      # Интерфейс и API на одном origin.
+      - "${NIMBUS_PORT:-8000}:8080"
       # Входящие BitTorrent-соединения.
       - "${NIMBUS_TORRENT_PORT:-6881}:${NIMBUS_TORRENT_PORT:-6881}/tcp"
       - "${NIMBUS_TORRENT_PORT:-6881}:${NIMBUS_TORRENT_PORT:-6881}/udp"
@@ -56,37 +57,7 @@ services:
         hard: 65536
     # VPN для BitTorrent (по умолчанию выключено): запустите контейнер gluetun и раскомментируйте
     #   network_mode: "service:gluetun"
-    # (тогда `ports`/`depends_on` перенесите на gluetun, а caddy должен ходить на gluetun:8080).
-
-  web:
-    build:
-      context: ./web
-      args:
-        NEXT_PUBLIC_BACKEND_URL: ""
-    environment:
-      BACKEND_URL: http://backend:8080
-      # Тот же токен, что у бэкенда: сервер Next ходит с ним в API и проверяет cookie входа.
-      NIMBUS_API_TOKEN: ${NIMBUS_API_TOKEN:-}
-    depends_on:
-      backend:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/login"]
-      interval: 3s
-      timeout: 3s
-      retries: 40
-    restart: unless-stopped
-
-  caddy:
-    image: caddy:2
-    ports:
-      - "${NIMBUS_PORT:-8000}:80"
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-    depends_on:
-      web:
-        condition: service_healthy
-    restart: unless-stopped
+    # (тогда `ports`/`depends_on` перенесите на gluetun).
 
 volumes:
   pgdata:

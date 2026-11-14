@@ -1,6 +1,6 @@
 # Nimbus client
 
-Одностраничное приложение (Vite + React 19 + TypeScript) на bun. Заменит `web/` (Next.js) на шаге 48;
+Одностраничное приложение (Vite + React 19 + TypeScript) на bun. Единственный фронтенд (с шага 48 `web/` удалён; бэкенд раздаёт собранный `dist/` сам);
 правила — `docs/DEVELOPMENT.md` §5–6. Сейчас — оболочка, локальные данные, экраны библиотеки, поиск (локальный сразу + MusicBrainz, добавление в библиотеку, командная палитра) и плеер (панель, мини-плеер, полноэкранный режим, очередь).
 
 ## Команды
@@ -16,7 +16,7 @@
 ## Структура
 
 ```
-index.html               корень; инлайн-скрипт темы ставит класс до первой отрисовки
+index.html               корень; `/theme-init.js` (public/) ставит класс темы до первой отрисовки
 src/main.tsx app.tsx router.tsx
 src/styles/              tokens.css (@theme), base.css, animations.css, index.css
 src/components/ui/       примитивы (button, skeleton, spinner, empty/error-state, error-boundary, …)
