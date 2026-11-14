@@ -16,6 +16,17 @@ export type MbidIndex = {
   /** Трек → его id и id альбома (ссылка ведёт на альбом). */
   tracks: ReadonlyMap<string, { id: number; albumId: number }>;
 };
+/** Плейлист для списков: пользовательский или динамическое «Избранное». */
+export type PlaylistCard = {
+  id: number | 'favorites';
+  kind: 'user' | 'favorites';
+  /** Название пользовательского плейлиста; у «Избранного» пусто (название — перевод). */
+  name: string;
+  trackCount: number;
+  durationMs: number;
+  coverUrl: string | null;
+  lastUsedAt: string | null;
+};
 export type SearchResult = { artists: ArtistView[]; albums: AlbumView[]; tracks: TrackView[] };
 
 /** Сколько треков показывает динамический плейлист «Избранное» (как на сервере). */
@@ -265,6 +276,69 @@ export function createSelectors() {
     }) as TrackView[];
   }
 
+  const cardOf = (entries: readonly TrackView[]): Pick<PlaylistCard, 'coverUrl' | 'durationMs' | 'trackCount'> => ({
+    coverUrl: entries.find(t => t.coverUrl)?.coverUrl ?? null,
+    durationMs: entries.reduce((sum, t) => sum + (t.duration_ms ?? 0), 0),
+    trackCount: entries.length,
+  });
+
+  /**
+   * Плейлисты для вкладки и диалога: «Избранное» первым (если есть прослушанные треки), затем пользовательские по
+   * давности последнего добавления. Обложка — первая найденная обложка альбома (как на сервере), число треков —
+   * только треки, которые есть в store.
+   */
+  function playlistCards(s: LibraryState): PlaylistCard[] {
+    return lists(
+      'playlistCards',
+      [s.playlists, s.playlistTracks, s.tracks, s.albums, s.artists, s.tracksByPlaylist],
+      () => {
+        const user: PlaylistCard[] = sortDesc(
+          [...s.playlists.values()],
+          p => ms(p.last_used_at),
+          p => p.id,
+        ).map(p => ({
+          ...cardOf(playlistTracks(s, p.id).map(e => e.track)),
+          id: p.id,
+          kind: 'user' as const,
+          lastUsedAt: p.last_used_at,
+          name: p.name,
+        }));
+        const fav = favorites(s);
+        return fav.length
+          ? [
+              { ...cardOf(fav), id: 'favorites' as const, kind: 'favorites' as const, lastUsedAt: null, name: '' },
+              ...user,
+            ]
+          : user;
+      },
+    ) as PlaylistCard[];
+  }
+
+  /** Id пользовательских плейлистов, в которых уже есть трек (включая оптимистично добавленные). */
+  function playlistsOfTrack(s: LibraryState, trackId: number): ReadonlySet<number> {
+    return lists(`member:${trackId}`, [s.playlistTracks, s.tracksByPlaylist], () => {
+      const out = new Set<number>();
+      for (const row of s.playlistTracks.values()) if (row.track_id === trackId) out.add(row.playlist_id);
+      return out;
+    }) as ReadonlySet<number>;
+  }
+
+  /** Один плейлист (`undefined` — такого нет; «Избранное» без прослушиваний существует, но пусто). */
+  function playlistCard(s: LibraryState, id: number | 'favorites'): PlaylistCard | undefined {
+    const found = playlistCards(s).find(c => c.id === id);
+    if (found || id !== 'favorites') return found;
+    // Пустое «Избранное»: объект один и тот же (иначе `useSyncExternalStore` зациклится).
+    return lists('favoritesEmpty', [], () => ({
+      coverUrl: null,
+      durationMs: 0,
+      id: 'favorites',
+      kind: 'favorites',
+      lastUsedAt: null,
+      name: '',
+      trackCount: 0,
+    })) as PlaylistCard;
+  }
+
   /** Поиск по подстроке среди артистов, альбомов и треков библиотеки (регистр, диакритика, «ё/е» не важны). */
   function searchLocal(s: LibraryState, query: string, limit: number): SearchResult {
     const q = normalize(query.trim());
@@ -316,7 +390,10 @@ export function createSelectors() {
     libraryArtists,
     libraryTracks,
     mbidIndex,
+    playlistCard,
+    playlistCards,
     playlistTracks,
+    playlistsOfTrack,
     recentlyPlayedAlbums,
     searchLocal,
     trackView,

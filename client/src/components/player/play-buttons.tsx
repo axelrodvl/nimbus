@@ -1,7 +1,11 @@
+import * as Ariakit from '@ariakit/react';
 import { Pause, Play } from 'lucide-react';
 import { Equalizer } from '@/components/ui/equalizer';
 import { TrackRowById } from '@/components/library/connected';
+import { RowMenu } from '@/components/library/row-menu';
 import type { TrackRow } from '@/components/library/track-row';
+import { AddToPlaylistDialog } from '@/components/playlists/add-to-playlist-dialog';
+import { TrackSourceDialog } from '@/components/sources/track-source-dialog';
 import { useT } from '@/lib/i18n/provider';
 import { canPlay, toPlayerTrack } from '@/lib/player';
 import { useIsCurrentTrack, useIsTrackPlaying, usePlayerActions, usePlayerState } from '@/lib/player/hooks';
@@ -134,27 +138,56 @@ export function PlayAlbumButton({ albumId, variant = 'pill' }: { albumId: number
 
 type RowProps = Omit<
   React.ComponentProps<typeof TrackRow>,
-  'track' | 'leading' | 'current' | 'unavailable' | 'onActivate'
+  'track' | 'leading' | 'current' | 'unavailable' | 'onActivate' | 'onCheckSource'
 > & {
   id: number;
+  /** Строка в пользовательском плейлисте: в меню трека есть «Убрать из плейлиста». */
+  playlistId?: number;
   /** Треки списка: очередь строится из них (доступные, по порядку), старт — с этой строки. */
   queueIds: readonly number[];
 };
 
 /**
  * Строка трека, подписанная на свой трек и прогресс альбома, с запуском воспроизведения: кнопка в слоте `leading`,
- * двойной клик и Enter по строке, подсветка текущего трека, недоступные треки приглушены.
+ * двойной клик и Enter по строке, подсветка текущего трека, недоступные треки приглушены. В слоте `actions` — меню
+ * трека («В плейлист», «Источник…»), если слот не передан; бейдж «требует подтверждения» открывает выбор источника.
  */
-export function PlayableTrackRow({ id, queueIds, ...rest }: RowProps) {
+export function PlayableTrackRow({ id, queueIds, playlistId, actions, ...rest }: RowProps) {
   const { isCurrent, isPlaying, playable, title, toggle } = useToggleTrack(id, () => queueFromIds(queueIds));
+  const view = useTrackView(id);
+  const playlistDialog = Ariakit.useDialogStore();
+  const sourceDialog = Ariakit.useDialogStore();
   return (
-    <TrackRowById
-      {...rest}
-      current={isCurrent}
-      id={id}
-      leading={<PlayButton isPlaying={isPlaying} onToggle={toggle} playable={playable} title={title} />}
-      onActivate={playable ? toggle : undefined}
-      unavailable={!playable}
-    />
+    <>
+      <TrackRowById
+        {...rest}
+        actions={
+          actions ??
+          (view ? (
+            <RowMenu
+              albumId={view.album_id}
+              onAddToPlaylist={() => playlistDialog.show()}
+              onSource={() => sourceDialog.show()}
+              playlistId={playlistId}
+              status={view.status}
+              title={view.title}
+              trackId={id}
+            />
+          ) : null)
+        }
+        current={isCurrent}
+        id={id}
+        leading={<PlayButton isPlaying={isPlaying} onToggle={toggle} playable={playable} title={title} />}
+        onActivate={playable ? toggle : undefined}
+        onCheckSource={() => sourceDialog.show()}
+        unavailable={!playable}
+      />
+      {view ? (
+        <>
+          <AddToPlaylistDialog store={playlistDialog} title={view.title} trackId={id} />
+          <TrackSourceDialog albumId={view.album_id} store={sourceDialog} title={view.title} trackId={id} />
+        </>
+      ) : null}
+    </>
   );
 }

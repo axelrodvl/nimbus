@@ -18,6 +18,7 @@
   К этому шагу в `Settings` могут уже быть разделы из шагов 26–33 (`performance`, `musicbrainz`, `search.auto_retry`, `storage.auto_download`) — см. таблицу «Настройки» в `ROADMAP.md`. **Показывай только те поля, которые есть в `client/src/lib/api/schema.d.ts`** на момент выполнения.
 - Тесты прежнего поведения: `web/tests/settings.spec.ts`.
 - Визуальный язык: `client/src/styles/tokens.css`; карточки и кнопки — `client/src/components/ui/button.tsx`, карточки альбомов.
+- Шаг 42 уже добавил два простых примитива — `src/components/ui/dialog.tsx` (`Dialog`: Ariakit, `unmountOnHide`, слой выше полноэкранного плеера) и `src/components/ui/text-input.tsx` (`TextInput`); дизайн-система форм должна расширять их, а не заводить дубли, и перевести на них `ConfirmDialog`.
 
 ## Что сделать
 

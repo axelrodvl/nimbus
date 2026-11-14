@@ -24,12 +24,25 @@ type Props = {
   current?: boolean;
   /** Трек нельзя воспроизвести сейчас: строка приглушена. */
   unavailable?: boolean;
+  /** Бейдж «требует подтверждения» — кнопка, открывающая выбор источника. */
+  onCheckSource?: () => void;
   /** Действие по двойному клику и Enter на строке (запуск воспроизведения). */
   onActivate?: () => void;
 };
 
 /** Строка трека. Все данные — пропсами; фиксированная высота — для виртуализации. */
-export function TrackRow({ track, progress, showAlbum = true, index, leading, actions, current, unavailable, onActivate }: Props) {
+export function TrackRow({
+  track,
+  progress,
+  showAlbum = true,
+  index,
+  leading,
+  actions,
+  current,
+  unavailable,
+  onActivate,
+  onCheckSource,
+}: Props) {
   const t = useT();
   return (
     <div
@@ -89,14 +102,30 @@ export function TrackRow({ track, progress, showAlbum = true, index, leading, ac
         </span>
       ) : null}
       {track.in_library && track.needs_confirmation ? (
-        <span
-          aria-label={t('row.checkSource')}
-          data-testid="needs-confirmation"
-          role="img"
-          title={t('row.checkSourceTitle')}
-        >
-          <AlertTriangle aria-hidden className="text-warning size-4" />
-        </span>
+        onCheckSource ? (
+          <button
+            aria-label={t('row.checkSource')}
+            className="focus-visible:ring-accent/40 rounded-full p-0.5 focus-visible:ring-2 focus-visible:outline-none"
+            data-testid="needs-confirmation"
+            onClick={e => {
+              e.stopPropagation();
+              onCheckSource();
+            }}
+            title={t('row.checkSourceTitle')}
+            type="button"
+          >
+            <AlertTriangle aria-hidden className="text-warning size-4" />
+          </button>
+        ) : (
+          <span
+            aria-label={t('row.checkSource')}
+            data-testid="needs-confirmation"
+            role="img"
+            title={t('row.checkSourceTitle')}
+          >
+            <AlertTriangle aria-hidden className="text-warning size-4" />
+          </span>
+        )
       ) : null}
       {track.in_library ? (
         <TrackStatusBadge progress={progress} reason={track.status_reason ?? null} status={track.status} />

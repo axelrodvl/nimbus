@@ -2,9 +2,9 @@ import { toast } from 'sonner';
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { addToLibraryRequest, type AddInput, type AddResult } from '@/lib/api/search';
-import { ApiError } from '@/lib/api/errors';
+import { apiErrorMessage } from '@/lib/api/error-message';
 import { appData } from '@/lib/app-data';
-import type { MessageKey, TFn } from '@/lib/i18n/messages';
+import type { TFn } from '@/lib/i18n/messages';
 import { addToHistory } from './history';
 
 /**
@@ -29,14 +29,7 @@ export const useIsAdding = (mbid: string): boolean => useStore(addingStore, s =>
 export const finishAdding = (mbid: string): void => addingStore.getState().set(mbid, false);
 
 /** Текст ошибки добавления: перевод по коду (`error.mb_not_found`), иначе сообщение сервера. */
-export function addErrorMessage(error: unknown, t: TFn): string {
-  if (error instanceof ApiError) {
-    const key = `error.${error.code}` as MessageKey;
-    const text = t(key);
-    return text === key ? error.message : text;
-  }
-  return error instanceof Error ? error.message : String(error);
-}
+export const addErrorMessage = apiErrorMessage;
 
 /** Если дельта не принесла сущность за это время, кнопка возвращается в исходное состояние. */
 export const ADDING_TIMEOUT_MS = 30_000;

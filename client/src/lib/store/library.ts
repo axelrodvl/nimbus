@@ -4,6 +4,13 @@ import type { Album, Artist, Batch, Entity, LibraryData, Playlist, PlaylistTrack
 export type Index = Map<number, number[]>;
 
 /**
+ * Начало диапазона id для строк, созданных оптимистично до ответа сервера (например, трек, только что добавленный
+ * в плейлист). Настоящие id намного меньше, поэтому такие строки идут в конце списка; когда дельта приносит
+ * настоящую строку для той же пары, временная удаляется (`applyBatch`).
+ */
+export const TEMP_ID_BASE = 2 ** 52;
+
+/**
  * Таблица строк по id с интерфейсом `Map` для чтения. Новая ссылка создаётся на каждое изменение (по ней
  * работают селекторы), но данные под ней общие и меняются на месте: копировать `Map` из 60 000 строк
  * на каждую пачку из 100 строк слишком дорого (≈ 15 мс против < 1 мс). Читать нужно всегда из актуального
@@ -205,6 +212,15 @@ function applyBatch(s: LibraryState, batch: Batch): Partial<LibraryState> | null
   }
   for (const row of batch.playlists ?? []) playlists.set(row.id, row);
   for (const row of batch.playlistTracks ?? []) {
+    if (row.id < TEMP_ID_BASE) {
+      // Настоящая строка заменяет временную (оптимистичное добавление) для того же трека плейлиста.
+      for (const id of s.tracksByPlaylist.get(row.playlist_id) ?? []) {
+        if (id >= TEMP_ID_BASE && playlistTracks.get(id)?.track_id === row.track_id) {
+          playlistTracks.delete(id);
+          tracksByPlaylist.remove(row.playlist_id, id);
+        }
+      }
+    }
     const old = playlistTracks.get(row.id);
     if (!old || old.playlist_id !== row.playlist_id) {
       if (old) tracksByPlaylist.remove(old.playlist_id, row.id);

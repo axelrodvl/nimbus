@@ -19,7 +19,9 @@ const timeToAppear = (page: Page, click: string, appears: string) =>
     [click, appears],
   );
 
-const dataRequests = (log: string[]) => log.filter(l => l.startsWith('GET /api/') && !l.includes('/api/artists/'));
+// Картинки артистов (`/api/artist-image/…`) грузятся лениво браузером — это не запросы за данными библиотеки.
+const dataRequests = (log: string[]) =>
+  log.filter(l => l.startsWith('GET /api/') && !l.includes('/api/artists/') && !l.includes('/api/artist-image/'));
 
 test.describe('экраны библиотеки', () => {
   test.beforeEach(async ({ request }) => resetMock(request));

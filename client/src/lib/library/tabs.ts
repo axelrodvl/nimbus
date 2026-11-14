@@ -1,11 +1,12 @@
 import type { MessageKey } from '@/lib/i18n/messages';
 import type { TrackStatus } from '@/lib/store/selectors';
 
-/** Вкладки библиотеки — массивом, как пункты навигации: плейлисты добавит шаг 42. */
+/** Вкладки библиотеки — массивом, как пункты навигации. */
 export const LIBRARY_TABS = [
   { id: 'albums', label: 'group.albums' },
   { id: 'artists', label: 'group.artists' },
   { id: 'tracks', label: 'group.tracks' },
+  { id: 'playlists', label: 'group.playlists' },
 ] as const satisfies readonly { id: string; label: MessageKey }[];
 export type LibraryTabId = (typeof LIBRARY_TABS)[number]['id'];
 export const DEFAULT_TAB: LibraryTabId = 'albums';

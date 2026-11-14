@@ -14,8 +14,35 @@ type ImportStatus = { attempt: number; max_attempts: number; state: string; erro
 type Search = { delayMs: number; failStatus: number | null; addDelayMs: number; addFailStatus: number | null };
 const NO_SEARCH_FAULTS: Search = { addDelayMs: 0, addFailStatus: null, delayMs: 0, failStatus: null };
 
+type MockTorrent = {
+  id: number;
+  info_hash: string;
+  kind: string;
+  leechers: number | null;
+  meta_status: string;
+  seeders: number | null;
+  size_bytes: number | null;
+  source: string;
+  title: string;
+};
+type MockSource = {
+  id: number;
+  torrent: MockTorrent;
+  file_index: number;
+  path: string;
+  size_bytes: number;
+  match_score: number;
+  is_primary: boolean;
+  needs_confirmation: boolean;
+};
+
 const state = {
   authRequired: false,
+  /** HTTP-статус, которым отвечают изменяющие запросы плейлистов (`null` — норма). */
+  failPlaylists: null as number | null,
+  playlistDelayMs: 0,
+  extraTorrents: new Map<number, MockTorrent[]>(),
+  trackSources: new Map<number, MockSource[]>(),
   faults: { ...NO_SEARCH_FAULTS },
   failDelete: false,
   imports: new Map<number, ImportStatus>(),
@@ -72,6 +99,10 @@ function reset(opts: { authRequired?: boolean; snapshotDelayMs?: number }) {
   state.streamDelayMs.clear();
   state.prefetchNext = true;
   state.imports.clear();
+  state.failPlaylists = null;
+  state.playlistDelayMs = 0;
+  state.extraTorrents.clear();
+  state.trackSources.clear();
   state.log = [];
   state.server = new FakeSyncServer().load(makeSmallLibrary());
   dropClients();
@@ -273,6 +304,215 @@ function seedPlayerLibrary() {
   track(9051, 905, 1, 'Image Track', { playback: 'transcode' });
 }
 
+
+// ---------------------------------------------------------------- плейлисты и источники
+
+const err = (status: number, code: string, message: string) => json(status, { error: { code, message } });
+const poke = () => broadcast({ type: 'sync.poke' });
+
+/** Плейлист в формате `PlaylistDto` (id — строка, как на сервере). */
+function playlistDto(row: { id: number } & Record<string, unknown>) {
+  const count = state.server.all('playlist_track').filter(r => r.playlist_id === row.id).length;
+  return { created_at: row.created_at, id: String(row.id), kind: 'user', last_used_at: row.last_used_at, name: row.name, track_count: count };
+}
+
+/** `/api/playlists[/{id}[/tracks[/{track}]]]`: изменяет те же данные, что отдаёт синхронизация. */
+async function playlistRoute(req: Request, parts: string[]): Promise<Response> {
+  if (state.playlistDelayMs && req.method !== 'GET') await sleep(state.playlistDelayMs);
+  if (state.failPlaylists && req.method !== 'GET') return err(state.failPlaylists, 'internal', 'playlist request failed');
+  const [, , rawId, sub, rawTrack] = parts; // api, playlists, id, tracks, track_id
+  if (!rawId) {
+    if (req.method === 'POST') {
+      const body = (await req.json()) as { name?: string };
+      const name = body.name?.trim() ?? '';
+      if (!name || name.length > 100) return err(400, 'bad_name', 'playlist name must be 1..100 characters');
+      const stamp = now();
+      const row = { created_at: stamp, id: nextId('playlist'), last_used_at: stamp, name };
+      state.server.upsert('playlist', row);
+      poke();
+      return json(201, playlistDto(row));
+    }
+    return err(404, 'not_found', 'no mock');
+  }
+  if (rawId === 'favorites') return err(409, 'playlist_dynamic', 'Favorites is built automatically from play counts');
+  const id = Number(rawId);
+  const playlist = state.server.get('playlist', id);
+  if (!playlist) return err(404, 'not_found', 'playlist not found');
+  if (!sub && req.method === 'DELETE') {
+    for (const r of state.server.all('playlist_track')) if (r.playlist_id === id) state.server.remove('playlist_track', r.id);
+    state.server.remove('playlist', id);
+    poke();
+    return new Response(null, { status: 204 });
+  }
+  if (sub === 'tracks' && !rawTrack && req.method === 'POST') {
+    const { track_id } = (await req.json()) as { track_id: number };
+    if (!state.server.get('track', track_id)) return err(404, 'not_found', 'playlist or track not found');
+    if (!state.server.all('playlist_track').some(r => r.playlist_id === id && r.track_id === track_id)) {
+      state.server.upsert('playlist_track', { added_at: now(), id: nextId('playlist_track'), playlist_id: id, track_id });
+    }
+    state.server.upsert('playlist', { ...playlist, last_used_at: now() });
+    poke();
+    return new Response(null, { status: 204 });
+  }
+  if (sub === 'tracks' && rawTrack && req.method === 'DELETE') {
+    for (const r of state.server.all('playlist_track')) {
+      if (r.playlist_id === id && r.track_id === Number(rawTrack)) state.server.remove('playlist_track', r.id);
+    }
+    poke();
+    return new Response(null, { status: 204 });
+  }
+  return err(404, 'not_found', 'no mock');
+}
+
+const torrent = (id: number, source: string, title: string): MockTorrent => ({
+  id,
+  info_hash: `hash${id}`,
+  kind: 'album',
+  leechers: 2,
+  meta_status: 'ok',
+  seeders: 30,
+  size_bytes: 250 * 1024 * 1024,
+  source,
+  title,
+});
+const albumTorrents = (albumId: number): MockTorrent[] => [
+  torrent(albumId * 10 + 1, 'rutracker', `Album ${albumId} [FLAC]`),
+  torrent(albumId * 10 + 2, 'tpb', `Album ${albumId} (MP3)`),
+  ...(state.extraTorrents.get(albumId) ?? []),
+];
+
+/** Источники трека: основной (сомнительный, если у трека `needs_confirmation`) и альтернатива. */
+function sourcesOf(trackId: number): MockSource[] {
+  const found = state.trackSources.get(trackId);
+  if (found) return found;
+  const track = state.server.get('track', trackId);
+  const [first, second] = albumTorrents(Number(track?.album_id ?? 0));
+  const list: MockSource[] = [
+    {
+      file_index: 0,
+      id: trackId * 10 + 1,
+      is_primary: true,
+      match_score: track?.needs_confirmation ? 0.62 : 0.95,
+      needs_confirmation: Boolean(track?.needs_confirmation),
+      path: `Album/${String(track?.position ?? 1).padStart(2, '0')} ${String(track?.title ?? 'track')}.flac`,
+      size_bytes: 30 * 1024 * 1024,
+      torrent: first!,
+    },
+    {
+      file_index: 3,
+      id: trackId * 10 + 2,
+      is_primary: false,
+      match_score: 0.8,
+      needs_confirmation: false,
+      path: `Alt/${String(track?.title ?? 'track')}.mp3`,
+      size_bytes: 8 * 1024 * 1024,
+      torrent: second!,
+    },
+  ];
+  state.trackSources.set(trackId, list);
+  return list;
+}
+
+/** После ручного выбора/подтверждения трек больше не требует проверки (как на сервере). */
+function settleTrack(trackId: number) {
+  const track = state.server.get('track', trackId);
+  const pending = sourcesOf(trackId).some(s => s.is_primary && s.needs_confirmation);
+  if (track && track.needs_confirmation && !pending) state.server.upsert('track', { ...track, needs_confirmation: false });
+}
+
+const MAGNET = /^magnet:\?(?:.*&)?xt=urn:btih:([0-9a-f]{40}|[a-z2-7]{32})(?:&|$)/i;
+
+/** `/api/albums/{id}/{torrents|retry}`, `/api/tracks/{id}/{sources|source|retry}`, `/api/torrents/{id}/files`. */
+async function sourcesRoute(req: Request, parts: string[]): Promise<Response | null> {
+  const [, kind, rawId, sub, rawSource, action] = parts;
+  const id = Number(rawId);
+  if (kind === 'albums' && sub === 'torrents') {
+    if (!state.server.get('album', id)) return err(404, 'not_found', 'album not found');
+    if (req.method === 'GET') {
+      return json(
+        200,
+        albumTorrents(id).map((t, i) => ({ files_count: 12, matched_tracks: 10 - i, rank_score: 0.9 - i / 10, torrent: t, verified: i === 0 })),
+      );
+    }
+    if (req.method === 'POST') {
+      const { magnet } = (await req.json()) as { magnet: string };
+      const hit = MAGNET.exec(magnet.trim());
+      if (!hit) return err(400, 'invalid_magnet', 'not a magnet link');
+      const added = { ...torrent(id * 10 + 3 + (state.extraTorrents.get(id)?.length ?? 0), 'manual', `Manual ${hit[1]!.slice(0, 8)}`), meta_status: 'pending' };
+      state.extraTorrents.set(id, [...(state.extraTorrents.get(id) ?? []), added]);
+      return json(202, { queued: true, torrent: added });
+    }
+  }
+  if (kind === 'albums' && sub === 'retry' && req.method === 'POST') {
+    if (!state.server.get('album', id)) return err(404, 'not_found', 'album not found');
+    let reset = 0;
+    for (const t of state.server.all('track')) {
+      if (t.album_id === id && t.status === 'not_found') {
+        state.server.upsert('track', { ...t, status: 'adding' });
+        reset++;
+      }
+    }
+    poke();
+    return json(202, { queued: true, tracks_reset: reset });
+  }
+  if (kind === 'tracks') {
+    const track = state.server.get('track', id);
+    if (!track) return err(404, 'not_found', 'track not found');
+    if (sub === 'sources' && !rawSource && req.method === 'GET') return json(200, sourcesOf(id));
+    if (sub === 'sources' && action === 'confirm' && req.method === 'POST') {
+      const source = sourcesOf(id).find(s => s.id === Number(rawSource));
+      if (!source) return err(404, 'not_found', 'source not found');
+      source.needs_confirmation = false;
+      settleTrack(id);
+      poke();
+      return json(200, source);
+    }
+    if (sub === 'source' && req.method === 'PUT') {
+      const body = (await req.json()) as { source_id?: number | null; torrent_id?: number | null; file_index?: number | null };
+      const list = sourcesOf(id);
+      let chosen = body.source_id != null ? list.find(s => s.id === body.source_id) : undefined;
+      if (!chosen && body.torrent_id != null && body.file_index != null) {
+        const tor = albumTorrents(Number(track.album_id)).find(t => t.id === body.torrent_id);
+        if (!tor) return err(404, 'not_found', 'torrent not found');
+        chosen = { file_index: body.file_index, id: id * 10 + 5 + list.length, is_primary: false, match_score: 1, needs_confirmation: false, path: `Picked/${body.file_index}.flac`, size_bytes: 1024, torrent: tor };
+        list.push(chosen);
+      }
+      if (!chosen) return err(400, 'bad_source', 'choose an existing source or torrent+file');
+      for (const s of list) s.is_primary = s === chosen;
+      chosen.needs_confirmation = false;
+      settleTrack(id);
+      poke();
+      return json(200, chosen);
+    }
+    if (sub === 'retry' && req.method === 'POST') {
+      if (track.status === 'ready') return err(409, 'track_ready', 'The track is already downloaded');
+      state.server.upsert('track', { ...track, status: 'adding' });
+      poke();
+      return json(202, { queued: true, tracks_reset: 1 });
+    }
+  }
+  if (kind === 'torrents' && sub === 'files' && req.method === 'GET') {
+    return json(200, [
+      { ext: 'flac', file_index: 0, matched_track_id: null, path: 'Album/01 Intro.flac', size_bytes: 30 * 1024 * 1024 },
+      { ext: 'flac', file_index: 1, matched_track_id: null, path: 'Album/02 Song.flac', size_bytes: 28 * 1024 * 1024 },
+      { ext: 'jpg', file_index: 2, matched_track_id: null, path: 'Album/cover.jpg', size_bytes: 200 * 1024 },
+    ]);
+  }
+  return null;
+}
+
+/** Альбом с треками для сценариев источников: 9131 found, 9132 требует подтверждения, 9133 не найден. */
+function seedSourcesLibrary() {
+  const artist = makeArtist({ added_at: now(), id: 910, name: 'Sources Band' });
+  state.server.upsert('artist', artist);
+  state.server.upsert('album', makeAlbum({ added_at: now(), artist_id: artist.id, id: 913, title: 'Sources Test', year: 2005 }));
+  const track = (id: number, position: number, title: string, over: Record<string, unknown> = {}) =>
+    state.server.upsert('track', makeTrack({ added_at: now(), album_id: 913, artist_id: artist.id, duration_ms: 5000, id, position, status: 'found', title, ...over }));
+  track(9131, 1, 'Plain Song');
+  track(9132, 2, 'Doubtful Song', { needs_confirmation: true });
+  track(9133, 3, 'Lost Song', { status: 'not_found' });
+}
+
 const authed = (req: Request) => !state.authRequired || cookieOf(req) === TOKEN;
 const broadcast = (event: unknown) => clients.forEach(ws => ws.send(JSON.stringify(event)));
 
@@ -309,6 +549,17 @@ Bun.serve({
       if (!authed(req)) return json(401, { error: { code: 'unauthorized', message: 'login required' } });
       return playbackRoute(req, Number(trackRoute[1]), trackRoute[2]);
     }
+    // ---------------------------------------------------------------- плейлисты и источники
+    if (path.startsWith('/api/playlists')) {
+      if (!authed(req)) return json(401, { error: { code: 'unauthorized', message: 'login required' } });
+      return playlistRoute(req, path.split('/').filter(Boolean));
+    }
+    if (/^\/api\/(albums\/\d+\/(torrents|retry)|tracks\/\d+\/(sources|source|retry)|torrents\/\d+\/files)/.test(path)) {
+      if (!authed(req)) return json(401, { error: { code: 'unauthorized', message: 'login required' } });
+      const handled = await sourcesRoute(req, path.split('/').filter(Boolean));
+      if (handled) return handled;
+    }
+
     if (path === '/api/settings') {
       return json(200, { playback: { prefetch_next: state.prefetchNext, transcode_alac: false, transcode_lossy_codec: 'opus' } });
     }
@@ -397,6 +648,16 @@ Bun.serve({
       seedPlayerLibrary();
       state.streamDelayMs = new Map(Object.entries(body.delayMs ?? {}).map(([id, ms]) => [Number(id), ms]));
       state.prefetchNext = body.prefetchNext ?? true;
+      return json(200, { ok: true });
+    }
+    if (path === '/__test/sources') {
+      seedSourcesLibrary();
+      return json(200, { ok: true });
+    }
+    if (path === '/__test/playlists') {
+      const body = (await req.json().catch(() => ({}))) as { failStatus?: number | null; delayMs?: number };
+      state.failPlaylists = body.failStatus ?? null;
+      state.playlistDelayMs = body.delayMs ?? 0;
       return json(200, { ok: true });
     }
     if (path === '/__test/search') {

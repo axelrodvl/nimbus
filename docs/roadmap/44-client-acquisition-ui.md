@@ -15,6 +15,7 @@
   `docs/roadmap/26-jobs-reliability.md` п. 8 (`GET /api/jobs`, `POST /api/jobs/{id}/retry`). Точные типы — в `client/src/lib/api/schema.d.ts`.
 - Старый экран торрентов: `web/features/downloads/components/downloads-view.tsx` (список торрентов движка, пауза/возобновление, опрос раз в 2 с), `web/app/actions/downloads.ts`.
 - Примитивы форм и `Tabs` (шаг 43), виртуальные списки (шаг 39), слой источников (шаг 42: повтор альбома, свой magnet).
+- Шаг 42 готов: `src/lib/sources/` (`useAlbumTorrents`, `useTrackSources`, `useTorrentFiles`, `useSourcesRefresh` — инвалидация по событиям с debounce 1 с; действия `retryAlbumSearch`, `retryTrackSearch`, `addAlbumMagnet`, `chooseTrackSource`, `confirmTrackSource` принимают `{ queryClient }`), `lib/api/error-message.ts` (`apiErrorMessage` — перевод `error.<code>` для toast), `components/sources/` (`TorrentList`, `AddMagnetForm`, `RetryAlbumButton`, `TrackSourceDialog`).
 
 ## Что сделать
 

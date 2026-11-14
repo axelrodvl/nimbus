@@ -14,6 +14,7 @@
 - `src/lib/offline/manager.ts` — `pin/unpin/isPinned`, `retry`, `setPaused`, `removeAll`, store `offlineStatus`, селекторы `trackOfflineState`, `albumOfflineState`, `playlistOfflineState`, настройки устройства, флаг `offline.supported` (шаг 46).
 - Экраны и компоненты: `TrackRow`, `AlbumCard`, шапки альбома и плейлиста (шаги 39, 42), меню трека (41–42), экран «Загрузки» с вкладками (44), настройки с разделами-массивом и примитивами (43), `useOnline`/`OfflineNotice` (45).
 - Плеер уже играет офлайн-файлы и пропускает недоступное без сети (шаг 46).
+- Шаг 42 готов: плейлисты в store — селекторы `playlistCards` / `playlistCard(id | 'favorites')` (число треков, длительность, обложка), `usePlaylistTracks(id)` и `useFavorites()`; id плейлиста в клиенте — `number | 'favorites'` (`parsePlaylistRef` в `lib/api/playlists.ts`). «Скачать плейлист» опирается на них.
 
 ## Что сделать
 

@@ -59,10 +59,20 @@ export function AlbumScreen() {
           <div className="flex flex-wrap items-center gap-3">
             <PlayAlbumButton albumId={album.id} />
             {tracks.some(tr => tr.in_library && tr.needs_confirmation) ? (
-              <span className="text-warning inline-flex items-center gap-1 text-xs" data-testid="album-needs-confirmation">
+              <span
+                className="text-warning inline-flex items-center gap-1 text-xs"
+                data-testid="album-needs-confirmation"
+              >
                 <AlertTriangle aria-hidden className="size-4" /> {t('album.needsCheck')}
               </span>
             ) : null}
+            <Link
+              className="border-divider hover:bg-card dark:border-divider-dark dark:hover:bg-card-dark focus-visible:ring-accent/40 inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:outline-none"
+              data-testid="album-sources-link"
+              to={`/album/${album.id}/sources`}
+            >
+              {t('album.sources')}
+            </Link>
             {album.in_library ? (
               <RemoveFromLibraryButton id={album.id} redirectTo="/library/albums" title={album.title} type="album" />
             ) : null}

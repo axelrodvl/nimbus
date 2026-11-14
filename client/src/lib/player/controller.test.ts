@@ -875,3 +875,44 @@ describe('destroy', () => {
     expect(s.storage.writes).toBe(writes);
   });
 });
+
+describe('смена источника трека (reloadTrack)', () => {
+  it('играющий трек: поток открывается заново с текущей позиции, играет дальше', () => {
+    const s = setup();
+    s.ctl.play(s.library.get(1)!, queue(s));
+    s.engine.emit({ type: 'playing' });
+    s.engine.setPosition(42, 100);
+    s.ctl.reloadTrack(1);
+    expect(s.engine.loads).toHaveLength(2);
+    expect(s.engine.lastLoad?.opts).toMatchObject({ autoplay: true, startAt: 42 });
+  });
+
+  it('на паузе: позиция сохраняется, автозапуска нет', () => {
+    const s = setup();
+    s.ctl.play(s.library.get(1)!, queue(s));
+    s.engine.emit({ type: 'playing' });
+    s.ctl.pause();
+    s.engine.emit({ type: 'paused' });
+    s.engine.setPosition(7, 100);
+    s.ctl.reloadTrack(1);
+    expect(s.engine.lastLoad?.opts).toMatchObject({ autoplay: false, startAt: 7 });
+  });
+
+  it('перекодируемый трек: позиция уходит в смещение запроса', () => {
+    const s = setup({}, [pt(1, { playback: 'transcode' }), pt(2)]);
+    s.ctl.play(s.library.get(1)!, queue(s));
+    s.engine.emit({ type: 'playing' });
+    s.engine.setPosition(12, 100);
+    s.ctl.reloadTrack(1);
+    expect(s.engine.lastLoad?.opts).toMatchObject({ positionOffset: 12, startAt: 0 });
+  });
+
+  it('другой трек или пустой плеер — ничего не происходит', () => {
+    const s = setup();
+    s.ctl.reloadTrack(1);
+    expect(s.engine.loads).toHaveLength(0);
+    s.ctl.play(s.library.get(1)!, queue(s));
+    s.ctl.reloadTrack(2);
+    expect(s.engine.loads).toHaveLength(1);
+  });
+});

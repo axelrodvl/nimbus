@@ -66,3 +66,13 @@ export async function seedPlayer(
 ) {
   await request.post(`${MOCK}/__test/player`, { data: opts });
 }
+
+/** Добавляет альбом 913 «Sources Test» (артист 910): 9131 found, 9132 требует подтверждения, 9133 не найден. Вызывать до открытия страницы. */
+export async function seedSources(request: APIRequestContext) {
+  await request.post(`${MOCK}/__test/sources`);
+}
+
+/** Изменяющие запросы плейлистов отвечают `failStatus` и/или медленнее на `delayMs`. */
+export async function setPlaylists(request: APIRequestContext, faults: { failStatus?: number | null; delayMs?: number }) {
+  await request.post(`${MOCK}/__test/playlists`, { data: faults });
+}

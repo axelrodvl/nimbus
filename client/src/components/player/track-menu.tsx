@@ -1,5 +1,6 @@
 import * as Ariakit from '@ariakit/react';
 import { MoreHorizontal } from 'lucide-react';
+import { AddToPlaylistDialog } from '@/components/playlists/add-to-playlist-dialog';
 import { useNavigate } from 'react-router';
 import { useT } from '@/lib/i18n/provider';
 import { usePlayerActions } from '@/lib/player/hooks';
@@ -20,7 +21,7 @@ type Props = {
   testId?: string;
 };
 
-/** Меню «…» трека в плеере: «Перейти к альбому», «Перейти к артисту», «Убрать из очереди». «В плейлист» добавит шаг 42. */
+/** Меню «…» трека в плеере: «В плейлист», «Перейти к альбому», «Перейти к артисту», «Убрать из очереди». */
 export function TrackMenu({
   track,
   queueIndex,
@@ -32,40 +33,47 @@ export function TrackMenu({
   const t = useT();
   const navigate = useNavigate();
   const player = usePlayerActions();
+  const playlistDialog = Ariakit.useDialogStore();
   const go = (to: string) => {
     onNavigate?.();
     void navigate(to);
   };
   return (
-    <Ariakit.MenuProvider>
-      <Ariakit.MenuButton
-        aria-label={t('menu.actions', { title: track.title })}
-        className={cn('text-muted rounded-full p-1 hover:text-black dark:hover:text-white', className)}
-        data-testid={testId}
-      >
-        <MoreHorizontal aria-hidden className={iconClassName} />
-      </Ariakit.MenuButton>
-      <Ariakit.Menu
-        className="border-divider dark:border-divider-dark z-[70] min-w-44 rounded-lg border bg-white p-1 text-black shadow-lg dark:bg-black dark:text-white"
-        gutter={4}
-        portal
-      >
-        {track.albumId !== undefined ? (
-          <Ariakit.MenuItem className={itemClass} onClick={() => go(`/album/${track.albumId}`)}>
-            {t('player.goAlbum')}
+    <>
+      <Ariakit.MenuProvider>
+        <Ariakit.MenuButton
+          aria-label={t('menu.actions', { title: track.title })}
+          className={cn('text-muted rounded-full p-1 hover:text-black dark:hover:text-white', className)}
+          data-testid={testId}
+        >
+          <MoreHorizontal aria-hidden className={iconClassName} />
+        </Ariakit.MenuButton>
+        <Ariakit.Menu
+          className="border-divider dark:border-divider-dark z-[70] min-w-44 rounded-lg border bg-white p-1 text-black shadow-lg dark:bg-black dark:text-white"
+          gutter={4}
+          portal
+        >
+          <Ariakit.MenuItem className={itemClass} onClick={() => playlistDialog.show()}>
+            {t('playlist.addTo')}
           </Ariakit.MenuItem>
-        ) : null}
-        {track.artistId !== undefined ? (
-          <Ariakit.MenuItem className={itemClass} onClick={() => go(`/artist/${track.artistId}`)}>
-            {t('player.goArtist')}
-          </Ariakit.MenuItem>
-        ) : null}
-        {queueIndex !== undefined ? (
-          <Ariakit.MenuItem className={itemClass} onClick={() => player.removeFromQueue(queueIndex)}>
-            {t('queue.removeShort')}
-          </Ariakit.MenuItem>
-        ) : null}
-      </Ariakit.Menu>
-    </Ariakit.MenuProvider>
+          {track.albumId !== undefined ? (
+            <Ariakit.MenuItem className={itemClass} onClick={() => go(`/album/${track.albumId}`)}>
+              {t('player.goAlbum')}
+            </Ariakit.MenuItem>
+          ) : null}
+          {track.artistId !== undefined ? (
+            <Ariakit.MenuItem className={itemClass} onClick={() => go(`/artist/${track.artistId}`)}>
+              {t('player.goArtist')}
+            </Ariakit.MenuItem>
+          ) : null}
+          {queueIndex !== undefined ? (
+            <Ariakit.MenuItem className={itemClass} onClick={() => player.removeFromQueue(queueIndex)}>
+              {t('queue.removeShort')}
+            </Ariakit.MenuItem>
+          ) : null}
+        </Ariakit.Menu>
+      </Ariakit.MenuProvider>
+      <AddToPlaylistDialog store={playlistDialog} title={track.title} trackId={track.id} />
+    </>
   );
 }

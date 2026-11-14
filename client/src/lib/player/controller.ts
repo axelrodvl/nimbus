@@ -299,6 +299,16 @@ export class PlayerController {
     this.dispatch({ position: t, type: 'TICK' });
   };
 
+  /**
+   * Источник трека сменили вручную: если он загружен в плеер, поток открывается заново с текущей позиции
+   * (пауза остаётся паузой). Другие треки не затрагиваются.
+   */
+  reloadTrack = (id: number) => {
+    const track = currentTrack(this.state);
+    if (!track || track.id !== id || this.loadedId !== id) return;
+    this.loadAndPlay(track, this.positionNow(), this.state.isPlaying);
+  };
+
   setVolume = (v: number) => {
     const volume = Math.min(100, Math.max(0, v));
     this.dispatch({ type: 'VOLUME', volume });

@@ -8,6 +8,7 @@ import type {
   AlbumView,
   ArtistView,
   MbidIndex,
+  PlaylistCard,
   PlaylistEntry,
   SearchResult,
   TrackStatus,
@@ -47,6 +48,12 @@ export const useAlbumTracks = (albumId: number): TrackView[] =>
   useLibrary(s => appData().selectors.albumTracks(s, albumId));
 export const usePlaylistTracks = (playlistId: number): PlaylistEntry[] =>
   useLibrary(s => appData().selectors.playlistTracks(s, playlistId));
+export const usePlaylistCards = (): PlaylistCard[] => useLibrary(s => appData().selectors.playlistCards(s));
+export const usePlaylistCard = (id: number | 'favorites'): PlaylistCard | undefined =>
+  useLibrary(s => appData().selectors.playlistCard(s, id));
+/** В каких плейлистах уже есть трек. */
+export const usePlaylistsOfTrack = (trackId: number): ReadonlySet<number> =>
+  useLibrary(s => appData().selectors.playlistsOfTrack(s, trackId));
 export const useRecentlyPlayedAlbums = (limit: number): AlbumView[] =>
   useLibrary(s => appData().selectors.recentlyPlayedAlbums(s, limit));
 export const useFavorites = (): TrackView[] => useLibrary(s => appData().selectors.favorites(s));
@@ -91,9 +98,9 @@ export function useLibraryList<K extends ListKind>(kind: K, statuses?: readonly 
   return useSyncExternalStore(source.subscribe, source.getSnapshot) as ListOf[K];
 }
 
-export type LibraryCounts = { albums: number; artists: number; tracks: number };
+export type LibraryCounts = { albums: number; artists: number; playlists: number; tracks: number };
 
-/** Размеры трёх списков библиотеки (счётчики во вкладках). */
+/** Размеры списков библиотеки (счётчики во вкладках). */
 export function useLibraryCounts(): LibraryCounts {
   const source = useMemo(
     () =>
@@ -104,11 +111,13 @@ export function useLibraryCounts(): LibraryCounts {
           return {
             albums: selectors.libraryAlbums(s).length,
             artists: selectors.libraryArtists(s).length,
+            playlists: selectors.playlistCards(s).length,
             tracks: selectors.libraryTracks(s).length,
           };
         },
         LIST_THROTTLE_MS,
-        (a, b) => a.albums === b.albums && a.artists === b.artists && a.tracks === b.tracks,
+        (a, b) =>
+          a.albums === b.albums && a.artists === b.artists && a.playlists === b.playlists && a.tracks === b.tracks,
       ),
     [],
   );
