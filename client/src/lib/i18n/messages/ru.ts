@@ -506,6 +506,13 @@ const messages: Messages = {
   'settings.providersHint': 'Где сервер ищет торренты с музыкой.',
   'settings.proxy': 'Прокси',
   'settings.proxyHint': 'Например socks5://127.0.0.1:1080',
+  'settings.cookieHint':
+    'Вставьте всю строку Cookie из браузера (bb_session=…; cf_clearance=…). Если проверка соединения пишет 403 / Cloudflare: откройте rutracker.org, пройдите там проверку и скопируйте cookie из DevTools.',
+  'settings.userAgent': 'User-Agent',
+  'settings.userAgentHint': 'Точно как в браузере, где вы прошли проверку; cf_clearance работает только с тем же.',
+  'settings.extraHeaders': 'Дополнительные заголовки',
+  'settings.extraHeadersHint':
+    'По одному в строке, Имя: значение (например Accept-Language, sec-ch-ua). Cookie и User-Agent вводятся в своих полях.',
   'settings.range': 'От {min} до {max}, по умолчанию {def}.',
   'settings.reimport.all': 'И для существующих',
   'settings.reimport.description':

@@ -36,6 +36,7 @@ const SAME_AS_ENGLISH = new Set(
     'error',
     'No',
     'Proxy',
+    'User-Agent',
     'Pause',
     'Sources',
     'Source',

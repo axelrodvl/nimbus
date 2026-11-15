@@ -496,6 +496,13 @@ const messages: Messages = {
   'settings.providersHint': 'सर्वर संगीत वाले टोरेंट कहाँ खोजता है।',
   'settings.proxy': 'प्रॉक्सी',
   'settings.proxyHint': 'उदाहरण: socks5://127.0.0.1:1080',
+  'settings.cookieHint':
+    'ब्राउज़र की पूरी Cookie स्ट्रिंग चिपकाएँ (bb_session=…; cf_clearance=…)। अगर कनेक्शन जाँच 403 / Cloudflare दिखाए: rutracker.org खोलें, वहाँ जाँच पास करें और DevTools से कुकी कॉपी करें।',
+  'settings.userAgent': 'User-Agent',
+  'settings.userAgentHint': 'बिल्कुल वही जो उस ब्राउज़र में है जहाँ आपने जाँच पास की; cf_clearance केवल उसी के साथ काम करता है।',
+  'settings.extraHeaders': 'अतिरिक्त हेडर',
+  'settings.extraHeadersHint':
+    'हर पंक्ति में एक, नाम: मान (जैसे Accept-Language, sec-ch-ua)। Cookie और User-Agent के अपने फ़ील्ड हैं।',
   'settings.range': '{min} से {max}, डिफ़ॉल्ट {def}।',
   'settings.reimport.all': 'मौजूदा पर भी',
   'settings.reimport.description':

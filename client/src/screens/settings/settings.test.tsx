@@ -191,6 +191,43 @@ describe('автосохранение', () => {
     expect(lastPatch()).toEqual({ search: { max_candidates: 30 } });
   });
 
+  it('RuTracker: User-Agent и дополнительные заголовки сохраняются, пустые уходят как null', async () => {
+    setup('/settings/sources', {
+      ...baseSettings(),
+      providers: {
+        ...baseSettings().providers,
+        rutracker: { cookie: null, headers: null, password: null, proxy: null, user_agent: null, username: null },
+      },
+    });
+    // Ответ сервера содержит весь раздел: сливаем патч в текущее состояние RuTracker.
+    const rt: Record<string, unknown> = {
+      cookie: null,
+      headers: null,
+      password: null,
+      proxy: null,
+      user_agent: null,
+      username: null,
+    };
+    m.putSettings.mockImplementation(async patch => {
+      Object.assign(rt, (patch as ServerSettings).providers?.rutracker);
+      return { ...baseSettings(), providers: { ...baseSettings().providers, rutracker: { ...rt } } };
+    });
+    const ua = await screen.findByRole('textbox', { name: L('settings.userAgent') });
+    await userEvent.type(ua, 'Mozilla/5.0 Test{Enter}');
+    await waitFor(() => expect(lastPatch()).toEqual({ providers: { rutracker: { user_agent: 'Mozilla/5.0 Test' } } }));
+    const headers = screen.getByRole('textbox', { name: L('settings.extraHeaders') });
+    await userEvent.type(headers, 'Accept-Language: ru{Enter}sec-ch-ua-platform: "Linux"');
+    await userEvent.tab();
+    await waitFor(() =>
+      expect(lastPatch()).toEqual({
+        providers: { rutracker: { headers: 'Accept-Language: ru\nsec-ch-ua-platform: "Linux"' } },
+      }),
+    );
+    await userEvent.clear(headers);
+    await userEvent.tab();
+    await waitFor(() => expect(lastPatch()).toEqual({ providers: { rutracker: { headers: null } } }));
+  });
+
   it('текст сохраняется по blur и Enter; пустое значение уходит как null', async () => {
     setup('/settings/sources', {
       ...baseSettings(),

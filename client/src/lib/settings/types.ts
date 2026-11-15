@@ -41,6 +41,8 @@ export type Providers = {
     password?: string | null;
     cookie?: string | null;
     proxy?: string | null;
+    user_agent?: string | null;
+    headers?: string | null;
   } | null;
 };
 

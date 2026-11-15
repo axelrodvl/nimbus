@@ -405,3 +405,36 @@ async fn validation_error_names_the_field(pool: PgPool) {
     assert_eq!(code, 400);
     assert!(body["error"].get("field").is_none(), "{body}");
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn rutracker_user_agent_and_headers_are_saved_and_cookie_header_is_rejected(pool: PgPool) {
+    let app = router(state(pool));
+    let (code, body) = put(
+        app.clone(),
+        json!({"providers": {"rutracker": {
+            "cookie": "bb_session=abc; cf_clearance=zzz",
+            "user_agent": "Mozilla/5.0 Test",
+            "headers": "Accept-Language: ru\nsec-ch-ua-platform: \"Linux\"",
+        }}}),
+    )
+    .await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(
+        body["providers"]["rutracker"]["user_agent"],
+        "Mozilla/5.0 Test"
+    );
+    assert!(body["providers"]["rutracker"]["headers"]
+        .as_str()
+        .unwrap()
+        .contains("Accept-Language: ru"));
+    assert_eq!(body["providers"]["rutracker"]["cookie"], MASK);
+
+    // Cookie — секрет и живёт в своём поле, не в открытом списке заголовков.
+    let (code, body) = put(
+        app,
+        json!({"providers": {"rutracker": {"headers": "Cookie: bb_session=leak"}}}),
+    )
+    .await;
+    assert_eq!(code, 400, "{body}");
+    assert!(body.to_string().contains("providers.rutracker.headers"));
+}

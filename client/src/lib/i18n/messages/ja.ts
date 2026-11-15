@@ -504,6 +504,13 @@ const messages: Messages = {
   'settings.providersHint': 'サーバーが音楽のトレントを探す場所です。',
   'settings.proxy': 'プロキシ',
   'settings.proxyHint': '例：socks5://127.0.0.1:1080',
+  'settings.cookieHint':
+    'ブラウザの Cookie 文字列をそのまま貼り付けてください（bb_session=…; cf_clearance=…）。接続テストが 403 / Cloudflare になる場合：rutracker.org を開いて確認を通過し、DevTools から Cookie をコピーします。',
+  'settings.userAgent': 'User-Agent',
+  'settings.userAgentHint': '確認を通過したブラウザと完全に同じもの。cf_clearance は同じ User-Agent でのみ有効です。',
+  'settings.extraHeaders': '追加ヘッダー',
+  'settings.extraHeadersHint':
+    '1 行に 1 つ、名前: 値（例：Accept-Language、sec-ch-ua）。Cookie と User-Agent は専用欄に入力します。',
   'settings.range': '{min}〜{max}、既定値 {def}。',
   'settings.reimport.all': '既存にも適用',
   'settings.reimport.description':

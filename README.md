@@ -261,6 +261,13 @@ Configured in `.env` or in the UI (*Settings → Sources*, each has a "Test" but
 - **RuTracker** — `NIMBUS_RUTRACKER_USERNAME` / `NIMBUS_RUTRACKER_PASSWORD`. If a captcha is required, log in with a
   browser and pass the whole cookie in `NIMBUS_RUTRACKER_COOKIE`. If the site is blocked, use
   `NIMBUS_RUTRACKER_PROXY` (e.g. `socks5://host:1080`).
+  - **HTTP 403 / "Cloudflare challenge"** in the connection check means Cloudflare wants a browser check, which the
+    backend cannot pass. Open `rutracker.org` in your browser (from the same machine/IP as Nimbus), pass the check,
+    then in *Settings → Sources → RuTracker* paste the whole `Cookie` string (`bb_session=…; cf_clearance=…`), the
+    browser's exact **User-Agent** and, if needed, extra headers (one `Name: value` per line, e.g. `sec-ch-ua`,
+    `Accept-Language`). `cf_clearance` only works from the same IP and with the same User-Agent, and expires after a
+    while — repeat when the check starts failing again. `Cookie` and `User-Agent` have their own fields and are not
+    accepted in the headers box.
 
 ## VPN for BitTorrent
 

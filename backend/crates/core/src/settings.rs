@@ -159,7 +159,55 @@ pub struct RutrackerSettings {
     pub password: Option<String>,
     pub cookie: Option<String>,
     pub proxy: Option<String>,
+    /// User-Agent запросов к RuTracker; должен совпадать с браузером, в котором получен `cf_clearance`.
+    pub user_agent: Option<String>,
+    /// Дополнительные заголовки: по одному `Name: value` в строке (см. `parse_extra_headers`).
+    pub headers: Option<String>,
     pub music_forums_regex: Option<String>,
+}
+
+/// Заголовки, которые нельзя задавать вручную: их выставляет клиент или для них есть отдельное поле.
+const FORBIDDEN_HEADERS: &[&str] = &[
+    "cookie",
+    "host",
+    "content-length",
+    "content-type",
+    "transfer-encoding",
+    "connection",
+    "user-agent",
+];
+
+/// Разбирает многострочный список заголовков `Name: value` (пустые строки и псевдозаголовки HTTP/2 вида
+/// `:authority: …` пропускаются). `Cookie` и `User-Agent` здесь запрещены — для них есть свои поля,
+/// а значение cookie — секрет и не должно лежать в открытом тексте настроек.
+pub fn parse_extra_headers(text: &str) -> Result<Vec<(String, String)>, String> {
+    let mut out = Vec::new();
+    for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        if line.starts_with(':') {
+            continue;
+        }
+        let (name, value) = line
+            .split_once(':')
+            .ok_or_else(|| format!("header line \"{line}\" must look like \"Name: value\""))?;
+        let (name, value) = (name.trim(), value.trim());
+        let token = |c: char| c.is_ascii_alphanumeric() || "!#$%&'*+-.^_`|~".contains(c);
+        if name.is_empty() || !name.chars().all(token) {
+            return Err(format!("invalid header name \"{name}\""));
+        }
+        if FORBIDDEN_HEADERS.contains(&name.to_ascii_lowercase().as_str()) {
+            return Err(format!(
+                "header \"{name}\" is set by its own field (cookie, user agent) or by Nimbus and cannot be overridden here"
+            ));
+        }
+        if value.chars().any(|c| c.is_control() && c != '\t') {
+            return Err(format!("invalid value of header \"{name}\""));
+        }
+        out.push((name.to_string(), value.to_string()));
+    }
+    if out.len() > 50 {
+        return Err("too many extra headers (at most 50)".into());
+    }
+    Ok(out)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -292,6 +340,8 @@ impl Settings {
             password: c.rutracker_password.clone(),
             cookie: c.rutracker_cookie.clone(),
             proxy: c.rutracker_proxy.clone(),
+            user_agent: None,
+            headers: None,
             music_forums_regex: None,
         });
         Self {
@@ -380,6 +430,19 @@ impl Settings {
         {
             if re.len() > 500 {
                 return Err("providers.rutracker.music_forums_regex is too long".into());
+            }
+        }
+        if let Some(r) = &self.providers.rutracker {
+            if let Some(ua) = r.user_agent.as_deref() {
+                if ua.len() > 500 || ua.chars().any(char::is_control) {
+                    return Err("providers.rutracker.user_agent is invalid".into());
+                }
+            }
+            if let Some(h) = r.headers.as_deref() {
+                if h.len() > 8192 {
+                    return Err("providers.rutracker.headers is too long".into());
+                }
+                parse_extra_headers(h).map_err(|e| format!("providers.rutracker.headers: {e}"))?;
             }
         }
         Ok(())
@@ -473,6 +536,57 @@ mod tests {
             ..Default::default()
         });
         s
+    }
+
+    #[test]
+    fn extra_headers_parse_and_reject_reserved() {
+        let h = parse_extra_headers(
+            ":authority: rutracker.org\n\nAccept-Language: ru,en;q=0.8\n sec-ch-ua : \"Chromium\";v=\"130\" \n",
+        )
+        .unwrap();
+        assert_eq!(
+            h,
+            [
+                ("Accept-Language".to_string(), "ru,en;q=0.8".to_string()),
+                (
+                    "sec-ch-ua".to_string(),
+                    "\"Chromium\";v=\"130\"".to_string()
+                ),
+            ]
+        );
+        for bad in [
+            "Cookie: a=b",
+            "user-agent: x",
+            "Host: x",
+            "no colon here",
+            "bad name: v",
+        ] {
+            assert!(parse_extra_headers(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn validate_rejects_bad_rutracker_headers_and_user_agent() {
+        let mut s = Settings::default();
+        s.providers.rutracker = Some(RutrackerSettings {
+            headers: Some("Cookie: bb_session=1".into()),
+            ..Default::default()
+        });
+        assert!(s
+            .validate()
+            .unwrap_err()
+            .contains("providers.rutracker.headers"));
+        s.providers.rutracker = Some(RutrackerSettings {
+            user_agent: Some("a\nb".into()),
+            ..Default::default()
+        });
+        assert!(s.validate().unwrap_err().contains("user_agent"));
+        s.providers.rutracker = Some(RutrackerSettings {
+            user_agent: Some("Mozilla/5.0".into()),
+            headers: Some("Accept-Language: ru".into()),
+            ..Default::default()
+        });
+        assert!(s.validate().is_ok());
     }
 
     #[test]

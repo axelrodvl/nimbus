@@ -22,7 +22,7 @@ import {
   RELEASE_TYPES,
   type ServerSettings,
 } from '@/lib/settings/types';
-import { NumberRow, SecretRow, SelectRow, SliderRow, SwitchRow, TextRow } from './rows';
+import { NumberRow, SecretRow, SelectRow, SliderRow, SwitchRow, TextAreaRow, TextRow } from './rows';
 import { useSection } from './section-context';
 import { ServerSectionFrame } from './section-frame';
 
@@ -91,7 +91,22 @@ export function SourcesSection({ settings, readOnly }: SectionProps) {
       <SettingsSection title="RuTracker">
         <TextRow label={t('settings.login')} path="providers.rutracker.username" />
         <SecretRow label={t('settings.password')} path="providers.rutracker.password" />
-        <SecretRow label={t('settings.cookie')} path="providers.rutracker.cookie" />
+        <SecretRow
+          description={t('settings.cookieHint')}
+          label={t('settings.cookie')}
+          path="providers.rutracker.cookie"
+        />
+        <TextRow
+          description={t('settings.userAgentHint')}
+          label={t('settings.userAgent')}
+          path="providers.rutracker.user_agent"
+        />
+        <TextAreaRow
+          description={t('settings.extraHeadersHint')}
+          label={t('settings.extraHeaders')}
+          path="providers.rutracker.headers"
+          placeholder="Accept-Language: ru,en;q=0.9"
+        />
         <TextRow description={t('settings.proxyHint')} label={t('settings.proxy')} path="providers.rutracker.proxy" />
         <ProviderTest enabled={p.rutracker != null} provider="rutracker" />
       </SettingsSection>

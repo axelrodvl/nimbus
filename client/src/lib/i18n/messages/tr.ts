@@ -503,6 +503,14 @@ const messages: Messages = {
   'settings.providersHint': 'Sunucunun müzik içeren torrentleri aradığı yerler.',
   'settings.proxy': 'Proxy',
   'settings.proxyHint': 'Örneğin socks5://127.0.0.1:1080',
+  'settings.cookieHint':
+    "Tarayıcıdaki Cookie dizesinin tamamını yapıştırın (bb_session=…; cf_clearance=…). Bağlantı testi 403 / Cloudflare diyorsa: rutracker.org'u açın, doğrulamayı geçin ve çerezleri DevTools'tan kopyalayın.",
+  'settings.userAgent': 'User-Agent',
+  'settings.userAgentHint':
+    'Doğrulamayı geçtiğiniz tarayıcıdakiyle aynı olmalı; cf_clearance yalnızca aynısıyla çalışır.',
+  'settings.extraHeaders': 'Ek başlıklar',
+  'settings.extraHeadersHint':
+    "Satır başına bir tane, Ad: değer (ör. Accept-Language, sec-ch-ua). Cookie ve User-Agent'ın kendi alanları var.",
   'settings.range': '{min} ile {max} arası, varsayılan {def}.',
   'settings.reimport.all': 'Mevcutlar için de',
   'settings.reimport.description':

@@ -613,6 +613,78 @@ mod rutracker {
     }
 
     #[tokio::test]
+    async fn whole_browser_cookie_string_is_sent_and_extra_headers_applied() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/forum/tracker.php"))
+            // Порядок cookie в jar не гарантирован — важно, что обе дошли.
+            .and(|r: &Request| {
+                let h = |k: &str| r.headers.get(k).and_then(|v| v.to_str().ok()).unwrap_or("");
+                h("cookie").contains("bb_session=abc")
+                    && h("cookie").contains("cf_clearance=zzz")
+                    && h("user-agent") == "Mozilla/5.0 MyBrowser"
+                    && h("accept-language") == "ru,en;q=0.8"
+                    && h("sec-ch-ua-platform") == "\"Linux\""
+            })
+            .respond_with(html(SEARCH))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let p = RutrackerProvider::new(RutrackerOptions {
+            base_url: Some(format!("{}/forum/", server.uri())),
+            api_url: Some(server.uri()),
+            cookie: Some("bb_session=abc; cf_clearance=zzz".into()),
+            user_agent: Some("Mozilla/5.0 MyBrowser".into()),
+            headers: Some(
+                ":authority: x\nAccept-Language: ru,en;q=0.8\nsec-ch-ua-platform: \"Linux\"".into(),
+            ),
+            min_interval: Some(FAST),
+            ..RutrackerOptions::default()
+        })
+        .unwrap();
+        assert_eq!(p.search(&SearchQuery::text("x")).await.unwrap().len(), 2);
+    }
+
+    #[test]
+    fn reserved_extra_header_is_rejected_at_construction() {
+        let r = RutrackerProvider::new(RutrackerOptions {
+            cookie: Some("bb_session=1".into()),
+            headers: Some("Cookie: a=b".into()),
+            ..RutrackerOptions::default()
+        });
+        assert!(matches!(r, Err(ProviderError::Parse(_))));
+    }
+
+    #[tokio::test]
+    async fn cloudflare_challenge_is_blocked_not_auth() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/forum/tracker.php"))
+            .respond_with(ResponseTemplate::new(403).insert_header("cf-mitigated", "challenge"))
+            .mount(&server)
+            .await;
+        let p = provider(&server, false, Some("bb_session=abc"));
+        let err = p.search(&SearchQuery::text("x")).await.unwrap_err();
+        assert!(
+            matches!(&err, ProviderError::Blocked(m) if m.contains("Cloudflare") && m.contains("cf_clearance")),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn plain_403_stays_auth_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/forum/tracker.php"))
+            .respond_with(ResponseTemplate::new(403))
+            .mount(&server)
+            .await;
+        let p = provider(&server, false, Some("bb_session=abc"));
+        let err = p.search(&SearchQuery::text("x")).await.unwrap_err();
+        assert!(matches!(err, ProviderError::Auth(_)));
+    }
+
+    #[tokio::test]
     async fn expired_cookie_without_credentials_is_auth_error() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))

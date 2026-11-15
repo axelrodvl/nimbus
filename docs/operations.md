@@ -51,6 +51,8 @@
 | `NIMBUS_PORT` | `8000` | Только docker compose: порт интерфейса на хосте. |
 | `NIMBUS_VERSION` | `latest` | Только `deploy/docker-compose.release.yml`: версия образов GHCR. |
 
+User-Agent и дополнительные заголовки RuTracker (`providers.rutracker.user_agent`, `providers.rutracker.headers`) задаются только в интерфейсе или через `PUT /api/settings`: вместе с `cf_clearance` в cookie они нужны, чтобы пройти Cloudflare-челлендж (см. README, «RuTracker»).
+
 Остальные настройки (источники, лимиты MusicBrainz, производительность, плеер, хранилище) — в интерфейсе («Настройки»)
 или `PUT /api/settings`; они хранятся в БД и накладываются поверх значений из окружения.
 

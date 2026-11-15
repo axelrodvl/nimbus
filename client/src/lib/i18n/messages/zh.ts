@@ -494,6 +494,13 @@ const messages: Messages = {
   'settings.providersHint': '服务器在哪里查找含音乐的种子。',
   'settings.proxy': '代理',
   'settings.proxyHint': '例如 socks5://127.0.0.1:1080',
+  'settings.cookieHint':
+    '粘贴浏览器中完整的 Cookie 字符串（bb_session=…; cf_clearance=…）。如果连接测试提示 403 / Cloudflare：打开 rutracker.org，通过验证，然后从 DevTools 复制 Cookie。',
+  'settings.userAgent': 'User-Agent',
+  'settings.userAgentHint': '必须与通过验证的浏览器完全一致；cf_clearance 只对相同的 User-Agent 有效。',
+  'settings.extraHeaders': '额外请求头',
+  'settings.extraHeadersHint':
+    '每行一个，名称: 值（例如 Accept-Language、sec-ch-ua）。Cookie 和 User-Agent 有各自的字段。',
   'settings.range': '范围 {min}–{max}，默认 {def}。',
   'settings.reimport.all': '同时应用到已有艺术家',
   'settings.reimport.description':

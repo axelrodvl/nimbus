@@ -504,6 +504,14 @@ const messages: Messages = {
   'settings.providersHint': 'Onde o servidor procura os torrents com a música.',
   'settings.proxy': 'Proxy',
   'settings.proxyHint': 'Por exemplo socks5://127.0.0.1:1080',
+  'settings.cookieHint':
+    'Cole a string Cookie inteira do navegador (bb_session=…; cf_clearance=…). Se o teste de conexão indicar 403 / Cloudflare: abra rutracker.org, passe na verificação e copie os cookies das DevTools.',
+  'settings.userAgent': 'User-Agent',
+  'settings.userAgentHint':
+    'Exatamente o do navegador em que você passou na verificação; cf_clearance só funciona com o mesmo.',
+  'settings.extraHeaders': 'Cabeçalhos adicionais',
+  'settings.extraHeadersHint':
+    'Um por linha, Nome: valor (p. ex. Accept-Language, sec-ch-ua). Cookie e User-Agent têm campos próprios.',
   'settings.range': 'De {min} a {max}, padrão {def}.',
   'settings.reimport.all': 'Também para existentes',
   'settings.reimport.description':

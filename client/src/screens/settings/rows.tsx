@@ -6,6 +6,7 @@ import { Select, type SelectOption } from '@/components/ui/select';
 import { SettingsRow } from '@/components/ui/settings-section';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
+import { TextArea } from '@/components/ui/text-area';
 import { TextInput } from '@/components/ui/text-input';
 import { useT } from '@/lib/i18n/provider';
 import { getAt, isPresent, patchAt } from '@/lib/settings/paths';
@@ -134,6 +135,34 @@ export function TextRow({ path, label, description, placeholder, required }: Tex
           if (e.key === 'Enter') commit();
         }}
         placeholder={placeholder}
+        value={draft ?? current}
+      />
+    </SettingsRow>
+  );
+}
+
+/** Многострочное поле (например, список заголовков): сохраняется по `blur`; пустое значение уходит как `null`. */
+export function TextAreaRow({ path, label, description, placeholder }: Base & { placeholder?: string }) {
+  const { settings, save, errors, readOnly } = useSection();
+  const [draft, setDraft] = useState<string | null>(null);
+  if (!isPresent(settings, path)) return null;
+  const current = (getAt(settings, path) as string | null | undefined) ?? '';
+  const commit = () => {
+    if (draft === null) return;
+    const next = draft.trim();
+    setDraft(null);
+    if (next !== current) void save(patchAt(path, next === '' ? null : next));
+  };
+  return (
+    <SettingsRow description={description} error={errors[path]} label={label}>
+      <TextArea
+        className="w-full sm:w-80"
+        disabled={readOnly}
+        onBlur={commit}
+        onChange={e => setDraft(e.target.value)}
+        placeholder={placeholder}
+        rows={4}
+        spellCheck={false}
         value={draft ?? current}
       />
     </SettingsRow>

@@ -36,6 +36,9 @@ use crate::limiter::{Limiter, RUTRACKER_CONCURRENCY, RUTRACKER_INTERVAL};
 use crate::magnet::build_magnet;
 use crate::types::*;
 
+const DEFAULT_USER_AGENT: &str =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) \
+     Chrome/124.0 Safari/537.36";
 pub const DEFAULT_BASE_URL: &str = "https://rutracker.org/forum/";
 pub const DEFAULT_API_URL: &str = "https://api.rutracker.cc";
 
@@ -80,6 +83,10 @@ pub struct RutrackerOptions {
     /// Значение cookie, например `bb_session=…`.
     pub cookie: Option<String>,
     pub proxy: Option<String>,
+    /// Свой User-Agent (должен совпадать с браузером, где получен `cf_clearance`).
+    pub user_agent: Option<String>,
+    /// Дополнительные заголовки, по одному `Name: value` в строке.
+    pub headers: Option<String>,
     pub min_interval: Option<Duration>,
 }
 
@@ -107,6 +114,23 @@ pub fn encode_cp1251(text: &str) -> String {
 
 fn decode_cp1251(bytes: &[u8]) -> String {
     WINDOWS_1251.decode(bytes).0.into_owned()
+}
+
+/// Как `check_status`, но Cloudflare-челлендж (`cf-mitigated: challenge`, обычно HTTP 403) — это не ошибка
+/// учётных данных, а блокировка клиента: объясняем, что делать.
+fn check_rutracker(resp: reqwest::Response) -> Result<reqwest::Response, ProviderError> {
+    if resp
+        .headers()
+        .get("cf-mitigated")
+        .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"challenge"))
+    {
+        return Err(ProviderError::Blocked(format!(
+            "RuTracker is behind a Cloudflare challenge (HTTP {}): open rutracker.org in your browser, pass the check, \
+             then copy its cf_clearance and bb_session cookies and the browser's User-Agent into the RuTracker settings",
+            resp.status().as_u16()
+        )));
+    }
+    check_status(resp)
 }
 
 fn blocked_hint(e: reqwest::Error) -> ProviderError {
@@ -138,14 +162,35 @@ impl RutrackerProvider {
             } else {
                 format!("bb_session={cookie}")
             };
-            jar.add_cookie_str(&format!("{cookie}; Path=/"), &base_url);
+            // Строка из браузера содержит несколько cookie (`bb_session=…; cf_clearance=…`): в jar их
+            // нужно класть по одной, иначе всё после первой `;` разберётся как атрибуты Set-Cookie.
+            for part in cookie.split(';').map(str::trim).filter(|p| p.contains('=')) {
+                jar.add_cookie_str(&format!("{part}; Path=/"), &base_url);
+            }
         }
+        let mut extra = reqwest::header::HeaderMap::new();
+        if let Some(text) = opts.headers.as_deref() {
+            for (name, value) in nimbus_core::settings::parse_extra_headers(text)
+                .map_err(|e| ProviderError::Parse(format!("bad RuTracker headers: {e}")))?
+            {
+                let name = reqwest::header::HeaderName::from_bytes(name.as_bytes())
+                    .map_err(|e| ProviderError::Parse(format!("bad header name: {e}")))?;
+                let value = reqwest::header::HeaderValue::from_str(&value)
+                    .map_err(|e| ProviderError::Parse(format!("bad header value: {e}")))?;
+                extra.insert(name, value);
+            }
+        }
+        let user_agent = opts
+            .user_agent
+            .as_deref()
+            .map(str::trim)
+            .filter(|u| !u.is_empty())
+            .unwrap_or(DEFAULT_USER_AGENT)
+            .to_string();
         let mut builder = reqwest::Client::builder()
             .cookie_provider(jar.clone())
-            .user_agent(
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) \
-                 Chrome/124.0 Safari/537.36",
-            )
+            .user_agent(user_agent)
+            .default_headers(extra)
             .connect_timeout(crate::registry::CONNECT_TIMEOUT)
             .timeout(crate::registry::PROVIDER_TIMEOUT);
         if let Some(proxy) = opts.proxy.as_deref() {
@@ -201,7 +246,7 @@ impl RutrackerProvider {
             .send()
             .await
             .map_err(blocked_hint)?;
-        let resp = check_status(resp)?;
+        let resp = check_rutracker(resp)?;
         let final_url = resp.url().clone();
         let bytes = resp.bytes().await.map_err(blocked_hint)?;
         Ok((decode_cp1251(&bytes), final_url))
@@ -228,7 +273,7 @@ impl RutrackerProvider {
             .send()
             .await
             .map_err(blocked_hint)?;
-        let resp = check_status(resp)?;
+        let resp = check_rutracker(resp)?;
         let bytes = resp.bytes().await.map_err(blocked_hint)?;
         let html = decode_cp1251(&bytes);
         if html.contains("cap_sid") || html.to_lowercase().contains("captcha") {
@@ -449,7 +494,7 @@ impl RutrackerProvider {
             .send()
             .await
             .map_err(blocked_hint)?;
-        let body = check_status(resp)?
+        let body = check_rutracker(resp)?
             .text()
             .await
             .map_err(ProviderError::from)?;

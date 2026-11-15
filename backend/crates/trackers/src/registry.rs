@@ -437,6 +437,8 @@ pub fn build_providers(
                 password: r.password.clone(),
                 cookie: r.cookie.clone(),
                 proxy: r.proxy.clone(),
+                user_agent: r.user_agent.clone(),
+                headers: r.headers.clone(),
                 ..RutrackerOptions::default()
             })?));
         }

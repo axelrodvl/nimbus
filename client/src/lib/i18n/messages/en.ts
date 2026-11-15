@@ -501,6 +501,14 @@ export const en = {
   'settings.providersHint': 'Where the server looks for torrents with the music.',
   'settings.proxy': 'Proxy',
   'settings.proxyHint': 'For example socks5://127.0.0.1:1080',
+  'settings.cookieHint':
+    'Paste the whole Cookie string from your browser (bb_session=…; cf_clearance=…). If the connection check says 403 / Cloudflare: open rutracker.org, pass the check there, and copy the cookies from DevTools.',
+  'settings.userAgent': 'User-Agent',
+  'settings.userAgentHint':
+    'Exactly as in the browser where you passed the check; cf_clearance only works with the same one.',
+  'settings.extraHeaders': 'Extra headers',
+  'settings.extraHeadersHint':
+    'One per line, Name: value (for example Accept-Language, sec-ch-ua). Cookie and User-Agent have their own fields.',
   'settings.range': 'From {min} to {max}, default {def}.',
   'settings.reimport.all': 'Also for existing artists',
   'settings.reimport.description':
