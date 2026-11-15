@@ -33,7 +33,7 @@
 | `NIMBUS_WEB_DIR` | не задан (в образе `/app/web`) | Каталог собранного SPA; не задан — только API. |
 | `NIMBUS_CORS_ORIGIN` | `http://localhost:3000` | Origin для CORS; нужен только в разработке, когда Vite на другом порту. |
 | `NIMBUS_API_TOKEN` | пусто | Токен доступа к `/api/*`. Пусто — всё открыто. Выставляя Nimbus в интернет, задайте токен и TLS-прокси. |
-| `NIMBUS_MB_USER_AGENT` | заглушка | **Укажите свой контакт.** Без него MusicBrainz отвечает 503 «throttled». |
+| `NIMBUS_MB_USER_AGENT` | `Nimbus/0.3 ( https://github.com/axelrodvl/nimbus )` | Лучше укажите свой контакт (почта или URL): MusicBrainz ограничивает общие User-Agent (503 «throttled», таймауты). |
 | `NIMBUS_TPB_ENABLED` | `true` | Провайдер TPB (apibay). |
 | `NIMBUS_TORZNAB_URL` | пусто | Адрес Torznab (Jackett/Prowlarr); пусто — выключен. |
 | `NIMBUS_TORZNAB_API_KEY` | пусто | Ключ Torznab. |

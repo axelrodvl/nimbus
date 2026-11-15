@@ -123,7 +123,7 @@ impl Config {
             data_dir: PathBuf::from(or("NIMBUS_DATA_DIR", "./data")),
             mb_user_agent: or(
                 "NIMBUS_MB_USER_AGENT",
-                "Nimbus/0.1 ( https://github.com/your/nimbus )",
+                "Nimbus/0.3 ( https://github.com/axelrodvl/nimbus )",
             ),
             cors_origin: or("NIMBUS_CORS_ORIGIN", "http://localhost:3000"),
             web_dir: opt("NIMBUS_WEB_DIR").map(PathBuf::from),
