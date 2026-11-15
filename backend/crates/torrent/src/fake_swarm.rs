@@ -2,7 +2,7 @@
 //! Не используется в боевой сборке.
 
 use std::net::{Ipv4Addr, SocketAddr};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -76,56 +76,97 @@ pub async fn start(
     name: &str,
     files: &[(String, Vec<u8>)],
 ) -> anyhow::Result<FakeSwarm> {
-    let album = root.join(name);
-    std::fs::create_dir_all(&album)?;
-    for (file, bytes) in files {
-        std::fs::write(album.join(file), bytes)?;
-    }
-    let created = create_torrent(
-        &album,
-        CreateTorrentOptions {
-            piece_length: Some(32 * 1024),
-            ..Default::default()
-        },
-        &BlockingSpawner::new(1),
-    )
-    .await?;
-    let bytes = created.as_bytes()?;
-    let torrent_file = bytes.clone();
-    let seeder = Session::new_with_opts(
-        root.join("seeder-session"),
-        SessionOptions {
-            dht: None,
-            disable_local_service_discovery: true,
-            listen: Some(ListenerOptions {
-                listen_addr: (Ipv4Addr::LOCALHOST, 0).into(),
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-    )
-    .await?;
-    let handle = seeder
-        .add_torrent(
-            AddTorrent::from_bytes(bytes),
-            Some(AddTorrentOptions {
-                overwrite: true,
-                output_folder: Some(album.to_string_lossy().into_owned()),
-                ..Default::default()
-            }),
-        )
-        .await?
-        .into_handle()
-        .ok_or_else(|| anyhow::anyhow!("seeder did not return a handle"))?;
-    tokio::time::timeout(Duration::from_secs(30), handle.wait_until_completed()).await??;
-    let info_hash = created.info_hash().as_string();
+    let seeder = Seeder::new(root).await?;
+    let album = seeder.add_album(name, files).await?;
     Ok(FakeSwarm {
-        addr: seeder
-            .listen_addr()
-            .ok_or_else(|| anyhow::anyhow!("seeder does not listen"))?,
-        seeder,
-        magnet: format!("magnet:?xt=urn:btih:{info_hash}&dn={name}"),
-        info_hash,
-        torrent_file,
+        addr: seeder.addr,
+        seeder: seeder.session,
+        magnet: album.magnet,
+        info_hash: album.info_hash,
+        torrent_file: album.torrent_file,
     })
+}
+
+/// Раздача, добавленная на [`Seeder`].
+pub struct SeededAlbum {
+    pub magnet: String,
+    pub info_hash: String,
+    pub torrent_file: bytes::Bytes,
+}
+
+/// Сидер на 127.0.0.1, раздачи на который добавляются по мере надобности (нагрузочный режим фейков).
+pub struct Seeder {
+    session: Arc<Session>,
+    root: PathBuf,
+    pub addr: SocketAddr,
+}
+
+impl Seeder {
+    pub async fn new(root: &Path) -> anyhow::Result<Self> {
+        let session = Session::new_with_opts(
+            root.join("seeder-session"),
+            SessionOptions {
+                dht: None,
+                disable_local_service_discovery: true,
+                listen: Some(ListenerOptions {
+                    listen_addr: (Ipv4Addr::LOCALHOST, 0).into(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        )
+        .await?;
+        let addr = session
+            .listen_addr()
+            .ok_or_else(|| anyhow::anyhow!("seeder does not listen"))?;
+        Ok(Self {
+            session,
+            root: root.to_path_buf(),
+            addr,
+        })
+    }
+
+    /// Создаёт раздачу `root/<name>` из `files` и раздаёт её.
+    pub async fn add_album(
+        &self,
+        name: &str,
+        files: &[(String, Vec<u8>)],
+    ) -> anyhow::Result<SeededAlbum> {
+        let album = self.root.join(name);
+        std::fs::create_dir_all(&album)?;
+        for (file, bytes) in files {
+            std::fs::write(album.join(file), bytes)?;
+        }
+        let created = create_torrent(
+            &album,
+            CreateTorrentOptions {
+                piece_length: Some(32 * 1024),
+                ..Default::default()
+            },
+            &BlockingSpawner::new(1),
+        )
+        .await?;
+        let bytes = created.as_bytes()?;
+        let torrent_file = bytes.clone();
+        let handle = self
+            .session
+            .add_torrent(
+                AddTorrent::from_bytes(bytes),
+                Some(AddTorrentOptions {
+                    overwrite: true,
+                    output_folder: Some(album.to_string_lossy().into_owned()),
+                    ..Default::default()
+                }),
+            )
+            .await?
+            .into_handle()
+            .ok_or_else(|| anyhow::anyhow!("seeder did not return a handle"))?;
+        tokio::time::timeout(Duration::from_secs(30), handle.wait_until_completed()).await??;
+        let info_hash = created.info_hash().as_string();
+        Ok(SeededAlbum {
+            magnet: format!("magnet:?xt=urn:btih:{info_hash}&dn={name}"),
+            info_hash,
+            torrent_file,
+        })
+    }
 }

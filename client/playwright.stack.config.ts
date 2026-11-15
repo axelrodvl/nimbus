@@ -18,6 +18,8 @@ export default defineConfig({
   ],
   reporter: 'list',
   testDir: './tests/stack',
+  // Нагрузка/отказы/soak идут отдельно (playwright.load.config.ts).
+  testMatch: 'full-flow.spec.ts',
   timeout: 240_000,
   use: { baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:8010' },
   workers: 1,

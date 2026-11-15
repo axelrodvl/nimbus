@@ -114,6 +114,22 @@ e2e:
     $c down -v
     exit $status
 
+# Нагрузка: ~54 000 треков на полном стеке с фейками (scripts/load.sh); отчёт — client/test-results/load/report.json.
+load:
+    ./scripts/load.sh load
+
+# Отказы на полном стеке: рестарты бэкенда и БД, остановка, доля отказов фейков.
+resilience:
+    ./scripts/load.sh resilience
+
+# Длительный прогон (по умолчанию 30 минут; SOAK_MINUTES=5 — короткий).
+soak:
+    ./scripts/load.sh soak
+
 test: backend-test client-test
 
-check: backend-check client-check
+# Документация сверяется с кодом: пути OpenAPI ↔ docs/api.md, переменные NIMBUS_* ↔ docs/operations.md и .env.example.
+docs-check:
+    bun scripts/check-docs.ts
+
+check: backend-check client-check docs-check

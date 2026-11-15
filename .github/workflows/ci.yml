@@ -67,6 +67,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run lint
       - run: bun run typecheck
+      # Документация сверяется с кодом: OpenAPI ↔ docs/api.md, NIMBUS_* ↔ docs/operations.md и .env.example.
+      - run: bun ../scripts/check-docs.ts
       - run: bun run test:cov
       # Сборка включает проверку бюджета размера (scripts/check-bundle.ts, bundle-budget.json).
       - run: bun run build

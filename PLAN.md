@@ -1,5 +1,7 @@
 # Nimbus — план разработки
 
+> **План выполнен (шаги 01–23) и заменён [`ROADMAP.md`](ROADMAP.md).** Файл и `docs/plan/` оставлены как история; новая работа ведётся по дорожной карте, а правила — в [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
+
 Веб-плеер «как Spotify/Apple Music», где метаданные берутся из **MusicBrainz**, а музыка — потоково из **торрентов** (RuTracker, The Pirate Bay, любые трекеры через Torznab).
 
 - **Фронтенд:** форк [nextjs/next-beats](https://github.com/nextjs/next-beats) (Next.js 16, App Router, React 19, Tailwind v4) → `web/`

@@ -15,7 +15,21 @@ Two containers: `db` (PostgreSQL) and `nimbus` (backend + web client on one port
 > **Legal notice.** Downloading and sharing copyrighted content may be illegal in your country. This project is
 > intended for personal use with content you have the rights to. You are solely responsible for how you use it.
 
+| Home | Album |
+|---|---|
+| ![Home](docs/img/home.png) | ![Album](docs/img/album.png) |
+| **Downloads** | **Settings** |
+| ![Downloads](docs/img/downloads.png) | ![Settings](docs/img/settings.png) |
+
+
 ## Features
+
+- **Local-first app.** The whole library is synchronised to the browser (snapshot + deltas over WebSocket pokes) and kept
+  in IndexedDB: screens switch instantly and open without waiting for the network.
+- **Offline tracks.** Download tracks, albums or playlists to the device (OPFS file storage, limit and Wi-Fi-only options in
+  *Settings → Offline*); they play without a connection.
+- **Installable PWA** with lock-screen controls and background audio; works on phones, tablets and desktop.
+- **Downloads screen:** what has not been found yet and why, automatic and manual search retry, server-side downloads.
 
 - Search artists, albums and tracks via MusicBrainz (⌘K / Ctrl+K); cover art from the Cover Art Archive.
 - Library: add an album or a whole discography — Nimbus finds releases on its own (TPB, Torznab/Jackett/Prowlarr,
@@ -73,11 +87,20 @@ Before the first run you may want to edit `.env`:
 | Variable | Purpose |
 |---|---|
 | `NIMBUS_API_TOKEN` | Enables authentication (strongly recommended if exposed beyond localhost) |
-| `NIMBUS_MB_USER_AGENT` | Your contact, e.g. `Nimbus/0.1 ( you@example.org )` — see [MusicBrainz](#musicbrainz-and-user-agent) |
+| `NIMBUS_MB_USER_AGENT` | Your contact, e.g. `Nimbus/1.0 ( you@example.org )` — see [MusicBrainz](#musicbrainz-and-user-agent) |
 | `NIMBUS_PORT` | Public port (default `8000`) |
 | `NIMBUS_CACHE_LIMIT_GB` | Torrent cache limit (default `50`) |
 
 Changes to `.env` take effect after `./scripts/start.sh`; no rebuild is needed.
+
+## Install on a phone and use offline
+
+Open Nimbus in the phone's browser over HTTPS (see [Authentication](#authentication) for a reverse proxy) and install it:
+**iOS Safari** — Share → *Add to Home Screen*; **Android Chrome** — menu → *Install app*. For offline tracks open
+*Settings → Offline* and ask for persistent storage (iOS evicts unprotected site data after a week of inactivity);
+then use the download button on a track, album or playlist. Tracks on the device play without a network, the library
+stays readable, and changes sync as small deltas when the connection returns.
+A manual device checklist is in [docs/device-checklist.md](docs/device-checklist.md).
 
 ## Run from prebuilt images (no build)
 
@@ -193,7 +216,7 @@ JSON logs: `NIMBUS_LOG_FORMAT=json`. Health: `GET /api/health` (DB, engine, job 
 
 ## MusicBrainz and User-Agent
 
-Set `NIMBUS_MB_USER_AGENT` to your own contact (e.g. `Nimbus/0.1 ( you@example.org )`). With the default placeholder
+Set `NIMBUS_MB_USER_AGENT` to your own contact (e.g. `Nimbus/1.0 ( you@example.org )`). With the default placeholder
 MusicBrainz often replies `503 throttled`, slowing down search and discography import. Imports are not lost: they are
 retried with growing delays (up to 8 attempts), and the status is shown on the artist page.
 
@@ -232,6 +255,28 @@ You can route the torrent engine through a VPN container such as [gluetun](https
 `gluetun` and uncomment `network_mode: "service:gluetun"` for the `nimbus` service in `docker-compose.yml` (move
 `ports`/`depends_on` to `gluetun`). Off by default.
 
+## Backup and restore
+
+Everything that cannot be re-downloaded lives in the database (library, playlists, pins, settings): back up the Postgres
+volume and, optionally, `./data` (downloaded files and the torrent cache).
+
+```sh
+docker compose exec -T db pg_dump -U nimbus nimbus > nimbus-backup.sql       # backup
+docker compose exec -T db psql -U nimbus nimbus < nimbus-backup.sql          # restore into a fresh database
+```
+
+Details, environment variables and diagnostics: [docs/operations.md](docs/operations.md).
+
+## Troubleshooting
+
+| Symptom | What to do |
+|---|---|
+| "No peers" / an album is not found | Open **Downloads → Not found**: it shows the reason (no torrents, dead torrents, no match) and the next automatic retry. Press *Retry*, add a provider (Torznab/RuTracker) or paste your own magnet link on the album's sources page. |
+| MusicBrainz replies `503` / import is slow | Set `NIMBUS_MB_USER_AGENT` to your contact; the import retries on its own. For a big library run your own mirror (below). |
+| Tracks start slowly | Cold start takes 5–30 s (peer discovery). Make sure `NIMBUS_TORRENT_PORT` is reachable. |
+| `401` / login loop | `NIMBUS_API_TOKEN` is set: sign in on `/login`; behind a proxy pass `X-Forwarded-Proto`. |
+| Something is stuck | **Downloads → Jobs** (or `GET /api/jobs`) shows failed jobs with the error and a retry button; `GET /api/health` shows the queue and providers. |
+
 ## Limitations
 
 - Cold start of a track takes 5–30 seconds (peer discovery and metadata fetch).
@@ -247,9 +292,15 @@ To add a language: add a dictionary file and an entry in `client/src/lib/i18n/co
 
 ## Documentation
 
-- [docs/architecture.md](docs/architecture.md) — diagram, pipeline, statuses.
+- [docs/architecture.md](docs/architecture.md) — diagram, pipeline, sync model, offline storage, job and torrent lifecycle.
 - [docs/api.md](docs/api.md) — REST (OpenAPI) and WebSocket events.
-- [PLAN.md](PLAN.md) — development plan and log.
+- [docs/operations.md](docs/operations.md) — environment variables, ports, volumes, logs, diagnostics.
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — rules and commands for contributors; [ROADMAP.md](ROADMAP.md) — plan and log
+  (the earlier [PLAN.md](PLAN.md) is history); [docs/backlog.md](docs/backlog.md) — tasks outside the plan.
+- [CHANGELOG.md](CHANGELOG.md) — what is new in 1.0.0.
+
+Load figures from `just load` are measured against **fake** external services: they describe Nimbus itself, not the speed
+of the real MusicBrainz or of torrent swarms, which are limited from outside.
 
 ## License
 

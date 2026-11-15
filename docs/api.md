@@ -118,6 +118,51 @@
 Настройки `playback` (`transcode_alac`, `transcode_lossy_codec`) на `playback` трека не влияют: режим определяется только
 primary-источником (CUE или формат файла), поэтому `PUT /api/settings` треки не «касается».
 
+## Библиотека, поиск, воспроизведение
+
+Полные схемы — в OpenAPI; здесь — назначение. Собственный клиент читает библиотеку через синхронизацию
+(`/api/sync/*`), остальное — действия и данные, которых в снимке нет.
+
+**Библиотека.**
+- `POST /api/library` `{ type: artist|album|track, mbid, album_mbid? }` — добавить: `201` альбом/трек добавлен, `202` артист
+  добавлен и его дискография импортируется в фоне, `200` уже есть, `404 mb_not_found`, `422 recording_not_in_release`,
+  `503 mb_unavailable`.
+- `DELETE /api/library/{type}/{id}` → `204`: убрать из библиотеки (метаданные сохраняются; `400` — неверный `type`).
+- `GET /api/library/artists`, `GET /api/library/albums`, `GET /api/library/tracks` и `GET /api/library/albums/recently-played` — постраничные списки с курсором
+  (`limit` ≤ 200, испорченный курсор — `400`); для сторонних клиентов.
+- `GET /api/artists/{id}`, `GET /api/albums/{id}`, `GET /api/tracks/{id}` — карточки с вложенными данными (`404`).
+- `POST /api/artists/{id}/import` → `202`: повторить импорт дискографии артиста (после ошибки MusicBrainz).
+- `GET /api/artist-image/{mbid}` → `302` на картинку артиста (`404`, если нет).
+
+**Поиск.** `GET /api/search?q=&types=&limit=` — MusicBrainz (кэш в БД): `q` 1–200 символов, `types` через запятую (`artist,album,track`,
+по умолчанию все), `limit` 1–25 (по умолчанию 8); `400` — пустой или слишком длинный запрос.
+
+**Воспроизведение.**
+- `GET /api/tracks/{id}/stream` — аудио: Range (`206`, `416`), условные запросы (`304`), перекодирование CUE/APE/WV/DSD
+  `409` — у трека нет источника, `503` — нет движка, `504` — пиры не ответили
+  за таймаут, `507` — нет места.
+- `POST /api/tracks/{id}/prefetch` → `202`: подогреть начало файла следующего трека.
+- `GET /api/tracks/{id}/audio-info` — кодек, частота, глубина, битрейт (`409`, пока файл не прочитан).
+- `POST /api/tracks/{id}/played` — засчитать прослушивание (плеер зовёт, когда прослушана заметная часть).
+
+**Источники.**
+- `GET /api/tracks/{id}/sources` — кандидаты (раздачи с файлом трека); `PUT /api/tracks/{id}/source` `{ source_id }` или `{ torrent_id, file_index }` — выбрать основной;
+  `POST /api/tracks/{id}/sources/{source_id}/confirm` — подтвердить сомнительное совпадение.
+- `GET /api/albums/{id}/torrents` — раздачи альбома со статусами; `POST /api/albums/{id}/torrents` `{ magnet }` → `202`: свой magnet;
+  `GET /api/torrents/{id}/files` — файлы раздачи и их сопоставление трекам.
+
+**Плейлисты.** `GET|POST /api/playlists`, `GET|DELETE /api/playlists/{id}`, `POST /api/playlists/{id}/tracks`,
+`DELETE /api/playlists/{id}/tracks/{track_id}` (`409` — плейлист изменён параллельно, перечитайте).
+
+**Загрузки торрентов.** `POST /api/downloads/{info_hash}/pause` и `POST /api/downloads/{info_hash}/resume` → `204` (`404` — нет торрента);
+`POST /api/downloads/resume-all` → `200` (парный к `pause-all`, см. «Загрузки на сервер»).
+
+**Настройки.** `POST /api/settings/providers/test` — проверка провайдера с текущими параметрами; `POST /api/settings/reimport-artists` —
+поставить на повторный импорт дискографии всех артистов библиотеки (уже имеющиеся альбомы не дублируются).
+
+**Отладка** (только `NIMBUS_DEBUG=true`): `GET /api/debug/jobs`, `GET /api/debug/albums/{id}/torrents`,
+`POST /api/debug/torrent/metadata` `{ magnet }` → список файлов без добавления (`504` — метаданные не пришли).
+
 ## WebSocket `/api/ws`
 
 Токен — cookie, заголовок или `?token=`. Сообщения — JSON с полем `type`:

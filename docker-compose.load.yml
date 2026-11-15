@@ -1,0 +1,27 @@
+# Override для `just load` / `just soak` / resilience-тестов: образ как у e2e (фича test-fakes), но с синтетическим
+# каталогом (см. backend/crates/api/src/fakes.rs). Порт 8011, отдельные тома.
+# Размер каталога переопределяется переменными окружения хоста (NIMBUS_FAKE_*).
+services:
+  db:
+    ports: !reset []
+  nimbus:
+    image: nimbus:e2e
+    build:
+      args:
+        CARGO_FEATURES: test-fakes
+    environment:
+      NIMBUS_FAKE_EXTERNAL: "true"
+      NIMBUS_API_TOKEN: load-token
+      NIMBUS_FAKE_ARTISTS: ${NIMBUS_FAKE_ARTISTS:-300}
+      NIMBUS_FAKE_ALBUMS_PER_ARTIST: ${NIMBUS_FAKE_ALBUMS_PER_ARTIST:-15}
+      NIMBUS_FAKE_TRACKS_PER_ALBUM: ${NIMBUS_FAKE_TRACKS_PER_ALBUM:-12}
+      NIMBUS_FAKE_SWARM_ALBUMS: ${NIMBUS_FAKE_SWARM_ALBUMS:-40}
+      NIMBUS_FAKE_LATENCY_MS: ${NIMBUS_FAKE_LATENCY_MS:-0}
+      NIMBUS_FAKE_FAILURE_RATE: ${NIMBUS_FAKE_FAILURE_RATE:-0}
+      NIMBUS_FAKE_SEED: ${NIMBUS_FAKE_SEED:-1}
+    volumes: !override
+      - load-data:/data
+    ports: !override
+      - "8011:8080"
+volumes:
+  load-data:

@@ -4,7 +4,7 @@
 
 ## Главное правило
 
-Вся работа идёт по дорожной карте в `ROADMAP.md` (шаги 25–55: фазы 0–3 — бэкенд и PWA, фаза 4 — нативные оболочки iOS/Android/desktop; старый `PLAN.md`, шаги 01–23, выполнен и оставлен как история). Правила разработки, обязательные для любого изменения, — `docs/DEVELOPMENT.md`.
+Вся работа идёт по дорожной карте в `ROADMAP.md` (шаги 25–55: фазы 0–3 — бэкенд и PWA, выполнены к версии 1.0.0; впереди фаза 4 — нативные оболочки iOS/Android/desktop, шаги 52–55; старый `PLAN.md`, шаги 01–23, выполнен и оставлен как история). Правила разработки, обязательные для любого изменения, — `docs/DEVELOPMENT.md`. Задачи вне плана — `docs/backlog.md`; эксплуатация и переменные окружения — `docs/operations.md`.
 
 Когда пользователь говорит **«запусти следующий шаг»** (или «следующий шаг», «выполни следующий шаг плана», «продолжай план»), строго следуй протоколу из раздела «Как работать» в `ROADMAP.md`:
 
@@ -31,6 +31,8 @@
 - `just client-test` / `just client-cov` / `just client-e2e` — тесты, покрытие и e2e клиента (мок-бэкенд)
 - `just client-audit` — аудит интерфейса: матрица скриншотов (`client/test-results/audit/`), axe, клавиатура, reduced motion; `just client-perf` — бюджеты производительности на 60 000 треков
 - `just e2e` — сквозной сценарий на полном стеке в Docker (`client/tests/stack/`)
+- `just load` / `just resilience` / `just soak` — нагрузка (~54 000 треков), отказы и длительный прогон на полном стеке с фейками (вручную; `docs/DEVELOPMENT.md` §8)
+- `just docs-check` — документация ↔ код (OpenAPI ↔ `docs/api.md`, `NIMBUS_*` ↔ `docs/operations.md`/`.env.example`); входит в `just check`
 - `just test` — все тесты
 - `just check` — fmt + clippy + lint + typecheck
 - `just cov` — покрытие бэкенда с проверкой порога (`backend/coverage-threshold.txt`)

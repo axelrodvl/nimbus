@@ -1,0 +1,37 @@
+name: Load
+
+# Нагрузка, отказы и длительный прогон на полном стеке (шаг 51). Только вручную: занимает десятки минут.
+# Нагрузка идёт на фейковых внешних сервисах и проверяет нашу систему, а не скорость MusicBrainz и торрентов.
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: Сценарий
+        type: choice
+        options: [load, resilience, soak]
+        default: load
+      soak_minutes:
+        description: Длительность soak, минут
+        default: "30"
+
+jobs:
+  stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+        working-directory: client
+      - run: bunx playwright install --with-deps chromium
+        working-directory: client
+      - run: ./scripts/load.sh ${{ inputs.scenario }}
+        env:
+          SOAK_MINUTES: ${{ inputs.soak_minutes }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: load-report
+          path: client/test-results/load
+          retention-days: 14
+          if-no-files-found: ignore

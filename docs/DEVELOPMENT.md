@@ -155,14 +155,16 @@
 | Команда | Что делает |
 |---|---|
 | `just db-up` | Postgres для разработки и тестов |
-| `just check` | fmt + clippy (бэкенд), lint + typecheck (клиент) |
+| `just check` | fmt + clippy (бэкенд), lint + typecheck (клиент), `docs-check` (документация ↔ код) |
+| `just docs-check` | `scripts/check-docs.ts`: пути OpenAPI ↔ `docs/api.md`, переменные `NIMBUS_*` ↔ `docs/operations.md` и `.env.example`. Добавил эндпоинт или переменную — опиши их, иначе `just check` красный |
 | `just test` | все тесты бэкенда и unit-тесты клиента |
 | `just cov` | покрытие бэкенда и клиента с проверкой порогов |
 | `just backend-test` / `just backend-cov` | только бэкенд |
 | `just client-test` / `just client-e2e` / `just client-build` | только клиент (e2e — против мок-бэкенда; сборка проверяет бюджет размера `client/bundle-budget.json`) |
 | `just client-audit` / `just client-perf` | аудит интерфейса (скриншоты ×2 темы ×3 ширины, axe, клавиатура) и бюджеты производительности (шаг 49); новый экран добавляется в `client/tests/audit/screens.ts` |
 | `just openapi` / `just client-gen-api` | OpenAPI → `openapi.json` → типы |
-| `just e2e` | полный стек в Docker с фейковыми внешними сервисами (Playwright из `client/`, `tests/stack/`) |
+| `just e2e` | полный стек в Docker с фейковыми внешними сервисами (Playwright из `client/`, `tests/stack/full-flow.spec.ts`) |
+| `just load` / `just resilience` / `just soak` | нагрузка (~54 000 треков), отказы (рестарты бэкенда и БД, доля отказов фейков), длительный прогон (`SOAK_MINUTES`, по умолчанию 30) на полном стеке `nimbus-load` (порт 8011, `docker-compose.load.yml`); вручную, в CI — workflow `Load`. Отчёты — `client/test-results/load/` |
 
 Актуальный список — в `justfile`.
 
@@ -172,3 +174,9 @@
 - Сообщение: `area: что сделано` (`backend: …`, `client: …`, `docs: …`); для шагов дорожной карты — `step NN: …`.
 - Один шаг — один или несколько логичных коммитов; последний включает обновление `ROADMAP.md`.
 - Секреты (`.env`) не коммитятся. Не пушить, если пользователь не просил.
+
+## 10. Работа вне плана и бэклог
+
+Задачи, которых нет в `ROADMAP.md` (найденное при работе, идеи, известные ограничения), — в `docs/backlog.md`:
+строка с приоритетом и причиной, почему не сделано сразу. Исправление дефекта по ходу шага не ждёт бэклога.
+Фазой 4 (нативные оболочки, шаги 52–55) управляет `ROADMAP.md`; клиент до тех пор соблюдает платформенные границы (§5).

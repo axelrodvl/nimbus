@@ -14,7 +14,7 @@ async fn health_ok(pool: PgPool) {
     assert_eq!(status, 200);
     assert_eq!(v["status"], "ok");
     assert_eq!(v["db"], true);
-    assert_eq!(v["version"], "0.1.0");
+    assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]

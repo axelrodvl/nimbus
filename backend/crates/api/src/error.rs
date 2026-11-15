@@ -75,6 +75,22 @@ impl IntoResponse for ApiError {
 
 impl From<sqlx::Error> for ApiError {
     fn from(e: sqlx::Error) -> Self {
+        // БД недоступна (остановлена, сеть, исчерпан пул) — это не баг обработчика: 503, клиент повторит позже.
+        if matches!(
+            e,
+            sqlx::Error::Io(_)
+                | sqlx::Error::Tls(_)
+                | sqlx::Error::PoolTimedOut
+                | sqlx::Error::PoolClosed
+                | sqlx::Error::WorkerCrashed
+        ) {
+            tracing::warn!(error = %e, "database unavailable");
+            return Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "db_unavailable",
+                "database is unavailable",
+            );
+        }
         tracing::error!(error = %e, "database error");
         Self::internal()
     }
@@ -84,5 +100,23 @@ impl From<anyhow::Error> for ApiError {
     fn from(e: anyhow::Error) -> Self {
         tracing::error!(error = ?e, "internal error");
         Self::internal()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unreachable_database_is_503_and_other_errors_are_500() {
+        let down = ApiError::from(sqlx::Error::PoolTimedOut);
+        assert_eq!(down.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(down.code, "db_unavailable");
+        let io = ApiError::from(sqlx::Error::Io(std::io::Error::other("refused")));
+        assert_eq!(io.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            ApiError::from(sqlx::Error::RowNotFound).status,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 }

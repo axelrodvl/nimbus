@@ -5,6 +5,7 @@ name: nimbus
 services:
   db:
     image: postgres:17
+    shm_size: 512mb
     environment:
       POSTGRES_USER: nimbus
       POSTGRES_PASSWORD: nimbus
