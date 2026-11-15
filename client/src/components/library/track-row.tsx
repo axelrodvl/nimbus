@@ -9,6 +9,9 @@ import { cn, formatDuration } from '@/lib/utils';
 import { Cover } from './cover';
 import { TrackStatusBadge } from './track-status-badge';
 
+/** Ссылки на исполнителя и альбом — только на десктопе: на мобиле клик проходит сквозь них на строку (запуск трека). */
+const LINK_CLASS = 'pointer-events-none md:pointer-events-auto md:hover:underline';
+
 /** Высота строки трека с зазором (шаг виртуального списка). */
 export const TRACK_ROW_HEIGHT = 56;
 
@@ -28,7 +31,7 @@ type Props = {
   unavailable?: boolean;
   /** Бейдж «требует подтверждения» — кнопка, открывающая выбор источника. */
   onCheckSource?: () => void;
-  /** Действие по двойному клику и Enter на строке (запуск воспроизведения). */
+  /** Действие по клику и Enter на строке (запуск воспроизведения). */
   onActivate?: () => void;
 };
 
@@ -59,7 +62,15 @@ export function TrackRow({
       data-current={current || undefined}
       data-testid="track-row"
       data-track-id={track.id}
-      onDoubleClick={onActivate}
+      onClick={
+        onActivate
+          ? e => {
+              // Клик в любом месте строки запускает трек; вложенные кнопки и ссылки (десктоп) — свои действия.
+              if ((e.target as Element).closest('button, a, input, [data-gesture="own"]')) return;
+              onActivate();
+            }
+          : undefined
+      }
       onKeyDown={
         onActivate
           ? e => {
@@ -78,13 +89,13 @@ export function TrackRow({
       <div className="flex min-w-0 flex-1 flex-col">
         <span className={cn('truncate text-sm font-medium', current && 'text-accent-fg')}>{track.title}</span>
         <span className="text-muted truncate text-xs">
-          <Link className="hover:underline" to={`/artist/${track.artist_id}`}>
+          <Link className={LINK_CLASS} to={`/artist/${track.artist_id}`}>
             {track.artistName}
           </Link>
           {showAlbum ? (
             <>
               {' · '}
-              <Link className="hover:underline" to={`/album/${track.album_id}`}>
+              <Link className={LINK_CLASS} to={`/album/${track.album_id}`}>
                 {track.albumTitle}
               </Link>
             </>

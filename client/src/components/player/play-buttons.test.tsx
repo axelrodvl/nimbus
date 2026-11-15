@@ -63,15 +63,15 @@ describe('PlayableTrackRow', () => {
     renderWithProviders(<Rows />);
     expect(within(row(12)).getByTestId('play-track')).toBeDisabled();
     expect(row(12)).toHaveClass('opacity-55');
-    fireEvent.doubleClick(row(12));
+    fireEvent.click(row(12));
     expect(env.engine.loads).toEqual([]);
     expect(row(12)).not.toHaveAttribute('tabindex');
   });
 
-  it('двойной клик и Enter по строке запускают трек', async () => {
+  it('клик и Enter по строке запускают трек', async () => {
     const env = installTestPlayer();
     renderWithProviders(<Rows />);
-    fireEvent.doubleClick(row(13));
+    fireEvent.click(row(13));
     expect(env.ctl.state.queue[env.ctl.state.index].id).toBe(13);
     row(10).focus();
     await userEvent.keyboard('{Enter}');

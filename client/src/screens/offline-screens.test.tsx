@@ -115,8 +115,8 @@ describe('библиотека без сети', () => {
     expect(playOne).not.toBeDisabled();
     await userEvent.click(playOne);
     expect(toast.info).toHaveBeenCalledWith('Нет связи. Трек не скачан на устройство', { id: 'offline-hint' });
-    // Двойной клик по строке — то же.
-    await userEvent.dblClick(one);
+    // Клик по строке — то же.
+    await userEvent.click(one);
     expect(toast.info).toHaveBeenCalledTimes(2);
     await userEvent.click(within(two).getByTestId('play-track'));
     expect(toast.info).toHaveBeenCalledTimes(2);
