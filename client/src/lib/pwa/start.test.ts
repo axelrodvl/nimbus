@@ -77,6 +77,6 @@ describe('startPwa', () => {
     const { runLogoutHandlers } = await import('./logout');
     startPwa();
     await runLogoutHandlers();
-    expect(del).toHaveBeenCalledWith('nimbus-images-v2');
+    expect(del).toHaveBeenCalledWith('nimbus-images-v3');
   });
 });

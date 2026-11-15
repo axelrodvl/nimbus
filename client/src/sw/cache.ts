@@ -1,10 +1,7 @@
 // Кэши service worker как чистые функции над минимальным интерфейсом `CacheLike`.
 
-export const IMAGE_CACHE = 'nimbus-images-v2';
+export const IMAGE_CACHE = 'nimbus-images-v3';
 export const RUNTIME_CACHE = 'nimbus-runtime-v1';
-/** Лимит записей кэша изображений; сверх — вытесняются самые старые. */
-export const MAX_IMAGES = 5000;
-
 export type CacheLike = {
   match(request: Request, options?: { ignoreVary?: boolean }): Promise<Response | undefined>;
   put(request: Request, response: Response): Promise<void>;
@@ -17,8 +14,11 @@ const MATCH = { ignoreVary: true };
 
 export type Fetcher = (request: Request) => Promise<Response>;
 
-/** Ответ годится для кэша: успешный или непрозрачный (`<img>` с другого origin без CORS). 404 «нет фото» — нет. */
-export const isCacheable = (response: Response): boolean => response.ok || response.type === 'opaque';
+/**
+ * Ответ годится для кэша: только успешный и читаемый. Непрозрачный (`opaque`) не берём: по нему не видно статус, а записи
+ * хранятся навсегда — случайная ошибка сервера осталась бы навечно. 404 «нет фото» — тоже нет.
+ */
+export const isCacheable = (response: Response): boolean => response.ok;
 
 /** Удаляет самые старые записи сверх лимита (порядок `keys()` — порядок добавления). */
 export async function trimCache(cache: CacheLike, max: number): Promise<void> {
@@ -27,20 +27,21 @@ export async function trimCache(cache: CacheLike, max: number): Promise<void> {
 }
 
 /**
- * Cache-first. Запись и вытеснение идут в фоне (`after` получает промис — воркер держит себя живым через `waitUntil`).
+ * Cache-first. Запись идёт в фоне (`after` получает промис — воркер держит себя живым через `waitUntil`).
+ * `max` — необязательный предел числа записей (вытесняются самые старые); без него записи хранятся бессрочно.
  */
 export async function cacheFirst(
   request: Request,
   cache: CacheLike,
   fetcher: Fetcher,
-  max: number,
+  max: number = Number.POSITIVE_INFINITY,
   after: (done: Promise<unknown>) => void = () => undefined,
 ): Promise<Response> {
   const hit = await cache.match(request, MATCH);
   if (hit) return hit;
   const response = await fetcher(request);
   if (isCacheable(response)) {
-    after(cache.put(request, response.clone()).then(() => trimCache(cache, max)));
+    after(cache.put(request, response.clone()).then(() => (Number.isFinite(max) ? trimCache(cache, max) : undefined)));
   }
   return response;
 }

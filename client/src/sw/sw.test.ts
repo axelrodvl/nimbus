@@ -3,7 +3,6 @@ import {
   cacheFirst,
   IMAGE_CACHE,
   isCacheable,
-  MAX_IMAGES,
   staleImageCaches,
   staleWhileRevalidate,
   trimCache,
@@ -112,7 +111,7 @@ describe('кэш изображений', () => {
     expect(cache.map.has(imageRequest(1).url)).toBe(true);
   });
 
-  it('404 не пишется, непрозрачный ответ — пишется', async () => {
+  it('404 не пишется', async () => {
     const cache = fakeCache();
     const pending: Promise<unknown>[] = [];
     await cacheFirst(
@@ -125,7 +124,7 @@ describe('кэш изображений', () => {
     expect(pending).toHaveLength(0);
     expect(cache.map.size).toBe(0);
     const opaque = { clone: () => opaque, ok: false, type: 'opaque' } as unknown as Response;
-    expect(isCacheable(opaque)).toBe(true);
+    expect(isCacheable(opaque)).toBe(false);
     expect(isCacheable(new Response('', { status: 500 }))).toBe(false);
   });
 
@@ -155,8 +154,10 @@ describe('кэш изображений', () => {
     expect(cache.map.size).toBe(2);
   });
 
-  it('лимит — 5000; старые кэши (в том числе nimbus-images-v1 прежнего sw.js) чистятся', () => {
-    expect(MAX_IMAGES).toBe(5000);
+  it('без лимита записи не вытесняются; старые кэши (в том числе nimbus-images-v1 прежнего sw.js) чистятся', async () => {
+    const cache = fakeCache();
+    for (let i = 0; i < 50; i++) await cacheFirst(imageRequest(i), cache, async () => okResponse());
+    expect(cache.map.size).toBe(50);
     expect(staleImageCaches(['nimbus-images-v1', IMAGE_CACHE, 'workbox-precache-v2-x', 'nimbus-images-v0'])).toEqual([
       'nimbus-images-v1',
       'nimbus-images-v0',

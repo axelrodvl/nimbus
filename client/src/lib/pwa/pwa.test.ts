@@ -322,7 +322,7 @@ describe('logout.ts и images.ts', () => {
   it('clearImageCache удаляет кэш изображений; сбой и отсутствие Cache API проглатываются', async () => {
     const del = vi.fn(async () => true);
     await clearImageCache({ delete: del });
-    expect(del).toHaveBeenCalledWith('nimbus-images-v2');
+    expect(del).toHaveBeenCalledWith('nimbus-images-v3');
     await expect(clearImageCache({ delete: () => Promise.reject(new Error('x')) })).resolves.toBeUndefined();
     await expect(clearImageCache(undefined)).resolves.toBeUndefined();
   });

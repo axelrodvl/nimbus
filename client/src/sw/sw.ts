@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import { cleanupOutdatedCaches, matchPrecache, precacheAndRoute } from 'workbox-precaching';
-import { cacheFirst, IMAGE_CACHE, MAX_IMAGES, RUNTIME_CACHE, staleImageCaches, staleWhileRevalidate } from './cache';
+import { cacheFirst, IMAGE_CACHE, RUNTIME_CACHE, staleImageCaches, staleWhileRevalidate } from './cache';
 import { classifyRequest } from './classify';
 
 declare const self: ServiceWorkerGlobalScope;
@@ -25,6 +25,16 @@ self.addEventListener('activate', event => {
   );
 });
 
+/**
+ * Загрузка изображения. Обложки с чужого origin запрашиваем в режиме CORS (Cover Art Archive и archive.org отдают
+ * `Access-Control-Allow-Origin: *` по всей цепочке редиректов): ответ читаем, статус виден — в кэш попадает только успех.
+ * Не вышло (нет CORS, сеть) — обычный запрос `<img>`: покажется, но не закэшируется.
+ */
+function fetchImage(request: Request): Promise<Response> {
+  if (new URL(request.url).origin === self.location.origin) return fetch(request);
+  return fetch(request.url, { credentials: 'omit', mode: 'cors' }).catch(() => fetch(request));
+}
+
 self.addEventListener('fetch', event => {
   const { request } = event;
   const kind = classifyRequest(
@@ -43,7 +53,9 @@ self.addEventListener('fetch', event => {
       event.respondWith(matchPrecache('index.html').then(hit => hit ?? fetch(request)));
       break;
     case 'image':
-      event.respondWith(caches.open(IMAGE_CACHE).then(cache => cacheFirst(request, cache, fetch, MAX_IMAGES, after)));
+      event.respondWith(
+        caches.open(IMAGE_CACHE).then(cache => cacheFirst(request, cache, fetchImage, undefined, after)),
+      );
       break;
     case 'dictionary':
       event.respondWith(caches.open(RUNTIME_CACHE).then(cache => staleWhileRevalidate(request, cache, fetch, after)));
