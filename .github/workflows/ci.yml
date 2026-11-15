@@ -34,7 +34,9 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # Версия закреплена: llvm-cov по-разному считает строки в разных rustc (на 1.100.0 worker даёт 93.55 % вместо 95.21 %
+      # на 1.99.1 при тех же тестах). Обновлять осознанно — вместе с проверкой порогов `just backend-cov`.
+      - uses: dtolnay/rust-toolchain@1.99.1
         with:
           components: rustfmt, clippy, llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
