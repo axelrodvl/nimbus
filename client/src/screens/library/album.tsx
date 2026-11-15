@@ -58,7 +58,8 @@ export function AlbumScreen() {
             <p className="text-muted text-xs" data-testid="album-status-summary">
               {statusSummary(album.statusCounts, t) || albumMeta(album)}
             </p>
-            <AlbumProgress progress={progress} />
+            {/* Фоновая проверка запасных раздач не должна мигать у альбома, где все треки уже найдены. */}
+            <AlbumProgress progress={album.statusCounts.adding > 0 ? progress : undefined} />
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <PlayAlbumButton albumId={album.id} />

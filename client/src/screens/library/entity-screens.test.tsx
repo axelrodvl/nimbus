@@ -129,6 +129,19 @@ describe('альбом', () => {
     expect(screen.queryByTestId('album-progress')).not.toBeInTheDocument();
   });
 
+  it('job.progress не показывается у альбома, где все треки уже найдены', () => {
+    const d = discs();
+    seed({
+      ...d,
+      tracks: d.tracks.map(tr => makeTrack({ ...tr, status: 'ready' })),
+    });
+    renderRoutes(routes, '/album/1');
+    act(() =>
+      appData().engine.handleEvent({ album_id: 1, done: 7, stage: 'verifying', total: 10, type: 'job.progress' }),
+    );
+    expect(screen.queryByTestId('album-progress')).not.toBeInTheDocument();
+  });
+
   it('этап поиска без числа — «Ищем раздачи…»', () => {
     seed(discs());
     renderRoutes(routes, '/album/1');
