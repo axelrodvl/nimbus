@@ -67,7 +67,7 @@ export function ArtistScreen() {
     <PageLayout documentTitle={artist.name}>
       <header className="mb-8 flex flex-col items-center gap-6 sm:flex-row">
         <ArtistAvatar className="h-40 w-40 text-5xl" mbid={artist.mbid} name={artist.name} />
-        <div className="flex min-w-0 flex-col items-center gap-3 sm:items-start">
+        <div className="flex w-full min-w-0 max-w-full flex-col items-center gap-3 sm:w-auto sm:items-start">
           <span className="text-muted text-xs font-medium tracking-wide uppercase">{t('kind.artist')}</span>
           <h1 className="text-4xl font-bold tracking-tight">{artist.name}</h1>
           {artist.disambiguation ? <p className="text-muted text-sm">{artist.disambiguation}</p> : null}

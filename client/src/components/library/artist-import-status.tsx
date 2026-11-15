@@ -32,7 +32,7 @@ function ImportLog({ log }: { log: Progress['log'] }) {
       data-testid="artist-import-log"
     >
       {[...log].reverse().map((e, i) => (
-        <li className="py-0.5" key={`${e.at}-${i}`}>
+        <li className="py-0.5 break-words" key={`${e.at}-${i}`}>
           <time className="opacity-60" dateTime={e.at}>
             {new Date(e.at).toLocaleTimeString()}
           </time>{' '}
@@ -105,7 +105,7 @@ export function ArtistImportStatus({ status, onRetry, now }: Props) {
   );
   return (
     <div
-      className="flex max-w-full flex-col items-start gap-2"
+      className="flex w-full max-w-full min-w-0 flex-col items-start gap-2"
       data-state={status.state}
       data-testid="artist-import"
       role="status"
@@ -124,7 +124,7 @@ export function ArtistImportStatus({ status, onRetry, now }: Props) {
           <ChevronDown aria-hidden className={`size-4 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>
       ) : (
-        <p className="text-muted flex items-center gap-2 text-sm">
+        <p className="text-muted flex min-w-0 items-center gap-2 text-sm">
           {icon}
           {text}
         </p>
