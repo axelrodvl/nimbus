@@ -22,7 +22,7 @@ test.beforeEach(async ({ request }) => {
 /** Первый заход: снимок скачан и сохранён в IndexedDB, главная готова. */
 async function warm(page: Page) {
   await page.goto('/');
-  await expect(page.getByTestId('home-ready')).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByTestId('home-recent')).toBeVisible({ timeout: 120_000 });
   await expect(page.getByTestId('library-loading')).toHaveCount(0, { timeout: 120_000 });
 }
 
@@ -53,7 +53,7 @@ const HOPS: { name: string; click: string; ready: string }[] = [
   { click: NAV('/downloads'), name: 'загрузки', ready: '[data-testid=acq-tabs-scroll]' },
   { click: NAV('/settings'), name: 'настройки', ready: '[data-testid=settings-nav]' },
   { click: NAV('/search'), name: 'поиск', ready: 'main input' },
-  { click: NAV('/'), name: 'главная', ready: '[data-testid=home-ready]' },
+  { click: NAV('/'), name: 'главная', ready: '[data-testid=home-recent]' },
 ];
 
 test('переход между основными экранами: медиана < 150 мс (цель 50 мс)', async ({ page }) => {
@@ -80,7 +80,7 @@ test('холодный старт с данными в IndexedDB: главная
     const fresh = await context.newPage();
     await fresh.addInitScript(() => {
       const poll = () => {
-        if (document.querySelector('[data-testid=home-ready]'))
+        if (document.querySelector('[data-testid=home-recent]'))
           (window as unknown as { __ready: number }).__ready = performance.now();
         else requestAnimationFrame(poll);
       };

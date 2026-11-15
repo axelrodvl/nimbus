@@ -10,9 +10,8 @@ import { makeAlbum, makeArtist, makePlaylist, makePlaylistTrack, makeTrack, rese
 import { mockLayout, ScrollHost } from '@/test/layout';
 import { fileStatus, installOfflineUi, type OfflineUi } from '@/test/offline-ui';
 import { installTestPlayer } from '@/test/player-ui';
-import { renderRoutes, renderWithProviders } from '@/test/render';
+import { renderRoutes } from '@/test/render';
 import { seed } from '@/test/seed';
-import { Home } from './home';
 import { AlbumScreen } from './library/album';
 import { LibraryScreen } from './library/library';
 import { PlaylistScreen } from './playlist';
@@ -131,20 +130,6 @@ describe('библиотека без сети', () => {
     lib('/library/tracks');
     goOffline();
     expect(within(screen.getByTestId('track-row')).getByTestId('play-track')).toBeDisabled();
-  });
-});
-
-describe('главная', () => {
-  it('в сети — «Готово к прослушиванию»; без сети — «Доступно офлайн» только со скачанным', () => {
-    renderWithProviders(<Home />);
-    expect(screen.getByRole('heading', { name: 'Готово к прослушиванию' })).toBeInTheDocument();
-    expect(within(screen.getByTestId('home-ready')).getAllByTestId('track-row')).toHaveLength(3);
-    goOffline();
-    expect(screen.getByRole('heading', { name: 'Доступно офлайн' })).toBeInTheDocument();
-    expect(screen.getByText('На устройство пока ничего не скачано.')).toBeInTheDocument();
-    ui.set({ 3: DONE });
-    const rows = within(screen.getByTestId('home-ready')).getAllByTestId('track-row');
-    expect(rows.map(r => r.getAttribute('data-track-id'))).toEqual(['3']);
   });
 });
 

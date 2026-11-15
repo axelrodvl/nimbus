@@ -71,16 +71,6 @@ describe('кнопки воспроизведения на экранах', () =
     expect(queueIds(env)).toEqual([20]);
   });
 
-  it('главная: «Готово к прослушиванию» — весь список, кнопка в заголовке и в строках', async () => {
-    const env = installTestPlayer();
-    renderRoutes(routes, '/');
-    await userEvent.click(await screen.findByTestId('play-ready'));
-    expect(queueIds(env)).toEqual([20, 12, 10]); // новые сверху, как в списке
-    const section = within(screen.getByTestId('home-ready'));
-    await userEvent.click(section.getAllByTestId('play-track').at(-1)!);
-    expect(env.engine.loads.length).toBeGreaterThan(1);
-  });
-
   it('библиотека: вкладка треков — очередь из списка; вкладка альбомов — кнопка на карточке', async () => {
     const restore = mockLayout({ height: 2000, width: 1000 });
     try {

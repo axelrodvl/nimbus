@@ -3,20 +3,16 @@ import { Link } from 'react-router';
 import { AlbumCard } from '@/components/library/album-card';
 import { ArtistCard } from '@/components/library/artist-card';
 import { PageLayout } from '@/components/page-layout';
-import { PlayAlbumButton, PlayableTrackRow, PlayTracksButton } from '@/components/player/play-buttons';
+import { PlayAlbumButton } from '@/components/player/play-buttons';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useT } from '@/lib/i18n/provider';
-import { useOnline } from '@/lib/live/hooks';
-import { useCanPlay } from '@/lib/player/hooks';
 import { SEARCH_ENTRY } from '@/lib/nav/items';
 import { useHydrated, useLibraryList, useRecentlyPlayedAlbums } from '@/lib/store/hooks';
 import type { AlbumView, ArtistView } from '@/lib/store/selectors';
 import { HomeSkeleton } from './library/skeletons';
 
-export const PLAYED_ALBUMS = 4;
+export const PLAYED_ALBUMS = 6;
 export const RECENT_ITEMS = 12;
-export const READY_TRACKS = 10;
-const READY: ['found', 'ready'] = ['found', 'ready'];
 
 const GRID = 'grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6';
 
@@ -36,25 +32,18 @@ export function recentItems(albums: AlbumView[], artists: ArtistView[], limit = 
   return items.sort((x, y) => y.at - x.at).slice(0, limit);
 }
 
-/** Главная: «Недавно слушали», «Недавно добавлено», «Готово к прослушиванию» — всё из локального store. */
+/** Главная: «Недавно слушали», «Недавно добавлено» — всё из локального store. */
 export function Home() {
   const t = useT();
   const hydrated = useHydrated();
   const played = useRecentlyPlayedAlbums(PLAYED_ALBUMS);
   const albums = useLibraryList('albums');
   const artists = useLibraryList('artists');
-  const readyAll = useLibraryList('tracks', READY);
-  const online = useOnline();
-  const canPlay = useCanPlay();
   if (!hydrated) return <HomeSkeleton />;
-  // Без связи «готово к прослушиванию» — только то, что есть на устройстве.
-  const ready = online ? readyAll : readyAll.filter(canPlay);
 
   const recent = recentItems(albums, artists);
-  const readyTracks = ready.slice(0, READY_TRACKS);
-  const readyIds = ready.map(tr => tr.id);
 
-  if (recent.length === 0 && readyTracks.length === 0) {
+  if (recent.length === 0) {
     return (
       <PageLayout brand title={t('page.home.title')}>
         <EmptyState body={t('home.findMusic.body')} title={t('home.findMusic.title')}>
@@ -101,29 +90,14 @@ export function Home() {
                       album={r.album}
                       priority={i < 4}
                     />
-                  ) : r.artist ? <ArtistCard artist={r.artist} /> : null}
+                  ) : r.artist ? (
+                    <ArtistCard artist={r.artist} />
+                  ) : null}
                 </li>
               ))}
             </ul>
           </section>
         ) : null}
-        <section aria-labelledby="home-ready" data-testid="home-ready">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 id="home-ready">{t(online ? 'home.ready' : 'home.readyOffline')}</h2>
-            {readyTracks.length > 0 ? <PlayTracksButton testId="play-ready" tracks={ready} /> : null}
-          </div>
-          {readyTracks.length === 0 ? (
-            <p className="text-muted text-sm">{t(online ? 'home.readyEmpty' : 'home.readyOfflineEmpty')}</p>
-          ) : (
-            <ul className="flex flex-col gap-0.5">
-              {readyTracks.map(tr => (
-                <li key={tr.id}>
-                  <PlayableTrackRow id={tr.id} queueIds={readyIds} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
       </div>
     </PageLayout>
   );

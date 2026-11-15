@@ -147,7 +147,7 @@ test.describe('большая библиотека', () => {
     const toLibrary = await timeToAppear(page, '[data-testid=sidebar] a[href="/library"]', '[data-testid=tab-albums]');
     await expect(page.getByTestId('library-albums')).toBeVisible();
     const toTracks = await timeToAppear(page, '[data-testid=tab-tracks]', '[data-testid=library-tracks] [data-testid=track-row]');
-    const toHome = await timeToAppear(page, '[data-testid=sidebar] a[href="/"]', '[data-testid=home-ready]');
+    const toHome = await timeToAppear(page, '[data-testid=sidebar] a[href="/"]', '[data-testid=home-recent]');
     const toAlbum = await timeToAppear(page, '[data-testid=home-recent] a', '[data-testid=album-tracks]');
     // eslint-disable-next-line no-console -- цифры нужны для журнала шага
     console.log(`переходы, мс: библиотека ${toLibrary.toFixed(0)}, треки ${toTracks.toFixed(0)}, главная ${toHome.toFixed(0)}, альбом ${toAlbum.toFixed(0)}`);
