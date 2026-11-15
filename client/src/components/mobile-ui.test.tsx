@@ -88,6 +88,14 @@ describe('нижние листы', () => {
   });
 });
 
+describe('слой листа меню', () => {
+  it('у листа есть z-index: Ariakit копирует его на обёртку, иначе лист уходит под таб-бар и плеер', async () => {
+    stubMobile(true);
+    render(<MenuHarness />);
+    expect((await screen.findByRole('menu')).className).toContain('z-[70]');
+  });
+});
+
 describe('вкладки', () => {
   it('повторное нажатие на активную вкладку прокручивает экран к началу, на другую — нет', () => {
     vi.stubGlobal('matchMedia', () => ({ addEventListener() {}, matches: false, removeEventListener() {} }));

@@ -9,8 +9,9 @@ const desktop =
 // Ariakit кладёт меню в обёртку, которую позиционирует инлайн-стилями (position/top/left/transform): лист прижимаем
 // к низу именно её (классы с `!` перебивают инлайн), а само меню остаётся обычным блоком внутри.
 const sheetWrapper = '!fixed !inset-x-0 !top-auto !bottom-0 !left-0 z-[70] !w-full !max-w-none !transform-none';
+// z-index у листа обязателен: Ariakit копирует его с самого меню на обёртку (инлайн), иначе лист оказывается под таб-баром и плеером.
 const mobile =
-  'border-divider dark:border-divider-dark max-h-[80vh] w-full overflow-y-auto rounded-t-2xl border-t bg-white px-3 pt-0 pb-[max(1rem,env(safe-area-inset-bottom))] text-black shadow-2xl dark:bg-black dark:text-white';
+  'border-divider dark:border-divider-dark relative z-[70] max-h-[80vh] w-full overflow-y-auto rounded-t-2xl border-t bg-white px-3 pt-0 pb-[max(1rem,env(safe-area-inset-bottom))] text-black shadow-2xl dark:bg-black dark:text-white';
 
 /**
  * Меню действий: на мобильной ширине — нижний лист (модальный, с затемнением, закрывается перетаскиванием вниз;
