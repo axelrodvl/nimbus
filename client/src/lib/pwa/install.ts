@@ -1,6 +1,7 @@
 // Установка приложения: `beforeinstallprompt` (Chromium) и подсказка для iOS Safari.
 import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
+import { requestPersistNow } from './storage';
 
 export type InstallPromptEvent = Event & {
   prompt(): Promise<void>;
@@ -15,7 +16,11 @@ export function listenForInstall(target: Pick<Window, 'addEventListener'> = glob
     e.preventDefault();
     store.setState({ event: e as InstallPromptEvent });
   });
-  target.addEventListener('appinstalled', () => store.setState({ event: null }));
+  target.addEventListener('appinstalled', () => {
+    store.setState({ event: null });
+    // Установленному приложению постоянное хранилище почти всегда дают сразу.
+    void requestPersistNow();
+  });
 }
 
 /** Показать системный диалог установки. Событие одноразовое. */

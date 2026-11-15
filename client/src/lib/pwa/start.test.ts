@@ -60,7 +60,7 @@ describe('startPwa', () => {
   it('музыка играет — toast предупреждает, что перезагрузка её остановит', async () => {
     playing.value = true;
     await startInProd(fakeServiceWorker());
-    expect(toastMock.mock.calls[0]![1].description).toBe('Music will stop when the page reloads.');
+    expect(toastMock.mock.calls[0]![1].description).toBe('It will install when the music is paused.');
   });
 
   it('после смены версии — одноразовый toast «Обновлено до версии X»', async () => {

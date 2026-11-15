@@ -10,6 +10,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      testIgnore: /mobile\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
         // Автозапуск звука без жеста пользователя — как в старом конфиге.
@@ -20,6 +21,18 @@ export default defineConfig({
         // Тесты написаны под русский интерфейс.
         locale: 'ru-RU',
       },
+    },
+    // Мобильные сценарии шага 50: эмуляция устройств. WebKit в среде разработки не установлен, поэтому iPhone —
+    // Chromium с тем же viewport, UA и сенсорным вводом (сценарии, зависящие от движка, помечены в самих тестах).
+    {
+      name: 'mobile-android',
+      testMatch: /mobile\.spec\.ts/,
+      use: { ...devices['Pixel 7'], locale: 'ru-RU' },
+    },
+    {
+      name: 'mobile-ios',
+      testMatch: /mobile\.spec\.ts/,
+      use: { ...devices['iPhone 15'], browserName: 'chromium', locale: 'ru-RU' },
     },
   ],
   reporter: process.env.CI ? 'github' : 'list',

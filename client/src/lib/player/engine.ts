@@ -19,6 +19,8 @@ export type PlayerState = {
   error?: PlayerError;
   /** Намерение «играть» (аналог `!audio.paused`). */
   isPlaying: boolean;
+  /** Пауза пришла не от пользователя (звонок, Siri, наушники): `play` с экрана блокировки или гарнитуры продолжает. */
+  interrupted: boolean;
   /**
    * Секунды: позиция в момент последнего события (загрузка, перемотка, пауза, сохранение). Текущую позицию
    * во время воспроизведения читают из `AudioEngine.getPosition()` (`useProgress`), а не отсюда.
@@ -35,6 +37,7 @@ export type PlayerState = {
 export const initialState: PlayerState = {
   duration: 0,
   index: -1,
+  interrupted: false,
   isPlaying: false,
   muted: false,
   originalQueue: null,
@@ -59,6 +62,7 @@ export type PlayerAction =
   | { type: 'GOTO'; index: number }
   | { type: 'STATUS'; status: PlayerStatus; error?: PlayerError }
   | { type: 'PLAYING'; value: boolean }
+  | { type: 'INTERRUPTED' }
   | { type: 'TICK'; position: number; duration?: number }
   | { type: 'STOP' }
   | { type: 'CANCEL' }
@@ -83,6 +87,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         duration: durationOf(queue[index]),
         error: undefined,
         index,
+        interrupted: false,
         isPlaying: true,
         originalQueue: action.type === 'LOAD' ? action.originalQueue : state.originalQueue,
         position: action.type === 'LOAD' ? (action.position ?? 0) : 0,
@@ -93,7 +98,9 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
     case 'STATUS':
       return { ...state, error: action.status === 'error' ? action.error : undefined, status: action.status };
     case 'PLAYING':
-      return { ...state, isPlaying: action.value };
+      return { ...state, interrupted: action.value ? false : state.interrupted, isPlaying: action.value };
+    case 'INTERRUPTED':
+      return { ...state, interrupted: true, isPlaying: false };
     case 'TICK':
       return {
         ...state,
@@ -101,9 +108,9 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         position: action.position,
       };
     case 'STOP':
-      return { ...state, isPlaying: false, position: 0, status: 'paused' };
+      return { ...state, interrupted: false, isPlaying: false, position: 0, status: 'paused' };
     case 'CANCEL':
-      return { ...state, isPlaying: false, status: 'idle' };
+      return { ...state, interrupted: false, isPlaying: false, status: 'idle' };
     case 'VOLUME':
       return { ...state, volume: Math.min(100, Math.max(0, Math.round(action.volume))) };
     case 'MUTED':

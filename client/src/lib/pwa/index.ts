@@ -1,6 +1,7 @@
 import { toast } from 'sonner';
 import { clearOffline } from '@/lib/offline';
 import { tNow } from '@/lib/i18n/t-now';
+import { lifecycle } from '@/lib/platform/lifecycle';
 import { player } from '@/lib/player';
 import { clearImageCache } from './images';
 import { listenForInstall } from './install';
@@ -27,6 +28,10 @@ export function startPwa(i18nReady: Promise<unknown> = Promise.resolve()): void 
     announceUpdated: version => void i18nReady.then(() => toast.success(tNow('pwa.updated', { version }))),
     container: 'serviceWorker' in navigator ? navigator.serviceWorker : null,
     isPlaying: () => player().state.isPlaying,
+    onPause: listener =>
+      player().store.subscribe((s, prev) => {
+        if (prev.isPlaying && !s.isPlaying) listener();
+      }),
     offerUpdate: (apply, playing) =>
       toast(tNow('pwa.updateAvailable'), {
         action: { label: tNow('pwa.update'), onClick: apply },
@@ -34,13 +39,7 @@ export function startPwa(i18nReady: Promise<unknown> = Promise.resolve()): void 
         duration: Infinity,
         id: UPDATE_TOAST,
       }),
-    onVisible: listener => {
-      const handler = () => {
-        if (document.visibilityState === 'visible') listener();
-      };
-      document.addEventListener('visibilitychange', handler);
-      return () => document.removeEventListener('visibilitychange', handler);
-    },
+    onVisible: listener => lifecycle().on('foreground', listener),
     reload: () => location.reload(),
     storage: localStorage,
     version: __APP_VERSION__,

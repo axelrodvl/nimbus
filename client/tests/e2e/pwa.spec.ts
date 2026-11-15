@@ -150,7 +150,13 @@ test('обновление версии: v1 → v2 → v3, предложени�
     for (const next of ['2.0.0-e2e', '3.0.0-e2e']) {
       // Каждый вариант строится из `dist/` (версия v1 → `next`): для service worker это новая сборка.
       server.dir = makeVariant(v1!, next);
-      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      // Возврат из фона: уход (hidden) и возвращение (visible) — lifecycle сводит их к одному `foreground`.
+      await page.evaluate(() => {
+        for (const value of ['hidden', 'visible']) {
+          Object.defineProperty(document, 'visibilityState', { configurable: true, value });
+          document.dispatchEvent(new Event('visibilitychange'));
+        }
+      });
       await expect(page.getByText('Доступна новая версия')).toBeVisible({ timeout: 20_000 });
       // Страница пока старая: никакой автоперезагрузки.
       expect(await page.evaluate(() => localStorage.getItem('nimbus:pwa:version'))).toBe(current);

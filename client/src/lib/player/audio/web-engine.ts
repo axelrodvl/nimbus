@@ -17,10 +17,16 @@ export type WebAudioDeps = {
   /** Элемент (в тестах — фейк). По умолчанию создаётся скрытый `<audio>` в `document.body`. */
   audio?: HTMLAudioElement;
   mediaSession?: MediaSession;
+  /** `navigator.audioSession` (Safari 16.4+); без него — ничего не делаем. */
+  audioSession?: { type: string };
+  /** Через сколько без `timeupdate` при `playing` элемент считается «застрявшим» (iOS освободил медиаресурсы). */
+  stallMs?: number;
 };
 
 const POSITION_STATE_INTERVAL_MS = 1000;
 const HAVE_FUTURE_DATA = 3;
+/** Нет `timeupdate` при `playing` дольше этого — элемент застрял. */
+export const STALL_MS = 3000;
 
 export function createAudioElement(): HTMLAudioElement {
   const audio = document.createElement('audio');
@@ -37,6 +43,10 @@ type Phase = 'idle' | 'loading' | 'waiting' | 'playing' | 'paused';
 
 export function createWebAudioEngine(deps: WebAudioDeps = {}): AudioEngine {
   const audio = deps.audio ?? createAudioElement();
+  // До первого `play()`: звук не глушится переключателем «бесшумно» и продолжается при блокировке экрана.
+  const audioSession = deps.audioSession ?? (globalThis.navigator as { audioSession?: { type: string } } | undefined)?.audioSession;
+  if (audioSession) audioSession.type = 'playback';
+  const stallMs = deps.stallMs ?? STALL_MS;
   const handlers = new Set<(e: AudioEvent) => void>();
   const emit = (e: AudioEvent) => handlers.forEach(h => h(e));
   const session: MediaSessionHandle = createMediaSession(
@@ -55,10 +65,40 @@ export function createWebAudioEngine(deps: WebAudioDeps = {}): AudioEngine {
   let phase: Phase = 'idle';
   let lastPositionState = 0;
   let listening = true;
+  /** `pause()` вызван нами (пользователь, контроллер): иная пауза — прерывание системой. */
+  let expectPause = false;
+  /** Источник уже перезагружался после «зависания» — второй раз не пробуем. */
+  let recovered = false;
+  let stallTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Перезагружает тот же источник с сохранённой позиции (iOS освободил медиаресурсы). Только для `direct`. */
+  function recover(autoplay: boolean): boolean {
+    if (recovered || loadedUrl === null || mode !== 'direct') return false;
+    recovered = true;
+    clearTimeout(stallTimer);
+    pendingSeek = audio.currentTime || pendingSeek;
+    audio.src = loadedUrl;
+    audio.load();
+    if (autoplay) audio.play().catch(() => undefined);
+    return true;
+  }
+
+  const armStall = () => {
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+      if (phase === 'playing' && isCurrent() && !audio.paused) recover(true);
+    }, stallMs);
+  };
+  const disarmStall = () => {
+    clearTimeout(stallTimer);
+    stallTimer = undefined;
+  };
 
   const setPhase = (next: Phase) => {
     phase = next;
     session.setPlaybackState(next === 'idle' ? 'none' : next === 'paused' ? 'paused' : 'playing');
+    if (next === 'playing') armStall();
+    else disarmStall();
   };
 
   // Событие относится к источнику, который сейчас загружен (старый `src` после замены/сброса игнорируется).
@@ -116,9 +156,11 @@ export function createWebAudioEngine(deps: WebAudioDeps = {}): AudioEngine {
       emit({ type: 'loading' });
     },
     pause: () => {
+      const ours = expectPause;
+      expectPause = false;
       if (!isCurrent() || audio.ended) return;
       setPhase('paused');
-      emit({ type: 'paused' });
+      emit(ours ? { type: 'paused' } : { interrupted: true, type: 'paused' });
       syncSessionPosition(true);
     },
     playing: () => {
@@ -136,6 +178,7 @@ export function createWebAudioEngine(deps: WebAudioDeps = {}): AudioEngine {
         setPhase('playing');
         emit({ type: 'playing' });
       }
+      if (phase === 'playing') armStall();
       syncSessionPosition();
     },
     waiting: () => {
@@ -150,6 +193,8 @@ export function createWebAudioEngine(deps: WebAudioDeps = {}): AudioEngine {
   function reset() {
     // Сначала «источника нет»: события, вызванные самим сбросом (`pause`), не должны дойти до контроллера.
     loadedUrl = null;
+    disarmStall();
+    expectPause = false;
     audio.pause();
     audio.removeAttribute('src');
     audio.load();
@@ -175,14 +220,19 @@ export function createWebAudioEngine(deps: WebAudioDeps = {}): AudioEngine {
       handlers.clear();
     },
     getPosition: position,
+    isPlaying: () => loadedUrl !== null && !audio.paused && !audio.ended,
     load(src: AudioSource, opts: LoadOptions) {
       mode = src.mode;
       offset = src.mode === 'transcode' ? (opts.positionOffset ?? 0) : 0;
       pendingSeek = src.mode === 'transcode' ? 0 : opts.startAt;
       loadedUrl = src.url;
+      recovered = false;
+      expectPause = false;
       // Без автозапуска трек не «подключается»: иначе фаза навсегда осталась бы `loading`.
       setPhase(opts.autoplay ? 'loading' : 'paused');
       audio.src = src.url;
+      // Safari теряет обработчики Media Session после смены `src`: ставим заново при каждой загрузке (дёшево).
+      session.refresh(nowPlaying);
       if (opts.autoplay) {
         // Синхронно, в том же тике: iOS разрешает запуск только из обработчика жеста.
         audio.play().catch((e: unknown) => {
@@ -200,13 +250,19 @@ export function createWebAudioEngine(deps: WebAudioDeps = {}): AudioEngine {
       return () => void handlers.delete(handler);
     },
     pause() {
+      // Если элемент уже на паузе, события `pause` не будет — флаг остался бы взведённым.
+      expectPause = !audio.paused;
       audio.pause();
     },
     async play() {
+      // После долгой паузы iOS мог освободить элемент: он в ошибке — перезагружаем один раз, без сообщения об ошибке.
+      if (audio.error && recover(true)) return;
       try {
         await audio.play();
       } catch (e) {
         if (e instanceof DOMException && e.name === 'AbortError') return;
+        if (e instanceof DOMException && e.name === 'NotAllowedError') throw e;
+        if (recover(true)) return;
         throw e;
       }
     },

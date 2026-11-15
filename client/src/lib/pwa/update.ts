@@ -31,6 +31,8 @@ export type UpdaterDeps = {
   /** Одноразовое сообщение после обновления. */
   announceUpdated: (version: string) => void;
   isPlaying: () => boolean;
+  /** Подписка на остановку воспроизведения (пауза, конец очереди): отложенное обновление применяется тогда. */
+  onPause?: (listener: () => void) => () => void;
   reload: () => void;
   storage?: Pick<Storage, 'getItem' | 'setItem'> | null;
   /** Вкладка вернулась на передний план — проверить обновления. */
@@ -55,10 +57,27 @@ export function createUpdater(deps: UpdaterDeps) {
     }
   }
 
-  function apply() {
+  let stopPauseWatch: (() => void) | null = null;
+
+  function applyNow() {
+    stopPauseWatch?.();
+    stopPauseWatch = null;
     if (!waiting) return;
     applying = true;
     waiting.postMessage({ type: 'SKIP_WAITING' });
+  }
+
+  /** Обновление не прерывает музыку: во время воспроизведения откладывается до паузы (или холодного старта). */
+  function apply() {
+    if (!waiting) return;
+    if (!deps.isPlaying() || !deps.onPause) {
+      applyNow();
+      return;
+    }
+    stopPauseWatch?.();
+    stopPauseWatch = deps.onPause(() => {
+      if (!deps.isPlaying()) applyNow();
+    });
   }
 
   function offer(worker: SwWorker) {
@@ -110,6 +129,8 @@ export function createUpdater(deps: UpdaterDeps) {
     stop() {
       if (timer) clearInterval(timer);
       timer = null;
+      stopPauseWatch?.();
+      stopPauseWatch = null;
       stopVisible?.();
       stopVisible = null;
     },

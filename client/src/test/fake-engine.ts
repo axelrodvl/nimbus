@@ -49,6 +49,9 @@ export class FakeAudioEngine implements AudioEngine {
   pause() {
     this.paused = true;
   }
+  isPlaying() {
+    return this.loaded && !this.paused;
+  }
   seek(seconds: number) {
     this.seeks.push(seconds);
     this.position = { ...this.position, current: seconds };

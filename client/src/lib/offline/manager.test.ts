@@ -532,6 +532,46 @@ describe('целостность при старте', () => {
     expect(h.db.files.get(2)?.completed_at).toBeNull();
   });
 
+  it('система очистила хранилище: у «готовых» файлов нет на диске → onStorageCleared с числом потерянных', async () => {
+    const onStorageCleared = vi.fn();
+    const h = offlineHarness({
+      deps: { onStorageCleared },
+      files: [
+        offlineFile(1, { bytes_done: 100, state: 'done' }),
+        offlineFile(2, { bytes_done: 100, state: 'done' }),
+        offlineFile(3, { bytes_done: 100, state: 'done' }),
+      ],
+      pins: [{ created_at: 1, id: 1, key: 'album:1', kind: 'album' }],
+      storage: { '3': 100 },
+    });
+    await h.start();
+    expect(onStorageCleared).toHaveBeenCalledExactlyOnceWith(2);
+  });
+
+  it('ничего не потеряно — onStorageCleared не вызывается; частичный размер — не «очистка системой»', async () => {
+    const onStorageCleared = vi.fn();
+    const h = offlineHarness({
+      deps: { onStorageCleared },
+      files: [offlineFile(1, { bytes_done: 100, state: 'done' }), offlineFile(2, { bytes_done: 100, state: 'done' })],
+      pins: [{ created_at: 1, id: 1, key: 'album:1', kind: 'album' }],
+      storage: { '1': 100, '2': 60 },
+    });
+    await h.start();
+    expect(onStorageCleared).not.toHaveBeenCalled();
+  });
+
+  it('flush записывает состояние всех файлов в базу сразу', async () => {
+    const h = offlineHarness({
+      files: [offlineFile(1, { bytes_done: 100, state: 'done' })],
+      pins: [{ created_at: 1, id: 1, key: 'album:1', kind: 'album' }],
+      storage: { '1': 100 },
+    });
+    await h.start();
+    h.db.files.clear();
+    await h.manager.flush();
+    expect(h.db.files.get(1)).toMatchObject({ state: 'done' });
+  });
+
   it('файл есть, записи нет — файл удаляется', async () => {
     const h = offlineHarness({ storage: { '42': 10, orphan: 1 } });
     await h.start();

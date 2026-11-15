@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Outlet } from 'react-router';
 import { toast } from 'sonner';
 import { registeredPaths } from '@/app-routes';
+import { EdgeSwipeBack } from '@/components/edge-swipe-back';
 import { CommandPaletteProvider } from '@/components/search/command-palette';
 import { MobileTabBar } from '@/components/mobile-tab-bar';
 import { OfflineIndicator } from '@/components/offline-indicator';
@@ -16,9 +17,16 @@ import { useAcquisitionLiveSync } from '@/lib/acquisition/hooks';
 import { appData } from '@/lib/app-data';
 import { useT } from '@/lib/i18n/provider';
 import { visibleNavItems } from '@/lib/nav/items';
+import { SCROLL_ROOT_ATTR } from '@/lib/nav/scroll-top';
 import { useScrollRestoration } from '@/lib/nav/use-scroll-restoration';
+import { watchKeyboard } from '@/lib/platform/keyboard';
 import { useSyncStatus } from '@/lib/sync/hooks';
 import { useHydrated, useRowCount } from '@/lib/store/hooks';
+
+/** Экранная клавиатура: атрибут `data-keyboard` на `<html>` прячет панель плеера и вкладок (см. base.css). */
+function useKeyboardWatch() {
+  useEffect(() => watchKeyboard(), []);
+}
 
 let storageWarned = false;
 
@@ -77,6 +85,7 @@ function Content() {
 
 /** Макет приложения: боковая панель (настольная), контент, место под плеер, нижняя панель вкладок (мобильная). */
 export function AppShell() {
+  useKeyboardWatch();
   useAcquisitionLiveSync();
   const items = visibleNavItems(registeredPaths);
   const scroller = useRef<HTMLElement>(null);
@@ -86,10 +95,11 @@ export function AppShell() {
   useStorageWarning();
   return (
     <CommandPaletteProvider>
-      <div className="bg-surface dark:bg-surface-dark flex h-dvh overflow-hidden pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
+      <div className="bg-surface dark:bg-surface-dark flex h-[min(100dvh,var(--vvh,100dvh))] overflow-hidden pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
         <Sidebar items={items} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <main
+            {...{ [SCROLL_ROOT_ATTR]: '' }}
             className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain [overflow-anchor:none]"
             ref={node => {
               scroller.current = node;
@@ -108,6 +118,7 @@ export function AppShell() {
         </div>
         <OfflineIndicator />
         <OfflineNotifier />
+        <EdgeSwipeBack />
       </div>
     </CommandPaletteProvider>
   );

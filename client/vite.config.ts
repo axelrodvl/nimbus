@@ -50,7 +50,8 @@ export default defineConfig({
       injectRegister: false,
       injectManifest: {
         // Английский словарь — в основном бандле; остальные — runtime-кэш (stale-while-revalidate).
-        globIgnores: [DICTIONARY_GLOB],
+        // Заставки iOS (public/splash) запрашивает только система при запуске — в precache им делать нечего.
+        globIgnores: [DICTIONARY_GLOB, 'splash/**'],
         globPatterns: ['**/*.{js,css,html,woff2,svg,png,webmanifest}'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         rollupFormat: 'iife',
@@ -62,6 +63,7 @@ export default defineConfig({
         background_color: '#121212',
         description: 'Music player: MusicBrainz metadata, streaming from torrents',
         display: 'standalone',
+        display_override: ['standalone'],
         icons: [
           { purpose: 'any', sizes: '192x192', src: '/icons/icon-192.png', type: 'image/png' },
           { purpose: 'any', sizes: '512x512', src: '/icons/icon-512.png', type: 'image/png' },

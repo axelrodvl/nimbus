@@ -1,4 +1,5 @@
 import { ApiError } from '@/lib/api/errors';
+import { lifecycle } from '@/lib/platform/lifecycle';
 import type { Db } from '@/lib/db';
 import type { Batch, LibraryRows } from '@/lib/db/types';
 import type { LibraryStore } from '@/lib/store/library';
@@ -296,16 +297,14 @@ export function createSyncEngine(deps: EngineDeps) {
     const onOffline = () => {
       if (!stopped && leader) setState('offline');
     };
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') requestSync('visible');
-    };
     globalThis.addEventListener('online', onOnline);
     globalThis.addEventListener('offline', onOffline);
-    document.addEventListener('visibilitychange', onVisible);
+    // Возврат на передний план (visibilitychange, pageshow из bfcache, resume) — единый источник событий.
+    const offForeground = lifecycle().on('foreground', () => requestSync('visible'));
     detach.push(
+      offForeground,
       () => globalThis.removeEventListener('online', onOnline),
       () => globalThis.removeEventListener('offline', onOffline),
-      () => document.removeEventListener('visibilitychange', onVisible),
     );
     pollTimer = setInterval(() => requestSync('timer'), SAFETY_POLL_MS);
 

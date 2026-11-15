@@ -1,3 +1,4 @@
+import { requestPersistNow } from '@/lib/pwa/storage';
 import { offline } from './index';
 import { expectCompletion, forgetCompletion } from './notify';
 import { FAVORITES_PIN_ID } from './status';
@@ -19,6 +20,8 @@ export const favoritesSubject = (title: string, trackIds: readonly number[]): Of
 export async function pinSubject(s: OfflineSubject): Promise<void> {
   const manager = offline().manager;
   if (!manager) return;
+  // Жест пользователя: самое время просить постоянное хранилище, иначе система вправе стереть скачанное.
+  void requestPersistNow();
   expectCompletion(pinKey(s.kind, s.id), s.title);
   await manager.pin(s.kind, s.id);
 }

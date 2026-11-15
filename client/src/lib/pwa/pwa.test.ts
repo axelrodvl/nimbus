@@ -133,6 +133,37 @@ describe('update.ts', () => {
     expect(deps.reload).not.toHaveBeenCalled();
   });
 
+  it('«Обновить» во время воспроизведения откладывается до паузы и не прерывает музыку', async () => {
+    const sw = fakeSw();
+    let playing = true;
+    let paused: () => void = () => undefined;
+    const stop = vi.fn();
+    const updater = createUpdater({
+      announceUpdated: vi.fn(),
+      container: sw.container,
+      isPlaying: () => playing,
+      offerUpdate: vi.fn(),
+      onPause: l => {
+        paused = l;
+        return stop;
+      },
+      reload: vi.fn(),
+      version: '1',
+    });
+    await updater.start();
+    const worker = fakeWorker();
+    sw.discover(worker);
+    worker.fire();
+    updater.apply();
+    expect(worker.posted).toEqual([]); // играет — ждём
+    paused(); // всё ещё играет (переход между треками)
+    expect(worker.posted).toEqual([]);
+    playing = false;
+    paused();
+    expect(worker.posted).toEqual([{ type: 'SKIP_WAITING' }]);
+    expect(stop).toHaveBeenCalled();
+  });
+
   it('повторные statechange не дублируют предложение', async () => {
     const sw = fakeSw();
     const { deps, updater } = setup(sw);
@@ -320,6 +351,16 @@ describe('install.ts', () => {
     target.dispatchEvent(installEvent('dismissed'));
     target.dispatchEvent(new Event('appinstalled'));
     expect(await promptInstall()).toBe('unavailable');
+  });
+
+  it('установка приложения (appinstalled) запрашивает постоянное хранилище', () => {
+    const persist = vi.fn(async () => true);
+    vi.stubGlobal('navigator', { ...globalThis.navigator, storage: { persist } });
+    const target = new EventTarget();
+    listenForInstall(target as unknown as Window);
+    target.dispatchEvent(new Event('appinstalled'));
+    expect(persist).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
   });
 
   it('подсказка iOS: только Safari на iPhone/iPad вне standalone', () => {

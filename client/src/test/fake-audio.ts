@@ -7,6 +7,7 @@ export class FakeAudio extends EventTarget {
   volume = 1;
   readyState = 0;
   ranges: [number, number][] = [];
+  error: unknown = null;
   playCalls = 0;
   loadCalls = 0;
   /** Следующий `play()` отклоняется этой ошибкой. */

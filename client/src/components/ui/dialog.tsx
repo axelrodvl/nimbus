@@ -1,6 +1,8 @@
 import * as Ariakit from '@ariakit/react';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { SheetHandle, useSheetDrag } from './sheet-drag';
+import { useIsMobileWidth } from './use-media-query';
 
 export type DialogProps = {
   store: Ariakit.DialogStore;
@@ -34,6 +36,8 @@ export function Dialog({
   children,
 }: DialogProps) {
   const sheet = variant === 'sheet';
+  const mobile = useIsMobileWidth();
+  const drag = useSheetDrag(() => store.hide(), sheet && mobile && !locked);
   return (
     <Ariakit.Dialog
       backdrop={<div className="fixed inset-0 z-[65] bg-black/60 backdrop-blur-sm" />}
@@ -50,8 +54,10 @@ export function Dialog({
       hideOnInteractOutside={!locked}
       onClick={(e: React.MouseEvent) => e.stopPropagation()}
       store={store}
+      style={drag.style}
       unmountOnHide
     >
+      {sheet && mobile && !locked ? <SheetHandle {...drag.handleProps} /> : null}
       <Ariakit.DialogHeading className="text-lg font-bold">{title}</Ariakit.DialogHeading>
       {description ? (
         <Ariakit.DialogDescription className={cn('text-muted -mt-2 text-sm', !wrapDescription && 'truncate')}>

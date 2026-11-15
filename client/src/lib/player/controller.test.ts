@@ -925,3 +925,74 @@ describe('смена источника трека (reloadTrack)', () => {
     expect(s.engine.loads).toHaveLength(1);
   });
 });
+
+describe('мобильные платформы (шаг 50)', () => {
+  it('на ended следующий источник выставляется в том же тике (без асинхронного разрыва)', () => {
+    const s = setup();
+    s.ctl.play(s.library.get(1)!, queue(s));
+    s.engine.emit({ type: 'playing' });
+    const loads = s.engine.loads.length;
+    // Никаких await/таймеров между событием и загрузкой: iOS в фоне останавливает звук при разрыве.
+    s.engine.emit({ type: 'ended' });
+    expect(s.engine.loads).toHaveLength(loads + 1);
+    expect(s.engine.lastLoad?.src.url).toBe('/s/2');
+    expect(s.engine.lastLoad?.opts.autoplay).toBe(true);
+  });
+
+  it('пауза не от пользователя → interrupted, очередь цела; remote play продолжает без перезагрузки', () => {
+    const s = setup();
+    s.ctl.play(s.library.get(2)!, queue(s));
+    s.engine.emit({ type: 'playing' });
+    s.engine.emit({ interrupted: true, type: 'paused' });
+    expect(s.ctl.state).toMatchObject({ interrupted: true, isPlaying: false, status: 'paused', index: 1 });
+    expect(ids(s.ctl)).toEqual([1, 2, 3, 4]);
+    const loads = s.engine.loads.length;
+    s.engine.emit({ action: 'play', type: 'remote' });
+    expect(s.engine.playCalls).toBe(1);
+    expect(s.engine.loads).toHaveLength(loads);
+    expect(s.ctl.state).toMatchObject({ interrupted: false, isPlaying: true });
+  });
+
+  it('обычная пауза пользователя флаг interrupted не ставит', () => {
+    const s = setup();
+    s.ctl.play(s.library.get(1)!);
+    s.engine.emit({ type: 'playing' });
+    s.engine.emit({ type: 'paused' });
+    expect(s.ctl.state.interrupted).toBe(false);
+  });
+
+  it('reconcile: система остановила звук — плеер показывает паузу (interrupted); продолжила — играет', () => {
+    const s = setup();
+    s.ctl.play(s.library.get(1)!);
+    s.engine.emit({ type: 'playing' });
+    s.engine.paused = true; // пока приложение было в фоне, звук остановили
+    s.ctl.reconcile();
+    expect(s.ctl.state).toMatchObject({ interrupted: true, isPlaying: false, status: 'paused' });
+    s.engine.paused = false;
+    s.ctl.reconcile();
+    expect(s.ctl.state).toMatchObject({ interrupted: false, isPlaying: true, status: 'playing' });
+  });
+
+  it('reconcile без загруженного трека ничего не делает; позиция берётся у движка', () => {
+    const s = setup();
+    s.ctl.reconcile();
+    expect(s.ctl.state.status).toBe('idle');
+    s.ctl.play(s.library.get(1)!);
+    s.engine.emit({ type: 'playing' });
+    s.engine.position = { buffered: [], current: 7, duration: 10 };
+    s.ctl.reconcile();
+    expect(s.ctl.state.position).toBe(7);
+  });
+
+  it('холодный старт: восстановленное состояние — пауза, автозапуска нет', () => {
+    const storage = new MemStorage();
+    const first = setup({}, undefined, storage);
+    first.ctl.play(first.library.get(2)!, queue(first));
+    first.engine.position = { buffered: [], current: 4, duration: 10 };
+    first.ctl.persist();
+    const second = setup({}, undefined, storage);
+    expect(second.ctl.state).toMatchObject({ index: 1, isPlaying: false, position: 4, status: 'paused' });
+    expect(second.engine.loads).toHaveLength(0);
+    expect(second.engine.playCalls).toBe(0);
+  });
+});

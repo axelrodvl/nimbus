@@ -376,7 +376,8 @@ export class PlayerController {
         break;
       case 'paused': {
         if (this.loadedId === null) break;
-        this.dispatch({ type: 'PLAYING', value: false });
+        // Пауза не от пользователя (звонок, Siri, наушники): очередь не трогаем, `play` с гарнитуры продолжит.
+        this.dispatch(e.interrupted ? { type: 'INTERRUPTED' } : { type: 'PLAYING', value: false });
         const { status } = this.state;
         if (status !== 'error' && status !== 'idle') this.setStatus('paused');
         break;
@@ -613,6 +614,26 @@ export class PlayerController {
     this.prefetched = next.id;
     void this.deps.prefetchTrack(next.id).catch(noop);
   }
+
+  /**
+   * Вернулись из фона: сверяем состояние плеера с фактическим звуком (система могла приостановить или продолжить
+   * воспроизведение без нас) и позицию. Не запускает и не останавливает звук.
+   */
+  reconcile = () => {
+    const track = currentTrack(this.state);
+    if (!track || this.loadedId !== track.id) return;
+    const actual = this.engine.isPlaying();
+    const s = this.state;
+    if (s.isPlaying && !actual && s.status !== 'loading' && s.status !== 'buffering') {
+      this.dispatch({ type: 'INTERRUPTED' });
+      this.setStatus('paused');
+    } else if (!s.isPlaying && actual) {
+      this.dispatch({ type: 'PLAYING', value: true });
+      this.setStatus('playing');
+    }
+    this.dispatch({ position: this.positionNow(), type: 'TICK' });
+    this.tick();
+  };
 
   /** Записывает состояние в хранилище; вызывается и при закрытии страницы (`pagehide`). */
   persist = () => {

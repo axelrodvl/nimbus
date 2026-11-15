@@ -79,7 +79,7 @@ describe('события <audio> → AudioEvent', () => {
     expect(events).toEqual([
       { type: 'loading' },
       { type: 'playing' },
-      { type: 'paused' },
+      { interrupted: true, type: 'paused' },
       { code: 'media', type: 'error' },
       { type: 'ended' },
     ]);
@@ -275,11 +275,13 @@ describe('Media Session', () => {
     expect(session.metadata).toMatchObject({
       album: 'Album',
       artist: 'Artist',
-      artwork: [{ sizes: '500x500', src: 'http://c/1.jpg' }],
       title: 'Song',
     });
+    const sizes = (session.metadata as { artwork: { sizes: string }[] }).artwork.map(a => a.sizes);
+    expect(sizes).toEqual(['96x96', '128x128', '192x192', '256x256', '384x384', '512x512']);
+    // Без обложки — логотип приложения.
     engine.setNowPlaying({ ...META, coverUrl: null });
-    expect(session.metadata).toMatchObject({ artwork: [] });
+    expect(session.metadata).toMatchObject({ artwork: [{ sizes: '512x512', src: '/icons/icon-512.png' }] });
     engine.setNowPlaying(null);
     expect(session.metadata).toBeNull();
   });
@@ -382,5 +384,111 @@ describe('элемент и фабрика', () => {
     expect(a).toBe(b);
     expect(a).toBe(sharedWebAudioEngine());
     expect(document.querySelectorAll('[data-testid=player-audio]')).toHaveLength(1);
+  });
+});
+
+
+describe('мобильные платформы (шаг 50)', () => {
+  function setupWith(extra: Partial<Parameters<typeof createWebAudioEngine>[0]> = {}) {
+    const audio = new FakeAudio();
+    const session = new FakeMediaSession();
+    const engine = createWebAudioEngine({ audio: audio.asElement(), mediaSession: session.asSession(), ...extra });
+    const events: AudioEvent[] = [];
+    engine.on(e => events.push(e));
+    return { audio, engine, events, session };
+  }
+
+  it('audioSession.type = playback выставляется при создании, до первого play()', () => {
+    const audioSession = { type: 'auto' };
+    const { audio } = setupWith({ audioSession });
+    expect(audioSession.type).toBe('playback');
+    expect(audio.playCalls).toBe(0);
+  });
+
+  it('пауза не от нас → paused с interrupted; наша пауза — без флага', () => {
+    const { audio, engine, events } = setupWith();
+    engine.load(src(1), { autoplay: true, startAt: 0 });
+    audio.fire('playing');
+    audio.pause(); // звонок, наушники
+    engine.play().catch(() => undefined);
+    audio.fire('playing');
+    engine.pause();
+    expect(events.filter(e => e.type === 'paused')).toEqual([{ interrupted: true, type: 'paused' }, { type: 'paused' }]);
+  });
+
+  it('пауза уже стоящего на паузе элемента не оставляет флаг взведённым', () => {
+    const { audio, engine, events } = setupWith();
+    engine.load(src(1), { autoplay: false, startAt: 0 });
+    engine.pause(); // элемент и так на паузе: события pause не будет
+    engine.play().catch(() => undefined);
+    audio.fire('playing');
+    audio.pause();
+    expect(events.at(-1)).toEqual({ interrupted: true, type: 'paused' });
+  });
+
+  it('Media Session переустанавливается после каждой смены src', () => {
+    const { engine, session } = setupWith();
+    engine.setNowPlaying(META);
+    engine.load(src(1), { autoplay: true, startAt: 0 });
+    session.handlers.clear();
+    session.metadata = null;
+    engine.load(src(2), { autoplay: true, startAt: 0 });
+    expect(session.handlers.get('play')).toBeTypeOf('function');
+    expect(session.handlers.get('nexttrack')).toBeTypeOf('function');
+    expect(session.metadata).toMatchObject({ title: 'Song' });
+  });
+
+  it('«застрявший» элемент (нет timeupdate 3 с при playing) перезагружается с позиции один раз', () => {
+    vi.useFakeTimers();
+    const { audio, engine, events } = setupWith();
+    engine.load(src(1), { autoplay: true, startAt: 0 });
+    audio.fire('playing');
+    audio.currentTime = 42;
+    const loads = audio.loadCalls;
+    vi.advanceTimersByTime(3000);
+    expect(audio.loadCalls).toBe(loads + 1);
+    expect(audio.playCalls).toBe(2);
+    audio.fire('loadedmetadata');
+    expect(audio.currentTime).toBe(42);
+    // Второй раз — не пробуем; сообщения об ошибке нет.
+    audio.fire('playing');
+    vi.advanceTimersByTime(10_000);
+    expect(audio.loadCalls).toBe(loads + 1);
+    expect(events.some(e => e.type === 'error')).toBe(false);
+  });
+
+  it('timeupdate сбрасывает таймер «зависания»', () => {
+    vi.useFakeTimers();
+    const { audio, engine } = setupWith();
+    engine.load(src(1), { autoplay: true, startAt: 0 });
+    audio.fire('playing');
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(2000);
+      audio.fire('timeupdate');
+    }
+    expect(audio.loadCalls).toBe(0);
+  });
+
+  it('play() после ошибки элемента перезагружает источник один раз и не бросает', async () => {
+    const { audio, engine } = setupWith();
+    engine.load(src(1), { autoplay: false, startAt: 0 });
+    audio.currentTime = 17;
+    audio.error = { code: 4 };
+    await engine.play();
+    expect(audio.loadCalls).toBe(1);
+    audio.fire('loadedmetadata');
+    expect(audio.currentTime).toBe(17);
+    // Второй раз ошибка уже ошибка.
+    audio.playError = new DOMException('x', 'NotSupportedError');
+    await expect(engine.play()).rejects.toThrow();
+  });
+
+  it('isPlaying отражает фактическое состояние элемента', () => {
+    const { audio, engine } = setupWith();
+    expect(engine.isPlaying()).toBe(false);
+    engine.load(src(1), { autoplay: true, startAt: 0 });
+    expect(engine.isPlaying()).toBe(true);
+    audio.paused = true;
+    expect(engine.isPlaying()).toBe(false);
   });
 });

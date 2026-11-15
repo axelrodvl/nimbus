@@ -1,4 +1,23 @@
 @layer base {
+  /* Корень не «резиновый» и не обновляется потягиванием (синхронизация автоматическая); упругая прокрутка — внутри списков. */
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+
+  /* iOS/iPadOS: текст интерфейса — системный шрифт (SF Pro); шкала размеров та же. Решение — в Журнале шага 50. */
+  html[data-platform='ios'] body {
+    font-family: var(--font-sans-ios);
+  }
+
+  /* Экранная клавиатура открыта (`lib/platform/keyboard.ts`): панель плеера и вкладок прячутся, поле поиска остаётся видимым. */
+
+  /* Обложки и элементы управления: ни выделения, ни системного меню при долгом нажатии. */
+  :where(img, button, [role='button'], [role='tab'], [data-testid='track-row'], [data-testid='album-card']) {
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
+
   body {
     @apply selection:bg-accent bg-surface dark:bg-surface-dark font-sans text-black antialiased selection:text-black dark:text-white;
   }
@@ -58,4 +77,11 @@
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Экранная клавиатура открыта (`lib/platform/keyboard.ts`): панель плеера и вкладок прячутся, поле поиска остаётся видимым.
+   Вне слоя, иначе утилита `flex` у панели перебивает правило. */
+html[data-keyboard='open'] [data-slot='player'],
+html[data-keyboard='open'] [data-testid='mobile-tab-bar'] {
+  display: none;
 }

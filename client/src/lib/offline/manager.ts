@@ -63,6 +63,8 @@ export type ManagerDeps = {
   onUnauthorized?(): void;
   /** Неожиданный сбой фоновой операции (IndexedDB закрыта, хранилище отказало): менеджер продолжает, повтор — со следующим событием. */
   onError?(error: unknown): void;
+  /** Система очистила скачанное: у `count` записей «готово» файла на диске уже нет (они вернутся в очередь). */
+  onStorageCleared?(count: number): void;
   /** Id треков «Избранного» (динамический плейлист) по текущей библиотеке; без функции «Избранное» не закрепляется. */
   favoriteIds?(): number[];
   /** Можно ли удалять закрепления и файлы по данным библиотеки (нет, пока идёт снимок: библиотека неполна). */
@@ -438,11 +440,13 @@ export function createOfflineManager(deps: ManagerDeps) {
   /** Приводит записи к тому, что реально лежит на диске (вкладку могли выгрузить посреди загрузки). */
   async function checkIntegrity() {
     const names = new Set(await storage.list());
+    let vanished = 0;
     for (const f of files.values()) {
       const size = await storage.size(String(f.track_id));
       names.delete(String(f.track_id));
       const before = f.state;
       if (f.state === 'done') {
+        if (size === null) vanished++;
         if (size === null || size !== f.bytes_done) {
           Object.assign(f, { bytes_done: 0, completed_at: null, state: 'queued' } satisfies Partial<OfflineFile>);
         }
@@ -460,6 +464,7 @@ export function createOfflineManager(deps: ManagerDeps) {
     }
     // Файл без записи — остаток прерванного удаления.
     for (const name of names) await storage.remove(name).catch(() => undefined);
+    if (vanished > 0) deps.onStorageCleared?.(vanished);
   }
 
   // ------------------------------------------------------------------ вкладки
@@ -599,6 +604,8 @@ export function createOfflineManager(deps: ManagerDeps) {
       for (const off of unsubscribers.splice(0)) off();
       tabs.close();
     },
+    /** Записывает состояние всех файлов в IndexedDB сейчас (`pagehide`/`freeze`: по таймеру можно не успеть). */
+    flush: () => track(Promise.all([...files.values()].map(persist))).then(() => undefined),
     pin,
     unpin,
     isPinned: (kind: PinKind, id: number) => pins.has(key(kind, id)),

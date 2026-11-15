@@ -25,7 +25,8 @@ export type RemoteAction = 'play' | 'pause' | 'next' | 'previous' | 'seekto' | '
 export type AudioEvent =
   | { type: 'loading' }
   | { type: 'playing' }
-  | { type: 'paused' }
+  /** `interrupted` — пауза не от пользователя (звонок, Siri, отключение наушников, другое приложение). */
+  | { type: 'paused'; interrupted?: boolean }
   | { type: 'waiting' }
   | { type: 'ended' }
   | { type: 'error'; code: string }
@@ -72,6 +73,8 @@ export interface AudioEngine {
   preloadNext(src: AudioSource | null): void;
   setNowPlaying(meta: NowPlaying | null): void;
   getPosition(): AudioPosition;
+  /** Фактическое состояние звука (а не намерение): нужно, чтобы сверить плеер после возврата из фона. */
+  isPlaying(): boolean;
   on(handler: (e: AudioEvent) => void): () => void;
   dispose(): void;
 }

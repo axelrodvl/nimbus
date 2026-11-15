@@ -1,10 +1,13 @@
+import * as Ariakit from '@ariakit/react';
 import { Link } from 'react-router';
+import { useLongPress } from '@/components/ui/use-long-press';
 import { AlbumOfflineBadge } from '@/components/offline/album-badge';
 import { useAlbumDimmed } from '@/lib/offline/hooks';
 import { useT } from '@/lib/i18n/provider';
 import { albumMeta } from '@/lib/library/status';
 import type { AlbumView } from '@/lib/store/selectors';
 import { cn } from '@/lib/utils';
+import { AlbumMenu } from './album-menu';
 import { Cover } from './cover';
 import { StatusMiniBar } from './status-mini-bar';
 
@@ -23,8 +26,10 @@ type Props = {
 export function AlbumCard({ album, priority, actions }: Props) {
   const t = useT();
   const dimmed = useAlbumDimmed(album.id);
+  const menu = Ariakit.useMenuStore();
+  const { className, ...press } = useLongPress(() => menu.show());
   return (
-    <div className="group/card relative h-full" data-testid="album-card">
+    <div className={cn('group/card relative h-full', className)} data-testid="album-card" {...press}>
       <Link
         className={cn(
           'bg-card/50 hover:bg-card dark:bg-card-dark/50 dark:hover:bg-card-dark focus-visible:ring-accent/40 flex h-full flex-col gap-3 rounded-lg p-3 transition-colors focus-visible:ring-2 focus-visible:outline-none',
@@ -45,6 +50,7 @@ export function AlbumCard({ album, priority, actions }: Props) {
         </div>
       </Link>
       <AlbumOfflineBadge albumId={album.id} />
+      <AlbumMenu albumId={album.id} artistId={album.artist_id} store={menu} />
       {actions ? (
         <div className="absolute right-5 bottom-[7.5rem] opacity-0 transition-opacity group-focus-within/card:opacity-100 group-hover/card:opacity-100 [@media(hover:none)]:opacity-100">
           {actions}

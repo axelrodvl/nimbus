@@ -1,6 +1,7 @@
 import * as Ariakit from '@ariakit/react';
 import { MoreHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
+import { MenuSheet } from '@/components/ui/menu-sheet';
 import { useTrackOfflineMenu } from '@/components/offline/track-offline';
 import { apiErrorMessage } from '@/lib/api/error-message';
 import { useT } from '@/lib/i18n/provider';
@@ -10,7 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { TrackStatus } from '@/lib/store/selectors';
 
 export const menuItemClass =
-  'hover:bg-card dark:hover:bg-card-dark data-[active-item]:bg-card dark:data-[active-item]:bg-card-dark flex cursor-pointer items-center rounded px-3 py-1.5 text-sm outline-none';
+  'hover:bg-card dark:hover:bg-card-dark data-[active-item]:bg-card dark:data-[active-item]:bg-card-dark flex cursor-pointer items-center rounded px-3 py-1.5 text-sm outline-none pointer-coarse:py-3 pointer-coarse:text-base';
 
 type Props = {
   trackId: number;
@@ -52,15 +53,12 @@ export function RowMenu({ trackId, albumId, title, status, playlistId, onAddToPl
       <Ariakit.MenuButton
         aria-label={t('menu.actions', { title })}
         className="text-gray hover:bg-card dark:hover:bg-card-dark focus-visible:ring-accent/40 flex size-8 shrink-0 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:outline-none"
+        data-menu-trigger
         data-testid="track-menu"
       >
         <MoreHorizontal aria-hidden className="size-4" />
       </Ariakit.MenuButton>
-      <Ariakit.Menu
-        className="border-divider dark:border-divider-dark z-30 min-w-44 rounded-lg border bg-white p-1 shadow-lg dark:bg-black"
-        gutter={4}
-        portal
-      >
+      <MenuSheet>
         <Ariakit.MenuItem className={menuItemClass} onClick={onAddToPlaylist}>
           {t('playlist.addTo')}
         </Ariakit.MenuItem>
@@ -78,7 +76,7 @@ export function RowMenu({ trackId, albumId, title, status, playlistId, onAddToPl
             {t('sources.retry')}
           </Ariakit.MenuItem>
         ) : null}
-      </Ariakit.Menu>
+      </MenuSheet>
       {offlineMenu.dialog}
     </Ariakit.MenuProvider>
   );

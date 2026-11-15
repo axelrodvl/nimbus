@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installOffline } from '@/lib/offline';
 import { fileStatus, installOfflineUi, type OfflineUi } from '@/test/offline-ui';
 import {
@@ -21,6 +21,14 @@ afterEach(() => installOffline(null));
 const pending = () => JSON.parse(localStorage.getItem(NOTIFY_KEY) ?? '{}') as Record<string, string>;
 
 describe('действия', () => {
+  it('закрепление (жест пользователя) просит постоянное хранилище', async () => {
+    const persist = vi.fn(async () => true);
+    vi.stubGlobal('navigator', { ...globalThis.navigator, storage: { persist } });
+    await pinSubject({ id: 4, kind: 'album', title: 'Four', trackIds: [1] });
+    vi.unstubAllGlobals();
+    expect(persist).toHaveBeenCalledTimes(1);
+  });
+
   it('закрепление запоминает, что о нём надо сообщить, и вызывает менеджер', async () => {
     await pinSubject({ id: 4, kind: 'album', title: 'Four', trackIds: [1, 2] });
     expect(ui.manager.pin).toHaveBeenCalledWith('album', 4);

@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { setUnauthorizedHandler } from '@/lib/app-data';
 import { session } from '@/lib/auth';
+import { startAppLifecycle } from '@/lib/platform/app-lifecycle';
 import { startPwa } from '@/lib/pwa';
 import { initI18n } from '@/lib/i18n/store';
 import { applyTheme, readTheme } from '@/lib/theme/theme';
@@ -19,6 +20,7 @@ void session.start();
 
 // Service worker, обновления, установка.
 startPwa(i18nReady);
+startAppLifecycle();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('#root not found');

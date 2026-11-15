@@ -1,5 +1,6 @@
 import { AlertTriangle, Headphones } from 'lucide-react';
 import { Link } from 'react-router';
+import { useLongPress } from '@/components/ui/use-long-press';
 import { TrackOfflineIndicator } from '@/components/offline/track-offline';
 import { useT } from '@/lib/i18n/provider';
 import type { AlbumProgressInfo } from '@/lib/library/status';
@@ -45,9 +46,12 @@ export function TrackRow({
   onCheckSource,
 }: Props) {
   const t = useT();
+  const { className: pressClass, ...press } = useLongPress();
   return (
     <div
+      {...press}
       className={cn(
+        pressClass,
         'focus-visible:ring-accent/40 flex h-[3.25rem] items-center gap-3 rounded-md px-3 transition-colors select-none focus-visible:ring-2 focus-visible:outline-none',
         current ? 'bg-card/40 dark:bg-card-dark/40' : 'hover:bg-card/60 dark:hover:bg-card-dark/60',
         (!track.in_library || unavailable) && 'opacity-55',

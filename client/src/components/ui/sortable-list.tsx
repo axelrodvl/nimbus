@@ -1,3 +1,4 @@
+import { haptics } from '@/lib/platform/haptics';
 import { ArrowDown, ArrowUp, GripVertical } from 'lucide-react';
 import { useRef, useState, type PointerEvent } from 'react';
 import { useT } from '@/lib/i18n/provider';
@@ -54,10 +55,16 @@ export function SortableList({ items, onReorder, disabled, ...rest }: Props) {
     if (!drag) return;
     const { from, over } = drag;
     setDrag(null);
-    if (from !== over) onReorder(moveItem(items, from, over).map(i => i.id));
+    if (from !== over) {
+      haptics().impact('select');
+      onReorder(moveItem(items, from, over).map(i => i.id));
+    }
   }
 
-  const move = (from: number, to: number) => onReorder(moveItem(items, from, to).map(i => i.id));
+  const move = (from: number, to: number) => {
+    haptics().impact('select');
+    onReorder(moveItem(items, from, to).map(i => i.id));
+  };
 
   const btn =
     'text-muted focus-visible:ring-accent/40 flex size-9 items-center justify-center rounded-full outline-none hover:text-black focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-30 dark:hover:text-white pointer-coarse:size-11';

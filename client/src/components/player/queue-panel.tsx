@@ -1,3 +1,4 @@
+import { haptics } from '@/lib/platform/haptics';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -15,6 +16,10 @@ const rowButton =
 export function QueuePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useT();
   const player = usePlayerActions();
+  const moveInQueue = (from: number, to: number) => {
+    haptics().impact('select');
+    player.moveInQueue(from, to);
+  };
   const { queue, index } = usePlayerState(useShallow(s => ({ index: s.index, queue: s.queue })));
 
   useEffect(() => {
@@ -64,10 +69,10 @@ export function QueuePanel({ open, onClose }: { open: boolean; onClose: () => vo
                   canDown={i < queue.length - 1}
                   canUp={i > index + 1}
                   key={`${track.id}-${i}`}
-                  onDown={() => player.moveInQueue(i, i + 1)}
+                  onDown={() => moveInQueue(i, i + 1)}
                   onPlay={() => player.playIndex(i)}
                   onRemove={() => player.removeFromQueue(i)}
-                  onUp={() => player.moveInQueue(i, i - 1)}
+                  onUp={() => moveInQueue(i, i - 1)}
                   track={track}
                 />
               ))

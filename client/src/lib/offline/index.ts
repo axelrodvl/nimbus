@@ -1,3 +1,5 @@
+import { toast } from 'sonner';
+import { tNow } from '@/lib/i18n/t-now';
 import { appData, notifyUnauthorized } from '@/lib/app-data';
 import { createDb } from '@/lib/db';
 import { isOnlineNow } from '@/lib/live/online';
@@ -105,7 +107,18 @@ export type OfflineStartDeps = {
   downloader?: Downloader;
   tabs?: ReturnType<typeof createTabs<OfflineTabMessage>>;
   network?: Parameters<typeof createOfflineManager>[0]['network'];
+  onStorageCleared?: (count: number) => void;
 };
+
+let clearedNotified = false;
+/** Для тестов. */
+export const resetClearedNotified = () => void (clearedNotified = false);
+/** Система очистила скачанное (Safari, нехватка места): один toast за сессию; файлы докачаются сами. */
+export function notifyStorageCleared(): void {
+  if (clearedNotified) return;
+  clearedNotified = true;
+  toast.warning(tNow('offline.toast.cleared'), { id: 'offline-cleared' });
+}
 
 /**
  * Запускает менеджер (после входа). В окружении без офлайн-хранилища ничего не делает — `status.supported === false`.
@@ -132,6 +145,7 @@ export async function startOffline(over: OfflineStartDeps = {}): Promise<Offline
     },
     library: data.library,
     onError: e => globalThis.reportError?.(e),
+    onStorageCleared: over.onStorageCleared ?? notifyStorageCleared,
     onUnauthorized: notifyUnauthorized,
     settings: rt.settings,
     status: rt.status,
