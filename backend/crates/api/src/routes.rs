@@ -34,6 +34,7 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
             "/artist-image/{mbid}",
             get(crate::artist_image::artist_image),
         )
+        .route("/covers/{kind}/{mbid}/{size}", get(crate::covers::cover))
         .route("/artists/{id}", get(library::get_artist))
         .route("/artists/{id}/import", post(library::retry_artist_import))
         .route("/albums/{id}", get(library::get_album))

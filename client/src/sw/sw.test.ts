@@ -37,6 +37,7 @@ describe('classifyRequest', () => {
     expect(classifyRequest(req('https://ia800.us.archive.org/1/items/x.jpg', image), ORIGIN)).toBe('image');
     expect(classifyRequest(req(`${ORIGIN}/api/artist-image/abc`, image), ORIGIN)).toBe('image');
     expect(classifyRequest(req('https://evil.test/api/artist-image/abc', image), ORIGIN)).toBe('passthrough');
+    expect(classifyRequest(req(`${ORIGIN}/api/covers/release-group/abc/250`, image), ORIGIN)).toBe('image');
     expect(classifyRequest(req('https://notarchive.org.evil.test/x.jpg', image), ORIGIN)).toBe('passthrough');
     expect(classifyRequest(req(`${ORIGIN}/icons/icon.svg`, image), ORIGIN)).toBe('passthrough');
   });

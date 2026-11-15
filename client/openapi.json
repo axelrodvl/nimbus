@@ -426,8 +426,8 @@
           }
         ],
         "responses": {
-          "302": {
-            "description": "Редирект на изображение"
+          "200": {
+            "description": "Картинка (`image/*`); `Cache-Control: public, max-age=31536000, immutable`"
           },
           "404": {
             "description": "Фото не найдено (`no_image`)",
@@ -576,6 +576,71 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SessionInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/covers/{kind}/{mbid}/{size}": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "operationId": "cover",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "description": "`release-group` или `release`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mbid",
+            "in": "path",
+            "description": "MBID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "size",
+            "in": "path",
+            "description": "Размер миниатюры: 250 или 500",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Картинка (`image/*`); `Cache-Control: public, max-age=31536000, immutable`"
+          },
+          "404": {
+            "description": "Обложки нет (`no_image`) или неизвестный вид/размер",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Cover Art Archive недоступен (`image_unavailable`); не запоминается",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }

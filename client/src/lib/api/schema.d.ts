@@ -212,6 +212,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/covers/{kind}/{mbid}/{size}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["cover"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/debug/albums/{id}/torrents": {
         parameters: {
             query?: never;
@@ -2019,8 +2035,8 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Редирект на изображение */
-            302: {
+            /** @description Картинка (`image/*`); `Cache-Control: public, max-age=31536000, immutable` */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2159,6 +2175,49 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionInfo"];
+                };
+            };
+        };
+    };
+    cover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description `release-group` или `release` */
+                kind: string;
+                /** @description MBID */
+                mbid: string;
+                /** @description Размер миниатюры: 250 или 500 */
+                size: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Картинка (`image/*`); `Cache-Control: public, max-age=31536000, immutable` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Обложки нет (`no_image`) или неизвестный вид/размер */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Cover Art Archive недоступен (`image_unavailable`); не запоминается */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

@@ -2,6 +2,7 @@ pub mod acquisition;
 pub mod artist_image;
 pub mod audio_info;
 pub mod auth;
+pub mod covers;
 pub mod download_manager;
 pub mod downloads;
 pub mod error;
@@ -9,6 +10,7 @@ pub mod extract;
 #[cfg(feature = "test-fakes")]
 pub mod fakes;
 pub mod idle;
+pub mod image_store;
 pub mod jobs;
 pub mod library;
 pub mod openapi;

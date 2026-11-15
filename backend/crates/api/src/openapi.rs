@@ -40,6 +40,7 @@ use crate::{library, routes, search, sources};
         crate::stream::stream_track,
         crate::audio_info::audio_info,
         crate::artist_image::artist_image,
+        crate::covers::cover,
         sources::album_torrents_list,
         sources::torrent_files,
         sources::track_sources_list,

@@ -132,7 +132,10 @@ primary-источником (CUE или формат файла), поэтом�
   (`limit` ≤ 200, испорченный курсор — `400`); для сторонних клиентов.
 - `GET /api/artists/{id}`, `GET /api/albums/{id}`, `GET /api/tracks/{id}` — карточки с вложенными данными (`404`).
 - `POST /api/artists/{id}/import` → `202`: повторить импорт дискографии артиста (после ошибки MusicBrainz).
-- `GET /api/artist-image/{mbid}` → `302` на картинку артиста (`404`, если нет).
+- `GET /api/artist-image/{mbid}` → `200` картинка артиста (`404 no_image`, если нет; `502 image_unavailable` — источник недоступен).
+- `GET /api/covers/{kind}/{mbid}/{size}` → `200` обложка Cover Art Archive (`kind` — `release-group`/`release`, `size` — 250 или 500; `404 no_image`).
+  Обе ручки скачивают картинку один раз, хранят в `{NIMBUS_DATA_DIR}/images/` и отдают с `Cache-Control: public, max-age=31536000, immutable`
+  (отсутствие картинки запоминается на сутки).
 
 **Поиск.** `GET /api/search?q=&types=&limit=` — MusicBrainz (кэш в БД): `q` 1–200 символов, `types` через запятую (`artist,album,track`,
 по умолчанию все), `limit` 1–25 (по умолчанию 8); `400` — пустой или слишком длинный запрос.

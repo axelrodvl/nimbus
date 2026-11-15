@@ -10,13 +10,14 @@ import { Cover } from './cover';
 import { StatusMiniBar } from './status-mini-bar';
 import { TrackRow } from './track-row';
 
-const caa = 'https://coverartarchive.org/release-group/abc/front-250';
+const MBID = '11111111-2222-3333-4444-555555555555';
+const caa = `https://coverartarchive.org/release-group/${MBID}/front-250`;
 
 describe('Cover', () => {
   it('ленивая загрузка и миниатюра нужного размера', () => {
     render(<Cover alt="A" src={caa} thumb={500} />);
     const img = screen.getByRole('img', { name: 'A' });
-    expect(img).toHaveAttribute('src', 'https://coverartarchive.org/release-group/abc/front-500');
+    expect(img).toHaveAttribute('src', `/api/covers/release-group/${MBID}/500`);
     expect(img).toHaveAttribute('loading', 'lazy');
     expect(img).toHaveAttribute('decoding', 'async');
     expect(screen.getByTestId('cover')).toHaveClass('aspect-square');
@@ -102,7 +103,9 @@ describe('TrackRow', () => {
   };
 
   it('название, ссылки на артиста и альбом, время, счётчик, слоты', () => {
-    renderWithProviders(<TrackRow actions={<i data-testid="act" />} leading={<i data-testid="lead" />} track={track} />);
+    renderWithProviders(
+      <TrackRow actions={<i data-testid="act" />} leading={<i data-testid="lead" />} track={track} />,
+    );
     expect(screen.getByText('Karma Police')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Radiohead' })).toHaveAttribute('href', '/artist/4');
     expect(screen.getByRole('link', { name: 'OK Computer' })).toHaveAttribute('href', '/album/3');

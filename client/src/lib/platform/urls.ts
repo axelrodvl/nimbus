@@ -20,9 +20,9 @@ export function isApiPath(pathname: string): boolean {
   return pathname.startsWith('/api/');
 }
 
-/** Путь фото артиста (`/api/artist-image/…`). */
+/** Путь изображения, которое бэкенд отдаёт навсегда (`immutable`): фото артиста и обложки. */
 export function isArtistImagePath(pathname: string): boolean {
-  return pathname.startsWith('/api/artist-image/');
+  return pathname.startsWith('/api/artist-image/') || pathname.startsWith('/api/covers/');
 }
 
 /** HTTP-адрес эндпоинта бэкенда: `apiUrl('/api/health')`. */
@@ -45,6 +45,11 @@ export function liveSocketUrl(): string {
 /** Фото артиста (`/api/artist-image/{mbid}`): бэкенд ищет его в Wikidata/Commons, затем в Deezer. */
 export function artistImageUrl(mbid: string): string {
   return apiUrl(`/api/artist-image/${mbid}`);
+}
+
+/** Обложка через дисковый кэш бэкенда (`/api/covers/{kind}/{mbid}/{size}`): отдаётся с `immutable`. */
+export function coverUrl(kind: string, mbid: string, size: number): string {
+  return apiUrl(`/api/covers/${kind}/${mbid}/${size}`);
 }
 
 /** Поток трека (`/api/tracks/{id}/stream`); `startSeconds` > 0 — смещение `?t=` для перекодируемых треков (без Range). */

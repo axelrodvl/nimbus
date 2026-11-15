@@ -15,14 +15,19 @@ const t = (key: string, params?: Record<string, string | number>) =>
   translate(enMessages as never, 'en', key, params);
 
 describe('coverSrc', () => {
-  const base = 'https://coverartarchive.org/release-group/abc/front';
-  it('подставляет размер миниатюры в адрес Cover Art Archive', () => {
-    expect(coverSrc(`${base}-250`, 500)).toBe(`${base}-500`);
-    expect(coverSrc(`${base}-1200`, 250)).toBe(`${base}-250`);
-    expect(coverSrc(base, 250)).toBe(`${base}-250`);
+  const mbid = '11111111-2222-3333-4444-555555555555';
+  const base = `https://coverartarchive.org/release-group/${mbid}/front`;
+  it('адрес Cover Art Archive превращается в адрес обложки на нашем бэкенде с нужным размером', () => {
+    expect(coverSrc(`${base}-250`, 500)).toBe(`/api/covers/release-group/${mbid}/500`);
+    expect(coverSrc(`${base}-1200`, 250)).toBe(`/api/covers/release-group/${mbid}/250`);
+    expect(coverSrc(base, 250)).toBe(`/api/covers/release-group/${mbid}/250`);
+    expect(coverSrc(`https://coverartarchive.org/release/${mbid}/front`, 250)).toBe(`/api/covers/release/${mbid}/250`);
   });
   it('чужие адреса и пустые значения — как есть', () => {
     expect(coverSrc('https://example.com/x.jpg', 250)).toBe('https://example.com/x.jpg');
+    expect(coverSrc('https://coverartarchive.org/release-group/abc/front', 250)).toBe(
+      'https://coverartarchive.org/release-group/abc/front',
+    );
     expect(coverSrc(null, 250)).toBeNull();
     expect(coverSrc(undefined, 250)).toBeNull();
     expect(coverSrc('', 250)).toBeNull();

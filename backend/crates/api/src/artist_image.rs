@@ -1,4 +1,4 @@
-//! `GET /api/artist-image/{mbid}`: редирект на фото артиста.
+//! `GET /api/artist-image/{mbid}`: фото артиста (скачивается один раз и отдаётся из дискового кэша).
 //! MusicBrainz фото не хранит, поэтому: url-rels артиста → Wikidata (P18) → Wikimedia Commons;
 //! запасной вариант — поиск артиста в Deezer (только точное совпадение имени).
 //! Результат (в т.ч. «не найдено») кэшируется в `mb_cache`.
@@ -6,8 +6,8 @@
 use std::time::Duration;
 
 use axum::extract::{Path, State};
-use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::Response;
 use nimbus_db::repo::mb_cache;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -138,7 +138,7 @@ fn percent_decode(s: &str) -> String {
     tag = "library",
     params(("mbid" = Uuid, Path, description = "MBID артиста")),
     responses(
-        (status = 302, description = "Редирект на изображение"),
+        (status = 200, description = "Картинка (`image/*`); `Cache-Control: public, max-age=31536000, immutable`"),
         (status = 404, description = "Фото не найдено (`no_image`)", body = crate::error::ErrorResponse),
     )
 )]
@@ -161,22 +161,19 @@ pub async fn artist_image(
             found
         }
     };
-    match url {
-        Some(u) => {
-            let mut resp = StatusCode::FOUND.into_response();
-            if let Ok(v) = HeaderValue::from_str(&u) {
-                resp.headers_mut().insert(header::LOCATION, v);
-            }
-            resp.headers_mut().insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_static("private, max-age=86400"),
-            );
-            Ok(resp)
-        }
-        None => Err(ApiError::new(
+    let Some(u) = url else {
+        return Err(ApiError::new(
             StatusCode::NOT_FOUND,
             "no_image",
             "no artist image",
-        )),
-    }
+        ));
+    };
+    // Картинку берём один раз и отдаём с нашего origin навсегда (immutable), а не редиректом на внешний адрес.
+    crate::image_store::serve(
+        &state.config.data_dir,
+        &state.config.mb_user_agent,
+        &format!("artist-{mbid}"),
+        || async move { Ok(Some(u)) },
+    )
+    .await
 }
