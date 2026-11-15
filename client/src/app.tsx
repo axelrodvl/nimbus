@@ -17,7 +17,12 @@ export function App() {
           <RouterProvider router={router} />
         </ErrorBoundary>
         <IosViewportHeal />
-        <Toaster position="top-center" />
+        <Toaster
+          // Уведомления под вырезом/«островом» iPhone: отступ сверху считается от безопасной области.
+          mobileOffset={{ top: 'calc(env(safe-area-inset-top) + 12px)' }}
+          offset={{ top: 'calc(env(safe-area-inset-top) + 16px)' }}
+          position="top-center"
+        />
       </QueryClientProvider>
     </I18nProvider>
   );
