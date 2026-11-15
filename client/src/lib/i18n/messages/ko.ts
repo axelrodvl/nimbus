@@ -454,7 +454,6 @@ const messages: Messages = {
   'settings.connectionHint': '시험 검색을 실행하고 결과를 보여 줍니다.',
   'settings.cookie': '쿠키 (bb_session=…)',
   'settings.default': '기본값',
-  'settings.downloadsLink': '다운로드 및 검색',
   'settings.enabled': '사용',
   'settings.formatOrder': '형식 우선순위',
   'settings.formatOrderHint': '여러 음반이 맞으면 맨 위 형식을 우선합니다.',

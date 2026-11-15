@@ -450,7 +450,6 @@ const messages: Messages = {
   'settings.connectionHint': 'एक परीक्षण खोज चलाकर परिणाम दिखाता है।',
   'settings.cookie': 'कुकी (bb_session=…)',
   'settings.default': 'डिफ़ॉल्ट',
-  'settings.downloadsLink': 'डाउनलोड और खोज',
   'settings.enabled': 'सक्षम',
   'settings.formatOrder': 'फ़ॉर्मैट की प्राथमिकता का क्रम',
   'settings.formatOrderHint': 'कई रिलीज़ मिलने पर सबसे ऊपर का प्रारूप चुना जाता है।',

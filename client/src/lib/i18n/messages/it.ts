@@ -457,7 +457,6 @@ const messages: Messages = {
   'settings.connectionHint': 'Esegue una ricerca di prova e mostra il risultato.',
   'settings.cookie': 'Cookie (bb_session=…)',
   'settings.default': 'Predefinito',
-  'settings.downloadsLink': 'Download e ricerca',
   'settings.enabled': 'Attivo',
   'settings.formatOrder': 'Ordine di preferenza dei formati',
   'settings.formatOrderHint': 'Se più uscite corrispondono, si preferisce il formato in alto.',

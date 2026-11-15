@@ -3,7 +3,6 @@ import {
   ChevronRight,
   Cpu,
   Database,
-  Download,
   Globe,
   HardDriveDownload,
   Info,
@@ -95,14 +94,6 @@ export const SETTINGS_SECTIONS: readonly Section[] = [
     label: 'settings.perf',
     render: (s, ro) => <PerformanceSection readOnly={ro} settings={s} />,
     server: true,
-  },
-  {
-    href: '/downloads',
-    icon: Download,
-    id: 'downloads-link',
-    label: 'settings.downloadsLink',
-    render: () => null,
-    server: false,
   },
   {
     icon: HardDriveDownload,

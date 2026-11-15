@@ -449,7 +449,6 @@ const messages: Messages = {
   'settings.connectionHint': '执行一次试搜索并显示结果。',
   'settings.cookie': 'Cookie（bb_session=…）',
   'settings.default': '默认',
-  'settings.downloadsLink': '下载与搜索',
   'settings.enabled': '启用',
   'settings.formatOrder': '格式优先顺序',
   'settings.formatOrderHint': '多个版本匹配时优先使用最上面的格式。',

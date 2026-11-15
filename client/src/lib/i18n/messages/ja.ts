@@ -457,7 +457,6 @@ const messages: Messages = {
   'settings.connectionHint': '試験検索を実行して結果を表示します。',
   'settings.cookie': 'Cookie（bb_session=…）',
   'settings.default': '既定値',
-  'settings.downloadsLink': 'ダウンロードと検索',
   'settings.enabled': '有効',
   'settings.formatOrder': 'フォーマットの優先順位',
   'settings.formatOrderHint': '複数の盤が合う場合は一番上の形式を優先します。',

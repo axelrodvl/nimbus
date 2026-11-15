@@ -454,7 +454,6 @@ export const en = {
   'settings.connectionHint': 'Runs a trial search and shows the result.',
   'settings.cookie': 'Cookie (bb_session=…)',
   'settings.default': 'Default',
-  'settings.downloadsLink': 'Downloads and search',
   'settings.enabled': 'Enabled',
   'settings.formatOrder': 'Format preference order',
   'settings.formatOrderHint': 'The topmost format is preferred when several releases fit.',

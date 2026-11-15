@@ -89,9 +89,7 @@ describe('макет и маршруты', () => {
     setup('/settings/about');
     expect(await screen.findByTestId('settings-about')).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: L('settings.nav') });
-    expect(within(nav).getAllByRole('link')).toHaveLength(9);
-    // «Загрузки и поиск» — ссылка на другой экран, а не раздел настроек.
-    expect(within(nav).getByRole('link', { name: L('settings.downloadsLink') })).toHaveAttribute('href', '/downloads');
+    expect(within(nav).getAllByRole('link')).toHaveLength(8);
     expect(within(nav).getByRole('link', { name: L('settings.about') })).toHaveAttribute('aria-current', 'page');
   });
 

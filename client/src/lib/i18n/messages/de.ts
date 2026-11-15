@@ -462,7 +462,6 @@ const messages: Messages = {
   'settings.connectionHint': 'Führt eine Probesuche aus und zeigt das Ergebnis.',
   'settings.cookie': 'Cookie (bb_session=…)',
   'settings.default': 'Standard',
-  'settings.downloadsLink': 'Downloads und Suche',
   'settings.enabled': 'Aktiviert',
   'settings.formatOrder': 'Bevorzugte Reihenfolge der Formate',
   'settings.formatOrderHint': 'Das oberste Format wird bevorzugt, wenn mehrere Veröffentlichungen passen.',

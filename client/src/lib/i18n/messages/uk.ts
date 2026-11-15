@@ -457,7 +457,6 @@ const messages: Messages = {
   'settings.connectionHint': 'Виконує пробний пошук і показує результат.',
   'settings.cookie': 'Cookie (bb_session=…)',
   'settings.default': 'За замовчуванням',
-  'settings.downloadsLink': 'Завантаження і пошук',
   'settings.enabled': 'Увімкнено',
   'settings.formatOrder': 'Порядок переваги форматів',
   'settings.formatOrderHint': 'Якщо підходить кілька релізів, обирається верхній формат.',

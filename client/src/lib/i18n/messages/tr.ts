@@ -455,7 +455,6 @@ const messages: Messages = {
   'settings.connectionHint': 'Deneme araması yapar ve sonucu gösterir.',
   'settings.cookie': 'Çerez (bb_session=…)',
   'settings.default': 'Varsayılan',
-  'settings.downloadsLink': 'İndirmeler ve arama',
   'settings.enabled': 'Etkin',
   'settings.formatOrder': 'Biçim tercih sırası',
   'settings.formatOrderHint': 'Birden çok sürüm uyarsa en üstteki biçim seçilir.',
