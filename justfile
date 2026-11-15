@@ -131,5 +131,6 @@ test: backend-test client-test
 # Документация сверяется с кодом: пути OpenAPI ↔ docs/api.md, переменные NIMBUS_* ↔ docs/operations.md и .env.example.
 docs-check:
     bun scripts/check-docs.ts
+    ./scripts/check-rust-version.sh
 
 check: backend-check client-check docs-check

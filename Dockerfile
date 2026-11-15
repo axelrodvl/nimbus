@@ -14,7 +14,7 @@ ENV APP_VERSION=${APP_VERSION}
 RUN bun run build
 
 # --- Бэкенд ---
-FROM rust:1-bookworm AS backend-build
+FROM rust:1.99.1-bookworm AS backend-build
 WORKDIR /app
 COPY backend/Cargo.toml backend/Cargo.lock ./
 COPY backend/crates ./crates

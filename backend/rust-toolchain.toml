@@ -1,0 +1,6 @@
+# Единственный источник версии Rust: rustup (локально) и cargo берут её отсюда.
+# CI (.github/workflows/ci.yml) и Dockerfile закреплены на ту же версию — их сверяет scripts/check-rust-version.sh.
+# llvm-cov по-разному считает строки в разных rustc, поэтому обновлять осознанно, проверяя `just backend-cov`.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy", "llvm-tools-preview"]
