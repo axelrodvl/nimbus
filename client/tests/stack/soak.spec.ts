@@ -19,6 +19,7 @@ test.afterAll(() => {
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 });
 
+const stage = (m: string) => process.stdout.write(`[soak ${new Date().toISOString()}] ${m}\n`);
 const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(xs.length, 1);
 
 /** Потоки и открытые файлы главного процесса бэкенда (ориентир утечки задач и дескрипторов). */
@@ -36,17 +37,21 @@ async function procStats() {
 }
 
 test('воспроизведение, навигация и импорт идут 30 минут без деградации', async ({ page }) => {
+  stage('start');
   await waitHealthy();
   for (const i of [0, 1, 2]) {
     await api('/api/library', { method: 'POST', json: { type: 'artist', mbid: await artistMbid(i) } });
   }
+  stage('artists added');
   await page.goto('/login');
   await page.getByLabel('Токен доступа').fill(token);
   await page.getByRole('button', { name: 'Войти' }).click();
   await expect(page).toHaveURL(/\/$/);
+  stage('logged in');
   await page.goto('/library/albums');
   const card = page.getByTestId('album-card').first();
   await expect(card).toBeVisible({ timeout: 120_000 });
+  stage('library visible');
   await card.click();
   await expect(page.getByTestId('track-row').first().locator('[data-status]')).toHaveAttribute(
     'data-status',
@@ -54,6 +59,7 @@ test('воспроизведение, навигация и импорт иду�
     { timeout: 120_000 },
   );
 
+  stage('tracks found');
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Performance.enable');
   const heap = async () => {
@@ -66,8 +72,13 @@ test('воспроизведение, навигация и импорт иду�
       return a ? { t: a.currentTime, paused: a.paused, ended: a.ended, src: a.currentSrc } : null;
     });
   const play = async () => {
-    const btn = page.getByTestId('play-album').first();
-    if (await btn.isVisible()) await btn.click();
+    // Строки играют и пока файл только найден (`found`); кнопка альбома ждёт скачанных треков.
+    await page
+      .getByTestId('track-row')
+      .first()
+      .getByRole('button', { name: /^Играть:/ })
+      .click({ timeout: 10_000 })
+      .catch(() => undefined);
   };
 
   const start = Date.now();
@@ -85,10 +96,12 @@ test('воспроизведение, навигация и импорт иду�
   const routes = ['/library/albums', '/library/artists', '/library/tracks', '/downloads', '/settings'];
   let routeIx = 0;
 
+  stage('loop');
   await play();
   while (Date.now() - start < DURATION_MS) {
     const now = Date.now();
     const a = await audio();
+    if (Math.floor((now - start) / 10_000) !== Math.floor((lastProgress.at - start) / 10_000)) stage(`tick ${JSON.stringify(a)}`);
     if (a) {
       const progressed = a.src !== lastProgress.src || Math.abs(a.t - lastProgress.t) > 0.05;
       if (progressed) {
@@ -108,15 +121,17 @@ test('воспроизведение, навигация и импорт иду�
     }
     if (now >= nextNav) {
       const route = routes[routeIx++ % routes.length]!;
+      stage(`nav ${route}`);
       await page.evaluate(r => {
         history.pushState(null, '', r);
         window.dispatchEvent(new PopStateEvent('popstate'));
       }, route);
       nextNav = now + 8000;
     }
-    if (now >= nextImport && nextArtist < Number(process.env.NIMBUS_FAKE_ARTISTS ?? 20)) {
+    // Импорт идёт только в начале прогона: окна сравнения (1/3 и конец) должны мерить устойчивое состояние, а не рост библиотеки.
+    if (now - start < DURATION_MS * 0.2 && now >= nextImport && nextArtist < Number(process.env.NIMBUS_FAKE_ARTISTS ?? 20)) {
       await api('/api/library', { method: 'POST', json: { type: 'artist', mbid: await artistMbid(nextArtist++) } });
-      nextImport = now + 20_000;
+      nextImport = now + 5000;
     }
     if (now >= nextSample) {
       heapSamples.push({ at: now - start, v: await heap() });

@@ -20,6 +20,6 @@ export default defineConfig({
   testDir: './tests/stack',
   testMatch: process.env.LOAD_SPEC ?? 'load.spec.ts',
   timeout: 45 * 60_000,
-  use: { baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:8011' },
+  use: { actionTimeout: 20_000, baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:8011' },
   workers: 1,
 });
