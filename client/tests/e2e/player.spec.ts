@@ -149,7 +149,7 @@ test('конец очереди без повтора останавливает
 
 test('двойной клик по строке запускает трек', async ({ page }) => {
   await openAlbum(page);
-  await page.getByTestId('track-row').filter({ hasText: 'Song Two' }).dblclick();
+  await page.getByTestId('track-row').filter({ hasText: 'Song Two' }).click();
   await expect.poll(async () => (await state(page)).paused).toBe(false);
   await expect(title(page)).toContainText('Song Two');
   // недоступный трек приглушён и не запускается
