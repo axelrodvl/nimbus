@@ -132,11 +132,19 @@ impl JobCtx {
     }
 }
 
+/// Сколько живёт задача, которую раз за разом откладывают «без вины» (`JobError::Defer`), прежде чем
+/// её признают неудавшейся: дальше нужен ручной или плановый повтор, а не бесконечное ожидание.
+pub const DEFER_MAX_AGE: Duration = Duration::from_secs(6 * 3600);
+
 #[derive(Debug, thiserror::Error)]
 pub enum JobError {
     /// Временная ошибка: повторить через `after`.
     #[error("retry in {after:?}: {reason}")]
     Retry { after: Duration, reason: String },
+    /// Отложить без траты попытки: причина не в задаче (провайдер недоступен, предохранитель разомкнут).
+    /// Задача старше [`DEFER_MAX_AGE`] после такого ответа становится `failed`.
+    #[error("deferred for {after:?}: {reason}")]
+    Defer { after: Duration, reason: String },
     /// Не повторять.
     #[error("fatal: {0}")]
     Fatal(String),
@@ -216,7 +224,7 @@ impl Default for WorkerConfig {
             tombstone_retention: nimbus_db::repo::sync::TOMBSTONE_RETENTION,
             shutdown_timeout: Duration::from_secs(10),
             evict_interval: Some(Duration::from_secs(10 * 60)),
-            retry_missing_interval: Some(Duration::from_secs(15 * 60)),
+            retry_missing_interval: Some(Duration::from_secs(5 * 60)),
         }
     }
 }
@@ -609,6 +617,18 @@ async fn process(
             tracing::info!(job_id = row.id, kind = %row.kind, "job cancelled, returned to the queue");
             if let Err(e) = jobs::release(&ctx.db, row.id).await {
                 tracing::error!(job_id = row.id, error = %e, "release failed");
+            }
+            return;
+        }
+        Ok(Err(JobError::Defer { after, reason })) => {
+            let retry_at = Utc::now() + chrono::Duration::from_std(after).unwrap_or_default();
+            tracing::info!(job_id = row.id, kind = %row.kind, %reason, ?after, "job deferred");
+            match jobs::defer(&ctx.db, row.id, &reason, retry_at, DEFER_MAX_AGE).await {
+                Ok(updated) if updated.state == "failed" => {
+                    run_exhausted(handler, &job, ctx, row.id, &reason).await;
+                }
+                Ok(_) => handler.on_retry(&job, ctx, &reason).await,
+                Err(e) => tracing::error!(job_id = row.id, error = %e, "defer update failed"),
             }
             return;
         }

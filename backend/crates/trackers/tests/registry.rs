@@ -153,21 +153,25 @@ async fn search(
 // ------------------------------------------------------------ предохранитель
 
 #[tokio::test(start_paused = true)]
-async fn breaker_opens_after_three_failures_and_skips_http() {
+async fn breaker_opens_after_threshold_failures_and_skips_http() {
     let p = Scripted::new(TorrentSource::Tpb, vec![blocked(); 10]);
-    let reg = ProviderRegistry::new(vec![p.clone()]);
+    let reg = ProviderRegistry::new(vec![p.clone()]).with_retries(0);
     for i in 0..BREAKER_THRESHOLD {
         assert!(matches!(
             search(&reg, &format!("q{i}")).await,
             Err(ProviderError::Blocked(_))
         ));
     }
-    assert_eq!(p.calls(), 3);
+    assert_eq!(p.calls(), BREAKER_THRESHOLD as usize);
     assert!(matches!(
         search(&reg, "q-next").await,
         Err(ProviderError::CircuitOpen)
     ));
-    assert_eq!(p.calls(), 3, "open breaker must not call the provider");
+    assert_eq!(
+        p.calls(),
+        BREAKER_THRESHOLD as usize,
+        "open breaker must not call the provider"
+    );
 
     let h = reg.health();
     assert_eq!(h.len(), 1);
@@ -177,11 +181,11 @@ async fn breaker_opens_after_three_failures_and_skips_http() {
 
 #[tokio::test(start_paused = true)]
 async fn breaker_probes_after_pause_and_success_closes_it() {
-    let mut script = vec![blocked(); 3];
+    let mut script = vec![blocked(); BREAKER_THRESHOLD as usize];
     script.push(Ok(2));
     let p = Scripted::new(TorrentSource::Tpb, script);
-    let reg = ProviderRegistry::new(vec![p.clone()]);
-    for i in 0..3 {
+    let reg = ProviderRegistry::new(vec![p.clone()]).with_retries(0);
+    for i in 0..BREAKER_THRESHOLD {
         let _ = search(&reg, &format!("q{i}")).await;
     }
     tokio::time::advance(BREAKER_PAUSES[0] - Duration::from_secs(1)).await;
@@ -191,18 +195,18 @@ async fn breaker_probes_after_pause_and_success_closes_it() {
     ));
     tokio::time::advance(Duration::from_secs(2)).await;
     assert_eq!(search(&reg, "probe").await.unwrap().len(), 2);
-    assert_eq!(p.calls(), 4);
+    assert_eq!(p.calls(), BREAKER_THRESHOLD as usize + 1);
     assert!(!reg.health()[0].open);
     // Замкнут: дальше запросы идут обычно.
     assert!(search(&reg, "after").await.is_ok());
-    assert_eq!(p.calls(), 5);
+    assert_eq!(p.calls(), BREAKER_THRESHOLD as usize + 2);
 }
 
 #[tokio::test(start_paused = true)]
 async fn breaker_pause_grows_when_probe_fails() {
     let p = Scripted::new(TorrentSource::Tpb, vec![blocked(); 20]);
-    let reg = ProviderRegistry::new(vec![p.clone()]);
-    for i in 0..3 {
+    let reg = ProviderRegistry::new(vec![p.clone()]).with_retries(0);
+    for i in 0..BREAKER_THRESHOLD {
         let _ = search(&reg, &format!("q{i}")).await;
     }
     // Первая пауза — 60 с; пробный запрос падает → вторая пауза — 2 мин.
@@ -211,7 +215,7 @@ async fn breaker_pause_grows_when_probe_fails() {
         search(&reg, "probe1").await,
         Err(ProviderError::Blocked(_))
     ));
-    assert_eq!(p.calls(), 4);
+    assert_eq!(p.calls(), BREAKER_THRESHOLD as usize + 1);
     tokio::time::advance(BREAKER_PAUSES[0] + Duration::from_secs(1)).await;
     assert!(matches!(
         search(&reg, "still-open").await,
@@ -222,7 +226,7 @@ async fn breaker_pause_grows_when_probe_fails() {
         search(&reg, "probe2").await,
         Err(ProviderError::Blocked(_))
     ));
-    assert_eq!(p.calls(), 5);
+    assert_eq!(p.calls(), BREAKER_THRESHOLD as usize + 2);
 }
 
 #[tokio::test(start_paused = true)]
@@ -231,7 +235,7 @@ async fn auth_error_opens_breaker_immediately() {
         TorrentSource::Rutracker,
         vec![Err(ProviderError::Auth("captcha".into()))],
     );
-    let reg = ProviderRegistry::new(vec![p.clone()]);
+    let reg = ProviderRegistry::new(vec![p.clone()]).with_retries(0);
     assert!(matches!(
         search(&reg, "a").await,
         Err(ProviderError::Auth(_))
@@ -250,7 +254,7 @@ async fn success_resets_failure_streak_and_breakers_are_per_provider() {
         vec![blocked(), blocked(), Ok(1), blocked(), blocked()],
     );
     let other = Scripted::new(TorrentSource::Torznab, vec![blocked(); 5]);
-    let reg = ProviderRegistry::new(vec![flaky.clone(), other.clone()]);
+    let reg = ProviderRegistry::new(vec![flaky.clone(), other.clone()]).with_retries(0);
     for i in 0..5 {
         let _ = reg.search_all(&SearchQuery::text(format!("q{i}"))).await;
     }
@@ -258,7 +262,7 @@ async fn success_resets_failure_streak_and_breakers_are_per_provider() {
     let res = reg.search_all(&SearchQuery::text("last")).await;
     assert_eq!(flaky.calls(), 6);
     assert!(matches!(res[1].1, Err(ProviderError::CircuitOpen)));
-    assert_eq!(other.calls(), 3);
+    assert_eq!(other.calls(), BREAKER_THRESHOLD as usize);
 }
 
 #[tokio::test(start_paused = true)]
@@ -269,7 +273,7 @@ async fn parse_errors_do_not_open_breaker() {
             .map(|_| Err(ProviderError::Parse("bad".into())))
             .collect(),
     );
-    let reg = ProviderRegistry::new(vec![p.clone()]);
+    let reg = ProviderRegistry::new(vec![p.clone()]).with_retries(0);
     for i in 0..5 {
         assert!(matches!(
             search(&reg, &format!("q{i}")).await,
@@ -282,8 +286,10 @@ async fn parse_errors_do_not_open_breaker() {
 #[tokio::test(start_paused = true)]
 async fn timeout_counts_as_failure() {
     let p = Scripted::slow(TorrentSource::Tpb, Duration::from_secs(3600));
-    let reg = ProviderRegistry::new(vec![p.clone()]).with_timeout(Duration::from_secs(1));
-    for i in 0..3 {
+    let reg = ProviderRegistry::new(vec![p.clone()])
+        .with_retries(0)
+        .with_timeout(Duration::from_secs(1));
+    for i in 0..BREAKER_THRESHOLD {
         assert!(matches!(
             search(&reg, &format!("q{i}")).await,
             Err(ProviderError::Timeout)
@@ -311,8 +317,9 @@ fn reload_resets_breakers_and_cache() {
         .unwrap();
     rt.block_on(async {
         let reg =
-            ProviderRegistry::new(vec![Scripted::new(TorrentSource::Tpb, vec![blocked(); 5])]);
-        for i in 0..3 {
+            ProviderRegistry::new(vec![Scripted::new(TorrentSource::Tpb, vec![blocked(); 5])])
+                .with_retries(0);
+        for i in 0..BREAKER_THRESHOLD {
             let _ = search(&reg, &format!("q{i}")).await;
         }
         assert!(reg.health()[0].open);
@@ -329,7 +336,7 @@ fn reload_resets_breakers_and_cache() {
 #[tokio::test(start_paused = true)]
 async fn identical_queries_hit_the_provider_once() {
     let p = Scripted::new(TorrentSource::Tpb, vec![Ok(3)]);
-    let reg = ProviderRegistry::new(vec![p.clone()]);
+    let reg = ProviderRegistry::new(vec![p.clone()]).with_retries(0);
     assert_eq!(search(&reg, "Artist Album").await.unwrap().len(), 3);
     // Нормализация: регистр и пробелы не важны.
     assert_eq!(search(&reg, "  artist   ALBUM ").await.unwrap().len(), 3);
@@ -339,7 +346,7 @@ async fn identical_queries_hit_the_provider_once() {
 #[tokio::test(start_paused = true)]
 async fn cache_entry_expires_after_ttl() {
     let p = Scripted::new(TorrentSource::Tpb, vec![Ok(1), Ok(2)]);
-    let reg = ProviderRegistry::new(vec![p.clone()]);
+    let reg = ProviderRegistry::new(vec![p.clone()]).with_retries(0);
     assert_eq!(search(&reg, "q").await.unwrap().len(), 1);
     tokio::time::advance(CACHE_TTL + Duration::from_secs(1)).await;
     assert_eq!(search(&reg, "q").await.unwrap().len(), 2);
@@ -349,7 +356,7 @@ async fn cache_entry_expires_after_ttl() {
 #[tokio::test(start_paused = true)]
 async fn concurrent_identical_queries_are_single_flight() {
     let p = Scripted::slow(TorrentSource::Tpb, Duration::from_secs(1));
-    let reg = ProviderRegistry::new(vec![p.clone()]);
+    let reg = ProviderRegistry::new(vec![p.clone()]).with_retries(0);
     let q = SearchQuery::text("same");
     let (a, b, c) = tokio::join!(reg.search_all(&q), reg.search_all(&q), reg.search_all(&q));
     assert_eq!(p.calls(), 1);
@@ -362,7 +369,7 @@ async fn concurrent_identical_queries_are_single_flight() {
 async fn providers_do_not_share_cache() {
     let a = Scripted::new(TorrentSource::Tpb, vec![]);
     let b = Scripted::new(TorrentSource::Torznab, vec![]);
-    let reg = ProviderRegistry::new(vec![a.clone(), b.clone()]);
+    let reg = ProviderRegistry::new(vec![a.clone(), b.clone()]).with_retries(0);
     reg.search_all(&SearchQuery::text("q")).await;
     reg.search_all(&SearchQuery::text("q")).await;
     assert_eq!((a.calls(), b.calls()), (1, 1));
@@ -371,7 +378,7 @@ async fn providers_do_not_share_cache() {
 #[tokio::test(start_paused = true)]
 async fn structured_query_fields_are_part_of_the_key() {
     let p = Scripted::new(TorrentSource::Torznab, vec![]);
-    let reg = ProviderRegistry::new(vec![p.clone()]);
+    let reg = ProviderRegistry::new(vec![p.clone()]).with_retries(0);
     let mut q = SearchQuery::text("q");
     reg.search_all(&q).await;
     q.artist = Some("A".into());
@@ -383,7 +390,7 @@ async fn structured_query_fields_are_part_of_the_key() {
 #[tokio::test(start_paused = true)]
 async fn errors_are_not_cached() {
     let p = Scripted::new(TorrentSource::Tpb, vec![blocked(), Ok(1)]);
-    let reg = ProviderRegistry::new(vec![p.clone()]);
+    let reg = ProviderRegistry::new(vec![p.clone()]).with_retries(0);
     assert!(search(&reg, "q").await.is_err());
     assert_eq!(search(&reg, "q").await.unwrap().len(), 1);
     assert_eq!(p.calls(), 2);
@@ -392,7 +399,7 @@ async fn errors_are_not_cached() {
 #[tokio::test(start_paused = true)]
 async fn cache_is_bounded_lru() {
     let p = Scripted::new(TorrentSource::Tpb, vec![]);
-    let reg = ProviderRegistry::new(vec![p.clone()]);
+    let reg = ProviderRegistry::new(vec![p.clone()]).with_retries(0);
     for i in 0..CACHE_CAPACITY + 10 {
         search(&reg, &format!("q{i}")).await.unwrap();
     }
@@ -408,12 +415,12 @@ async fn cache_is_bounded_lru() {
 
 #[tokio::test(start_paused = true)]
 async fn parse_error_during_probe_does_not_block_following_probes() {
-    let mut script = vec![blocked(); 3];
+    let mut script = vec![blocked(); BREAKER_THRESHOLD as usize];
     script.push(Err(ProviderError::Parse("bad".into())));
     script.push(Ok(1));
     let p = Scripted::new(TorrentSource::Tpb, script);
-    let reg = ProviderRegistry::new(vec![p.clone()]);
-    for i in 0..3 {
+    let reg = ProviderRegistry::new(vec![p.clone()]).with_retries(0);
+    for i in 0..BREAKER_THRESHOLD {
         let _ = search(&reg, &format!("q{i}")).await;
     }
     tokio::time::advance(BREAKER_PAUSES[0] + Duration::from_secs(1)).await;
@@ -423,7 +430,7 @@ async fn parse_error_during_probe_does_not_block_following_probes() {
     ));
     // Пробный запрос закончился (не отказом) — следующий сразу идёт к провайдеру.
     assert!(search(&reg, "next").await.is_ok());
-    assert_eq!(p.calls(), 5);
+    assert_eq!(p.calls(), BREAKER_THRESHOLD as usize + 2);
 }
 
 /// Параллельные запросы, начатые до размыкания, не удлиняют паузу (в бою было 60 → 120 → 300 с за 2 с).
@@ -433,16 +440,22 @@ async fn in_flight_failures_do_not_escalate_the_pause() {
         source: TorrentSource::Rutracker,
         calls: AtomicUsize::new(0),
         script: Mutex::new(
-            (0..5)
+            (0..BREAKER_THRESHOLD + 5)
                 .map(|_| Err(ProviderError::Auth("403".into())))
                 .collect(),
         ),
         delay: Duration::from_millis(100),
     });
-    let reg = ProviderRegistry::new(vec![p.clone()]);
-    let q: Vec<_> = (0..3).map(|i| SearchQuery::text(format!("q{i}"))).collect();
+    let reg = ProviderRegistry::new(vec![p.clone()]).with_retries(0);
+    let q: Vec<_> = (0..BREAKER_THRESHOLD)
+        .map(|i| SearchQuery::text(format!("q{i}")))
+        .collect();
     let _ = futures::future::join_all(q.iter().map(|q| reg.search_all(q))).await;
-    assert_eq!(p.calls(), 3, "все три ушли до размыкания");
+    assert_eq!(
+        p.calls(),
+        BREAKER_THRESHOLD as usize,
+        "все запросы ушли до размыкания"
+    );
 
     // Пауза — первая (60 с), а не 300: через минуту пробный запрос уже разрешён.
     tokio::time::advance(BREAKER_PAUSES[0] + Duration::from_secs(1)).await;
@@ -450,7 +463,7 @@ async fn in_flight_failures_do_not_escalate_the_pause() {
         search(&reg, "probe").await,
         Err(ProviderError::Auth(_))
     ));
-    assert_eq!(p.calls(), 4);
+    assert_eq!(p.calls(), BREAKER_THRESHOLD as usize + 1);
 }
 
 /// Отменённый поиск (все ожидающие ушли) доводится до конца сам: запись «в полёте» не зависает
@@ -470,7 +483,7 @@ async fn search_survives_the_cancellation_of_everyone_waiting_for_it() {
         }
     }
     let finished = Arc::new(AtomicUsize::new(0));
-    let reg = ProviderRegistry::new(vec![Arc::new(Slow(finished.clone()))]);
+    let reg = ProviderRegistry::new(vec![Arc::new(Slow(finished.clone()))]).with_retries(0);
     let q = SearchQuery::text("radiohead");
     assert!(
         tokio::time::timeout(Duration::from_millis(10), reg.search_all(&q))
@@ -483,4 +496,77 @@ async fn search_survives_the_cancellation_of_everyone_waiting_for_it() {
     // Результат лежит в кэше: повторный запрос провайдера не тревожит.
     reg.search_all(&q).await;
     assert_eq!(finished.load(Ordering::SeqCst), 1);
+}
+
+// ------------------------------------------------------ повторы внутри запроса
+
+#[tokio::test(start_paused = true)]
+async fn transient_errors_are_retried_inside_one_request() {
+    // Два сбоя подряд, затем успех: запрос в итоге удался, предохранитель не пострадал.
+    let p = Scripted::new(
+        TorrentSource::Tpb,
+        vec![blocked(), Err(ProviderError::Timeout), Ok(2)],
+    );
+    let reg = ProviderRegistry::new(vec![p.clone()]);
+    assert_eq!(search(&reg, "q").await.unwrap().len(), 2);
+    assert_eq!(p.calls(), 3);
+    assert!(!reg.health()[0].open);
+}
+
+#[tokio::test(start_paused = true)]
+async fn rate_limit_and_auth_are_not_retried() {
+    let p = Scripted::new(
+        TorrentSource::Tpb,
+        vec![
+            Err(ProviderError::RateLimited),
+            Err(ProviderError::Auth("x".into())),
+        ],
+    );
+    let reg = ProviderRegistry::new(vec![p.clone()]);
+    assert!(matches!(
+        search(&reg, "a").await,
+        Err(ProviderError::RateLimited)
+    ));
+    assert_eq!(p.calls(), 1);
+    assert!(matches!(
+        search(&reg, "b").await,
+        Err(ProviderError::Auth(_))
+    ));
+    assert_eq!(p.calls(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn random_flakiness_does_not_open_the_breaker() {
+    // Каждый третий запрос падает (≈ 33 % отказов): с повторами все запросы успешны, предохранитель закрыт.
+    struct Flaky(AtomicUsize);
+    #[async_trait]
+    impl TorrentProvider for Flaky {
+        fn source(&self) -> TorrentSource {
+            TorrentSource::Torznab
+        }
+        async fn search(&self, _q: &SearchQuery) -> Result<Vec<TorrentCandidate>, ProviderError> {
+            if self.0.fetch_add(1, Ordering::SeqCst) % 3 == 0 {
+                Err(ProviderError::Blocked("HTTP 503".into()))
+            } else {
+                Ok(vec![])
+            }
+        }
+    }
+    let reg = ProviderRegistry::new(vec![Arc::new(Flaky(AtomicUsize::new(0)))]);
+    for i in 0..200 {
+        assert!(search(&reg, &format!("q{i}")).await.is_ok(), "query {i}");
+    }
+    assert!(!reg.health()[0].open);
+}
+
+#[tokio::test(start_paused = true)]
+async fn dead_provider_still_opens_the_breaker_after_retries() {
+    let p = Scripted::new(TorrentSource::Tpb, vec![blocked(); 100]);
+    let reg = ProviderRegistry::new(vec![p.clone()]);
+    for i in 0..BREAKER_THRESHOLD {
+        assert!(search(&reg, &format!("q{i}")).await.is_err());
+    }
+    assert!(reg.health()[0].open);
+    // Каждый запрос — исходная попытка и два повтора.
+    assert_eq!(p.calls(), BREAKER_THRESHOLD as usize * 3);
 }

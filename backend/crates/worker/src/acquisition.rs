@@ -8,7 +8,7 @@ use nimbus_library::retry::{publish_tracks, retry_album_in, RetryOptions};
 use crate::runner::{JobCtx, JobError, JobHandler};
 
 /// Сколько альбомов берёт один запуск (остальные дождутся следующего).
-pub const BATCH: i64 = 50;
+pub const BATCH: i64 = 200;
 
 pub struct RetryMissingHandler;
 
@@ -27,7 +27,8 @@ impl JobHandler for RetryMissingHandler {
         }
         let opts = RetryOptions {
             priority: PRIORITY_BACKGROUND,
-            reset_dead: false,
+            // Раздача могла быть «мёртвой» лишь потому, что раздающий был офлайн: даём ей новую проверку.
+            reset_dead: true,
             manual: false,
         };
         let mut tx = ctx.db.begin().await?;

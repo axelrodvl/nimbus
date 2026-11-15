@@ -218,6 +218,8 @@ enum Behavior {
     Hang,
     /// Работает заданное время, затем успех.
     Sleep(Duration),
+    /// Просит отложить задачу без траты попытки (провайдер недоступен).
+    Defer,
 }
 
 struct Probe {
@@ -265,6 +267,10 @@ impl JobHandler for Probe {
                 ctx.cancel.cancelled().await;
                 Err(JobError::Cancelled)
             }
+            Behavior::Defer => Err(JobError::Defer {
+                after: Duration::from_secs(3600),
+                reason: "providers paused".into(),
+            }),
             Behavior::Hang => std::future::pending().await,
             Behavior::Sleep(d) => {
                 tokio::time::sleep(d).await;
@@ -683,4 +689,37 @@ async fn with_engine_wires_engine_fetcher_and_files(pool: PgPool) {
     let c = ctx(&pool).with_engine(engine.clone());
     assert!(c.engine().is_ok() && c.fetcher().is_ok() && c.files().is_ok());
     engine.shutdown().await;
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn deferred_job_waits_without_spending_an_attempt(pool: PgPool) {
+    let probe = Probe::new(Behavior::Defer);
+    let w = spawn_probe(&pool, &probe, fast_cfg());
+    // Даже одна-единственная попытка не кончается: отложенная задача остаётся в очереди.
+    let id = enqueue_album(&pool, Some(1)).await;
+    nimbus_testkit::eventually(Duration::from_secs(5), || async { probe.retried() >= 1 }).await;
+    let row = get_row(&pool, id).await;
+    assert_eq!(row.state, "queued");
+    assert_eq!(row.attempts, 0, "попытка не потрачена");
+    assert!(row.run_after > chrono::Utc::now() + chrono::Duration::minutes(50));
+    assert_eq!(row.last_error.as_deref(), Some("providers paused"));
+    assert_eq!((probe.calls(), probe.exhausted()), (1, 0));
+    w.shutdown().await;
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn endlessly_deferred_job_eventually_fails_and_runs_the_exhausted_hook(pool: PgPool) {
+    let probe = Probe::new(Behavior::Defer);
+    let id = enqueue_album(&pool, None).await;
+    // Задача создана давно: терпение кончилось.
+    sqlx::query("UPDATE jobs SET created_at = now() - interval '7 hours' WHERE id = $1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let w = spawn_probe(&pool, &probe, fast_cfg());
+    wait_state(&pool, id, "failed").await;
+    nimbus_testkit::eventually(Duration::from_secs(5), || async { probe.exhausted() >= 1 }).await;
+    assert_eq!(probe.exhausted(), 1);
+    w.shutdown().await;
 }

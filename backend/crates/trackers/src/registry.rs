@@ -20,8 +20,13 @@ pub const PROVIDER_TIMEOUT: Duration = Duration::from_secs(12);
 /// Таймаут установки соединения.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Сколько подряд неудач размыкают предохранитель.
-pub const BREAKER_THRESHOLD: u32 = 3;
+/// Сколько подряд неудач (уже после повторов внутри запроса) размыкают предохранитель.
+/// Единичные сбои сети и 5xx — норма для публичных трекеров, они не должны выключать провайдера.
+pub const BREAKER_THRESHOLD: u32 = 5;
+/// Сколько раз повторяется запрос при временной ошибке (сеть, таймаут, 5xx), прежде чем считать его неудачей.
+pub const REQUEST_RETRIES: u32 = 2;
+/// Паузы между повторами одного запроса (растут вдвое).
+pub const REQUEST_RETRY_DELAY: Duration = Duration::from_millis(300);
 /// Паузы разомкнутого предохранителя: 1-е, 2-е, 3-е и последующие срабатывания подряд.
 pub const BREAKER_PAUSES: [Duration; 4] = [
     Duration::from_secs(60),
@@ -107,6 +112,8 @@ pub struct ProviderHealth {
 pub struct ProviderRegistry {
     providers: RwLock<Vec<Arc<dyn TorrentProvider>>>,
     pub timeout: Duration,
+    /// Повторов временной ошибки внутри одного запроса.
+    pub retries: u32,
     state: Arc<Mutex<State>>,
 }
 
@@ -114,6 +121,42 @@ pub type SearchOutcome = (TorrentSource, Result<Vec<TorrentCandidate>, ProviderE
 
 fn lock(state: &Mutex<State>) -> std::sync::MutexGuard<'_, State> {
     state.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Стоит ли повторить запрос сразу: сеть, таймаут, 5xx. Лимит (429), блокировка и авторизация — нет:
+/// повтор только злит сайт.
+fn is_transient(e: &ProviderError) -> bool {
+    match e {
+        ProviderError::Network(_) | ProviderError::Timeout => true,
+        ProviderError::Blocked(m) => m.starts_with("HTTP 5"),
+        _ => false,
+    }
+}
+
+/// Запрос к провайдеру с таймаутом на каждую попытку и повторами временных ошибок.
+async fn search_with_retries(
+    provider: &dyn TorrentProvider,
+    query: &SearchQuery,
+    timeout: Duration,
+    retries: u32,
+) -> Result<Vec<TorrentCandidate>, ProviderError> {
+    let mut delay = REQUEST_RETRY_DELAY;
+    let mut attempt = 0;
+    loop {
+        let res = match tokio::time::timeout(timeout, provider.search(query)).await {
+            Ok(r) => r,
+            Err(_) => Err(ProviderError::Timeout),
+        };
+        match res {
+            Err(e) if attempt < retries && is_transient(&e) => {
+                tracing::debug!(error = %e, attempt, "provider request failed, retrying");
+                tokio::time::sleep(delay).await;
+                delay *= 2;
+                attempt += 1;
+            }
+            other => return other,
+        }
+    }
 }
 
 /// Считается ли ошибка признаком нездоровья провайдера (а не особенностью запроса).
@@ -172,6 +215,7 @@ impl ProviderRegistry {
         Self {
             providers: RwLock::new(providers),
             timeout: PROVIDER_TIMEOUT,
+            retries: REQUEST_RETRIES,
             state: Arc::new(Mutex::new(State::default())),
         }
     }
@@ -213,6 +257,12 @@ impl ProviderRegistry {
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
+        self
+    }
+
+    /// Сколько раз повторять запрос при временной ошибке (0 — не повторять).
+    pub fn with_retries(mut self, retries: u32) -> Self {
+        self.retries = retries;
         self
     }
 
@@ -276,12 +326,12 @@ impl ProviderRegistry {
             if let Some(f) = st.inflight.get(&key) {
                 f.clone()
             } else {
-                let timeout = self.timeout;
+                let (timeout, retries) = (self.timeout, self.retries);
                 let allowed = st
                     .breakers
                     .entry(source)
                     .or_default()
-                    .allow(now, timeout + Duration::from_secs(1));
+                    .allow(now, timeout * (retries + 1) + Duration::from_secs(5));
                 if !allowed {
                     return Err(ProviderError::CircuitOpen);
                 }
@@ -292,11 +342,9 @@ impl ProviderRegistry {
                 // если все ожидающие ушли (запрос отменён), будущее зависло бы в `inflight` навсегда.
                 // Задача ограничена таймаутом провайдера, поэтому отдельно её не отслеживаем.
                 let task = tokio::spawn(async move {
-                    let res = match tokio::time::timeout(timeout, provider.search(&query)).await {
-                        Ok(r) => r,
-                        Err(_) => Err(ProviderError::Timeout),
-                    };
-                    let res = res.map(Arc::new);
+                    let res = search_with_retries(provider.as_ref(), &query, timeout, retries)
+                        .await
+                        .map(Arc::new);
                     let mut st = lock(&state);
                     if st.epoch == epoch {
                         st.inflight.remove(&k);

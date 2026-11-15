@@ -349,11 +349,17 @@ async fn provider_errors_retry_then_not_found_on_last_attempt(pool: PgPool) {
 
     let (c, _) = ctx(&pool, Some(failing()), 1, 5);
     match discover_album(&c, album_id).await {
-        Err(JobError::Retry { after, .. }) => assert_eq!(after.as_secs(), 600),
+        Err(JobError::Retry { after, .. }) => assert_eq!(after.as_secs(), 30),
         other => panic!("expected Retry, got {other:?}"),
     }
     for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
         assert_eq!(t.status, TrackStatus::Adding);
+    }
+    // Паузы между повторами растут, но остаются короткими (минуты, а не часы).
+    let (c, _) = ctx(&pool, Some(failing()), 3, 5);
+    match discover_album(&c, album_id).await {
+        Err(JobError::Retry { after, .. }) => assert_eq!(after.as_secs(), 300),
+        other => panic!("expected Retry, got {other:?}"),
     }
 
     let (c, _) = ctx(&pool, Some(failing()), 5, 5);
@@ -975,7 +981,12 @@ async fn exhausted_search_finishes_as_search_failed(pool: PgPool) {
         (s.attempts, s.last_outcome),
         (1, Some(SearchOutcome::SearchFailed))
     );
-    assert!(s.next_retry_at.is_some());
+    // «Не смогли спросить провайдеров» повторяется скоро (10 минут), а не через 6 часов, как «ничего нет».
+    let wait = s.next_retry_at.unwrap() - chrono::Utc::now();
+    assert!(
+        wait > chrono::Duration::minutes(9) && wait <= chrono::Duration::minutes(10),
+        "{wait}"
+    );
     for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
         assert_eq!(t.status_reason.as_deref(), Some("search_failed"));
     }
@@ -1127,4 +1138,68 @@ async fn manual_retry_resets_auto_retries_and_raises_priority(pool: PgPool) {
         .unwrap()
         .unwrap();
     assert_eq!((s.auto_retries, s.next_retry_at), (0, None));
+}
+
+// ------------------------------------------- неокончательный поиск: «не смогли спросить» ≠ «не найдено»
+
+/// Провайдер, который предохранитель уже отключил: каждый запрос — `CircuitOpen` без обращения в сеть.
+fn tripped_registry() -> Arc<ProviderRegistry> {
+    struct Down;
+    #[async_trait]
+    impl TorrentProvider for Down {
+        fn source(&self) -> TorrentSource {
+            TorrentSource::Tpb
+        }
+        async fn search(&self, _q: &SearchQuery) -> Result<Vec<TorrentCandidate>, ProviderError> {
+            Err(ProviderError::Auth("403".into()))
+        }
+    }
+    Arc::new(ProviderRegistry::new(vec![Arc::new(Down)]))
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn paused_provider_defers_the_search_without_spending_an_attempt(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    let (mut c, _) = ctx(&pool, None, 5, 5);
+    c.providers = tripped_registry();
+    // Первый запрос получает ошибку авторизации и размыкает предохранитель; следующие — `CircuitOpen`.
+    let _ = c.providers.search_all(&SearchQuery::text("warm up")).await;
+    assert!(c.providers.health()[0].open);
+
+    // Даже на последней попытке отложенный поиск не становится «не найдено».
+    match discover_album(&c, album_id).await {
+        Err(JobError::Defer { after, .. }) => {
+            assert!(
+                after.as_secs() >= 10 && after.as_secs() <= 15 * 60,
+                "{after:?}"
+            );
+        }
+        other => panic!("expected Defer, got {other:?}"),
+    }
+    for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
+        assert_eq!(
+            t.status,
+            TrackStatus::Adding,
+            "ничего не объявлено ненайденным"
+        );
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn discover_artist_with_unreachable_providers_retries_instead_of_giving_up(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    artists::set_in_library(&pool, artist_id, true)
+        .await
+        .unwrap();
+    let _ = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    let failing = Fake::new(|_| Err(ProviderError::Blocked("down".into())));
+    let (c, _) = ctx(&pool, Some(failing), 1, 5);
+    assert!(matches!(
+        discover_artist(&c, artist_id).await,
+        Err(JobError::Retry { .. })
+    ));
+    // Провайдер ответил пустотой без ошибок — это уже вывод «дискографий нет».
+    let (c, _) = ctx(&pool, Some(Fake::new(|_| Ok(vec![]))), 1, 5);
+    discover_artist(&c, artist_id).await.unwrap();
 }

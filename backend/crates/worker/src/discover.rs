@@ -17,14 +17,24 @@ use nimbus_db::repo::{acquisition, album_torrents, albums, artists, jobs, torren
 use nimbus_torrent::parse_torrent_file;
 use nimbus_trackers::rank::{classify, score, FormatPrefs, RankInput};
 use nimbus_trackers::{
-    build_magnet, build_queries, SearchQuery, TorrentCandidate, PUBLIC_TRACKERS,
+    build_magnet, build_queries, ProviderError, SearchQuery, TorrentCandidate, PUBLIC_TRACKERS,
 };
 
 use crate::runner::{JobCtx, JobError, JobHandler};
 use crate::verify::{finalize_album, finalize_album_from_discover};
 
-/// Через сколько повторять поиск, если провайдеры упали и кандидатов нет.
-pub const RETRY_AFTER: Duration = Duration::from_secs(10 * 60);
+/// Паузы между попытками поиска, когда провайдеры отвечали ошибками и кандидатов нет (по номеру попытки).
+pub const RETRY_DELAYS: [Duration; 4] = [
+    Duration::from_secs(30),
+    Duration::from_secs(2 * 60),
+    Duration::from_secs(5 * 60),
+    Duration::from_secs(10 * 60),
+];
+/// Запас сверх времени до закрытия предохранителя, прежде чем повторить поиск.
+const CIRCUIT_SLACK: Duration = Duration::from_secs(5);
+/// Границы ожидания, пока предохранитель провайдера разомкнут.
+const DEFER_MIN: Duration = Duration::from_secs(10);
+const DEFER_MAX: Duration = Duration::from_secs(15 * 60);
 /// Минимальный балл дискографии (без учёта альбома).
 pub const DISCOGRAPHY_MIN_SCORE: f32 = 0.2;
 /// Небольшой бонус к баллу дискографии при привязке к альбомам.
@@ -120,6 +130,44 @@ fn dedup_key(c: &TorrentCandidate) -> String {
         (None, Some(t)) => format!("t:{}:{t}", c.source.as_str()),
         (None, None) => format!("n:{}:{}", c.source.as_str(), c.title),
     }
+}
+
+/// Поиск ничего не нашёл, но часть провайдеров не ответила: «не найдено» тут не вывод, а отсутствие ответа.
+/// Если провайдеры лишь отключены предохранителем — отложить до его закрытия, **не тратя попытку**;
+/// если они отвечали ошибками — обычный повтор с растущей паузой (до последней попытки).
+/// `None` — повторять нечего (ошибок не было либо попытки кончились).
+fn inconclusive(ctx: &JobCtx, outcome: &SearchOutcome, what: &str) -> Option<JobError> {
+    if outcome.provider_errors.is_empty() {
+        return None;
+    }
+    let circuit = ProviderError::CircuitOpen.to_string();
+    if outcome.provider_errors.iter().all(|(_, e)| *e == circuit) {
+        let wait = ctx
+            .providers
+            .health()
+            .iter()
+            .filter_map(|h| h.open_until)
+            .map(|until| (until - chrono::Utc::now()).to_std().unwrap_or_default())
+            .min()
+            .unwrap_or(DEFER_MIN)
+            .saturating_add(CIRCUIT_SLACK)
+            .clamp(DEFER_MIN, DEFER_MAX);
+        return Some(JobError::Defer {
+            after: wait,
+            reason: format!("{what}: providers are paused by the circuit breaker; waiting"),
+        });
+    }
+    if ctx.is_last_attempt() {
+        return None;
+    }
+    let delay = RETRY_DELAYS[(ctx.attempt.max(1) as usize - 1).min(RETRY_DELAYS.len() - 1)];
+    Some(JobError::Retry {
+        after: delay,
+        reason: format!(
+            "{what}: no candidates, {} provider error(s); retrying",
+            outcome.provider_errors.len()
+        ),
+    })
 }
 
 /// Опрашивает провайдеры по каждому запросу, объединяет, оценивает и сортирует кандидатов.
@@ -435,14 +483,8 @@ pub async fn discover_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError>
     // Учитываем и раздачи, прилинкованные ранее (например, дискографии из DiscoverArtist).
     let linked = album_torrents::list_for_album(&ctx.db, album_id).await?;
     if linked.is_empty() {
-        if !outcome.provider_errors.is_empty() && !ctx.is_last_attempt() {
-            return Err(JobError::Retry {
-                after: RETRY_AFTER,
-                reason: format!(
-                    "no candidates, {} provider error(s); retrying",
-                    outcome.provider_errors.len()
-                ),
-            });
+        if let Some(retry) = inconclusive(ctx, &outcome, "discover_album") {
+            return Err(retry);
         }
         // Поиск дискографий артиста ещё идёт: он может привязать раздачу к этому альбому.
         // Решение (`not_found`) примет финализация по его завершении.
@@ -547,6 +589,12 @@ pub async fn discover_artist(ctx: &JobCtx, artist_id: i64) -> Result<(), JobErro
         ))
         .await?;
 
+    // Ни одной дискографии, а провайдеры не ответили: не делаем вывод «дискографий нет» — повторим позже.
+    if outcome.ranked.is_empty() {
+        if let Some(retry) = inconclusive(ctx, &outcome, "discover_artist") {
+            return Err(retry);
+        }
+    }
     let stored = ctx
         .run(persist_all(ctx, &outcome.ranked, |_| {
             TorrentKind::Discography

@@ -52,9 +52,9 @@ impl nimbus_trackers::TorrentProvider for Down {
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn health_lists_providers_and_their_breaker_state(pool: PgPool) {
-    let registry = std::sync::Arc::new(nimbus_trackers::ProviderRegistry::new(vec![
-        std::sync::Arc::new(Down),
-    ]));
+    let registry = std::sync::Arc::new(
+        nimbus_trackers::ProviderRegistry::new(vec![std::sync::Arc::new(Down)]).with_retries(0),
+    );
     let st = state(pool).with_providers(registry.clone());
 
     let (_, v) = get_json(router(st.clone()), "/api/health").await;
@@ -63,7 +63,7 @@ async fn health_lists_providers_and_their_breaker_state(pool: PgPool) {
     assert!(v["providers"][0]["last_error"].is_null());
     assert!(v["providers"][0]["open_until"].is_null());
 
-    for i in 0..3 {
+    for i in 0..nimbus_trackers::registry::BREAKER_THRESHOLD {
         registry
             .search_all(&nimbus_trackers::SearchQuery::text(format!("q{i}")))
             .await;

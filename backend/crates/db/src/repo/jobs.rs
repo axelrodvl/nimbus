@@ -169,6 +169,33 @@ pub async fn fail(
     .await
 }
 
+/// Откладывает задачу «без вины»: возвращает в `queued` с `run_after = retry_at`, **не тратя попытку**
+/// (причина не в задаче: провайдер недоступен, предохранитель разомкнут). Чтобы отложенная задача не жила
+/// вечно, после `max_age` с момента создания она становится `failed` (тогда вызывается `on_exhausted`).
+pub async fn defer(
+    db: impl PgExecutor<'_>,
+    id: i64,
+    reason: &str,
+    retry_at: DateTime<Utc>,
+    max_age: Duration,
+) -> sqlx::Result<JobRow> {
+    sqlx::query_as(
+        "UPDATE jobs SET
+            last_error = $2,
+            state = CASE WHEN created_at < now() - make_interval(secs => $4) THEN 'failed' ELSE 'queued' END,
+            attempts = GREATEST(attempts - 1, 0),
+            run_after = $3,
+            locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
+         WHERE id = $1 RETURNING *",
+    )
+    .bind(id)
+    .bind(reason)
+    .bind(retry_at)
+    .bind(max_age.as_secs_f64())
+    .fetch_one(db)
+    .await
+}
+
 /// Итог [`requeue_stale`].
 #[derive(Debug, Default)]
 pub struct StaleOutcome {

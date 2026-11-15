@@ -129,7 +129,8 @@ pub async fn record_search_results(
 /// Завершает поиск альбома: `attempts += 1`, `last_finished_at`, `last_outcome` (по трекам библиотеки:
 /// все найдены — `found`, часть — `partial`, иначе преобладающая причина `not_found`; при её
 /// отсутствии — `fallback`), `next_retry_at` с растущей паузой (6 ч, 1 д, 3 д, 7 д, далее 30 д по
-/// `auto_retries`; для `found` — `NULL` и `auto_retries = 0`).
+/// `auto_retries`; если причина — `search_failed` (не смогли спросить провайдеров, а не «ничего нет»), пауза короче:
+/// 10 мин, 30 мин, 2 ч, 6 ч, далее сутки; для `found` — `NULL` и `auto_retries = 0`).
 ///
 /// Срабатывает ровно один раз на поиск: только если `last_started_at` позже `last_finished_at`.
 /// Вызывать в транзакции с блокировкой строки альбома. `None` — активного поиска не было.
@@ -159,7 +160,12 @@ pub async fn finish_search(
             attempts = s.attempts + 1,
             last_finished_at = now(),
             last_outcome = o.outcome,
-            next_retry_at = CASE WHEN o.outcome = 'found' THEN NULL ELSE now() +
+            next_retry_at = CASE WHEN o.outcome = 'found' THEN NULL
+                WHEN o.outcome = 'search_failed' THEN now() +
+                CASE s.auto_retries WHEN 0 THEN interval '10 minutes' WHEN 1 THEN interval '30 minutes'
+                                    WHEN 2 THEN interval '2 hours' WHEN 3 THEN interval '6 hours'
+                                    ELSE interval '1 day' END
+                ELSE now() +
                 CASE s.auto_retries WHEN 0 THEN interval '6 hours' WHEN 1 THEN interval '1 day'
                                     WHEN 2 THEN interval '3 days' WHEN 3 THEN interval '7 days'
                                     ELSE interval '30 days' END END,
