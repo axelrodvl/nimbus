@@ -320,7 +320,7 @@ const messages: Messages = {
   'offline.toast.quota': 'Sem espaço no dispositivo — downloads interrompidos',
   'offline.toast.cleared': 'O sistema apagou os downloads — baixando novamente',
   'offline.unsupported': 'Este navegador não permite guardar músicas no dispositivo',
-  'page.home.title': 'Bem-vindo de volta',
+  'page.home.title': 'Nimbus',
   'palette.actions': 'Ações',
   'palette.empty': 'Nada encontrado',
   'palette.failed': 'A busca falhou: {error}',

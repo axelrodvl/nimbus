@@ -317,7 +317,7 @@ export const en = {
   'offline.toast.quota': 'Out of space on this device — downloads stopped',
   'offline.toast.cleared': 'The system cleared downloaded music — downloading again',
   'offline.unsupported': 'This browser does not support storing music on the device',
-  'page.home.title': 'Welcome back',
+  'page.home.title': 'Nimbus',
   'palette.actions': 'Actions',
   'palette.empty': 'Nothing found',
   'palette.failed': 'Search failed: {error}',

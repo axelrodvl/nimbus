@@ -324,7 +324,7 @@ const messages: Messages = {
   'offline.toast.quota': 'Auf dem Gerät ist kein Platz mehr – Downloads gestoppt',
   'offline.toast.cleared': 'Das System hat Downloads gelöscht – lade erneut',
   'offline.unsupported': 'Dieser Browser unterstützt das Speichern von Musik auf dem Gerät nicht',
-  'page.home.title': 'Willkommen zurück',
+  'page.home.title': 'Nimbus',
   'palette.actions': 'Aktionen',
   'palette.empty': 'Nichts gefunden',
   'palette.failed': 'Suche fehlgeschlagen: {error}',

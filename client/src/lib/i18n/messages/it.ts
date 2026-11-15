@@ -321,7 +321,7 @@ const messages: Messages = {
   'offline.toast.quota': 'Spazio esaurito sul dispositivo: download interrotti',
   'offline.toast.cleared': 'Il sistema ha cancellato i download: scarico di nuovo',
   'offline.unsupported': 'Questo browser non supporta il salvataggio della musica sul dispositivo',
-  'page.home.title': 'Bentornato',
+  'page.home.title': 'Nimbus',
   'palette.actions': 'Azioni',
   'palette.empty': 'Nessun risultato',
   'palette.failed': 'Ricerca non riuscita: {error}',

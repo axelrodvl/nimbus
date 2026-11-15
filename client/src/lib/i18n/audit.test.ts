@@ -26,6 +26,7 @@ const code = sources.map(f => readFileSync(f, 'utf8')).join('\n');
  */
 const SAME_AS_ENGLISH = new Set(
   [
+    'Nimbus',
     'MusicBrainz',
     'Opus',
     'MP3',

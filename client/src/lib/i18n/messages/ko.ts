@@ -318,7 +318,7 @@ const messages: Messages = {
   'offline.toast.quota': '기기에 공간이 없어 다운로드가 중지되었습니다',
   'offline.toast.cleared': '시스템이 다운로드한 음악을 삭제했습니다 — 다시 받는 중',
   'offline.unsupported': '이 브라우저는 기기에 음악을 저장하는 기능을 지원하지 않습니다',
-  'page.home.title': '다시 오신 것을 환영합니다',
+  'page.home.title': 'Nimbus',
   'palette.actions': '작업',
   'palette.empty': '결과가 없습니다',
   'palette.failed': '검색 실패: {error}',

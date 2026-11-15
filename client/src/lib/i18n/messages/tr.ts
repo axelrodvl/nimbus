@@ -320,7 +320,7 @@ const messages: Messages = {
   'offline.toast.quota': 'Cihazda yer kalmadı — indirmeler durduruldu',
   'offline.toast.cleared': 'Sistem indirilenleri temizledi — yeniden indiriliyor',
   'offline.unsupported': 'Bu tarayıcı müziği cihazda saklamayı desteklemiyor',
-  'page.home.title': 'Tekrar hoş geldiniz',
+  'page.home.title': 'Nimbus',
   'palette.actions': 'Eylemler',
   'palette.empty': 'Hiçbir şey bulunamadı',
   'palette.failed': 'Arama başarısız: {error}',

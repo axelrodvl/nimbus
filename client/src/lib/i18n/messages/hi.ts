@@ -315,7 +315,7 @@ const messages: Messages = {
   'offline.toast.quota': 'डिवाइस पर जगह खत्म — डाउनलोड रुक गए',
   'offline.toast.cleared': 'सिस्टम ने डाउनलोड किया हुआ हटा दिया — दोबारा डाउनलोड हो रहा है',
   'offline.unsupported': 'यह ब्राउज़र डिवाइस पर संगीत सहेजने का समर्थन नहीं करता',
-  'page.home.title': 'फिर से स्वागत है',
+  'page.home.title': 'Nimbus',
   'palette.actions': 'क्रियाएँ',
   'palette.empty': 'कुछ नहीं मिला',
   'palette.failed': 'खोज विफल रही: {error}',

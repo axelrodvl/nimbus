@@ -321,7 +321,7 @@ const messages: Messages = {
   'offline.toast.quota': 'デバイスの空きがありません — ダウンロードを停止しました',
   'offline.toast.cleared': 'システムがダウンロード済みの曲を消去しました — 再ダウンロードします',
   'offline.unsupported': 'このブラウザは音楽のデバイス保存に対応していません',
-  'page.home.title': 'おかえりなさい',
+  'page.home.title': 'Nimbus',
   'palette.actions': 'アクション',
   'palette.empty': '見つかりませんでした',
   'palette.failed': '検索に失敗しました：{error}',

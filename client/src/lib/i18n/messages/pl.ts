@@ -325,7 +325,7 @@ const messages: Messages = {
   'offline.toast.quota': 'Brak miejsca na urządzeniu — pobieranie wstrzymane',
   'offline.toast.cleared': 'System usunął pobrane utwory — pobieranie od nowa',
   'offline.unsupported': 'Ta przeglądarka nie obsługuje zapisu muzyki na urządzeniu',
-  'page.home.title': 'Witaj ponownie',
+  'page.home.title': 'Nimbus',
   'palette.actions': 'Akcje',
   'palette.empty': 'Nic nie znaleziono',
   'palette.failed': 'Wyszukiwanie nie powiodło się: {error}',

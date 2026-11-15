@@ -314,7 +314,7 @@ const messages: Messages = {
   'offline.toast.quota': '设备空间不足——下载已停止',
   'offline.toast.cleared': '系统清除了已下载的内容——正在重新下载',
   'offline.unsupported': '此浏览器不支持在设备上存储音乐',
-  'page.home.title': '欢迎回来',
+  'page.home.title': 'Nimbus',
   'palette.actions': '操作',
   'palette.empty': '没有找到结果',
   'palette.failed': '搜索失败：{error}',

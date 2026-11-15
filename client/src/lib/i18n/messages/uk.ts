@@ -322,7 +322,7 @@ const messages: Messages = {
   'offline.toast.quota': 'На пристрої закінчилося місце — завантаження зупинено',
   'offline.toast.cleared': 'Система очистила завантажене — завантажуємо знову',
   'offline.unsupported': 'Цей браузер не підтримує зберігання музики на пристрої',
-  'page.home.title': 'З поверненням',
+  'page.home.title': 'Nimbus',
   'palette.actions': 'Дії',
   'palette.empty': 'Нічого не знайдено',
   'palette.failed': 'Пошук не вдався: {error}',
