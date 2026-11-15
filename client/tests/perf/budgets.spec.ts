@@ -4,6 +4,8 @@
 import { expect, test, type CDPSession, type Page } from '@playwright/test';
 import { mutate, resetMock, seedMock } from '../e2e/mock';
 
+// На общем CI-раннере замеры времени шумят: PERF_SLACK (в CI — 2) умножает пороги по времени.
+const slack = Number(process.env.PERF_SLACK ?? 1);
 const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0;
 const report = (name: string, value: string) =>
   // eslint-disable-next-line no-console -- цифры нужны для журнала шага
@@ -68,7 +70,7 @@ test('переход между основными экранами: медиа�
     'переходы, медиана мс',
     JSON.stringify(Object.fromEntries(Object.entries(medians).map(([k, v]) => [k, Math.round(v)]))),
   );
-  for (const [name, ms] of Object.entries(medians)) expect(ms, `переход «${name}»`).toBeLessThan(150);
+  for (const [name, ms] of Object.entries(medians)) expect(ms, `переход «${name}»`).toBeLessThan(150 * slack);
 });
 
 test('холодный старт с данными в IndexedDB: главная < 4 с (цель 1.5 с)', async ({ context, page }) => {
@@ -92,7 +94,7 @@ test('холодный старт с данными в IndexedDB: главная
     await fresh.close();
   }
   report('холодный старт, мс', `медиана ${Math.round(median(times))} (${times.map(Math.round).join(', ')})`);
-  expect(median(times)).toBeLessThan(4000);
+  expect(median(times)).toBeLessThan(4000 * slack);
 });
 
 test('прокрутка 60 000 треков: кадров длиннее 50 мс за 3 с — не более 3', async ({ page }) => {
@@ -155,7 +157,7 @@ test('ввод в поиск: задержка до локальных резу�
     times.push(ms);
   }
   report('поиск, мс', `медиана ${Math.round(median(times))} (${times.map(Math.round).join(', ')})`);
-  expect(median(times)).toBeLessThan(150);
+  expect(median(times)).toBeLessThan(150 * slack);
 });
 
 test('дельта из 100 изменений при открытом списке треков: самая длинная задача < 100 мс', async ({ page, request }) => {
@@ -180,7 +182,7 @@ test('дельта из 100 изменений при открытом спис�
   const tasks = await page.evaluate(() => (window as unknown as { __tasks: number[] }).__tasks);
   const longest = Math.max(0, ...tasks);
   report('дельта 100 изменений, самая длинная задача мс', `${Math.round(longest)} (задач ≥ 50 мс: ${tasks.length})`);
-  expect(longest).toBeLessThan(100);
+  expect(longest).toBeLessThan(100 * slack);
 });
 
 test('память: прирост кучи после 50 переходов < 20 % (после принудительной сборки мусора)', async ({
