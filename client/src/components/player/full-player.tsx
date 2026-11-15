@@ -66,6 +66,8 @@ export function FullPlayer({
 
   const onTouchStart = (e: React.TouchEvent) => {
     if ((e.target as HTMLElement).tagName === 'INPUT') return;
+    // React-события из порталов (меню «…», листы) всплывают сюда, хотя в DOM они вне плеера: не тянем плеер за ними.
+    if (!e.currentTarget.contains(e.target as Node)) return;
     startY.current = e.touches[0].clientY;
   };
   const onTouchMove = (e: React.TouchEvent) => {

@@ -375,6 +375,17 @@ describe('полноэкранный режим', () => {
     fireEvent.touchEnd(full()); // без начала жеста — ничего
   });
 
+  it('жест в меню «…» (портал) не тянет и не закрывает плеер', async () => {
+    await open();
+    await userEvent.click(within(full()).getByTestId('player-track-menu'));
+    const item = await screen.findByRole('menuitem', { name: /плейлист/i });
+    fireEvent.touchStart(item, { touches: [{ clientX: 100, clientY: 100 }] });
+    fireEvent.touchMove(item, { touches: [{ clientX: 100, clientY: 400 }] });
+    expect(full().style.transform).toBe('translateY(0px)');
+    fireEvent.touchEnd(item);
+    expect(full()).toHaveAttribute('aria-hidden', 'false');
+  });
+
   it('строка качества: показывает параметры, при смене трека старый текст гаснет', async () => {
     const env = await open();
     const span = () => within(full()).getByTestId('audio-quality').querySelector('span')!;

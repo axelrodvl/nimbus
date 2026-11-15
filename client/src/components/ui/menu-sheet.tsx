@@ -4,7 +4,8 @@ import { cn } from '@/lib/utils';
 import { SheetHandle, useSheetDrag } from './sheet-drag';
 import { useIsMobileWidth } from './use-media-query';
 
-const desktop = 'border-divider dark:border-divider-dark z-[70] min-w-44 rounded-lg border bg-white p-1 text-black shadow-lg dark:bg-black dark:text-white';
+const desktop =
+  'border-divider dark:border-divider-dark z-[70] min-w-44 rounded-lg border bg-white p-1 text-black shadow-lg dark:bg-black dark:text-white';
 // Ariakit кладёт меню в обёртку, которую позиционирует инлайн-стилями (position/top/left/transform): лист прижимаем
 // к низу именно её (классы с `!` перебивают инлайн), а само меню остаётся обычным блоком внутри.
 const sheetWrapper = '!fixed !inset-x-0 !top-auto !bottom-0 !left-0 z-[70] !w-full !max-w-none !transform-none';
@@ -28,6 +29,8 @@ export function MenuSheet({ children, className }: { children: ReactNode; classN
       gutter={4}
       modal={sheet}
       portal
+      // Прокрутка у приложения внутри своих контейнеров; блокировка body (на iOS — position: fixed) сдвигала весь экран.
+      preventBodyScroll={false}
       style={drag.style}
       wrapperProps={sheet ? { className: sheetWrapper } : undefined}
     >
