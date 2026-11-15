@@ -305,7 +305,7 @@ To add a language: add a dictionary file and an entry in `client/src/lib/i18n/co
 - [docs/operations.md](docs/operations.md) — environment variables, ports, volumes, logs, diagnostics.
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — rules and commands for contributors; [ROADMAP.md](ROADMAP.md) — plan and log
   (the earlier [PLAN.md](PLAN.md) is history); [docs/backlog.md](docs/backlog.md) — tasks outside the plan.
-- [CHANGELOG.md](CHANGELOG.md) — what is new in 1.0.0.
+- [CHANGELOG.md](CHANGELOG.md) — what is new in 0.3.1.
 
 Load figures from `just load` are measured against **fake** external services: they describe Nimbus itself, not the speed
 of the real MusicBrainz or of torrent swarms, which are limited from outside.
