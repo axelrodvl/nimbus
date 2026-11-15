@@ -65,6 +65,8 @@ test('смахивание от левого края возвращает на�
   await album.waitFor();
   await album.getByRole('link').first().click();
   await expect(page).toHaveURL(/\/album\/\d+/);
+  await waitSynced(page);
+  await expect(page.getByTestId('track-row').first()).toBeVisible();
   const cdp = await page.context().newCDPSession(page);
   const h = page.viewportSize()!.height;
   await touchPath(cdp, line(4, h / 2, 220, h / 2 + 6));

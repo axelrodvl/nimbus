@@ -82,6 +82,14 @@ describe('PlayableTrackRow', () => {
     expect(env.engine.loads.length).toBe(before);
   });
 
+  it('пункт меню «…» в портале не запускает трек строки', async () => {
+    const env = installTestPlayer();
+    renderWithProviders(<Rows />);
+    await userEvent.click(within(row(10)).getByTestId('track-menu'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: /плейлист/i }));
+    expect(env.engine.loads.length).toBe(0);
+  });
+
   it('статус трека обновляется вживую: стал доступным — можно запускать', () => {
     installTestPlayer();
     renderWithProviders(<Rows />);

@@ -66,6 +66,8 @@ export function TrackRow({
         onActivate
           ? e => {
               // Клик в любом месте строки запускает трек; вложенные кнопки и ссылки (десктоп) — свои действия.
+              // Меню в портале всплывает по дереву React: события вне DOM строки игнорируем.
+              if (!e.currentTarget.contains(e.target as Node)) return;
               if ((e.target as Element).closest('button, a, input, [data-gesture="own"]')) return;
               onActivate();
             }

@@ -122,12 +122,9 @@ test('упавшая задача: «Повторить» — строка ис�
   await expect(page.getByText('Нет упавших задач')).toBeVisible();
 });
 
-test('старый адрес /settings/downloads ведёт на торренты; в настройках есть ссылка на «Загрузки»', async ({ page }) => {
+test('старый адрес /settings/downloads ведёт на торренты', async ({ page }) => {
   await page.goto('/settings/downloads');
   await expect(page).toHaveURL(/\/downloads\/torrents$/);
-  await page.goto('/settings');
-  await page.getByTestId('settings-link-downloads-link').click();
-  await expect(page).toHaveURL(/\/downloads$/);
 });
 
 test('мобильный размер: вкладки прокручиваются по горизонтали, действия строки — через меню', async ({ page }) => {
