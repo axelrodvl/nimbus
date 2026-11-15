@@ -2,16 +2,18 @@ import { Search } from 'lucide-react';
 import { Link } from 'react-router';
 import { AlbumCard } from '@/components/library/album-card';
 import { ArtistCard } from '@/components/library/artist-card';
+import { PlaylistCardLink } from '@/components/playlists/playlists-tab';
 import { PageLayout } from '@/components/page-layout';
 import { PlayAlbumButton } from '@/components/player/play-buttons';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useT } from '@/lib/i18n/provider';
 import { SEARCH_ENTRY } from '@/lib/nav/items';
-import { useHydrated, useLibraryList, useRecentlyPlayedAlbums } from '@/lib/store/hooks';
+import { useHydrated, useLibraryList, usePlaylistCards, useRecentlyPlayedAlbums } from '@/lib/store/hooks';
 import type { AlbumView, ArtistView } from '@/lib/store/selectors';
 import { HomeSkeleton } from './library/skeletons';
 
 export const PLAYED_ALBUMS = 6;
+export const HOME_PLAYLISTS = 6;
 export const RECENT_ITEMS = 12;
 
 const GRID = 'grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6';
@@ -37,13 +39,14 @@ export function Home() {
   const t = useT();
   const hydrated = useHydrated();
   const played = useRecentlyPlayedAlbums(PLAYED_ALBUMS);
+  const playlists = usePlaylistCards().slice(0, HOME_PLAYLISTS);
   const albums = useLibraryList('albums');
   const artists = useLibraryList('artists');
   if (!hydrated) return <HomeSkeleton />;
 
   const recent = recentItems(albums, artists);
 
-  if (recent.length === 0) {
+  if (recent.length === 0 && playlists.length === 0) {
     return (
       <PageLayout brand title={t('page.home.title')}>
         <EmptyState body={t('home.findMusic.body')} title={t('home.findMusic.title')}>
@@ -71,6 +74,20 @@ export function Home() {
               {played.map((a, i) => (
                 <li key={a.id}>
                   <AlbumCard actions={<PlayAlbumButton albumId={a.id} variant="icon" />} album={a} priority={i < 4} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+        {playlists.length > 0 ? (
+          <section aria-labelledby="home-playlists" data-testid="home-playlists">
+            <h2 className="mb-4" id="home-playlists">
+              {t('group.playlists')}
+            </h2>
+            <ul className={GRID}>
+              {playlists.map(card => (
+                <li key={card.id}>
+                  <PlaylistCardLink card={card} />
                 </li>
               ))}
             </ul>

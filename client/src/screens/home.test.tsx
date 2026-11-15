@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { makeArtist, makeLibrary, resetFactories } from '@/test/factories';
+import { makeArtist, makeLibrary, makePlaylist, resetFactories } from '@/test/factories';
 import { renderWithProviders } from '@/test/render';
 import { seed, seedNothing } from '@/test/seed';
 import { Home } from './home';
@@ -46,6 +46,17 @@ describe('Home', () => {
     expect(recentNames).toHaveLength(12);
     expect(recentNames[0]).toContain('Fresh Artist');
     expect(recentNames[1]).toContain('Album 15');
+  });
+
+  it('плейлисты — между «Недавно слушали» и «Недавно добавлено»', () => {
+    const rows = makeLibrary({ albumsPerArtist: 2, artists: 2, tracksPerAlbum: 1 });
+    rows.playlists.push(makePlaylist({ id: 1, name: 'Дорога' }));
+    seed(rows);
+    renderWithProviders(<Home />);
+    const section = screen.getByTestId('home-playlists');
+    expect(within(section).getByText('Дорога')).toBeInTheDocument();
+    const recent = screen.getByTestId('home-recent');
+    expect(section.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('пустая библиотека → пустое состояние со ссылкой на поиск', () => {
