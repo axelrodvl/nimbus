@@ -122,7 +122,12 @@ cp .env.example .env
 docker compose up -d
 ```
 
-To publish a release: `git tag vX.Y.Z && git push --tags` (workflow `.github/workflows/release.yml`). The images are public (`ghcr.io/axelrodvl/nimbus`, tags `X.Y.Z`, `X.Y`, `latest`; linux/amd64 and linux/arm64).
+To publish a release (version `X.Y.Z`):
+
+1. Set the version in `backend/Cargo.toml` (`[workspace.package]`, then `cargo update --workspace --offline` to refresh `Cargo.lock`), `client/package.json` and `client/openapi.json` (`info.version`; `just openapi-check` verifies it matches the backend), and add the entry to `CHANGELOG.md`. The version shows up in `/api/health` and in the UI.
+2. Commit, then `git tag -a vX.Y.Z -m vX.Y.Z && git push origin main vX.Y.Z`. The workflow `.github/workflows/release.yml` builds the multi-arch image and creates the GitHub Release with the run bundle.
+
+The images are public (`ghcr.io/axelrodvl/nimbus`, tags `X.Y.Z`, `X.Y`, `latest`, without the `v` prefix; linux/amd64 and linux/arm64). Run a specific one with `./start.sh X.Y.Z`.
 
 ## Windows (via WSL 2)
 
