@@ -18,10 +18,12 @@ use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
 /// Политика безопасности контента. `connect-src` включает хосты обложек: их запрашивает сам service worker.
+/// CSP проверяет и редиректы: обложка идёт coverartarchive.org → archive.org (голый домен не входит в `*.archive.org`)
+/// → iaNNN.us.archive.org, фото артиста — на Commons (upload.wikimedia.org) или CDN Deezer.
 const CSP: &str = "default-src 'self'; \
-img-src 'self' https://coverartarchive.org https://*.archive.org data: blob:; \
+img-src 'self' https://coverartarchive.org https://archive.org https://*.archive.org https://upload.wikimedia.org https://commons.wikimedia.org https://*.dzcdn.net data: blob:; \
 media-src 'self' blob:; \
-connect-src 'self' https://coverartarchive.org https://*.archive.org; \
+connect-src 'self' https://coverartarchive.org https://archive.org https://*.archive.org; \
 style-src 'self' 'unsafe-inline'; \
 script-src 'self'; \
 worker-src 'self'; \

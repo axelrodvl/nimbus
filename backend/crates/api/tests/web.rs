@@ -238,6 +238,10 @@ async fn html_response_carries_security_headers(pool: PgPool) {
         "worker-src 'self'",
         "https://coverartarchive.org",
         "https://*.archive.org",
+        "img-src 'self' https://coverartarchive.org https://archive.org",
+        "https://upload.wikimedia.org",
+        "https://*.dzcdn.net",
+        "connect-src 'self' https://coverartarchive.org https://archive.org",
     ] {
         assert!(csp.contains(part), "CSP lacks {part}: {csp}");
     }
