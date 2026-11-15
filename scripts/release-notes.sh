@@ -43,16 +43,15 @@ cat <<MD
 
 ## 📦 Install
 
-Requires only Docker with Compose v2.
+Requires only Docker with Compose v2. The script pulls the published image — nothing is built locally.
 
 \`\`\`sh
-unzip nimbus-${tag}.zip && cd nimbus
-cp .env.example .env   # edit if needed
-docker compose up -d
+git clone https://github.com/${repo}.git && cd nimbus
+./start.sh ${tag#v}   # creates .env on first run
 \`\`\`
 
-Open <http://localhost:8000>. Image: \`ghcr.io/${owner}/nimbus:${tag#v}\` (linux/amd64, linux/arm64).
-\`Caddyfile.example\` is an optional reverse proxy with TLS.
+Open <http://localhost:8000>. Stop: \`./stop.sh\`. Image: \`ghcr.io/${owner}/nimbus:${tag#v}\` (linux/amd64, linux/arm64).
+\`deploy/Caddyfile\` is an optional reverse proxy with TLS.
 MD
 [[ -n "$prev" ]] && printf '\n**Full changelog:** https://github.com/%s/compare/%s...%s\n' "$repo" "$prev" "$tag"
 exit 0
