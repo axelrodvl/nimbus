@@ -87,17 +87,17 @@ export function AboutSection() {
       <PageHeader title={t('settings.about')} />
       <SettingsSection>
         <SettingsRow group label={t('settings.about.client')}>
-          <span className="font-mono text-sm" data-testid="client-version">
+          <span className="text-sm tabular-nums" data-testid="client-version">
             {clientVersion}
           </span>
         </SettingsRow>
         <SettingsRow group label={t('settings.about.server')}>
-          <span className="font-mono text-sm" data-testid="server-version">
+          <span className="text-sm tabular-nums" data-testid="server-version">
             {server.data ? server.data : server.isError ? '—' : t('common.loading')}
           </span>
         </SettingsRow>
         <SettingsRow group label={t('settings.about.sync')}>
-          <SyncStatus />
+          <SyncStatus className="text-sm" />
         </SettingsRow>
         {storage?.usage != null ? (
           <SettingsRow group label={t('settings.about.storage')}>
@@ -111,7 +111,7 @@ export function AboutSection() {
         ) : null}
         {offlineSupported ? null : (
           <SettingsRow group label={t('settings.offline')}>
-            <span className="text-muted text-sm" data-testid="offline-unsupported">
+            <span className="text-muted text-xs" data-testid="offline-unsupported">
               {t('offline.unsupported')}
             </span>
           </SettingsRow>
@@ -125,7 +125,7 @@ export function AboutSection() {
         ) : null}
         {iosHint ? (
           <SettingsRow group label={t('settings.about.install')}>
-            <span className="text-muted text-sm" data-testid="ios-install-hint">
+            <span className="text-muted text-xs" data-testid="ios-install-hint">
               {t('pwa.iosHint')}
             </span>
           </SettingsRow>

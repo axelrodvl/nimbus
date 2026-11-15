@@ -12,14 +12,14 @@ const TONE = {
 } as const;
 
 /** Ненавязчивый статус синхронизации: «синхронизировано / синхронизация / нет связи / ошибка + Повторить». */
-export function SyncStatus({ labelClassName }: { labelClassName?: string }) {
+export function SyncStatus({ labelClassName, className }: { labelClassName?: string; className?: string }) {
   const t = useT();
   const status = useSyncStatus();
   const view = describeSync(status);
   const text = t(view.label, { count: view.count ?? 0 });
   return (
     <span
-      className="text-muted inline-flex items-center gap-2 text-xs"
+      className={cn('text-muted inline-flex items-center gap-2 text-xs', className)}
       data-state={status.state}
       data-testid="sync-status"
     >
