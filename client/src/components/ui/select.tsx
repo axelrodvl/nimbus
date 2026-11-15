@@ -34,7 +34,7 @@ export function Select({ value, onValueChange, options, disabled, className, ...
         <ChevronDown aria-hidden className="text-muted size-4 shrink-0" />
       </Ariakit.Select>
       <Ariakit.SelectPopover
-        className="border-divider dark:border-divider-dark z-[90] max-h-72 overflow-y-auto rounded-xl border bg-white p-1 text-sm shadow-xl outline-none dark:bg-black"
+        className="border-divider dark:border-divider-dark z-[90] max-h-[min(18rem,var(--popover-available-height,18rem))] overflow-y-auto overscroll-contain rounded-xl border bg-white p-1 text-sm shadow-xl outline-none dark:bg-black"
         gutter={6}
         portal
         sameWidth
@@ -47,7 +47,7 @@ export function Select({ value, onValueChange, options, disabled, className, ...
             value={o.value}
           >
             <span className="truncate">{o.label}</span>
-            <Ariakit.SelectItemCheck render={<Check aria-hidden className="text-accent-fg size-4 shrink-0" />} />
+            {o.value === value ? <Check aria-hidden className="text-accent-fg size-4 shrink-0" /> : null}
           </Ariakit.SelectItem>
         ))}
       </Ariakit.SelectPopover>
