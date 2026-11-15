@@ -1,6 +1,6 @@
 name: Release
 
-# Релиз: git tag v1.2.3 && git push --tags
+# Релиз: написать docs/releases/v1.2.3.md, затем git tag v1.2.3 && git push --tags
 # Собирает образ nimbus (бэкенд + SPA; linux/amd64 + linux/arm64) в GHCR и создаёт GitHub Release.
 on:
   push:
@@ -105,6 +105,10 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # теги нужны для ссылки «Full changelog»
+      - name: Release notes (docs/releases/${{ github.ref_name }}.md)
+        run: scripts/release-notes.sh "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
       - name: Собрать пакет для запуска
         run: |
           mkdir -p dist/nimbus
@@ -118,21 +122,8 @@ jobs:
           tar czf "nimbus-${GITHUB_REF_NAME}.tar.gz" nimbus
       - uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          name: Nimbus ${{ github.ref_name }}
+          body_path: ${{ runner.temp }}/release-notes.md
           files: |
             dist/nimbus-*.zip
             dist/nimbus-*.tar.gz
-          body: |
-            ## Запуск
-
-            Нужен только Docker с Compose v2.
-
-            ```sh
-            unzip nimbus-${{ github.ref_name }}.zip && cd nimbus
-            cp .env.example .env   # отредактируйте при необходимости
-            docker compose up -d
-            ```
-
-            Открыть: http://localhost:8000
-
-            Образ: `ghcr.io/${{ github.repository_owner }}/nimbus` (linux/amd64, linux/arm64). `Caddyfile.example` — необязательный обратный прокси с TLS.
