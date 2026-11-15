@@ -35,7 +35,7 @@ export default defineConfig([
   },
   {
     // Адреса бэкенда строятся только в lib/platform и lib/api (apiUrl/wsUrl); тесты и мок могут их называть.
-    ignores: ['src/lib/platform/**', 'src/lib/api/**', 'src/**/*.test.*', 'tests/**', 'src/test/**', '*.config.ts'],
+    ignores: ['src/lib/platform/**', 'src/lib/api/**', 'src/**/*.test.*', 'tests/**', 'src/test/**', '*.config.ts', 'playwright.shared.ts'],
     files: ['**/*.{ts,tsx}'],
     rules: {
       'no-restricted-syntax': ['error', ...API_LITERALS],

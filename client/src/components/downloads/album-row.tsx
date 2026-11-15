@@ -47,7 +47,7 @@ function ProviderErrors({ item }: { item: AcquisitionItem }) {
   return (
     <>
       <button
-        className="text-warning focus-visible:ring-accent/40 rounded text-xs underline focus-visible:ring-2 focus-visible:outline-none"
+        className="text-warning-fg focus-visible:ring-accent/40 rounded text-xs underline focus-visible:ring-2 focus-visible:outline-none"
         data-testid="provider-errors"
         onClick={store.show}
         type="button"
@@ -138,7 +138,7 @@ export function AlbumRow({ item, tab, paused, now, selected, onSelect }: Props) 
         </p>
         {reason ? (
           <p className="truncate text-xs" data-testid="row-reason">
-            <span className="text-warning font-medium">{reason.reason}</span>
+            <span className="text-warning-fg font-medium">{reason.reason}</span>
             <span className="text-muted hidden sm:inline"> — {reason.hint}</span>
           </p>
         ) : null}
@@ -179,7 +179,7 @@ export function AlbumRow({ item, tab, paused, now, selected, onSelect }: Props) 
           {pin ? ` · ${pin}` : ''}
         </p>
         {download?.state === 'failed' && download.error ? (
-          <p className="text-danger truncate text-xs">{download.error}</p>
+          <p className="text-danger-fg truncate text-xs">{download.error}</p>
         ) : null}
       </>
     );

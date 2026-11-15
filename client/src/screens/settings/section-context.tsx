@@ -17,6 +17,6 @@ export const SectionProvider = Ctx.Provider;
 /** Настройки, сохранение и ошибки текущего раздела. */
 export function useSection(): SectionApi {
   const ctx = useContext(Ctx);
-  if (!ctx) throw new Error('useSection вне раздела настроек');
+  if (!ctx) throw new Error('useSection outside a settings section');
   return ctx;
 }

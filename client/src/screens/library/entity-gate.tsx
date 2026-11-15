@@ -10,7 +10,7 @@ export function ItemNotFound() {
   return (
     <PageLayout title={t('notFound.item.title')}>
       <EmptyState body={t('notFound.item.body')} title={t('notFound.item.title')}>
-        <Link className="text-accent underline" to="/library">
+        <Link className="text-accent-fg underline" to="/library">
           {t('notFound.item.toLibrary')}
         </Link>
       </EmptyState>

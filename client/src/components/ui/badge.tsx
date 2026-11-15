@@ -4,11 +4,11 @@ import { cn } from '@/lib/utils';
 type Tone = 'neutral' | 'success' | 'danger' | 'warning' | 'accent';
 
 const tones: Record<Tone, string> = {
-  accent: 'bg-accent/15 text-accent',
-  danger: 'bg-danger/15 text-danger',
+  accent: 'bg-accent/15 text-accent-fg',
+  danger: 'bg-danger/15 text-danger-fg',
   neutral: 'bg-card text-muted dark:bg-card-dark',
-  success: 'bg-success/15 text-success',
-  warning: 'bg-warning/15 text-warning',
+  success: 'bg-success/15 text-success-fg',
+  warning: 'bg-warning/15 text-warning-fg',
 };
 
 /** Небольшая метка состояния. Смысл передаётся текстом, цвет — только усиление. */

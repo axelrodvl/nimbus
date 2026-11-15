@@ -27,11 +27,11 @@ export function TrackStatusBadge({ status, reason, progress, className }: Props)
       {status === 'adding' ? (
         <Loader2 aria-hidden className="text-gray size-4 animate-spin" />
       ) : status === 'found' ? (
-        <CircleDot aria-hidden className="text-accent size-4" />
+        <CircleDot aria-hidden className="text-accent-fg size-4" />
       ) : status === 'not_found' ? (
-        <CircleSlash aria-hidden className="text-danger/70 size-4" />
+        <CircleSlash aria-hidden className="text-danger-fg/70 size-4" />
       ) : (
-        <CheckCircle2 aria-hidden className="text-success size-4" />
+        <CheckCircle2 aria-hidden className="text-success-fg size-4" />
       )}
     </span>
   );

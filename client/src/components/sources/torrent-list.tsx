@@ -90,7 +90,7 @@ function TorrentItem({ item, trackTitles }: { item: AlbumTorrent; trackTitles: R
           title={`${t('sources.matchedTracks')} · ${t('sources.colScore')} ${item.rank_score.toFixed(2)}`}
         >
           {item.verified ? (
-            <ShieldCheck aria-label={t('sources.verified')} className="text-success size-3.5" role="img" />
+            <ShieldCheck aria-label={t('sources.verified')} className="text-success-fg size-3.5" role="img" />
           ) : null}
           {t('sources.matchedShort', { count: item.matched_tracks })}
         </span>
@@ -100,7 +100,7 @@ function TorrentItem({ item, trackTitles }: { item: AlbumTorrent; trackTitles: R
           {files.isPending ? <Spinner className="size-4" /> : null}
           {files.isError ? (
             <div className="flex items-center gap-3 text-xs" role="alert">
-              <span className="text-danger">{t('common.loadFailed')}</span>
+              <span className="text-danger-fg">{t('common.loadFailed')}</span>
               <Button onClick={() => void files.refetch()} size="sm" variant="secondary">
                 {t('common.retry')}
               </Button>
@@ -113,7 +113,7 @@ function TorrentItem({ item, trackTitles }: { item: AlbumTorrent; trackTitles: R
                 <span className="min-w-0 flex-1 truncate font-mono">{f.path}</span>
                 <span className="text-muted font-mono">{formatSize(f.size_bytes, t)}</span>
                 {f.matched_track_id != null ? (
-                  <span className="text-accent truncate">
+                  <span className="text-accent-fg truncate">
                     {trackTitles.get(f.matched_track_id) ?? t('sources.trackFallback', { id: f.matched_track_id })}
                   </span>
                 ) : null}

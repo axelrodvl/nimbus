@@ -111,7 +111,13 @@
   одноразовых стилей полей ввода. Каждый экран обязан иметь состояния: загрузка (skeleton), пусто, ошибка, офлайн.
   Светлая и тёмная тема, мобильная (≥ 360 px) и настольная вёрстка — обе обязательны.
 - Доступность: интерактивные элементы — настоящие `button`/`a`/элементы форм или примитивы Ariakit;
-  видимый фокус; `aria-label` у кнопок-иконок; управление с клавиатуры.
+  видимый фокус; `aria-label` у кнопок-иконок; управление с клавиатуры. Контраст текста ≥ 4.5:1 в обеих темах:
+  для текста — токены `muted`, `gray`, `accent-fg`, `danger-fg`, `success-fg`, `warning-fg` (а не `accent`/`danger`/…,
+  которые — заливки под белый текст); проверяет `src/styles/contrast.test.ts` и axe в `just client-audit`.
+  Если у кнопки есть `aria-label`, он содержит весь видимый текст кнопки (WCAG 2.5.3).
+  Анимации и переходы выключаются при `prefers-reduced-motion` (глобальное правило в `styles/base.css`).
+- Новый экран или состояние экрана добавляется в `client/tests/audit/screens.ts` (скриншоты и axe проходят по нему).
+- Размер сборки: начальный JS/CSS в gzip ограничен `client/bundle-budget.json` (храповик — только вниз).
 - Тексты — только через `useT()` и словари `src/lib/i18n/messages/*`. Новый ключ добавляется **во все** языки.
 - Типы API — только сгенерированные (`bun run gen:api` из `client/openapi.json`); руками `schema.d.ts` не правится.
 
@@ -153,7 +159,8 @@
 | `just test` | все тесты бэкенда и unit-тесты клиента |
 | `just cov` | покрытие бэкенда и клиента с проверкой порогов |
 | `just backend-test` / `just backend-cov` | только бэкенд |
-| `just client-test` / `just client-e2e` / `just client-build` | только клиент (e2e — против мок-бэкенда) |
+| `just client-test` / `just client-e2e` / `just client-build` | только клиент (e2e — против мок-бэкенда; сборка проверяет бюджет размера `client/bundle-budget.json`) |
+| `just client-audit` / `just client-perf` | аудит интерфейса (скриншоты ×2 темы ×3 ширины, axe, клавиатура) и бюджеты производительности (шаг 49); новый экран добавляется в `client/tests/audit/screens.ts` |
 | `just openapi` / `just client-gen-api` | OpenAPI → `openapi.json` → типы |
 | `just e2e` | полный стек в Docker с фейковыми внешними сервисами (Playwright из `client/`, `tests/stack/`) |
 

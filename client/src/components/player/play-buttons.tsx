@@ -59,8 +59,8 @@ function PlayButton({
     <button
       aria-label={isPlaying ? t('row.pause', { title }) : t('row.play', { title })}
       className={cn(
-        'text-gray hover:text-accent focus-visible:ring-accent/40 flex size-8 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed',
-        isPlaying && 'text-accent',
+        'text-gray hover:text-accent-fg focus-visible:ring-accent/40 flex size-8 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed',
+        isPlaying && 'text-accent-fg',
       )}
       data-playing={isPlaying || undefined}
       data-testid="play-track"

@@ -11,7 +11,7 @@ export function ThemeToggle({ variant = 'pill' }: Props) {
 
   const wrapperClass =
     variant === 'inline'
-      ? 'inline-flex items-center gap-0.5'
+      ? 'inline-flex flex-col items-center gap-0.5 lg:flex-row'
       : 'border-divider dark:border-divider-dark inline-flex items-center rounded-full border p-0.5';
 
   const option = (value: Theme, label: string, icon: React.ReactNode) => (

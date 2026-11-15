@@ -25,7 +25,7 @@ export function ToggleButton({
       aria-pressed={active}
       className={cn(
         'focus-visible:ring-accent/40 items-center justify-center rounded-full p-1 transition-colors focus-visible:ring-2 focus-visible:outline-none',
-        active ? 'text-accent' : 'text-muted hover:text-black dark:hover:text-white',
+        active ? 'text-accent-fg' : 'text-muted hover:text-black dark:hover:text-white',
         className,
       )}
       data-testid={testId}

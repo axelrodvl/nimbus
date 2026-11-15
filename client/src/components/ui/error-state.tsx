@@ -16,7 +16,7 @@ export function ErrorState({ body, children, compact, title }: Props) {
   if (compact) {
     return (
       <div role="alert" className="flex flex-col items-center gap-2 px-4 py-4 text-center">
-        <AlertTriangle aria-hidden className="text-danger size-4" />
+        <AlertTriangle aria-hidden className="text-danger-fg size-4" />
         <p className="text-gray text-xs">{title}</p>
         {body ? <p className="text-gray max-w-xs text-xs">{body}</p> : null}
         {children}
@@ -26,7 +26,7 @@ export function ErrorState({ body, children, compact, title }: Props) {
 
   return (
     <div role="alert" className="flex flex-col items-center gap-3 px-5 py-10 text-center">
-      <AlertTriangle aria-hidden className="text-danger size-6" />
+      <AlertTriangle aria-hidden className="text-danger-fg size-6" />
       <p className="text-sm font-medium text-black dark:text-white">{title}</p>
       {body ? <p className="text-gray max-w-xs text-sm">{body}</p> : null}
       {children}

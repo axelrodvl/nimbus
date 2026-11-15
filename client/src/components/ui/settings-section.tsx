@@ -60,7 +60,7 @@ export function SettingsRow({ label, description, error, children, group, classN
           </p>
         ) : null}
         {error ? (
-          <p className="text-danger mt-1 text-xs" id={ids.errorId} role="alert">
+          <p className="text-danger-fg mt-1 text-xs" id={ids.errorId} role="alert">
             {error}
           </p>
         ) : null}

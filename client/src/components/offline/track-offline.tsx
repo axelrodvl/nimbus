@@ -25,7 +25,7 @@ export function TrackOfflineIndicator({ trackId, className }: { trackId: number;
       <span
         {...common}
         aria-label={t('offline.indicator.done')}
-        className={cn(cls, 'text-accent')}
+        className={cn(cls, 'text-accent-fg')}
         title={t('offline.indicator.done')}
       >
         <CircleArrowDown aria-hidden className="size-4" strokeWidth={2.5} />
@@ -40,7 +40,7 @@ export function TrackOfflineIndicator({ trackId, className }: { trackId: number;
         className={cls}
       >
         <ProgressRing progress={state.progress} size={16}>
-          <ArrowDownToLine aria-hidden className="text-accent size-2.5" />
+          <ArrowDownToLine aria-hidden className="text-accent-fg size-2.5" />
         </ProgressRing>
       </span>
     );
@@ -53,7 +53,7 @@ export function TrackOfflineIndicator({ trackId, className }: { trackId: number;
     );
   }
   return (
-    <span {...common} aria-label={t('offline.indicator.failed')} className={cn(cls, 'text-danger')}>
+    <span {...common} aria-label={t('offline.indicator.failed')} className={cn(cls, 'text-danger-fg')}>
       <TriangleAlert aria-hidden className="size-4" />
     </span>
   );

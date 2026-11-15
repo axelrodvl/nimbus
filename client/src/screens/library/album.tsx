@@ -69,7 +69,7 @@ export function AlbumScreen() {
             />
             {tracks.some(tr => tr.in_library && tr.needs_confirmation) ? (
               <span
-                className="text-warning inline-flex items-center gap-1 text-xs"
+                className="text-warning-fg inline-flex items-center gap-1 text-xs"
                 data-testid="album-needs-confirmation"
               >
                 <AlertTriangle aria-hidden className="size-4" /> {t('album.needsCheck')}

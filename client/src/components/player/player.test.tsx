@@ -252,6 +252,32 @@ describe('очередь', () => {
   });
 });
 
+describe('очередь: тень', () => {
+  it('у закрытой панели нет тени (иначе она просачивается полосой у правого края экрана), у открытой — есть', async () => {
+    const env = mount();
+    playFirst(env);
+    const panel = screen.getByTestId('queue-panel');
+    expect(panel).not.toHaveClass('shadow-2xl');
+    await userEvent.click(within(screen.getByTestId('player-bar')).getByTestId('player-queue'));
+    expect(panel).toHaveClass('shadow-2xl');
+  });
+});
+
+describe('планшетная панель (sm…lg)', () => {
+  it('обложка с названием открывает полноэкранный плеер, рядом кнопка очереди — без неё планшет не мог ни того, ни другого', async () => {
+    const env = mount();
+    playFirst(env);
+    const bar = within(screen.getByTestId('player-bar'));
+    // Первая кнопка — обложка десктопной панели (lg), последняя — планшетной.
+    await userEvent.click(bar.getAllByRole('button', { name: 'Развернуть плеер' }).at(-1) as HTMLElement);
+    expect(screen.getByTestId('full-player')).toHaveAttribute('aria-hidden', 'false');
+    const queue = bar.getAllByRole('button', { name: 'Очередь' });
+    expect(queue.length).toBeGreaterThan(1);
+    await userEvent.click(queue[0] as HTMLElement);
+    expect(screen.getByTestId('queue-panel')).toHaveAttribute('aria-hidden', 'false');
+  });
+});
+
 describe('полноэкранный режим', () => {
   const full = () => screen.getByTestId('full-player');
   const open = async () => {

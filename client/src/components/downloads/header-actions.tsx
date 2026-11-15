@@ -105,7 +105,7 @@ export function StorageLine() {
     <p className="text-muted text-sm" data-testid="acq-storage">
       {t('acq.storage', { limit: formatSize(data.limit_bytes, t), used: formatSize(data.used_bytes, t) })}
       {' · '}
-      <Link className="text-accent hover:underline" to="/settings/storage">
+      <Link className="text-accent-fg underline underline-offset-2" to="/settings/storage">
         {t('acq.storageLink')}
       </Link>
     </p>

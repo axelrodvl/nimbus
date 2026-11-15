@@ -25,12 +25,12 @@ export function InLibrary({ href, query, onNavigate }: { href: string; query?: s
   const t = useT();
   return (
     <span className="inline-flex shrink-0 items-center gap-2" data-testid="in-library">
-      <span className="text-accent inline-flex items-center gap-1 text-xs font-medium">
+      <span className="text-accent-fg inline-flex items-center gap-1 text-xs font-medium">
         <Check aria-hidden className="size-4" />
         {t('add.inLibrary')}
       </span>
       <Link
-        className="text-accent focus-visible:ring-accent/40 rounded text-xs font-medium hover:underline focus-visible:ring-2 focus-visible:outline-none"
+        className="text-accent-fg focus-visible:ring-accent/40 rounded text-xs font-medium hover:underline focus-visible:ring-2 focus-visible:outline-none"
         onClick={() => {
           if (query) addToHistory(query);
           onNavigate?.();
@@ -64,7 +64,7 @@ export function AddToLibraryButton({ input, libraryHref, query, tabIndex, classN
       aria-label={adding ? t('add.adding') : t('add.toLibrary')}
       className={cn(
         'border-divider dark:border-divider-dark text-gray focus-visible:ring-accent/40 inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors hover:border-black hover:text-black focus-visible:ring-2 focus-visible:outline-none disabled:cursor-wait dark:hover:border-white dark:hover:text-white',
-        adding && 'border-accent text-accent',
+        adding && 'border-accent text-accent-fg',
         className,
       )}
       disabled={adding}

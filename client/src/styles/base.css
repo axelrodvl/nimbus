@@ -23,6 +23,15 @@
   :where(button, summary, [role='button']) {
     user-select: none;
   }
+
+  /* Долгое нажатие на обложку/кнопку не вызывает системное меню (сохранить изображение, копировать), обложки не тащатся. */
+  :where(img, button, a) {
+    -webkit-touch-callout: none;
+  }
+
+  :where(img) {
+    -webkit-user-drag: none;
+  }
 }
 
 /* На тач-устройствах поля ≥ 16px, иначе iOS приближает страницу при фокусе. */
@@ -33,5 +42,20 @@
 
   :where(a, button, summary, [role='button']):active {
     opacity: 0.78;
+  }
+}
+
+/*
+ * prefers-reduced-motion: все переходы и анимации выключены (кроме вращающегося индикатора загрузки — он несёт смысл).
+ * Бегущие строки и анимации смены трека отключены отдельно (marquee.tsx, animations.css).
+ */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.animate-spin),
+  *:not(.animate-spin)::before,
+  *:not(.animate-spin)::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }

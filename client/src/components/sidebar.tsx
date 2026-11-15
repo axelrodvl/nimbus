@@ -4,7 +4,7 @@ import { DownloadsBadge } from '@/components/nav-badge';
 import { OfflineQueueIndicator } from '@/components/offline/queue-indicator';
 import { ConnectionIndicator } from '@/components/connection-indicator';
 import { useCommandPalette } from '@/components/search/command-palette';
-import { ShortcutHint } from '@/components/shortcut-hint';
+import { ShortcutHint, useShortcutText } from '@/components/shortcut-hint';
 import { SyncStatus } from '@/components/sync-status';
 import { MusicNote } from '@/components/ui/music-note';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
@@ -19,40 +19,41 @@ export const sidebarLink =
 export function Sidebar({ items }: { items: readonly NavItem[] }) {
   const t = useT();
   const palette = useCommandPalette();
+  const shortcut = useShortcutText();
   return (
     <aside className="hidden w-[4.5rem] shrink-0 flex-col gap-2 p-2 sm:flex lg:w-[17.5rem]" data-testid="sidebar">
       <div className="bg-card dark:bg-card-dark rounded-lg p-3 lg:p-4">
         <div className="mb-4 hidden items-center justify-between lg:flex">
           <AppNavLink
             aria-label={t('nav.homeLink')}
-            className="text-accent inline-flex items-center gap-2 px-1 text-xl font-bold tracking-tight"
+            className="text-accent-fg inline-flex items-center gap-2 px-1 text-xl font-bold tracking-tight"
             end
             to="/"
           >
-            <MusicNote className="text-accent" size={24} />
+            <MusicNote className="text-accent-fg" size={24} />
             <span>Nimbus</span>
           </AppNavLink>
         </div>
         <button
           aria-haspopup="dialog"
-          aria-label={t('palette.label')}
+          aria-label={`${t('palette.label')} ${shortcut}`}
           className="text-muted focus-visible:ring-accent/40 mb-3 flex w-full items-center justify-center gap-2 rounded-md border border-white/10 p-2 text-sm hover:text-black focus-visible:ring-2 focus-visible:outline-none lg:justify-start lg:px-3 dark:hover:text-white"
           data-testid="palette-button"
           onClick={palette.open}
           type="button"
         >
           <Search aria-hidden className="size-4" />
-          <span className="hidden flex-1 truncate text-left lg:inline">{t('palette.label')}</span>
+          <span className="hidden flex-1 truncate text-left lg:inline">{t('palette.label')}</span>{' '}
           <ShortcutHint className="hidden font-mono text-xs lg:inline" />
         </button>
         <nav aria-label={t('nav.primary')} className="flex flex-col gap-1 text-sm font-medium">
           {items.map(({ badge, end, icon: Icon, label, to }) => (
-            <AppNavLink aria-label={t(label)} className={sidebarLink} end={end} key={to} to={to}>
+            <AppNavLink className={sidebarLink} end={end} key={to} to={to}>
               <span className="relative">
                 <Icon className="size-5" />
                 {badge === 'downloads' ? <DownloadsBadge /> : null}
               </span>
-              <span className="hidden truncate lg:inline">{t(label)}</span>
+              <span className="sr-only truncate lg:not-sr-only lg:inline">{t(label)}</span>
             </AppNavLink>
           ))}
         </nav>
@@ -60,7 +61,7 @@ export function Sidebar({ items }: { items: readonly NavItem[] }) {
 
       <div className="bg-card dark:bg-card-dark mt-auto flex flex-col gap-3 rounded-lg p-3 lg:px-4">
         <div className="flex flex-col items-center gap-2 lg:flex-row lg:justify-between">
-          <ConnectionIndicator showLabel />
+          <ConnectionIndicator labelClassName="hidden lg:inline" showLabel />
           <OfflineQueueIndicator />
           <ThemeToggle variant="inline" />
         </div>

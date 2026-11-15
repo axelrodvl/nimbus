@@ -21,7 +21,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text-summary', 'json-summary'],
       // Храповик: пороги только растут.
-      thresholds: { lines: 98.1, 'src/lib/**': { lines: 98.8 } },
+      thresholds: { lines: 98.2, 'src/lib/**': { lines: 98.8 } },
     },
     environment: 'happy-dom',
     include: ['src/**/*.test.{ts,tsx}'],

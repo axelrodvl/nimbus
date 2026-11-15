@@ -26,7 +26,7 @@ export function OfflineQueueIndicator({
   const label = t('offline.indicator.queue', { percent });
   const ring = (
     <ProgressRing progress={progress} size={variant === 'ring' ? 24 : 20}>
-      <ArrowDownToLine aria-hidden className="text-accent size-2.5" />
+      <ArrowDownToLine aria-hidden className="text-accent-fg size-2.5" />
     </ProgressRing>
   );
   if (variant === 'strip') {

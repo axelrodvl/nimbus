@@ -32,7 +32,7 @@ export function ActionMenu({
       >
         {actions.map(a => (
           <Ariakit.MenuItem
-            className={`${menuItemClass} ${a.danger ? 'text-danger' : ''}`}
+            className={`${menuItemClass} ${a.danger ? 'text-danger-fg' : ''}`}
             data-testid={`menu-${a.id}`}
             key={a.id}
             onClick={a.onClick}

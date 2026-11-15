@@ -7,7 +7,7 @@ export function NotFound() {
   return (
     <PageLayout title={t('notFound.title')}>
       <p className="text-gray mb-4 text-sm">{t('notFound.body')}</p>
-      <Link className="text-accent underline" to="/">
+      <Link className="text-accent-fg underline" to="/">
         {t('notFound.home')}
       </Link>
     </PageLayout>

@@ -64,7 +64,7 @@ export function ArtistImportStatus({ status, onRetry, now }: Props) {
   if (status.state === 'failed') {
     return (
       <div className="flex flex-col items-start gap-2" data-state="failed" data-testid="artist-import" role="status">
-        <p className="text-danger flex items-center gap-2 text-sm" title={status.error ?? undefined}>
+        <p className="text-danger-fg flex items-center gap-2 text-sm" title={status.error ?? undefined}>
           <TriangleAlert aria-hidden className="size-4 shrink-0" />
           {t('artist.import.failed', params)}
         </p>
@@ -97,7 +97,7 @@ export function ArtistImportStatus({ status, onRetry, now }: Props) {
           ? t('artist.import.attempt', params)
           : t('artist.importing');
   const icon = retrying ? (
-    <TriangleAlert aria-hidden className="text-warning size-4 shrink-0" />
+    <TriangleAlert aria-hidden className="text-warning-fg size-4 shrink-0" />
   ) : queued ? (
     <Hourglass aria-hidden className="size-4 shrink-0" />
   ) : (

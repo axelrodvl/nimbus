@@ -2,13 +2,11 @@ import type { QueryClient } from '@tanstack/react-query';
 import {
   listAcquisition,
   pinAlbumRequest,
-  pinTrackRequest,
   retryAcquisitionRequest,
   retryJobRequest,
   setPausedAll,
   setTorrentPaused,
   unpinAlbumRequest,
-  unpinTrackRequest,
   type AcquisitionItem,
   type DownloadsOverview,
 } from '@/lib/api/acquisition';
@@ -21,8 +19,6 @@ export type AcqRequests = {
   retry: typeof retryAcquisitionRequest;
   pinAlbum: typeof pinAlbumRequest;
   unpinAlbum: typeof unpinAlbumRequest;
-  pinTrack: typeof pinTrackRequest;
-  unpinTrack: typeof unpinTrackRequest;
   setPausedAll: typeof setPausedAll;
   setTorrentPaused: typeof setTorrentPaused;
   retryJob: typeof retryJobRequest;
@@ -32,13 +28,11 @@ export type AcqRequests = {
 const defaults: AcqRequests = {
   list: listAcquisition,
   pinAlbum: pinAlbumRequest,
-  pinTrack: pinTrackRequest,
   retry: retryAcquisitionRequest,
   retryJob: retryJobRequest,
   setPausedAll,
   setTorrentPaused,
   unpinAlbum: unpinAlbumRequest,
-  unpinTrack: unpinTrackRequest,
 };
 
 type Ctx = { queryClient: QueryClient; requests?: Partial<AcqRequests> };
@@ -113,16 +107,6 @@ export async function unpinAlbum(albumId: number, opts: { deleteFiles: boolean }
     restoreRows(ctx.queryClient, snapshot);
     throw e;
   }
-  refresh(ctx.queryClient);
-}
-
-export async function pinTrack(trackId: number, ctx: Ctx): Promise<void> {
-  await req(ctx).pinTrack(trackId);
-  refresh(ctx.queryClient);
-}
-
-export async function unpinTrack(trackId: number, opts: { deleteFiles: boolean }, ctx: Ctx): Promise<void> {
-  await req(ctx).unpinTrack(trackId, opts.deleteFiles);
   refresh(ctx.queryClient);
 }
 

@@ -48,7 +48,7 @@ export function AddMagnetForm({ albumId }: { albumId: number }) {
           {t('sources.addMagnet')}
         </Button>
       </div>
-      <p aria-live="polite" className="text-danger min-h-4 px-4 text-xs" data-testid="magnet-error" id="magnet-error">
+      <p aria-live="polite" className="text-danger-fg min-h-4 px-4 text-xs" data-testid="magnet-error" id="magnet-error">
         {check === 'format' ? t('error.invalid_magnet') : ''}
       </p>
     </form>

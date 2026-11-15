@@ -29,6 +29,7 @@
 - `just backend` — запустить бэкенд
 - `just client` — запустить клиент (`client/`, Vite, http://localhost:5173)
 - `just client-test` / `just client-cov` / `just client-e2e` — тесты, покрытие и e2e клиента (мок-бэкенд)
+- `just client-audit` — аудит интерфейса: матрица скриншотов (`client/test-results/audit/`), axe, клавиатура, reduced motion; `just client-perf` — бюджеты производительности на 60 000 треков
 - `just e2e` — сквозной сценарий на полном стеке в Docker (`client/tests/stack/`)
 - `just test` — все тесты
 - `just check` — fmt + clippy + lint + typecheck

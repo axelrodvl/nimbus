@@ -48,7 +48,7 @@ export function TrackRow({
   return (
     <div
       className={cn(
-        'focus-visible:ring-accent/40 flex h-[3.25rem] items-center gap-3 rounded-md px-3 transition-colors focus-visible:ring-2 focus-visible:outline-none',
+        'focus-visible:ring-accent/40 flex h-[3.25rem] items-center gap-3 rounded-md px-3 transition-colors select-none focus-visible:ring-2 focus-visible:outline-none',
         current ? 'bg-card/40 dark:bg-card-dark/40' : 'hover:bg-card/60 dark:hover:bg-card-dark/60',
         (!track.in_library || unavailable) && 'opacity-55',
       )}
@@ -72,7 +72,7 @@ export function TrackRow({
         <Cover alt={track.albumTitle} className="size-10" src={track.coverUrl} />
       )}
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className={cn('truncate text-sm font-medium', current && 'text-accent')}>{track.title}</span>
+        <span className={cn('truncate text-sm font-medium', current && 'text-accent-fg')}>{track.title}</span>
         <span className="text-muted truncate text-xs">
           <Link className="hover:underline" to={`/artist/${track.artist_id}`}>
             {track.artistName}
@@ -115,7 +115,7 @@ export function TrackRow({
             title={t('row.checkSourceTitle')}
             type="button"
           >
-            <AlertTriangle aria-hidden className="text-warning size-4" />
+            <AlertTriangle aria-hidden className="text-warning-fg size-4" />
           </button>
         ) : (
           <span
@@ -124,7 +124,7 @@ export function TrackRow({
             role="img"
             title={t('row.checkSourceTitle')}
           >
-            <AlertTriangle aria-hidden className="text-warning size-4" />
+            <AlertTriangle aria-hidden className="text-warning-fg size-4" />
           </span>
         )
       ) : null}

@@ -18,7 +18,7 @@ import { Sheet } from '@/components/ui/sheet';
 import { Slider } from '@/components/ui/slider';
 import { moveItem, SortableList } from '@/components/ui/sortable-list';
 import { Switch } from '@/components/ui/switch';
-import { Tabs } from '@/components/ui/tabs';
+import { revealHorizontally, Tabs } from '@/components/ui/tabs';
 import { TextInput } from '@/components/ui/text-input';
 import { Tooltip } from '@/components/ui/tooltip';
 import { renderWithProviders } from '@/test/render';
@@ -440,6 +440,53 @@ describe('Tabs', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Вторая' }));
     expect(onSelect).toHaveBeenLastCalledWith('b');
     expect(screen.getByRole('tab', { name: 'Вторая' })).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
+describe('Tabs: прокрутка к выбранной вкладке', () => {
+  const rect = (left: number, right: number) => () => ({ left, right }) as DOMRect;
+
+  it('выбранная вкладка, не помещающаяся в прокручиваемую строку, сдвигает её по горизонтали (страница не трогается)', () => {
+    const items = [
+      { id: 'a', label: 'Первая' },
+      { id: 'b', label: 'Вторая' },
+    ];
+    const pageScroll = vi.fn();
+    Element.prototype.scrollIntoView = pageScroll;
+    const { container, rerender } = render(
+      <div style={{ overflowX: 'auto' }}>
+        <Tabs aria-label="Вкладки" items={items} selectedId="a" />
+      </div>,
+    );
+    const scroller = container.firstElementChild as HTMLElement;
+    Object.defineProperty(scroller, 'scrollWidth', { configurable: true, value: 500 });
+    Object.defineProperty(scroller, 'clientWidth', { configurable: true, value: 200 });
+    scroller.getBoundingClientRect = rect(0, 200);
+    screen.getByRole('tab', { name: 'Вторая' }).getBoundingClientRect = rect(260, 340);
+    rerender(
+      <div style={{ overflowX: 'auto' }}>
+        <Tabs aria-label="Вкладки" items={items} selectedId="b" />
+      </div>,
+    );
+    expect(scroller.scrollLeft).toBe(140);
+    expect(pageScroll).not.toHaveBeenCalled();
+  });
+
+  it('вкладка, выступающая слева, возвращается в поле зрения; без прокручиваемого предка ничего не происходит', () => {
+    const el = document.createElement('button');
+    const scroller = document.createElement('div');
+    scroller.style.overflowX = 'scroll';
+    scroller.append(el);
+    document.body.append(scroller);
+    Object.defineProperty(scroller, 'scrollWidth', { configurable: true, value: 500 });
+    Object.defineProperty(scroller, 'clientWidth', { configurable: true, value: 200 });
+    scroller.scrollLeft = 100;
+    scroller.getBoundingClientRect = rect(0, 200);
+    el.getBoundingClientRect = rect(-30, 50);
+    revealHorizontally(el);
+    expect(scroller.scrollLeft).toBe(70);
+    scroller.remove();
+    expect(() => revealHorizontally(document.createElement('button'))).not.toThrow();
   });
 });
 

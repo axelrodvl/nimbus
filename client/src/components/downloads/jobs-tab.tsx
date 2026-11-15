@@ -41,13 +41,13 @@ function JobRow({ job }: { job: JobInfo }) {
           {target ? (
             <>
               {' · '}
-              <Link className="text-accent hover:underline" to={target.to}>
+              <Link className="text-accent-fg underline underline-offset-2" to={target.to}>
                 {t(target.label, { id: target.id })}
               </Link>
             </>
           ) : null}
         </p>
-        {job.last_error ? <p className="text-danger text-xs break-words">{job.last_error}</p> : null}
+        {job.last_error ? <p className="text-danger-fg text-xs break-words">{job.last_error}</p> : null}
         <p className="text-muted text-xs">{t('acq.job.attempts', { attempts: job.attempts, max: job.max_attempts })}</p>
       </div>
       <Button data-testid="job-retry" onClick={() => void retry()} pending={pending} size="sm" variant="secondary">

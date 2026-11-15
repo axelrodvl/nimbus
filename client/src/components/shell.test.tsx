@@ -244,6 +244,12 @@ describe('индикаторы', () => {
     expect(screen.getByText('Онлайн')).toBeInTheDocument();
   });
 
+  it('ConnectionIndicator: подпись можно скрыть классом (узкая боковая панель показывает одну точку)', () => {
+    renderRoutes([{ element: <ConnectionIndicator labelClassName="hidden lg:inline" showLabel />, path: '*' }]);
+    act(() => appData().socket.state.setState({ state: 'closed' }));
+    expect(screen.getByText('Офлайн')).toHaveClass('hidden', 'lg:inline');
+  });
+
   it('OfflineIndicator: toast при закрытом сокете и при navigator.onLine=false; снимается при восстановлении', () => {
     const error = vi.spyOn(toast, 'error').mockReturnValue('offline');
     const dismiss = vi.spyOn(toast, 'dismiss');

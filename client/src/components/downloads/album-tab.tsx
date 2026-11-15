@@ -137,7 +137,7 @@ export function AlbumTabView({ tab }: { tab: AlbumTab }) {
         </div>
       ) : null}
       {query.isError ? (
-        <p className="text-danger py-2 text-sm" role="alert">
+        <p className="text-danger-fg py-2 text-sm" role="alert">
           {apiErrorMessage(query.error, t)}
         </p>
       ) : null}

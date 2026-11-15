@@ -185,7 +185,7 @@ port, and CORS is opened for `NIMBUS_CORS_ORIGIN`.
 
 Commands: `just test` (backend tests), `just check` (fmt + clippy + lint + typecheck), `just e2e` (full compose stack
 with fake external services; needs Docker), `just openapi` + `just client-gen-api` (regenerate the spec and API types).
-Client: `just client-test`, `just client-cov`, `just client-build`, `just client-e2e` (see `client/README.md`).
+Client: `just client-test`, `just client-cov`, `just client-build`, `just client-e2e`, `just client-audit` (screenshots, axe, keyboard), `just client-perf` (performance budgets) (see `client/README.md`).
 Backend coverage: `just cov` (needs `cargo install cargo-llvm-cov --locked` and `rustup component add llvm-tools-preview`;
 runs the tests and fails below `backend/coverage-threshold.txt`, which may only go up); `just backend-cov-html` builds an
 HTML report. Current baseline: `docs/coverage.md`.

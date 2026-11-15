@@ -34,7 +34,7 @@ export function ServerSectionFrame({ id, title, description, settings, readOnly,
       <div className="flex flex-col gap-4" data-testid={`settings-${id}`}>
         <PageHeader description={description} status={<SaveIndicator status={status} />} title={title} />
         {errors[''] ? (
-          <p className="text-danger text-sm" role="alert">
+          <p className="text-danger-fg text-sm" role="alert">
             {errors['']}
           </p>
         ) : null}

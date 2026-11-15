@@ -3,7 +3,14 @@ import { useT } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 
 /** Серая точка — нет соединения, зелёная — WebSocket подключён. */
-export function ConnectionIndicator({ showLabel = false }: { showLabel?: boolean }) {
+export function ConnectionIndicator({
+  showLabel = false,
+  labelClassName,
+}: {
+  showLabel?: boolean;
+  /** Классы подписи (в узкой боковой панели её скрывают, остаётся одна точка). */
+  labelClassName?: string;
+}) {
   const state = useConnectionState();
   const t = useT();
   const labels = { closed: t('conn.closed'), connecting: t('conn.connecting'), open: t('conn.open') } as const;
@@ -18,7 +25,9 @@ export function ConnectionIndicator({ showLabel = false }: { showLabel?: boolean
         )}
         role="status"
       />
-      {showLabel ? <span>{state === 'open' ? t('conn.online') : t('conn.offline')}</span> : null}
+      {showLabel ? (
+        <span className={labelClassName}>{state === 'open' ? t('conn.online') : t('conn.offline')}</span>
+      ) : null}
     </span>
   );
 }

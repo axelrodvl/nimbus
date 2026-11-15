@@ -95,7 +95,7 @@ function Body({ store, trackId }: Props) {
                   <span className="text-muted text-xs">{t('count.tracks', { count: p.trackCount })}</span>
                 </span>
                 {inside ? (
-                  <span className="text-accent flex items-center gap-1 text-xs" data-testid="already-added">
+                  <span className="text-accent-fg flex items-center gap-1 text-xs" data-testid="already-added">
                     <Check aria-hidden className="size-4" />
                     {t('playlist.inPlaylist')}
                   </span>

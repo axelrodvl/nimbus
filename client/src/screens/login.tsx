@@ -32,8 +32,8 @@ export function Login() {
 
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-6 p-6">
-      <div className="text-accent inline-flex items-center gap-2 text-2xl font-bold tracking-tight">
-        <MusicNote className="text-accent" size={32} />
+      <div className="text-accent-fg inline-flex items-center gap-2 text-2xl font-bold tracking-tight">
+        <MusicNote className="text-accent-fg" size={32} />
         <span>Nimbus</span>
       </div>
       <h1 className="sr-only">{t('login.title')}</h1>
@@ -51,7 +51,7 @@ export function Login() {
           />
         </label>
         {error ? (
-          <p className="text-danger text-sm" role="alert">
+          <p className="text-danger-fg text-sm" role="alert">
             {error}
           </p>
         ) : null}

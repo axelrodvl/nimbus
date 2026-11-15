@@ -32,7 +32,7 @@ export function SyncStatus({ labelClassName }: { labelClassName?: string }) {
       {view.retry ? (
         <button
           className={cn(
-            'text-accent focus-visible:ring-accent/40 rounded underline focus-visible:ring-2 focus-visible:outline-none',
+            'text-accent-fg focus-visible:ring-accent/40 rounded underline focus-visible:ring-2 focus-visible:outline-none',
             labelClassName,
           )}
           onClick={() => appData().engine.requestSync('manual')}

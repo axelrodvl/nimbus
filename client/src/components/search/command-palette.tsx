@@ -112,7 +112,7 @@ function AddState({ item }: { item: PaletteItem }) {
   const adding = useIsAdding(item.add?.mbid ?? '');
   if (!item.add) return null;
   return adding ? (
-    <span className="text-accent inline-flex items-center gap-1 text-xs font-medium">
+    <span className="text-accent-fg inline-flex items-center gap-1 text-xs font-medium">
       <Spinner className="size-3.5" />
       {t('add.adding')}
     </span>
@@ -208,7 +208,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         {remote.loading ? <Spinner className="text-gray size-4 shrink-0" /> : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div className="min-h-0 flex-1 overflow-y-auto p-2" data-testid="palette-scroll">
         <ul
           aria-label={t('palette.results')}
           className={cn('flex flex-col', remote.stale && 'opacity-50')}
@@ -262,7 +262,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
       <div className="border-divider dark:border-divider-dark text-muted flex items-center justify-between gap-3 border-t px-4 py-2.5 text-xs">
         {trimmed ? (
           <button
-            className="text-accent text-sm font-medium whitespace-nowrap hover:underline"
+            className="text-accent-fg text-sm font-medium whitespace-nowrap hover:underline"
             onClick={() => activate(undefined)}
             type="button"
           >

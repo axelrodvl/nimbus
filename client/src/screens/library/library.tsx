@@ -166,7 +166,7 @@ export function LibraryScreen() {
             id: item.id,
             label: (
               <>
-                {t(item.label)} <span className="tabular-nums opacity-70">{counts[item.id]}</span>
+                {t(item.label)} <span className="tabular-nums">{counts[item.id]}</span>
               </>
             ),
             to: libraryHref(item.id, { offline: onlyDownloaded, q, status }),

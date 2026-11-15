@@ -69,7 +69,7 @@ function TorrentRow({ torrent }: { torrent: EngineTorrent }) {
           ) : null}
           <span>{t('count.peers', { count: torrent.peers })}</span>
         </p>
-        {torrent.error ? <p className="text-danger truncate text-xs">{torrent.error}</p> : null}
+        {torrent.error ? <p className="text-danger-fg truncate text-xs">{torrent.error}</p> : null}
       </div>
       <Button
         aria-label={`${paused ? t('acq.torrent.resume') : t('acq.torrent.pause')}: ${torrent.name}`}

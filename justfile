@@ -73,6 +73,14 @@ client-build:
 client-e2e:
     cd client && bun run test:e2e --trace off
 
+# Аудит интерфейса: матрица скриншотов (client/test-results/audit/), axe, клавиатура, reduced motion.
+client-audit:
+    cd client && bunx playwright test --config playwright.audit.config.ts
+
+# Бюджеты производительности на большой библиотеке (5 000 альбомов / 60 000 треков).
+client-perf:
+    cd client && bunx playwright test --config playwright.perf.config.ts
+
 client-gen-api: openapi
     cd client && bun run gen:api
 

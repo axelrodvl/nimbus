@@ -52,7 +52,7 @@ export function DownloadsScreen() {
               label: (
                 <>
                   {t(`acq.tab.${id}`)}
-                  {count === undefined ? null : <span className="tabular-nums opacity-70"> {count}</span>}
+                  {count === undefined ? null : <span className="tabular-nums"> {count}</span>}
                 </>
               ),
               to: `/downloads/${id}`,

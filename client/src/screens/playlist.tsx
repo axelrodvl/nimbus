@@ -80,7 +80,7 @@ export function PlaylistScreen() {
       </header>
       {tracks.length === 0 ? (
         <EmptyState title={favorites ? t('playlist.favoritesEmpty') : t('playlist.empty')}>
-          <Link className="text-accent underline" to="/library/tracks">
+          <Link className="text-accent-fg underline" to="/library/tracks">
             {t('nav.library')}
           </Link>
         </EmptyState>

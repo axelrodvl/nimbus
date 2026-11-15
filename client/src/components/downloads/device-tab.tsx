@@ -154,7 +154,7 @@ export function DeviceTab() {
           {` · ${t('count.tracks', { count: doneCount(status) })}`}
         </p>
         <p
-          className={cn('text-sm', q.key === 'quota' || q.key === 'failed' ? 'text-danger' : 'text-muted')}
+          className={cn('text-sm', q.key === 'quota' || q.key === 'failed' ? 'text-danger-fg' : 'text-muted')}
           data-testid="device-queue"
           data-queue={q.key}
           role="status"

@@ -370,14 +370,14 @@ function StorageUsage() {
         {t('settings.pinned', { files: data.pinned_files, size: formatSize(data.pinned_bytes, t) })}
       </p>
       <Link
-        className="text-accent text-sm hover:underline"
+        className="text-accent-fg text-sm hover:underline"
         data-testid="storage-downloaded-link"
         to="/downloads/downloaded"
       >
         {t('settings.storageDownloaded')}
       </Link>
       {data.over_limit ? (
-        <p className="text-danger text-sm" role="alert">
+        <p className="text-danger-fg text-sm" role="alert">
           {t('settings.overLimit')}
         </p>
       ) : null}
@@ -456,7 +456,7 @@ export function PerformanceSection({ settings, readOnly }: SectionProps) {
       title={t('settings.perf')}
     >
       {settings.restart_required ? (
-        <p className="text-warning text-sm" data-testid="restart-required" role="status">
+        <p className="text-warning-fg text-sm" data-testid="restart-required" role="status">
           {t('settings.restartRequired')}
         </p>
       ) : null}

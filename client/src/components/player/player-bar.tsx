@@ -47,9 +47,21 @@ export function PlayerBar({
               withAlbum
             />
           </div>
+          {/* Планшет (sm…lg): обложка с названием открывает полноэкранный плеер, рядом — очередь. */}
           <div className="flex items-center gap-3 lg:hidden">
-            <Cover alt={track?.title ?? ''} className="size-10 rounded-sm" src={track?.coverUrl} />
-            <TrackInfo title={track?.title ?? t('player.nothing')} track={track} />
+            <button
+              aria-label={t('player.expand')}
+              className="focus-visible:ring-accent/40 flex min-w-0 flex-1 items-center gap-3 rounded text-left focus-visible:ring-2 focus-visible:outline-none"
+              disabled={!track}
+              onClick={onOpenFull}
+              type="button"
+            >
+              <Cover alt={track?.title ?? ''} className="size-10 shrink-0 rounded-sm" src={track?.coverUrl} />
+              <TrackInfo title={track?.title ?? t('player.nothing')} track={track} />
+            </button>
+            <ToggleButton active={queueOpen} label={t('player.queue')} onClick={onToggleQueue}>
+              <ListMusic className="size-4" />
+            </ToggleButton>
           </div>
         </div>
         <div className="flex w-full flex-col items-center gap-1">

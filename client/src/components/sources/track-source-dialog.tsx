@@ -42,7 +42,7 @@ function Failed({ onRetry }: { onRetry: () => void }) {
   const t = useT();
   return (
     <div className="flex items-center gap-3 text-sm" role="alert">
-      <span className="text-danger">{t('common.loadFailed')}</span>
+      <span className="text-danger-fg">{t('common.loadFailed')}</span>
       <Button onClick={onRetry} size="sm" variant="secondary">
         {t('common.retry')}
       </Button>
@@ -138,7 +138,7 @@ function SourcesStep({
           >
             <div className="flex items-center gap-2 text-sm font-medium">
               {s.is_primary ? (
-                <Check aria-label={t('dialog.chosen')} className="text-accent size-4" role="img" />
+                <Check aria-label={t('dialog.chosen')} className="text-accent-fg size-4" role="img" />
               ) : null}
               <span className="min-w-0 flex-1 truncate">{s.torrent.title}</span>
               <span className="bg-card dark:bg-card-dark rounded px-2 py-0.5 text-xs">
@@ -152,7 +152,7 @@ function SourcesStep({
                 {t('dialog.match', { percent: Math.round(s.match_score * 100), size: formatSize(s.size_bytes, t) })}
               </span>
               {s.needs_confirmation ? (
-                <span className="text-warning inline-flex items-center gap-1" data-testid="source-needs-check">
+                <span className="text-warning-fg inline-flex items-center gap-1" data-testid="source-needs-check">
                   <AlertTriangle aria-hidden className="size-3.5" /> {t('dialog.check')}
                 </span>
               ) : null}

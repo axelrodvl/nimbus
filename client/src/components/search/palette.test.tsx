@@ -326,6 +326,14 @@ describe('кнопка в боковой панели и подсказка', ()
     expect(() => fireEvent.click(screen.getByTestId('palette-button'))).not.toThrow();
   });
 
+  it('имя кнопки палитры содержит весь видимый текст (подпись и клавиши) — доступность по WCAG 2.5.3', () => {
+    vi.spyOn(globalThis.navigator, 'platform', 'get').mockReturnValue('Linux x86_64');
+    renderRoutes([{ element: <Sidebar items={[]} />, path: '*' }], '/');
+    const button = screen.getByTestId('palette-button');
+    expect(button).toHaveAttribute('aria-label', 'Поиск Ctrl K');
+    expect(button.textContent).toBe('Поиск Ctrl K');
+  });
+
   it('подсказка: ⌘K на macOS, Ctrl K на остальных', () => {
     vi.spyOn(globalThis.navigator, 'platform', 'get').mockReturnValue('MacIntel');
     const { container, unmount } = render(<ShortcutHint />);

@@ -33,7 +33,7 @@ export function DownloadInfo({ className }: { className?: string }) {
     <div
       className={cn(
         'text-muted flex items-center justify-center gap-2 text-[11px]',
-        status === 'error' && 'text-danger',
+        status === 'error' && 'text-danger-fg',
         className,
       )}
       data-testid="player-status"

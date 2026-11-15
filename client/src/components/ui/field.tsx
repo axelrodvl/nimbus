@@ -53,7 +53,7 @@ export function Field({ label, description, error, children, className }: Props)
         </p>
       ) : null}
       {error ? (
-        <p className="text-danger text-xs" id={ids.errorId}>
+        <p className="text-danger-fg text-xs" id={ids.errorId}>
           {error}
         </p>
       ) : null}

@@ -32,8 +32,9 @@ export function QueuePanel({ open, onClose }: { open: boolean; onClose: () => vo
       aria-hidden={!open}
       aria-label={t('player.queue')}
       className={cn(
-        'border-divider dark:border-divider-dark fixed top-0 right-0 bottom-0 z-[60] flex w-80 max-w-[90vw] flex-col border-l bg-white shadow-2xl transition-transform duration-200 dark:bg-[#181818]',
-        open ? 'translate-x-0' : 'translate-x-full',
+        'border-divider dark:border-divider-dark fixed top-0 right-0 bottom-0 z-[60] flex w-80 max-w-[90vw] flex-col border-l bg-white transition-transform duration-200 dark:bg-[#181818]',
+        // Тень только у открытой панели: у закрытой она «просачивалась» полосой у правого края экрана.
+        open ? 'translate-x-0 shadow-2xl' : 'translate-x-full',
       )}
       data-testid="queue-panel"
       inert={!open}
@@ -122,7 +123,7 @@ function QueueRow({
       >
         <Cover alt={track.title} className="size-8 rounded" src={track.coverUrl} />
         <span className="flex min-w-0 flex-col">
-          <span className={cn('truncate text-sm', current && 'text-accent font-medium')}>{track.title}</span>
+          <span className={cn('truncate text-sm', current && 'text-accent-fg font-medium')}>{track.title}</span>
           <span className="text-muted truncate text-xs">{track.artist}</span>
         </span>
       </button>

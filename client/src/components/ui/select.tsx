@@ -47,7 +47,7 @@ export function Select({ value, onValueChange, options, disabled, className, ...
             value={o.value}
           >
             <span className="truncate">{o.label}</span>
-            <Ariakit.SelectItemCheck render={<Check aria-hidden className="text-accent size-4 shrink-0" />} />
+            <Ariakit.SelectItemCheck render={<Check aria-hidden className="text-accent-fg size-4 shrink-0" />} />
           </Ariakit.SelectItem>
         ))}
       </Ariakit.SelectPopover>

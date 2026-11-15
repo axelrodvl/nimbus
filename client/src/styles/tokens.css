@@ -1,6 +1,8 @@
 @theme {
-  --color-gray: #a1a1aa;
-  --color-muted: #71717a;
+  /* Вторичный текст (ярче muted): светлая тема — тёмно-серый, тёмная — в `.dark` ниже. */
+  --color-gray: #55555f;
+  /* Приглушённый текст: контраст ≥ 4.5:1 на card/surface в обеих темах (светлая — здесь, тёмная — в `.dark` ниже). */
+  --color-muted: #686872;
   --color-divider-dark: #282828;
   --color-divider: #e4e4e7;
   --color-card-dark: #181818;
@@ -8,16 +10,22 @@
   --color-surface-dark: #121212;
   --color-surface: #fafafa;
 
-  --color-primary: #4f6ef7;
+  --color-primary: #4562ee;
   --color-primary-dark: #3d5bd9;
   --color-primary-darker: #2c42a0;
-  --color-accent: #4f6ef7;
-  --color-accent-hover: #3d5bd9;
-  --color-accent-fade: #4f6ef722;
+  /* Заливка акцента: белый текст ≥ 4.5:1. Акцент как цвет текста — `accent-fg` (в тёмной теме светлее). */
+  --color-accent: #4562ee;
+  --color-accent-fg: #3a52d1;
+  --color-accent-hover: #3a54d4;
+  --color-accent-fade: #4562ee22;
 
+  /* Заливки (точки, полосы, кнопки с белым текстом) и цвета текста `*-fg`: контраст ≥ 4.5:1 в обеих темах. */
   --color-success: #0fa958;
-  --color-danger: #e54848;
+  --color-success-fg: #07693a;
+  --color-danger: #d13434;
+  --color-danger-fg: #b42323;
   --color-warning: #f5a524;
+  --color-warning-fg: #7a4e00;
 
   --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
   --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
@@ -37,3 +45,11 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+.dark {
+  --color-gray: #a1a1aa;
+  --color-muted: #9a9aa4;
+  --color-accent-fg: #7a92ff;
+  --color-success-fg: #2fd17a;
+  --color-danger-fg: #ff6b6b;
+  --color-warning-fg: #f5a524;
+}
