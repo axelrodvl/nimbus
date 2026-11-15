@@ -17,8 +17,8 @@
   файлы `.torrent`. **Резервная копия — оба**: том БД (`docker compose exec db pg_dump -U nimbus nimbus > nimbus.sql`)
   и каталог `data/`. Файлы можно скачать заново, а вот закрепления, плейлисты и настройки живут только в БД.
 - Восстановление: `docker compose up -d db`, `docker compose exec -T db psql -U nimbus nimbus < nimbus.sql`, вернуть `data/`, `./scripts/start.sh`.
-- Обновление: `./scripts/stop.sh && ./scripts/build.sh && ./scripts/start.sh` (миграции БД применяются при старте, только вперёд) или
-  новая версия образа в `NIMBUS_VERSION` для `deploy/docker-compose.release.yml`.
+- Обновление: `./scripts/stop.sh && ./scripts/build.sh && ./scripts/start.sh` (миграции БД применяются при старте, только вперёд) или,
+  для опубликованных образов, `./stop.sh && ./start.sh [версия]` (корневые скрипты работают с `deploy/docker-compose.release.yml`; версия — аргумент или `NIMBUS_VERSION`).
 
 ## Переменные окружения
 

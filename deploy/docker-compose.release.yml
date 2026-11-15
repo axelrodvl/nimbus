@@ -1,5 +1,8 @@
 # Запуск из готовых образов GHCR (без сборки). Лежит в пакете релиза как docker-compose.yml.
 # Версия берётся из NIMBUS_VERSION (.env), по умолчанию latest.
+# Из репозитория запускается корневыми ./start.sh и ./stop.sh; то же имя проекта, что у docker-compose.yml (стек один).
+name: nimbus
+
 services:
   db:
     image: postgres:17
@@ -25,14 +28,15 @@ services:
       DATABASE_URL: postgres://nimbus:nimbus@db:5432/nimbus
       NIMBUS_BIND: 0.0.0.0:8080
       NIMBUS_DATA_DIR: /data
+      NIMBUS_TORRENT_PORT: ${NIMBUS_TORRENT_PORT:-6881}
     volumes:
       - ./data:/data
     ports:
       # Интерфейс и API на одном origin.
       - "${NIMBUS_PORT:-8000}:8080"
       # Входящие BitTorrent-соединения.
-      - "6881:6881/tcp"
-      - "6881:6881/udp"
+      - "${NIMBUS_TORRENT_PORT:-6881}:${NIMBUS_TORRENT_PORT:-6881}/tcp"
+      - "${NIMBUS_TORRENT_PORT:-6881}:${NIMBUS_TORRENT_PORT:-6881}/udp"
     depends_on:
       db:
         condition: service_healthy
