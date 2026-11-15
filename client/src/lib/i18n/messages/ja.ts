@@ -115,7 +115,6 @@ const messages: Messages = {
   'artist.group.other': 'その他のリリース',
   'artist.group.single': 'シングル',
   'artist.import.attempt': 'ディスコグラフィをインポート中…（{max} 回中 {attempt} 回目）',
-  'artist.import.details': '詳細',
   'artist.import.failed':
     'ディスコグラフィをインポートできませんでした：MusicBrainz に接続できません。{max} 回試行して中止しました。',
   'artist.import.queued': 'インポートの順番待ち…',
@@ -123,10 +122,10 @@ const messages: Messages = {
   'artist.import.retry': '再試行',
   'artist.import.retrying':
     'MusicBrainz が応答しません（{max} 回中 {attempt} 回目の試行に失敗）。約 {minutes} 分後に再試行します。',
-  'artist.import.step.albums': 'アルバムをインポート中：{done} / {total} — {title}',
-  'artist.import.step.discover': 'インポート済みアルバム：{imported}。ソースを検索しています…',
-  'artist.import.step.groups': 'MusicBrainz からアルバム一覧を取得しています…',
-  'artist.importing': 'ディスコグラフィをインポート中…',
+  'artist.import.steps.queue': '順番待ち',
+  'artist.import.steps.groups': 'MusicBrainz のアルバム一覧',
+  'artist.import.steps.albums': 'アルバムをインポート中',
+  'artist.import.steps.discover': 'トレントを検索中',
   'artist.noAlbums': 'ライブラリにアルバムがありません。',
   'common.back': '戻る',
   'common.cancel': 'キャンセル',

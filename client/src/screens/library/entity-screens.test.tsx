@@ -66,7 +66,11 @@ describe('альбом', () => {
     seed(discs());
     renderRoutes(routes, '/album/1');
     const list = screen.getByTestId('album-tracks');
-    expect(within(list).getAllByTestId('track-row').map(r => r.getAttribute('data-track-id'))).toEqual(['11', '12', '13']);
+    expect(
+      within(list)
+        .getAllByTestId('track-row')
+        .map(r => r.getAttribute('data-track-id')),
+    ).toEqual(['11', '12', '13']);
     expect(within(list).getByText('Диск 1')).toBeInTheDocument();
     expect(within(list).getByText('Диск 2')).toBeInTheDocument();
   });
@@ -98,7 +102,13 @@ describe('альбом', () => {
     expect(within(row()).getByRole('img', { name: 'Скачано' })).toBeInTheDocument();
     expect(screen.getByTestId('album-status-summary')).toHaveTextContent('2 скачано');
     act(() =>
-      appData().engine.handleEvent({ album_id: 1, reason: 'dead_torrents', status: 'not_found', track_id: 12, type: 'track.status' }),
+      appData().engine.handleEvent({
+        album_id: 1,
+        reason: 'dead_torrents',
+        status: 'not_found',
+        track_id: 12,
+        type: 'track.status',
+      }),
     );
     expect(within(screen.getAllByTestId('track-row')[1]!).getByRole('img', { name: 'Нет сидов' })).toBeInTheDocument();
   });
@@ -107,18 +117,24 @@ describe('альбом', () => {
     seed(discs());
     renderRoutes(routes, '/album/1');
     expect(screen.queryByTestId('album-progress')).not.toBeInTheDocument();
-    act(() => appData().engine.handleEvent({ album_id: 1, done: 2, stage: 'verifying', total: 5, type: 'job.progress' }));
+    act(() =>
+      appData().engine.handleEvent({ album_id: 1, done: 2, stage: 'verifying', total: 5, type: 'job.progress' }),
+    );
     expect(screen.getByTestId('album-progress')).toHaveTextContent('Проверяем раздачи 2/5');
     // Бейдж трека в поиске показывает тот же прогресс.
     expect(screen.getByRole('img', { name: 'Проверяем раздачи 2/5' })).toBeInTheDocument();
-    act(() => appData().engine.handleEvent({ album_id: 1, done: 5, stage: 'verifying', total: 5, type: 'job.progress' }));
+    act(() =>
+      appData().engine.handleEvent({ album_id: 1, done: 5, stage: 'verifying', total: 5, type: 'job.progress' }),
+    );
     expect(screen.queryByTestId('album-progress')).not.toBeInTheDocument();
   });
 
   it('этап поиска без числа — «Ищем раздачи…»', () => {
     seed(discs());
     renderRoutes(routes, '/album/1');
-    act(() => appData().engine.handleEvent({ album_id: 1, done: 0, stage: 'searching', total: 0, type: 'job.progress' }));
+    act(() =>
+      appData().engine.handleEvent({ album_id: 1, done: 0, stage: 'searching', total: 0, type: 'job.progress' }),
+    );
     expect(screen.getByTestId('album-progress')).toHaveTextContent('Ищем раздачи…');
   });
 
@@ -278,14 +294,14 @@ describe('артист', () => {
   describe('статус импорта', () => {
     beforeEach(() => seed({ artists: [makeArtist({ id: 1 })] }));
 
-    it('importing: прогресс по альбомам, журнал раскрывается по нажатию', async () => {
+    it('importing: степпер — пройденные шаги, текущий с прогрессом, будущие', async () => {
       getImport.mockResolvedValue(
         imp({
           progress: {
             current: 'Recovery',
             done: 3,
             imported: 3,
-            log: [{ at: '2026-01-01T10:00:00Z', text: 'Found 12 release groups' }],
+            log: [],
             phase: 'albums',
             skipped: 0,
             total: 12,
@@ -294,13 +310,18 @@ describe('артист', () => {
       );
       renderRoutes(routes, '/artist/1');
       const status = await screen.findByTestId('artist-import');
-      expect(status).toHaveTextContent('Импорт альбомов: 3 из 12 — Recovery');
+      const step = (name: string) => status.querySelector(`[data-step="${name}"]`);
+      expect(step('queue')).toHaveAttribute('data-step-state', 'done');
+      expect(step('groups')).toHaveAttribute('data-step-state', 'done');
+      expect(step('albums')).toHaveAttribute('data-step-state', 'active');
+      expect(step('discover')).toHaveAttribute('data-step-state', 'todo');
+      expect(step('albums')).toHaveTextContent('Импорт альбомов');
+      expect(step('albums')).toHaveTextContent('3/12');
+      expect(step('albums')).toHaveTextContent('Recovery');
       expect(screen.queryByTestId('artist-import-log')).not.toBeInTheDocument();
-      await userEvent.click(within(status).getByRole('button'));
-      expect(screen.getByTestId('artist-import-log')).toHaveTextContent('Found 12 release groups');
     });
 
-    it('importing, фаза MusicBrainz: строка с живой подробностью и полоса', async () => {
+    it('importing, фаза MusicBrainz: страницы и живая подробность', async () => {
       getImport.mockResolvedValue(
         imp({
           progress: { current: 'page 2', done: 1, imported: 0, log: [], phase: 'groups', skipped: 0, total: 4 },
@@ -308,7 +329,9 @@ describe('артист', () => {
       );
       renderRoutes(routes, '/artist/1');
       const status = await screen.findByTestId('artist-import');
-      expect(status).toHaveTextContent('Запрашиваем список альбомов у MusicBrainz… 1/4');
+      expect(status.querySelector('[data-step="groups"]')).toHaveAttribute('data-step-state', 'active');
+      expect(status).toHaveTextContent('Список альбомов из MusicBrainz');
+      expect(status).toHaveTextContent('1/4');
       expect(screen.getByTestId('artist-import-live')).toHaveTextContent('page 2');
     });
 
@@ -319,7 +342,8 @@ describe('артист', () => {
       first.unmount();
       getImport.mockResolvedValue(imp());
       renderRoutes(routes, '/artist/1');
-      expect(await screen.findByTestId('artist-import')).toHaveTextContent('Дискография импортируется…');
+      const status = await screen.findByTestId('artist-import');
+      expect(status.querySelector('[data-step="groups"]')).toHaveAttribute('data-step-state', 'active');
     });
 
     it('discover: сколько добавлено', async () => {
@@ -327,7 +351,7 @@ describe('артист', () => {
         imp({ progress: { done: 0, imported: 7, log: [], phase: 'discover', skipped: 0, total: 0 } }),
       );
       renderRoutes(routes, '/artist/1');
-      expect(await screen.findByTestId('artist-import')).toHaveTextContent('Альбомов добавлено: 7');
+      expect(await screen.findByTestId('artist-import')).toHaveTextContent('7 альбомов');
     });
 
     it('queued: ждёт очереди', async () => {
@@ -374,18 +398,6 @@ describe('артист', () => {
       await userEvent.click(button);
       await waitFor(() => expect(toast.error).toHaveBeenCalledWith('down'));
       await waitFor(() => expect(screen.getByRole('button', { name: 'Повторить' })).toBeEnabled());
-    });
-
-    it('failed с журналом: «Подробности» раскрывают журнал', async () => {
-      getImport.mockResolvedValue(
-        imp({
-          progress: { done: 0, imported: 0, log: [{ at: '2026-01-01T10:00:00Z', text: 'boom' }], phase: 'groups', skipped: 0, total: 0 },
-          state: 'failed',
-        }),
-      );
-      renderRoutes(routes, '/artist/1');
-      await userEvent.click(await screen.findByRole('button', { name: 'Подробности' }));
-      expect(screen.getByTestId('artist-import-log')).toHaveTextContent('boom');
     });
 
     it('нет импорта — блока статуса нет', async () => {

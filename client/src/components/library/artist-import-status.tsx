@@ -1,4 +1,4 @@
-import { ChevronDown, Hourglass, Loader2, TriangleAlert } from 'lucide-react';
+import { Check, Hourglass, Loader2, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import type { ArtistImport } from '@/lib/api/library';
@@ -12,33 +12,117 @@ function minutesUntil(iso: string | null | undefined, now: number) {
   return Math.max(1, Math.ceil((new Date(iso).getTime() - now) / 60_000));
 }
 
-/** Одна строка о том, что делает импорт прямо сейчас. */
-function progressLine(t: TFn, p: Progress) {
-  if (p.phase === 'albums') return t('artist.import.step.albums', { done: p.done, title: p.current ?? '…', total: p.total });
-  if (p.phase === 'discover') return t('artist.import.step.discover', { imported: p.imported });
-  // Фаза MusicBrainz: страницы списка групп/релизов (done из total), пока total неизвестен — без числа.
-  const pages = p.total > 0 ? ` ${p.done}/${p.total}` : '';
-  return `${t('artist.import.step.groups')}${pages}`;
+/** Шаги импорта по порядку; `queue` — ожидание слота, остальные — фазы бэкенда. */
+const STEPS = ['queue', 'groups', 'albums', 'discover'] as const;
+type Step = (typeof STEPS)[number];
+
+/** Индекс текущего шага: очередь → MusicBrainz (пока прогресса нет — тоже он) → альбомы → поиск источников. */
+function currentStep(status: ArtistImport): number {
+  if (status.state === 'queued') return 0;
+  return STEPS.indexOf(status.progress?.phase ?? 'groups');
 }
 
-/** Живая строка «что именно сейчас происходит» (текст от бэкенда): виден, даже когда журнал свёрнут. */
-const liveDetail = (p: Progress | null) => (p && p.phase === 'groups' && p.current ? p.current : null);
+/** Доля 0–100 для полосы шага или `null`, если считать нечего. */
+function percent(done: number, total: number) {
+  return total > 0 ? Math.min(100, Math.round((done / total) * 100)) : null;
+}
 
-/** Журнал шагов (по нажатию): новые записи сверху. Текст — от бэкенда, на английском. */
-function ImportLog({ log }: { log: Progress['log'] }) {
+/** Подробности текущего шага: счётчик, текущий элемент, полоса. */
+function StepDetail({ step, progress, t }: { step: Step; progress: Progress | null; t: TFn }) {
+  if (!progress) return null;
+  if (step === 'groups') {
+    const pct = percent(progress.done, progress.total);
+    return (
+      <>
+        {pct !== null ? <span className="tabular-nums">{`${progress.done}/${progress.total}`}</span> : null}
+        {progress.current ? (
+          <span className="block max-w-full truncate" data-testid="artist-import-live">
+            {progress.current}
+          </span>
+        ) : null}
+        {pct !== null ? <Bar pct={pct} /> : null}
+      </>
+    );
+  }
+  if (step === 'albums') {
+    const pct = percent(progress.done, progress.total);
+    return (
+      <>
+        <span className="tabular-nums">{`${progress.done}/${progress.total}`}</span>
+        {progress.current ? <span className="block max-w-full truncate">{progress.current}</span> : null}
+        {pct !== null ? <Bar pct={pct} /> : null}
+      </>
+    );
+  }
+  if (step === 'discover') return <span>{t('count.albums', { count: progress.imported })}</span>;
+  return null;
+}
+
+function Bar({ pct }: { pct: number }) {
   return (
-    <ol
-      className="text-muted bg-card dark:bg-card-dark dark:text-gray max-h-64 w-full max-w-xl overflow-y-auto rounded-md p-3 text-left font-mono text-xs"
-      data-testid="artist-import-log"
+    <span
+      aria-hidden
+      className="bg-card dark:bg-card-dark mt-1.5 block h-1 w-full max-w-xs overflow-hidden rounded-full"
     >
-      {[...log].reverse().map((e, i) => (
-        <li className="py-0.5 break-words" key={`${e.at}-${i}`}>
-          <time className="opacity-60" dateTime={e.at}>
-            {new Date(e.at).toLocaleTimeString()}
-          </time>{' '}
-          {e.text}
-        </li>
-      ))}
+      <span className="bg-accent block h-full transition-[width]" style={{ width: `${pct}%` }} />
+    </span>
+  );
+}
+
+/** Точка шага: пройден — галочка, текущий — крутящийся индикатор, впереди — пустой кружок. */
+function Dot({ state }: { state: 'done' | 'active' | 'todo' }) {
+  if (state === 'done')
+    return (
+      <span className="bg-accent flex size-6 items-center justify-center rounded-full text-white">
+        <Check aria-hidden className="size-3.5" strokeWidth={3} />
+      </span>
+    );
+  if (state === 'active')
+    return (
+      <span className="border-accent text-accent flex size-6 items-center justify-center rounded-full border-2">
+        <Loader2 aria-hidden className="size-3.5 animate-spin" />
+      </span>
+    );
+  return <span className="border-muted/40 size-6 rounded-full border-2" />;
+}
+
+/** Вертикальный степпер импорта (как статус заказа): пройденные шаги, текущий с подробностями, будущие. */
+function ImportSteps({ status, t }: { status: ArtistImport; t: TFn }) {
+  const current = currentStep(status);
+  const progress = status.progress ?? null;
+  return (
+    <ol className="flex w-full max-w-xl flex-col text-left" data-testid="artist-import-steps">
+      {STEPS.map((step, i) => {
+        const state = i < current ? 'done' : i === current ? 'active' : 'todo';
+        return (
+          <li
+            aria-current={state === 'active' ? 'step' : undefined}
+            className="flex gap-3"
+            data-step={step}
+            data-step-state={state}
+            key={step}
+          >
+            <div className="flex flex-col items-center">
+              <Dot state={state} />
+              {i < STEPS.length - 1 ? (
+                <span className={`my-1 w-0.5 flex-1 rounded-full ${i < current ? 'bg-accent' : 'bg-muted/25'}`} />
+              ) : null}
+            </div>
+            <div className={`min-w-0 flex-1 pb-4 ${i === STEPS.length - 1 ? 'pb-0' : ''}`}>
+              <p
+                className={`text-sm leading-6 ${state === 'todo' ? 'text-muted/60' : state === 'done' ? 'text-muted' : 'font-medium'}`}
+              >
+                {t(`artist.import.steps.${step}`)}
+              </p>
+              {state === 'active' ? (
+                <div className="text-muted mt-0.5 text-xs">
+                  <StepDetail progress={progress} step={step} t={t} />
+                </div>
+              ) : null}
+            </div>
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -51,19 +135,21 @@ type Props = {
   now?: number;
 };
 
-/** Статус импорта дискографии: идёт / в очереди / ждём MusicBrainz (с повтором) / не удалось (с кнопкой «Повторить»). */
+/** Статус импорта дискографии: шаги (очередь → MusicBrainz → альбомы → источники) / ждём MusicBrainz (с повтором) / не удалось (с кнопкой «Повторить»). */
 export function ArtistImportStatus({ status, onRetry, now }: Props) {
   const t = useT();
   const [mountedAt] = useState(Date.now);
   const [pending, setPending] = useState(false);
-  const [open, setOpen] = useState(false);
   const params = { attempt: status.attempt, max: status.max_attempts };
-  const progress = status.progress ?? null;
-  const hasLog = (progress?.log.length ?? 0) > 0;
 
   if (status.state === 'failed') {
     return (
-      <div className="flex flex-col items-start gap-2" data-state="failed" data-testid="artist-import" role="status">
+      <div
+        className="flex w-full min-w-0 flex-col items-start gap-2"
+        data-state="failed"
+        data-testid="artist-import"
+        role="status"
+      >
         <p className="text-danger-fg flex items-center gap-2 text-sm" title={status.error ?? undefined}>
           <TriangleAlert aria-hidden className="size-4 shrink-0" />
           {t('artist.import.failed', params)}
@@ -79,84 +165,44 @@ export function ArtistImportStatus({ status, onRetry, now }: Props) {
         >
           {t('artist.import.retry')}
         </Button>
-        {hasLog ? <DetailsToggle label={t('artist.import.details')} onToggle={() => setOpen(o => !o)} open={open} /> : null}
-        {open && progress ? <ImportLog log={progress.log} /> : null}
       </div>
     );
   }
 
-  const retrying = status.state === 'retrying';
-  const queued = status.state === 'queued';
-  const text = retrying
-    ? t('artist.import.retrying', { ...params, minutes: minutesUntil(status.retry_at, now ?? mountedAt) })
-    : queued
-      ? t('artist.import.queued')
-      : progress
-        ? progressLine(t, progress)
-        : status.attempt > 1
-          ? t('artist.import.attempt', params)
-          : t('artist.importing');
-  const icon = retrying ? (
-    <TriangleAlert aria-hidden className="text-warning-fg size-4 shrink-0" />
-  ) : queued ? (
-    <Hourglass aria-hidden className="size-4 shrink-0" />
-  ) : (
-    <Loader2 aria-hidden className="size-4 shrink-0 animate-spin" />
-  );
+  if (status.state === 'retrying') {
+    return (
+      <div
+        className="flex w-full min-w-0 flex-col items-start gap-2"
+        data-state="retrying"
+        data-testid="artist-import"
+        role="status"
+        title={status.error ?? undefined}
+      >
+        <p className="text-muted flex min-w-0 items-center gap-2 text-sm">
+          <TriangleAlert aria-hidden className="text-warning-fg size-4 shrink-0" />
+          {t('artist.import.retrying', { ...params, minutes: minutesUntil(status.retry_at, now ?? mountedAt) })}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div
-      className="flex w-full max-w-full min-w-0 flex-col items-start gap-2"
+      className="flex w-full max-w-full min-w-0 flex-col items-start gap-3"
       data-state={status.state}
       data-testid="artist-import"
       role="status"
       title={status.error ?? undefined}
     >
-      {hasLog ? (
-        <button
-          aria-expanded={open}
-          className="text-muted hover:text-foreground flex max-w-full items-center gap-2 text-left text-sm"
-          onClick={() => setOpen(o => !o)}
-          title={t('artist.import.details')}
-          type="button"
-        >
-          {icon}
-          <span className="min-w-0 truncate">{text}</span>
-          <ChevronDown aria-hidden className={`size-4 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
-        </button>
-      ) : (
+      {status.state === 'queued' ? (
         <p className="text-muted flex min-w-0 items-center gap-2 text-sm">
-          {icon}
-          {text}
+          <Hourglass aria-hidden className="size-4 shrink-0" />
+          {t('artist.import.queued')}
         </p>
-      )}
-      {liveDetail(progress) ? (
-        <p className="text-muted/80 max-w-full truncate text-xs" data-testid="artist-import-live">
-          {liveDetail(progress)}
-        </p>
+      ) : status.attempt > 1 && !status.progress ? (
+        <p className="text-muted text-sm">{t('artist.import.attempt', params)}</p>
       ) : null}
-      {progress && progress.phase === 'groups' && progress.total > 0 ? (
-        <div aria-hidden className="bg-card dark:bg-card-dark h-1 w-full max-w-xl overflow-hidden rounded-full">
-          <div
-            className="bg-accent h-full transition-[width]"
-            style={{ width: `${Math.min(100, Math.round((progress.done / progress.total) * 100))}%` }}
-          />
-        </div>
-      ) : null}
-      {open && progress ? <ImportLog log={progress.log} /> : null}
+      <ImportSteps status={status} t={t} />
     </div>
-  );
-}
-
-function DetailsToggle({ open, onToggle, label }: { open: boolean; onToggle: () => void; label: string }) {
-  return (
-    <button
-      aria-expanded={open}
-      className="text-muted hover:text-foreground flex items-center gap-1 text-xs"
-      onClick={onToggle}
-      type="button"
-    >
-      {label}
-      <ChevronDown aria-hidden className={`size-3 transition-transform ${open ? 'rotate-180' : ''}`} />
-    </button>
   );
 }

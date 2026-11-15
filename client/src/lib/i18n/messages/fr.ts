@@ -117,7 +117,6 @@ const messages: Messages = {
   'artist.group.other': 'Autres sorties',
   'artist.group.single': 'Singles',
   'artist.import.attempt': 'Importation de la discographie… (tentative {attempt} sur {max})',
-  'artist.import.details': 'Détails',
   'artist.import.failed':
     'Impossible d’importer la discographie : MusicBrainz est indisponible. Abandon après {max} tentatives.',
   'artist.import.queued': "En attente d'une place libre pour l'import…",
@@ -125,10 +124,10 @@ const messages: Messages = {
   'artist.import.retry': 'Réessayer',
   'artist.import.retrying':
     'MusicBrainz ne répond pas (échec de la tentative {attempt} sur {max}). Nouvel essai dans environ {minutes} min.',
-  'artist.import.step.albums': 'Importation des albums : {done} sur {total} — {title}',
-  'artist.import.step.discover': 'Albums importés : {imported}. Recherche des sources…',
-  'artist.import.step.groups': 'Récupération de la liste des albums sur MusicBrainz…',
-  'artist.importing': 'Importation de la discographie…',
+  'artist.import.steps.queue': 'En attente dans la file',
+  'artist.import.steps.groups': 'Liste des albums de MusicBrainz',
+  'artist.import.steps.albums': 'Importation des albums',
+  'artist.import.steps.discover': 'Recherche de torrents',
   'artist.noAlbums': 'Aucun album dans la bibliothèque.',
   'common.back': 'Retour',
   'common.cancel': 'Annuler',
