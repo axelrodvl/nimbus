@@ -110,7 +110,7 @@ function ImportSteps({ status, t }: { status: ArtistImport; t: TFn }) {
             </div>
             <div className={`min-w-0 flex-1 pb-4 ${i === STEPS.length - 1 ? 'pb-0' : ''}`}>
               <p
-                className={`text-sm leading-6 ${state === 'todo' ? 'text-muted/60' : state === 'done' ? 'text-muted' : 'font-medium'}`}
+                className={`text-sm leading-6 ${state === 'todo' || state === 'done' ? 'text-muted' : 'font-medium'}`}
               >
                 {t(`artist.import.steps.${step}`)}
               </p>
