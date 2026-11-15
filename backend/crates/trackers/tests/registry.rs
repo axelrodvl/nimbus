@@ -545,7 +545,7 @@ async fn random_flakiness_does_not_open_the_breaker() {
             TorrentSource::Torznab
         }
         async fn search(&self, _q: &SearchQuery) -> Result<Vec<TorrentCandidate>, ProviderError> {
-            if self.0.fetch_add(1, Ordering::SeqCst) % 3 == 0 {
+            if self.0.fetch_add(1, Ordering::SeqCst).is_multiple_of(3) {
                 Err(ProviderError::Blocked("HTTP 503".into()))
             } else {
                 Ok(vec![])

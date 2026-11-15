@@ -159,9 +159,13 @@ async fn a_provider_that_is_down_or_hangs_does_not_stop_the_search(pool: PgPool)
         );
         // Рабочий провайдер отвечал, неисправному не слали запросы бесконечно.
         assert!(rig.providers[1].calls() >= 1);
+        // До размыкания предохранителя: порог неудачных запросов × (попытка + повторы внутри запроса).
+        let budget = (nimbus_trackers::registry::BREAKER_THRESHOLD
+            * (nimbus_trackers::registry::REQUEST_RETRIES + 1)) as usize
+            + 3;
         assert!(
-            rig.providers[0].calls() <= 12,
-            "{}",
+            rig.providers[0].calls() <= budget,
+            "{} > {budget}",
             rig.providers[0].calls()
         );
         workers.shutdown().await;

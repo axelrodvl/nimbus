@@ -121,8 +121,8 @@ test('остановка бэкенда на минуту: клиент рабо
   expect(snapshots).toEqual([]);
 });
 
-test('NIMBUS_FAKE_FAILURE_RATE=0.3: каталог из 20 артистов импортируется полностью, поиск идёт повторами, ничего не забыто', async () => {
-  test.setTimeout(25 * 60_000);
+test('NIMBUS_FAKE_FAILURE_RATE=0.3: всё, что есть в раздачах, находится полностью, остальное — честно «нет раздач»', async () => {
+  test.setTimeout(30 * 60_000);
   await compose(['up', '-d', '--force-recreate', 'nimbus'], {
     NIMBUS_FAKE_ARTISTS: '20',
     NIMBUS_FAKE_FAILURE_RATE: '0.3',
@@ -130,31 +130,21 @@ test('NIMBUS_FAKE_FAILURE_RATE=0.3: каталог из 20 артистов им
   await waitHealthy(180_000);
   for (let i = 0; i < 20; i++) await addArtist(i);
 
-  // Импорт (MusicBrainz с 30 % отказов) доходит до конца повторами: все треки и альбомы на месте, импорт не упал.
+  // Очередь пустеет целиком (повторы и отложенные задачи включены): ни импорт, ни поиск не застревают на случайных отказах.
   await waitFor(
-    'all artists imported',
+    'queue fully drained',
     async () =>
       (await num('select count(*) from tracks')) >= 20 * ALBUMS * TRACKS &&
-      (await num(`select count(*) from jobs where kind='import_artist' and state <> 'done'`)) === 0,
-    { timeoutMs: 15 * 60_000, intervalMs: 2000 },
+      (await num(`select count(*) from jobs where state in ('queued','running')`)) === 0,
+    { timeoutMs: 25 * 60_000, intervalMs: 2000 },
   );
   expect(await num('select count(*) from albums')).toBe(20 * ALBUMS);
-  expect(await num(`select count(*) from jobs where state='failed' and kind='import_artist'`)).toBe(0);
+  expect(await num(`select count(*) from jobs where state='failed'`)).toBe(0);
+  expect(await num(`select count(*) from tracks where status='adding'`)).toBe(0);
 
-  // Поиск раздач сходится повторами: предохранитель провайдера при 30 % отказов размыкается часто (паузы 1–10 мин), поэтому
-  // полное опустошение очереди занимает десятки минут (docs/backlog.md B14). Проверяем инварианты: прогресс идёт, и у каждого
-  // альбома с треками в `adding` есть активная или отложенная задача поиска — «забытых» нет.
-  const doneSearches = () => num(`select count(*) from jobs where kind='discover_album' and state='done'`);
-  const before = await doneSearches();
-  await waitFor('search makes progress', async () => (await doneSearches()) > before, {
-    timeoutMs: 10 * 60_000,
-    intervalMs: 5000,
-  });
-  expect(
-    await num(
-      `select count(*) from tracks t where t.status='adding' and not exists (select 1 from jobs j where j.state in ('queued','running') and j.dedup_key in ('discover_album:' || t.album_id, 'discover_artist:' || t.artist_id))`,
-    ),
-  ).toBe(0);
-  expect(await num(`select count(*) from jobs where state='failed' and kind in ('discover_album','verify_torrent')`)).toBe(0);
-  expect(await num(`select count(*) from tracks where status in ('found','ready')`)).toBeGreaterThan(0);
+  // У первых 40 альбомов есть раздача (NIMBUS_FAKE_SWARM_ALBUMS): «найдено — значит доведено до конца», ни одного пропуска.
+  const swarmAlbums = Number(process.env.NIMBUS_FAKE_SWARM_ALBUMS ?? 40);
+  expect(await num(`select count(*) from tracks where status in ('found','ready')`)).toBe(swarmAlbums * TRACKS);
+  // Остальное — «нет раздач», а не «не смогли спросить».
+  expect(await num(`select count(*) from tracks where status='not_found' and status_reason <> 'no_torrents'`)).toBe(0);
 });
