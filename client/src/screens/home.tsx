@@ -56,7 +56,7 @@ export function Home() {
 
   if (recent.length === 0 && readyTracks.length === 0) {
     return (
-      <PageLayout title={t('page.home.title')}>
+      <PageLayout brand title={t('page.home.title')}>
         <EmptyState body={t('home.findMusic.body')} title={t('home.findMusic.title')}>
           <Link
             className="bg-accent hover:bg-accent-hover inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold text-white"
@@ -71,7 +71,7 @@ export function Home() {
   }
 
   return (
-    <PageLayout title={t('page.home.title')}>
+    <PageLayout brand title={t('page.home.title')}>
       <div className="flex flex-col gap-10">
         {played.length > 0 ? (
           <section aria-labelledby="home-played" data-testid="home-played">

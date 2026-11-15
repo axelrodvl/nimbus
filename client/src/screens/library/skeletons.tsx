@@ -35,7 +35,7 @@ export function TrackListSkeleton({ count = 8 }: { count?: number }) {
 
 export function HomeSkeleton() {
   return (
-    <PageLayout title="Nimbus">
+    <PageLayout brand title="Nimbus">
       <div data-testid="screen-skeleton">
         <Skeleton className="mb-4 h-6 w-48" />
         <AlbumGridSkeleton />
