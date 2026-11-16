@@ -27,25 +27,30 @@ export type DownloadStart = {
 };
 
 /** Общие сведения о ходе скачивания: менеджер хранит их, чтобы докачать после обрыва. */
-export type DownloadInfo = { bytesDone: number; bytesTotal: number | null; mime: string; etag: string | null; resumable: boolean };
+export type DownloadInfo = {
+  bytesDone: number;
+  bytesTotal: number | null;
+  mime: string;
+  etag: string | null;
+  resumable: boolean;
+};
 
 export type DownloadMessage =
   | ({ type: 'progress'; trackId: string } & DownloadInfo)
   | { type: 'done'; trackId: string; bytes: number; mime: string; etag: string | null; resumable: boolean }
-  | { type: 'error'; trackId: string; code: DownloadErrorCode; retryable: boolean; bytesDone: number; info?: DownloadInfo }
+  | {
+      type: 'error';
+      trackId: string;
+      code: DownloadErrorCode;
+      retryable: boolean;
+      bytesDone: number;
+      info?: DownloadInfo;
+    }
   /** Воркер освободил файл после отмены (внутренний сигнал `worker-downloader`; менеджер его не получает). */
   | { type: 'aborted'; trackId: string };
 
 export type DownloadErrorCode =
-  | 'network'
-  | 'timeout'
-  | 'http_status'
-  | 'unauthorized'
-  | 'not_found'
-  | 'quota'
-  | 'incomplete'
-  | 'aborted'
-  | 'storage';
+  'network' | 'timeout' | 'http_status' | 'unauthorized' | 'not_found' | 'quota' | 'incomplete' | 'aborted' | 'storage';
 
 /** Кто скачивает файл: в PWA — Web Worker, в нативных оболочках — фоновые загрузки ОС. */
 export interface Downloader {

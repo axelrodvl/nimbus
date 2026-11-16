@@ -166,3 +166,22 @@ pub async fn get_many(
     .fetch_all(db)
     .await
 }
+
+/// Байты уже докачанных файлов по альбомам: чтобы прогресс альбома считался от всего альбома,
+/// а не откатывался, когда очередной трек докачан и выпал из активных.
+pub async fn completed_bytes_by_album(
+    db: impl sqlx::PgExecutor<'_>,
+    album_ids: &[i64],
+) -> sqlx::Result<Vec<(i64, i64)>> {
+    sqlx::query_as(
+        "SELECT t.album_id, COALESCE(sum(d.bytes_total), 0)::bigint
+         FROM tracks t
+           JOIN track_sources ts ON ts.track_id = t.id AND ts.is_primary
+           JOIN downloads d ON d.torrent_id = ts.torrent_id AND d.file_index = ts.file_index
+         WHERE t.in_library AND d.completed_at IS NOT NULL AND t.album_id = ANY($1)
+         GROUP BY t.album_id",
+    )
+    .bind(album_ids)
+    .fetch_all(db)
+    .await
+}

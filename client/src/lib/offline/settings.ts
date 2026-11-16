@@ -10,7 +10,8 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n
 /** Приводит прочитанное к допустимым значениям (повреждённые поля заменяются значениями по умолчанию). */
 export function normalizeSettings(raw: unknown): OfflineSettings {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const limit = typeof o.limitBytes === 'number' && Number.isFinite(o.limitBytes) && o.limitBytes >= 0 ? o.limitBytes : null;
+  const limit =
+    typeof o.limitBytes === 'number' && Number.isFinite(o.limitBytes) && o.limitBytes >= 0 ? o.limitBytes : null;
   const conc = typeof o.concurrency === 'number' && Number.isFinite(o.concurrency) ? Math.round(o.concurrency) : 3;
   return { concurrency: clamp(conc, 1, 6), limitBytes: limit, wifiOnly: o.wifiOnly === true };
 }

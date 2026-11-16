@@ -21,12 +21,29 @@ function memSink() {
       data.set(chunk, at);
     },
   };
-  return { get data() { return data; }, sink };
+  return {
+    get data() {
+      return data;
+    },
+    sink,
+  };
 }
 
-const start = (trackId = '1', offset = 0): WorkerRequest => ({ etag: null, headers: {}, offset, trackId, type: 'start', url: '/x' });
+const start = (trackId = '1', offset = 0): WorkerRequest => ({
+  etag: null,
+  headers: {},
+  offset,
+  trackId,
+  type: 'start',
+  url: '/x',
+});
 
-function setup(over: { fetch?: (u: string, i: RequestInit) => Promise<Response>; openSink?: (id: string) => Promise<{ sink: Sink; close(): void }> } = {}) {
+function setup(
+  over: {
+    fetch?: (u: string, i: RequestInit) => Promise<Response>;
+    openSink?: (id: string) => Promise<{ sink: Sink; close(): void }>;
+  } = {},
+) {
   const posted: DownloadMessage[] = [];
   const closed: string[] = [];
   const mem = memSink();
@@ -43,7 +60,9 @@ describe('ядро воркера скачивания', () => {
     const { closed, core, mem, posted } = setup();
     core.handle(start());
     await core.idle();
-    expect(posted).toEqual([{ bytes: 10, etag: null, mime: 'application/octet-stream', resumable: false, trackId: '1', type: 'done' }]);
+    expect(posted).toEqual([
+      { bytes: 10, etag: null, mime: 'application/octet-stream', resumable: false, trackId: '1', type: 'done' },
+    ]);
     expect(mem.data).toEqual(BODY);
     expect(closed).toEqual(['1']);
   });
@@ -81,7 +100,10 @@ describe('ядро воркера скачивания', () => {
       fetch: (_u, init) => {
         const id = ++n;
         order.push(`fetch${id}`);
-        if (id === 1) return new Promise((_, reject) => init.signal?.addEventListener('abort', () => reject(new DOMException('a', 'AbortError'))));
+        if (id === 1)
+          return new Promise((_, reject) =>
+            init.signal?.addEventListener('abort', () => reject(new DOMException('a', 'AbortError'))),
+          );
         return Promise.resolve(new Response(BODY, { headers: { 'content-length': '10' } }));
       },
       openSink: async () => {
@@ -136,14 +158,18 @@ describe('worker-downloader', () => {
     d.start({ ...p, trackId: '2' });
     expect(workers).toHaveLength(1);
     expect(workers[0]!.sent.map(m => m.type)).toEqual(['start', 'start']);
-    workers[0]!.onmessage?.({ data: { bytes: 1, etag: null, mime: 'a', resumable: false, trackId: '1', type: 'done' } });
+    workers[0]!.onmessage?.({
+      data: { bytes: 1, etag: null, mime: 'a', resumable: false, trackId: '1', type: 'done' },
+    });
     expect(got).toHaveLength(1);
     d.abort('2');
     d.abort('2'); // повторная отмена — не отправляется
     d.abort('1'); // загрузка уже завершилась
     expect(workers[0]!.sent.filter(m => m.type === 'abort')).toEqual([{ trackId: '2', type: 'abort' }]);
     off();
-    workers[0]!.onmessage?.({ data: { bytes: 1, etag: null, mime: 'a', resumable: false, trackId: '2', type: 'done' } });
+    workers[0]!.onmessage?.({
+      data: { bytes: 1, etag: null, mime: 'a', resumable: false, trackId: '2', type: 'done' },
+    });
     expect(got).toHaveLength(1);
   });
 

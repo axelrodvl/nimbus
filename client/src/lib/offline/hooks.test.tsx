@@ -47,7 +47,7 @@ describe('сводки', () => {
     const { result } = renderHook(() => useAlbumOffline(1));
     expect(result.current).toMatchObject({ done: 0, state: { kind: 'none' }, total: 2 });
     ui.set({ 1: fileStatus('done', 10, 10), 2: fileStatus('downloading', 5, 10) });
-    expect(result.current).toMatchObject({ bytes: 15, done: 1, state: { kind: 'downloading', progress: 0.5 } });
+    expect(result.current).toMatchObject({ bytes: 15, done: 1, state: { kind: 'downloading', progress: 0.75 } });
     ui.set({ 1: fileStatus('done', 10, 10), 2: fileStatus('done', 10, 10) });
     expect(result.current.state).toEqual({ kind: 'done' });
   });

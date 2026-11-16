@@ -55,14 +55,21 @@ describe('OPFS-хранилище', () => {
   it('не проглатывает чужие ошибки', async () => {
     const { deps } = fakeOpfs({ '1': 1 });
     const boom = new Error('io');
-    deps.getRoot = async () => ({
-      getDirectoryHandle: async () => ({
-        getDirectoryHandle: async () => { throw boom; },
-        getFileHandle: async () => { throw boom; },
-        keys: async function* () {},
-        removeEntry: async () => { throw boom; },
-      }),
-    }) as unknown as DirLike;
+    deps.getRoot = async () =>
+      ({
+        getDirectoryHandle: async () => ({
+          getDirectoryHandle: async () => {
+            throw boom;
+          },
+          getFileHandle: async () => {
+            throw boom;
+          },
+          keys: async function* () {},
+          removeEntry: async () => {
+            throw boom;
+          },
+        }),
+      }) as unknown as DirLike;
     const s = createOpfsStorage(deps);
     await expect(s.size('1')).rejects.toBe(boom);
     await expect(s.remove('1')).rejects.toBe(boom);

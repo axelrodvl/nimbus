@@ -930,6 +930,36 @@ async fn download_progress_event_aggregates_files_once_per_torrent(pool: PgPool)
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn album_progress_does_not_roll_back_when_a_track_finishes(pool: PgPool) {
+    let files = FakeFiles::new();
+    let st = app_state(&pool, &files);
+    let a = seed(&pool, 1, 2).await;
+    pin_album(&pool, a.album_id).await;
+    files.set_done(&a.hash, 0, SIZE);
+    files.set_done(&a.hash, 1, 100);
+    let mut rx = st.events.subscribe();
+    let mut m = DownloadManager::new(st.clone(), cfg());
+    m.tick().await.unwrap();
+    m.tick().await.unwrap();
+
+    let mut last = None;
+    while let Ok(ev) = rx.try_recv() {
+        if let Event::DownloadProgress {
+            bytes_done,
+            bytes_total,
+            ..
+        } = ev
+        {
+            last = Some((bytes_done, bytes_total));
+        }
+    }
+    // Докачанный файл остаётся и в «скачано», и в «всего».
+    assert_eq!(last, Some((SIZE + 100, 2 * SIZE)));
+    let (_, v) = get_json(router(st), "/api/acquisition").await;
+    assert_eq!(v["items"][0]["download"]["bytes_total"], 2 * SIZE);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn pin_state_change_publishes_acquisition_changed(pool: PgPool) {
     let files = FakeFiles::new();
     let st = app_state(&pool, &files);

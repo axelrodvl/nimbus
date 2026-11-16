@@ -508,6 +508,13 @@ impl DownloadManager {
                     .insert(torrent_id, (pr.down_speed_bps, pr.peers));
             }
         }
+        let album_ids: Vec<i64> = per_album.keys().copied().collect();
+        let completed: HashMap<i64, u64> =
+            nimbus_db::repo::downloads::completed_bytes_by_album(&self.state.db, &album_ids)
+                .await?
+                .into_iter()
+                .map(|(a, b)| (a, b.max(0) as u64))
+                .collect();
         let mut live = HashMap::new();
         let emit = self
             .last_progress
@@ -517,6 +524,9 @@ impl DownloadManager {
                 .files
                 .values()
                 .fold((0, 0), |(d, t), (fd, ft)| (d + fd, t + ft));
+            // Уже докачанные треки альбома входят и в «скачано», и в «всего».
+            let finished = completed.get(album_id).copied().unwrap_or(0);
+            let (bytes_done, bytes_total) = (bytes_done + finished, bytes_total + finished);
             let (down_bps, peers) = agg
                 .torrents
                 .values()

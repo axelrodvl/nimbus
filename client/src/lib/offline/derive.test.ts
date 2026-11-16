@@ -40,6 +40,21 @@ function library() {
 const status = (over: Partial<OfflineStatus> = {}): OfflineStatus => ({ ...initialOfflineStatus(true), ...over });
 
 describe('сводка', () => {
+  it('доля альбома не откатывается, когда трек докачан и начался следующий', () => {
+    const files = (a: ReturnType<typeof fileStatus>, b: ReturnType<typeof fileStatus>) =>
+      status({
+        files: new Map([
+          [1, a],
+          [2, b],
+          [3, fileStatus('queued', 0, 0)],
+        ]),
+      });
+    const before = summarize(files(fileStatus('downloading', 99, 100), fileStatus('queued', 0, 0)), [1, 2, 3]);
+    const after = summarize(files(fileStatus('done', 100, 100), fileStatus('downloading', 1, 100)), [1, 2, 3]);
+    const p = (x: typeof before) => (x.state.kind === 'downloading' ? x.state.progress : -1);
+    expect(p(after)).toBeGreaterThanOrEqual(p(before));
+  });
+
   it('считает скачанное, байты и общее состояние', () => {
     const s = status({
       files: new Map([
@@ -50,7 +65,7 @@ describe('сводка', () => {
     expect(summarize(s, [1, 2, 3])).toEqual({
       bytes: 140,
       done: 1,
-      state: { kind: 'downloading', progress: 0.4 },
+      state: { kind: 'downloading', progress: 0.7 },
       total: 3,
     });
     expect(summarize(s, [])).toEqual({ ...EMPTY_SUMMARY });

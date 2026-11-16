@@ -52,7 +52,11 @@ const createPlatformDownloader = (): Downloader =>
     () => new Worker(new URL('./download.worker.ts', import.meta.url), { type: 'module' }) as unknown as WorkerLike,
   );
 
-type NetworkInformation = { type?: string; addEventListener?(t: string, l: () => void): void; removeEventListener?(t: string, l: () => void): void };
+type NetworkInformation = {
+  type?: string;
+  addEventListener?(t: string, l: () => void): void;
+  removeEventListener?(t: string, l: () => void): void;
+};
 const connection = () => (globalThis.navigator as { connection?: NetworkInformation } | undefined)?.connection;
 
 function platformNetwork() {

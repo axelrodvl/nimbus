@@ -37,9 +37,23 @@ export function createWorkerCore(deps: WorkerCoreDeps) {
         url: req.url,
       });
       if (result.ok) {
-        deps.post({ bytes: result.bytes, etag: result.etag, mime: result.mime, resumable: result.resumable, trackId, type: 'done' });
+        deps.post({
+          bytes: result.bytes,
+          etag: result.etag,
+          mime: result.mime,
+          resumable: result.resumable,
+          trackId,
+          type: 'done',
+        });
       } else if (result.code !== 'aborted') {
-        deps.post({ bytesDone: result.bytesDone, code: result.code, info: result.info, retryable: result.retryable, trackId, type: 'error' });
+        deps.post({
+          bytesDone: result.bytesDone,
+          code: result.code,
+          info: result.info,
+          retryable: result.retryable,
+          trackId,
+          type: 'error',
+        });
       }
     } catch (e) {
       const quota = (e as { name?: string } | null)?.name === 'QuotaExceededError';

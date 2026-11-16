@@ -41,8 +41,9 @@ macro_rules! state_cte {
             FROM tracks t
               JOIN track_sources ts ON ts.track_id = t.id AND ts.is_primary
               JOIN downloads d ON d.torrent_id = ts.torrent_id AND d.file_index = ts.file_index
-            WHERE t.in_library AND d.completed_at IS NULL
+            WHERE t.in_library
             GROUP BY t.album_id
+            HAVING bool_or(d.completed_at IS NULL)
          ), pn AS (
             SELECT t.album_id,
                    CASE WHEN bool_or(p.state = 'downloading') THEN 'downloading'

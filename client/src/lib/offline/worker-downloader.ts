@@ -42,7 +42,8 @@ export function createWorkerDownloader(create: () => WorkerLike): Downloader {
       // Воркер упал: все его загрузки — повторяемая ошибка; следующий `start` создаст воркер заново.
       w.terminate();
       if (worker === w) worker = null;
-      for (const trackId of [...active]) emit({ bytesDone: 0, code: 'storage', retryable: true, trackId, type: 'error' });
+      for (const trackId of [...active])
+        emit({ bytesDone: 0, code: 'storage', retryable: true, trackId, type: 'error' });
       // Воркера нет — файлы свободны.
       for (const trackId of [...releasing.keys()]) release(trackId);
     };
@@ -53,7 +54,9 @@ export function createWorkerDownloader(create: () => WorkerLike): Downloader {
   return {
     abort(trackId) {
       if (!active.delete(trackId) || !worker) return Promise.resolve();
-      const confirmed = new Promise<void>(resolve => releasing.set(trackId, [...(releasing.get(trackId) ?? []), resolve]));
+      const confirmed = new Promise<void>(resolve =>
+        releasing.set(trackId, [...(releasing.get(trackId) ?? []), resolve]),
+      );
       worker.postMessage({ trackId, type: 'abort' });
       return confirmed;
     },

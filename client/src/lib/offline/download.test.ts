@@ -58,10 +58,21 @@ describe('downloadTo', () => {
     const sink = new MemSink(bytes(5, 9));
     const fetchFn = vi.fn(async () => response(FULL, { headers: { ...rangeHeaders, 'content-length': '20' } }));
     const res = await downloadTo(sink, fetchFn, { ...base, headers: { 'x-a': '1' } });
-    expect(res).toMatchObject({ bytes: 20, bytesTotal: 20, etag: '"v1"', mime: 'audio/flac', ok: true, resumable: true });
+    expect(res).toMatchObject({
+      bytes: 20,
+      bytesTotal: 20,
+      etag: '"v1"',
+      mime: 'audio/flac',
+      ok: true,
+      resumable: true,
+    });
     expect(sink.data).toEqual(FULL);
     expect(sink.flushes).toBeGreaterThan(0);
-    expect(fetchFn).toHaveBeenCalledWith(base.url, { credentials: 'include', headers: { 'x-a': '1' }, signal: expect.any(AbortSignal) });
+    expect(fetchFn).toHaveBeenCalledWith(base.url, {
+      credentials: 'include',
+      headers: { 'x-a': '1' },
+      signal: expect.any(AbortSignal),
+    });
   });
 
   it('206: докачка с нужными Range и If-Range, дописывает с offset', async () => {
@@ -171,7 +182,11 @@ describe('downloadTo', () => {
   });
 
   it('поток без Content-Length (перекодируемый): размер неизвестен, докачка невозможна', async () => {
-    const res = await downloadTo(new MemSink(), async () => response(FULL, { headers: { 'content-type': 'audio/wav' } }), base);
+    const res = await downloadTo(
+      new MemSink(),
+      async () => response(FULL, { headers: { 'content-type': 'audio/wav' } }),
+      base,
+    );
     expect(res).toMatchObject({ bytes: 20, bytesTotal: 20, mime: 'audio/wav', ok: true, resumable: false });
   });
 
@@ -186,7 +201,13 @@ describe('downloadTo', () => {
       async () => response(FULL.slice(0, 15), { headers: { 'content-length': '20' } }),
       base,
     );
-    expect(res).toMatchObject({ bytesDone: 15, code: 'incomplete', info: { bytesTotal: 20, resumable: false }, ok: false, retryable: true });
+    expect(res).toMatchObject({
+      bytesDone: 15,
+      code: 'incomplete',
+      info: { bytesTotal: 20, resumable: false },
+      ok: false,
+      retryable: true,
+    });
   });
 
   it.each([
@@ -212,7 +233,11 @@ describe('downloadTo', () => {
   });
 
   it('тело отсутствует: network', async () => {
-    const res = await downloadTo(new MemSink(), async () => ({ headers: new Headers(), ok: true, status: 200 }) as Response, base);
+    const res = await downloadTo(
+      new MemSink(),
+      async () => ({ headers: new Headers(), ok: true, status: 200 }) as Response,
+      base,
+    );
     expect(res).toMatchObject({ code: 'network', ok: false });
   });
 
@@ -224,7 +249,11 @@ describe('downloadTo', () => {
   });
 
   it('QuotaExceededError от fetch: quota', async () => {
-    const res = await downloadTo(new MemSink(), () => Promise.reject(new DOMException('q', 'QuotaExceededError')), base);
+    const res = await downloadTo(
+      new MemSink(),
+      () => Promise.reject(new DOMException('q', 'QuotaExceededError')),
+      base,
+    );
     expect(res).toMatchObject({ code: 'quota', retryable: false });
   });
 
@@ -241,7 +270,9 @@ describe('downloadTo', () => {
     const ctl = new AbortController();
     const sink = new MemSink();
     const fetchFn = (_u: string, init: RequestInit) =>
-      new Promise<Response>((_, reject) => init.signal?.addEventListener('abort', () => reject(new DOMException('a', 'AbortError'))));
+      new Promise<Response>((_, reject) =>
+        init.signal?.addEventListener('abort', () => reject(new DOMException('a', 'AbortError'))),
+      );
     const pending = downloadTo(sink, fetchFn, { ...base, signal: ctl.signal });
     ctl.abort();
     expect(await pending).toMatchObject({ code: 'aborted', ok: false, retryable: false });
@@ -251,10 +282,14 @@ describe('downloadTo', () => {
   it('отмена во время чтения тела: aborted', async () => {
     const ctl = new AbortController();
     const stream = new ReadableStream<Uint8Array>({ pull: () => new Promise(() => undefined) });
-    const pending = downloadTo(new MemSink(), async () => new Response(stream, { headers: { 'content-length': '20' } }), {
-      ...base,
-      signal: ctl.signal,
-    });
+    const pending = downloadTo(
+      new MemSink(),
+      async () => new Response(stream, { headers: { 'content-length': '20' } }),
+      {
+        ...base,
+        signal: ctl.signal,
+      },
+    );
     await new Promise(r => setTimeout(r, 0));
     ctl.abort();
     expect(await pending).toMatchObject({ code: 'aborted', ok: false, retryable: false });
@@ -264,7 +299,9 @@ describe('downloadTo', () => {
     vi.useFakeTimers();
     try {
       const fetchFn = (_u: string, init: RequestInit) =>
-        new Promise<Response>((_, reject) => init.signal?.addEventListener('abort', () => reject(new DOMException('a', 'AbortError'))));
+        new Promise<Response>((_, reject) =>
+          init.signal?.addEventListener('abort', () => reject(new DOMException('a', 'AbortError'))),
+        );
       const pending = downloadTo(new MemSink(), fetchFn, { ...base, idleTimeoutMs: 1000 });
       await vi.advanceTimersByTimeAsync(1001);
       expect(await pending).toEqual({ bytesDone: 0, code: 'timeout', ok: false, retryable: true });
@@ -278,11 +315,15 @@ describe('downloadTo', () => {
     const onProgress = vi.fn();
     const sink = new MemSink();
     const big = bytes(FLUSH_EVERY_BYTES + 10);
-    const res = await downloadTo(sink, async () => response(big, { chunk: FLUSH_EVERY_BYTES / 2, headers: { 'content-length': String(big.length) } }), {
-      ...base,
-      now: () => (t += PROGRESS_INTERVAL_MS / 2),
-      onProgress,
-    });
+    const res = await downloadTo(
+      sink,
+      async () => response(big, { chunk: FLUSH_EVERY_BYTES / 2, headers: { 'content-length': String(big.length) } }),
+      {
+        ...base,
+        now: () => (t += PROGRESS_INTERVAL_MS / 2),
+        onProgress,
+      },
+    );
     expect(res.ok).toBe(true);
     // Шаг часов — половина интервала: сообщение приходит на каждом втором чтении.
     expect(onProgress.mock.calls.length).toBeGreaterThanOrEqual(1);

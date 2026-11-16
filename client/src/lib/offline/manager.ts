@@ -526,7 +526,12 @@ export function createOfflineManager(deps: ManagerDeps) {
     if (!leader) return void tabs.post({ trackId, type: 'retry' });
     const f = files.get(trackId);
     if (!f || f.state !== 'failed') return;
-    Object.assign(f, { attempts: 0, error: null, next_attempt_at: null, state: 'queued' } satisfies Partial<OfflineFile>);
+    Object.assign(f, {
+      attempts: 0,
+      error: null,
+      next_attempt_at: null,
+      state: 'queued',
+    } satisfies Partial<OfflineFile>);
     track(persist(f));
     pump();
   }

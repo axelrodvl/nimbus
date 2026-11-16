@@ -94,22 +94,26 @@ export function aggregateOfflineState(s: OfflineStatus, trackIds: readonly numbe
   let failed = 0;
   let queued = 0;
   let downloading = 0;
-  let bytes = 0;
-  let total = 0;
+  let fraction = 0;
   for (const id of trackIds) {
     const f = s.files.get(id);
     if (!f) continue;
-    if (f.state === 'done') done++;
-    else if (f.state === 'failed') failed++;
+    if (f.state === 'done') {
+      done++;
+      fraction += 1;
+    } else if (f.state === 'failed') failed++;
     else if (f.state === 'queued') queued++;
     else {
       downloading++;
-      bytes += f.bytesDone;
-      total += f.bytesTotal ?? 0;
+      fraction += f.bytesTotal ? Math.min(1, f.bytesDone / f.bytesTotal) : 0;
     }
   }
   if (trackIds.length > 0 && done === trackIds.length) return { kind: 'done' };
-  if (downloading > 0) return { kind: 'downloading', progress: total > 0 ? Math.min(1, bytes / total) : 0 };
+  // Доля считается от всех загружаемых треков набора: готовые — целиком, ждущие — нулём, чтобы шкала не откатывалась.
+  if (downloading > 0) {
+    const counted = done + downloading + queued;
+    return { kind: 'downloading', progress: counted > 0 ? Math.min(1, fraction / counted) : 0 };
+  }
   if (queued > 0) return { kind: 'queued' };
   if (done > 0 || failed > 0) return { kind: 'partial' };
   return NONE;

@@ -20,7 +20,10 @@ afterEach(() => vi.useRealTimers());
 
 const done = (trackId: number, bytes = 100) =>
   ({ bytes, etag: '"e"', mime: 'audio/flac', resumable: true, trackId: String(trackId), type: 'done' }) as const;
-const error = (trackId: number, over: Partial<{ code: DownloadErrorCode; retryable: boolean; bytesDone: number }> = {}): DownloadMessage => ({
+const error = (
+  trackId: number,
+  over: Partial<{ code: DownloadErrorCode; retryable: boolean; bytesDone: number }> = {},
+): DownloadMessage => ({
   bytesDone: 0,
   code: 'network',
   retryable: true,
@@ -29,7 +32,15 @@ const error = (trackId: number, over: Partial<{ code: DownloadErrorCode; retryab
   ...over,
 });
 const progress = (trackId: number, bytesDone: number, bytesTotal: number | null = 100, resumable = true) =>
-  ({ bytesDone, bytesTotal, etag: '"e"', mime: 'audio/flac', resumable, trackId: String(trackId), type: 'progress' }) as const;
+  ({
+    bytesDone,
+    bytesTotal,
+    etag: '"e"',
+    mime: 'audio/flac',
+    resumable,
+    trackId: String(trackId),
+    type: 'progress',
+  }) as const;
 
 describe('закрепления и сверка', () => {
   it('закрепление альбома ставит в очередь все его треки; первые concurrency — стартуют', async () => {
@@ -133,7 +144,9 @@ describe('закрепления и сверка', () => {
     await h.start();
     await h.manager.pin('album', 1);
     await h.settle();
-    h.library.getState().applyBatch({ tracks: [{ ...makeTrack({ album_id: 1, id: 2, position: 2 }), in_library: false }] });
+    h.library
+      .getState()
+      .applyBatch({ tracks: [{ ...makeTrack({ album_id: 1, id: 2, position: 2 }), in_library: false }] });
     await vi.advanceTimersByTimeAsync(RECONCILE_DEBOUNCE_MS);
     await h.settle();
     expect(h.state(2)).toBeUndefined();
@@ -175,7 +188,10 @@ describe('закрепления и сверка', () => {
     const h2 = offlineHarness({
       deps: { libraryComplete: () => complete },
       files: [offlineFile(1, { bytes_done: 5, state: 'done' })],
-      pins: [{ created_at: 1, id: 1, key: 'album:1', kind: 'album' }, { created_at: 2, id: 77, key: 'album:77', kind: 'album' }],
+      pins: [
+        { created_at: 1, id: 1, key: 'album:1', kind: 'album' },
+        { created_at: 2, id: 77, key: 'album:77', kind: 'album' },
+      ],
       storage: { '1': 5 },
     });
     await h2.start();
@@ -343,7 +359,13 @@ describe('повторы', () => {
       ...error(1, { bytesDone: 30 }),
       info: { bytesDone: 30, bytesTotal: 100, etag: '"v"', mime: 'audio/mpeg', resumable: true },
     } as DownloadMessage);
-    expect(h.db.files.get(1)).toMatchObject({ bytes_done: 30, bytes_total: 100, etag: '"v"', mime: 'audio/mpeg', resumable: true });
+    expect(h.db.files.get(1)).toMatchObject({
+      bytes_done: 30,
+      bytes_total: 100,
+      etag: '"v"',
+      mime: 'audio/mpeg',
+      resumable: true,
+    });
     await vi.advanceTimersByTimeAsync(5000);
     expect(h.downloader.started[1]).toMatchObject({ etag: '"v"', offset: 30 });
   });
@@ -654,7 +676,11 @@ describe('вкладки', () => {
       },
       type: 'status',
     });
-    expect(h.status.getState()).toMatchObject({ activeCount: 1, pinTimes: { 'album:1': 5 }, pins: new Set(['album:1']) });
+    expect(h.status.getState()).toMatchObject({
+      activeCount: 1,
+      pinTimes: { 'album:1': 5 },
+      pins: new Set(['album:1']),
+    });
     expect(h.state(7)).toBe('downloading');
     h.tabs.deliver({ type: 'pins' });
     await h.settle();
@@ -689,7 +715,19 @@ describe('вкладки', () => {
     await h.settle();
     expect(h.status.getState().files.size).toBe(0);
     // Собственный снимок лидер не применяет к себе.
-    h.tabs.deliver({ snapshot: { activeCount: 9, blocked: 'none', files: [], paused: false, pinTimes: {}, pins: [], queueLength: 0, usage: { bytes: 0, limit: 0, quota: null } }, type: 'status' });
+    h.tabs.deliver({
+      snapshot: {
+        activeCount: 9,
+        blocked: 'none',
+        files: [],
+        paused: false,
+        pinTimes: {},
+        pins: [],
+        queueLength: 0,
+        usage: { bytes: 0, limit: 0, quota: null },
+      },
+      type: 'status',
+    });
     expect(h.status.getState().activeCount).toBe(0);
   });
 
@@ -858,7 +896,7 @@ describe('состояние для интерфейса', () => {
     expect(trackOfflineState(s(), 1)).toEqual({ kind: 'downloading', progress: 0 });
     expect(trackOfflineState(s(), 2)).toEqual({ kind: 'queued' });
     await h.emit(progress(1, 25, 100));
-    expect(albumOfflineState(s(), lib(), 1)).toEqual({ kind: 'downloading', progress: 0.25 });
+    expect(albumOfflineState(s(), lib(), 1)).toEqual({ kind: 'downloading', progress: 0.25 / 3 });
     await h.emit(done(1));
     await h.emit(error(2, { code: 'not_found', retryable: false }));
     await h.emit(done(3));
