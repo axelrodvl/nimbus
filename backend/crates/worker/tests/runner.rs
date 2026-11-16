@@ -675,6 +675,7 @@ async fn unparsable_payload_fails_the_job_without_running_the_handler(pool: PgPo
     .unwrap();
     let w = spawn_probe(&pool, &probe, fast_cfg());
     let row = wait_state(&pool, id, "failed").await;
+    assert!(row.fatal, "bad payload — окончательный провал");
     assert!(row.last_error.unwrap().starts_with("bad payload"));
     assert_eq!(probe.calls(), 0);
     w.shutdown().await;
@@ -1121,5 +1122,104 @@ async fn artist_without_import_gets_import_job(pool: PgPool) {
             .any(|r| r.dedup_key.as_deref() == Some(&format!("import_artist:{}", a.id)))
     })
     .await;
+    w.shutdown().await;
+}
+
+// ---- B05: оживление ----
+
+/// Обработчик `import_artist`: падает `fail_times` раз `Retry`, затем успешен; запоминает причины `on_retry`.
+struct FlakyImport {
+    calls: AtomicU32,
+    fail_times: u32,
+    fatal: bool,
+    retries: std::sync::Mutex<Vec<String>>,
+}
+
+#[async_trait]
+impl JobHandler for FlakyImport {
+    fn kinds(&self) -> &'static [&'static str] {
+        &["import_artist"]
+    }
+    async fn handle(&self, _job: Job, _ctx: &JobCtx) -> Result<(), JobError> {
+        let n = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+        if n <= self.fail_times {
+            return Err(if self.fatal {
+                JobError::Fatal("not in musicbrainz".into())
+            } else {
+                JobError::Retry {
+                    after: Duration::from_millis(10),
+                    reason: "mb down".into(),
+                }
+            });
+        }
+        Ok(())
+    }
+    async fn on_retry(&self, _job: &Job, _ctx: &JobCtx, reason: &str) {
+        self.retries.lock().unwrap().push(reason.to_string());
+    }
+}
+
+fn revive_cfg() -> WorkerConfig {
+    WorkerConfig {
+        maintenance_interval: Duration::from_millis(50),
+        revive_delays: vec![Duration::from_millis(100)],
+        ..fast_cfg()
+    }
+}
+
+async fn run_import(
+    pool: &PgPool,
+    fail_times: u32,
+    fatal: bool,
+) -> (Arc<FlakyImport>, WorkerPool, i64) {
+    let h = Arc::new(FlakyImport {
+        calls: AtomicU32::new(0),
+        fail_times,
+        fatal,
+        retries: Default::default(),
+    });
+    let w = WorkerPool::spawn(
+        ctx(pool),
+        vec![(h.clone() as Arc<dyn JobHandler>, 1)],
+        revive_cfg(),
+    );
+    let id = jobs::enqueue(
+        pool,
+        &Job::ImportArtist { artist_id: 1 },
+        EnqueueOpts {
+            max_attempts: Some(2),
+            ..EnqueueOpts::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    (h, w, id)
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn exhausted_import_is_revived_and_completes(pool: PgPool) {
+    // две попытки исчерпываются, третий вызов (после оживления) успешен
+    let (h, w, id) = run_import(&pool, 2, false).await;
+    let row = wait_state(&pool, id, "done").await;
+    assert_eq!(row.revivals, 1);
+    assert_eq!(h.calls.load(Ordering::SeqCst), 3);
+    assert!(
+        h.retries.lock().unwrap().iter().any(|r| r == "revived"),
+        "on_retry вызван с причиной revived: {:?}",
+        h.retries.lock().unwrap()
+    );
+    w.shutdown().await;
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn fatal_job_is_never_revived(pool: PgPool) {
+    let (h, w, id) = run_import(&pool, 1, true).await;
+    let row = wait_state(&pool, id, "failed").await;
+    assert!(row.fatal);
+    tokio::time::sleep(Duration::from_millis(400)).await; // несколько тиков обслуживания
+    let row = get_row(&pool, id).await;
+    assert_eq!((row.state.as_str(), row.revivals), ("failed", 0));
+    assert_eq!(h.calls.load(Ordering::SeqCst), 1);
     w.shutdown().await;
 }

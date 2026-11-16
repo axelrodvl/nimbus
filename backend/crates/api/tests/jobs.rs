@@ -41,7 +41,7 @@ async fn seed(pool: &PgPool) -> (i64, i64, i64) {
         .await
         .unwrap()
         .unwrap();
-    jobs::fail(pool, b, "w", "boom", None)
+    jobs::fail(pool, b, "w", "boom", None, true)
         .await
         .unwrap()
         .unwrap();
@@ -65,12 +65,14 @@ async fn lists_jobs_with_counts_and_filters(pool: PgPool) {
     assert_eq!(first["priority"], 10);
     assert_eq!(first["kind"], "discover_artist");
     assert_eq!(first["payload"]["artist_id"], 5);
+    assert_eq!(first["fatal"], false);
 
     let (_, v) = get_json(app.clone(), "/api/jobs?state=failed").await;
     let jobs = v["jobs"].as_array().unwrap();
     assert_eq!(jobs.len(), 1);
     assert_eq!(jobs[0]["id"], b);
     assert_eq!(jobs[0]["last_error"], "boom");
+    assert_eq!(jobs[0]["fatal"], true);
     assert_eq!(jobs[0]["attempts"], 1);
     assert_eq!(jobs[0]["max_attempts"], 5);
     assert_eq!(v["counts"]["queued"], 1, "счётчики не зависят от фильтра");

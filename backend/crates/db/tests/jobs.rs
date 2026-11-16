@@ -153,7 +153,7 @@ async fn fail_retries_then_gives_up(pool: PgPool) {
 
     jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
     let retry_at = Utc::now() + chrono::Duration::minutes(5);
-    let row = jobs::fail(&pool, id, "w", "boom", Some(retry_at))
+    let row = jobs::fail(&pool, id, "w", "boom", Some(retry_at), false)
         .await
         .unwrap()
         .unwrap();
@@ -171,7 +171,7 @@ async fn fail_retries_then_gives_up(pool: PgPool) {
         .unwrap();
     let r = jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
     assert_eq!(r.attempts, 2);
-    let row = jobs::fail(&pool, id, "w", "boom again", Some(retry_at))
+    let row = jobs::fail(&pool, id, "w", "boom again", Some(retry_at), false)
         .await
         .unwrap()
         .unwrap();
@@ -188,7 +188,7 @@ async fn fail_retries_then_gives_up(pool: PgPool) {
     .unwrap();
     jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
     assert_eq!(
-        jobs::fail(&pool, id2, "w", "fatal", None)
+        jobs::fail(&pool, id2, "w", "fatal", None, false)
             .await
             .unwrap()
             .unwrap()
@@ -440,7 +440,7 @@ async fn retry_requeues_only_failed_jobs(pool: PgPool) {
         jobs::RetryOutcome::NotFound
     ));
     jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
-    jobs::fail(&pool, id, "w", "boom", None)
+    jobs::fail(&pool, id, "w", "boom", None, false)
         .await
         .unwrap()
         .unwrap();
@@ -459,7 +459,7 @@ async fn retry_requeues_only_failed_jobs(pool: PgPool) {
 async fn retry_conflicts_with_active_duplicate(pool: PgPool) {
     let id = enq(&pool, 1, EnqueueOpts::default()).await.unwrap();
     jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
-    jobs::fail(&pool, id, "w", "boom", None)
+    jobs::fail(&pool, id, "w", "boom", None, false)
         .await
         .unwrap()
         .unwrap();
@@ -490,7 +490,10 @@ async fn counts_and_filtered_list(pool: PgPool) {
         .unwrap()
         .unwrap();
     assert_eq!(c.id, b);
-    jobs::fail(&pool, b, "w", "x", None).await.unwrap().unwrap();
+    jobs::fail(&pool, b, "w", "x", None, false)
+        .await
+        .unwrap()
+        .unwrap();
     let counts = jobs::counts(&pool).await.unwrap();
     assert_eq!((counts.queued, counts.running, counts.failed), (1, 1, 1));
     let only_artist = jobs::list_filtered(&pool, None, Some("discover_artist"), 10)
@@ -545,12 +548,12 @@ async fn complete_by_lost_worker_is_ignored(pool: PgPool) {
 async fn fail_by_lost_worker_is_ignored(pool: PgPool) {
     let id = taken_over(&pool).await;
     let retry = Some(Utc::now());
-    assert!(jobs::fail(&pool, id, "A", "x", retry)
+    assert!(jobs::fail(&pool, id, "A", "x", retry, false)
         .await
         .unwrap()
         .is_none());
     assert_running_by_b(&pool, id).await;
-    assert!(jobs::fail(&pool, id, "B", "x", retry)
+    assert!(jobs::fail(&pool, id, "B", "x", retry, false)
         .await
         .unwrap()
         .is_some());
@@ -657,7 +660,7 @@ async fn rerun_is_cleared_after_requeue(pool: PgPool) {
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn final_failure_with_rerun_requeues(pool: PgPool) {
     let id = running_with_request(&pool).await;
-    let row = jobs::fail(&pool, id, "w", "boom", None)
+    let row = jobs::fail(&pool, id, "w", "boom", None, false)
         .await
         .unwrap()
         .unwrap();
@@ -667,7 +670,7 @@ async fn final_failure_with_rerun_requeues(pool: PgPool) {
     );
     // без rerun тот же провал окончателен
     jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
-    let row = jobs::fail(&pool, id, "w", "boom", None)
+    let row = jobs::fail(&pool, id, "w", "boom", None, false)
         .await
         .unwrap()
         .unwrap();
@@ -678,7 +681,7 @@ async fn final_failure_with_rerun_requeues(pool: PgPool) {
 async fn retryable_failure_with_rerun_keeps_backoff_but_clears_flag(pool: PgPool) {
     let id = running_with_request(&pool).await;
     let at = Utc::now() + chrono::Duration::minutes(5);
-    let row = jobs::fail(&pool, id, "w", "boom", Some(at))
+    let row = jobs::fail(&pool, id, "w", "boom", Some(at), false)
         .await
         .unwrap()
         .unwrap();
@@ -731,4 +734,257 @@ async fn release_and_stale_requeue_clear_rerun(pool: PgPool) {
     enq(&pool, 1, EnqueueOpts::default()).await;
     jobs::requeue_stale(&pool, Duration::ZERO).await.unwrap();
     assert!(!job_row(&pool, id).await.rerun);
+}
+
+// ---- B05: оживление упавших задач ----
+
+const REVIVE_KINDS: &[&str] = &["import_artist", "discover_artist"];
+const REVIVE_DELAYS: &[Duration] = &[
+    Duration::from_secs(900),
+    Duration::from_secs(3600),
+    Duration::from_secs(6 * 3600),
+];
+
+/// Ставит `import_artist` артиста, берёт и проваливает его (`fatal` — окончательно).
+async fn failed_import(pool: &PgPool, artist_id: i64, fatal: bool) -> i64 {
+    let id = jobs::enqueue(
+        pool,
+        &Job::ImportArtist { artist_id },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    jobs::claim(pool, "w", REVIVE_KINDS).await.unwrap().unwrap();
+    let row = jobs::fail(pool, id, "w", "mb down", None, fatal)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.state, "failed");
+    id
+}
+
+async fn age(pool: &PgPool, id: i64, interval: &str) {
+    sqlx::query("UPDATE jobs SET updated_at = now() - $2::interval WHERE id = $1")
+        .bind(id)
+        .bind(interval)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn revive_failed_requeues_after_delay(pool: PgPool) {
+    let id = failed_import(&pool, 1, false).await;
+    age(&pool, id, "14 minutes").await;
+    assert!(jobs::revive_failed(&pool, REVIVE_KINDS, REVIVE_DELAYS)
+        .await
+        .unwrap()
+        .is_empty());
+
+    age(&pool, id, "16 minutes").await;
+    let rows = jobs::revive_failed(&pool, REVIVE_KINDS, REVIVE_DELAYS)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    let r = job_row(&pool, id).await;
+    assert_eq!((r.state.as_str(), r.attempts, r.revivals), ("queued", 0, 1));
+    assert!(r.priority <= 0);
+    assert!(jobs::claim(&pool, "w", REVIVE_KINDS)
+        .await
+        .unwrap()
+        .is_some());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn revive_delay_grows_with_revivals_and_last_repeats(pool: PgPool) {
+    let id = failed_import(&pool, 1, false).await;
+    sqlx::query("UPDATE jobs SET revivals = 1 WHERE id = $1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    age(&pool, id, "30 minutes").await;
+    assert!(
+        jobs::revive_failed(&pool, REVIVE_KINDS, REVIVE_DELAYS)
+            .await
+            .unwrap()
+            .is_empty(),
+        "после первого оживления пауза — час"
+    );
+    age(&pool, id, "61 minutes").await;
+    assert_eq!(
+        jobs::revive_failed(&pool, REVIVE_KINDS, REVIVE_DELAYS)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // revivals больше длины массива: берётся последнее значение (6 ч)
+    jobs::claim(&pool, "w", REVIVE_KINDS)
+        .await
+        .unwrap()
+        .unwrap();
+    jobs::fail(&pool, id, "w", "again", None, false)
+        .await
+        .unwrap()
+        .unwrap();
+    sqlx::query("UPDATE jobs SET revivals = 10 WHERE id = $1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    age(&pool, id, "5 hours").await;
+    assert!(jobs::revive_failed(&pool, REVIVE_KINDS, REVIVE_DELAYS)
+        .await
+        .unwrap()
+        .is_empty());
+    age(&pool, id, "7 hours").await;
+    assert_eq!(
+        jobs::revive_failed(&pool, REVIVE_KINDS, REVIVE_DELAYS)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn revive_skips_fatal(pool: PgPool) {
+    let id = failed_import(&pool, 1, true).await;
+    assert!(job_row(&pool, id).await.fatal);
+    age(&pool, id, "30 days").await;
+    assert!(jobs::revive_failed(&pool, REVIVE_KINDS, REVIVE_DELAYS)
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn revive_skips_other_kinds(pool: PgPool) {
+    let id = jobs::enqueue(
+        &pool,
+        &Job::DiscoverAlbum { album_id: 1 },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+    jobs::fail(&pool, id, "w", "x", None, false)
+        .await
+        .unwrap()
+        .unwrap();
+    age(&pool, id, "30 days").await;
+    assert!(jobs::revive_failed(&pool, REVIVE_KINDS, REVIVE_DELAYS)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(job_row(&pool, id).await.state, "failed");
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn revive_skips_when_active_duplicate_exists(pool: PgPool) {
+    let id = failed_import(&pool, 1, false).await;
+    age(&pool, id, "30 days").await;
+    let newer = jobs::enqueue(
+        &pool,
+        &Job::ImportArtist { artist_id: 1 },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(jobs::revive_failed(&pool, REVIVE_KINDS, REVIVE_DELAYS)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(job_row(&pool, id).await.state, "failed");
+    assert_eq!(job_row(&pool, newer).await.state, "queued");
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn revive_takes_only_latest_of_same_key(pool: PgPool) {
+    let old = failed_import(&pool, 1, false).await;
+    let newer = failed_import(&pool, 1, false).await;
+    age(&pool, old, "30 days").await;
+    age(&pool, newer, "30 days").await;
+    let rows = jobs::revive_failed(&pool, REVIVE_KINDS, REVIVE_DELAYS)
+        .await
+        .unwrap();
+    assert_eq!(rows.iter().map(|r| r.id).collect::<Vec<_>>(), [newer]);
+    assert_eq!(job_row(&pool, old).await.state, "failed");
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn fail_sets_fatal_only_on_final_failure(pool: PgPool) {
+    let id = jobs::enqueue(
+        &pool,
+        &Job::ImportArtist { artist_id: 1 },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    jobs::claim(&pool, "w", REVIVE_KINDS)
+        .await
+        .unwrap()
+        .unwrap();
+    // повтор запланирован: задача не провалена, `fatal` не записывается
+    let row = jobs::fail(&pool, id, "w", "x", Some(Utc::now()), true)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((row.state.as_str(), row.fatal), ("queued", false));
+
+    jobs::claim(&pool, "w", REVIVE_KINDS)
+        .await
+        .unwrap()
+        .unwrap();
+    let row = jobs::fail(&pool, id, "w", "x", None, true)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((row.state.as_str(), row.fatal), ("failed", true));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn manual_retry_clears_fatal_and_revivals(pool: PgPool) {
+    let id = failed_import(&pool, 1, true).await;
+    sqlx::query("UPDATE jobs SET revivals = 3 WHERE id = $1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        jobs::retry(&pool, id, 10).await.unwrap(),
+        jobs::RetryOutcome::Queued(_)
+    ));
+    let r = job_row(&pool, id).await;
+    assert_eq!((r.fatal, r.revivals), (false, 0));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn purge_removes_old_fatal_and_superseded_failed(pool: PgPool) {
+    let fatal_old = failed_import(&pool, 1, true).await;
+    let superseded = failed_import(&pool, 2, false).await;
+    let latest = failed_import(&pool, 2, false).await;
+    let fatal_fresh = failed_import(&pool, 3, true).await;
+    let lone = failed_import(&pool, 4, false).await;
+    for id in [fatal_old, superseded, latest, lone] {
+        age(&pool, id, "31 days").await;
+    }
+    let n = jobs::purge_failed(&pool, Duration::from_secs(30 * 86400))
+        .await
+        .unwrap();
+    assert_eq!(n, 2);
+    let left: Vec<i64> = jobs::list(&pool, None, 50)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| r.id)
+        .collect();
+    assert!(!left.contains(&fatal_old) && !left.contains(&superseded));
+    assert!(left.contains(&latest) && left.contains(&fatal_fresh) && left.contains(&lone));
 }

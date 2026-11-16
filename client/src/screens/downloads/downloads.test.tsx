@@ -513,6 +513,7 @@ describe('«Торренты» и фоновые задачи (в настрой
     attempts: 5,
     id,
     kind: 'discover_album',
+    fatal: false,
     last_error: 'provider exploded',
     max_attempts: 5,
     payload: { album_id: 40 + id },

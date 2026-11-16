@@ -17,7 +17,8 @@
 ## Очередь задач
 
 - `GET /api/jobs?state=&kind=&limit=` → `{ jobs: [JobDto], counts: { queued, running, failed } }`;
-  `JobDto { id, kind, payload, state, attempts, max_attempts, priority, run_after, last_error, updated_at }`.
+  `JobDto { id, kind, payload, state, attempts, max_attempts, priority, run_after, last_error, fatal, updated_at }`
+  (`fatal` — окончательный провал: автоматически не оживёт, только ручной повтор).
   `state` — `queued|running|done|failed` (иначе `400 invalid_state`); `limit` 1–500 (по умолчанию 50);
   счётчики не зависят от фильтров.
 - `POST /api/jobs/{id}/retry` — только для `failed`: попытки обнуляются, приоритет интерактивный. `404` — нет задачи,

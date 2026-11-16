@@ -1321,6 +1321,8 @@ export interface components {
         JobDto: {
             /** Format: int32 */
             attempts: number;
+            /** @description Окончательный провал: автоматически задача не оживёт (только ручной повтор). */
+            fatal: boolean;
             /** Format: int64 */
             id: number;
             /** @description Вид: `discover_album`, `verify_torrent`, `import_artist`, … */

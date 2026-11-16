@@ -3917,12 +3917,17 @@
           "max_attempts",
           "priority",
           "run_after",
+          "fatal",
           "updated_at"
         ],
         "properties": {
           "attempts": {
             "type": "integer",
             "format": "int32"
+          },
+          "fatal": {
+            "type": "boolean",
+            "description": "Окончательный провал: автоматически задача не оживёт (только ручной повтор)."
           },
           "id": {
             "type": "integer",

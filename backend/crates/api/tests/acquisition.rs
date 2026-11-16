@@ -265,7 +265,7 @@ async fn summary_counts_states_and_failed_jobs(pool: PgPool) {
     .unwrap()
     .unwrap();
     jobs::claim(&pool, "w", &["discover_album"]).await.unwrap();
-    jobs::fail(&pool, id, "w", "boom", None)
+    jobs::fail(&pool, id, "w", "boom", None, false)
         .await
         .unwrap()
         .unwrap();

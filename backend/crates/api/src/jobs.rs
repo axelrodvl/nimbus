@@ -29,6 +29,8 @@ pub struct JobDto {
     pub priority: i16,
     pub run_after: DateTime<Utc>,
     pub last_error: Option<String>,
+    /// Окончательный провал: автоматически задача не оживёт (только ручной повтор).
+    pub fatal: bool,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -44,6 +46,7 @@ impl From<JobRow> for JobDto {
             priority: r.priority,
             run_after: r.run_after,
             last_error: r.last_error,
+            fatal: r.fatal,
             updated_at: r.updated_at,
         }
     }

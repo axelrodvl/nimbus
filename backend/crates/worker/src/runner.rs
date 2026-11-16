@@ -225,6 +225,10 @@ pub struct WorkerConfig {
     pub retry_missing_interval: Option<Duration>,
     /// Пауза перед перезапуском цикла воркера, обслуживания или слушателя после паники.
     pub restart_pause: Duration,
+    /// Паузы перед оживлением упавшей задачи по числу прошлых оживлений (последняя повторяется).
+    pub revive_delays: Vec<Duration>,
+    /// Сколько хранятся окончательно провалённые и вытесненные `failed`-задачи.
+    pub failed_retention: Duration,
 }
 
 impl Default for WorkerConfig {
@@ -243,6 +247,13 @@ impl Default for WorkerConfig {
             evict_interval: Some(Duration::from_secs(10 * 60)),
             retry_missing_interval: Some(Duration::from_secs(5 * 60)),
             restart_pause: Duration::from_secs(1),
+            revive_delays: vec![
+                Duration::from_secs(15 * 60),
+                Duration::from_secs(3600),
+                Duration::from_secs(6 * 3600),
+                Duration::from_secs(24 * 3600),
+            ],
+            failed_retention: Duration::from_secs(30 * 24 * 3600),
         }
     }
 }
@@ -553,6 +564,7 @@ async fn maintenance_loop(
     };
     loop {
         guarded("requeue_stale", requeue_stale_step(&ctx, &handlers, &cfg)).await;
+        guarded("revive_failed", revive_step(&ctx, &handlers, &cfg)).await;
         guarded("finalize_stuck_albums", finalize_stuck_step(&ctx, &cfg)).await;
         guarded("purge", purge_step(&ctx, &cfg, &mut clock)).await;
         guarded("sync_purge", sync_purge_step(&ctx, &cfg, &mut clock)).await;
@@ -584,6 +596,27 @@ async fn requeue_stale_step(ctx: &JobCtx, handlers: &HandlerMap, cfg: &WorkerCon
     }
 }
 
+/// Виды задач, которые оживляет обслуживание. Остальные упавшие задачи не оживают: у `discover_album`,
+/// `verify_torrent` и `process_cue` повтор идёт на уровне альбома (`on_exhausted` + `RetryMissing`),
+/// а у этих двух другого пути повтора нет.
+const REVIVABLE_KINDS: [&str; 2] = [Job::IMPORT_ARTIST, Job::DISCOVER_ARTIST];
+
+/// Оживляет упавшие `import_artist` / `discover_artist` после растущей паузы; хуку `on_retry`
+/// сообщает причину `revived` (интерфейс увидит «импорт идёт»).
+async fn revive_step(ctx: &JobCtx, handlers: &HandlerMap, cfg: &WorkerConfig) {
+    match jobs::revive_failed(&ctx.db, &REVIVABLE_KINDS, &cfg.revive_delays).await {
+        Ok(rows) => {
+            for row in &rows {
+                tracing::warn!(job_id = row.id, kind = %row.kind, revivals = row.revivals, "failed job revived");
+                if let (Some(handler), Ok(job)) = (handlers.get(row.kind.as_str()), row.job()) {
+                    run_on_retry(handler, &job, ctx, "revived").await;
+                }
+            }
+        }
+        Err(e) => tracing::error!(error = %e, "revive_failed failed"),
+    }
+}
+
 async fn finalize_stuck_step(ctx: &JobCtx, cfg: &WorkerConfig) {
     match crate::verify::finalize_stuck_albums(ctx, cfg.stuck_grace).await {
         Ok(0) => {}
@@ -600,6 +633,9 @@ async fn purge_step(ctx: &JobCtx, cfg: &WorkerConfig, clock: &mut MaintClock) {
     clock.purge = std::time::Instant::now();
     if let Err(e) = jobs::purge_done(&ctx.db, cfg.done_retention).await {
         tracing::error!(error = %e, "purge_done failed");
+    }
+    if let Err(e) = jobs::purge_failed(&ctx.db, cfg.failed_retention).await {
+        tracing::error!(error = %e, "purge_failed failed");
     }
     // Просроченные ответы MusicBrainz живут ещё `STALE_GRACE` как запасной вариант при отказах.
     if let Err(e) =
@@ -841,6 +877,7 @@ async fn process(
                 worker_id,
                 &format!("bad payload: {e}"),
                 None,
+                true,
             )
             .await
             {
@@ -922,7 +959,7 @@ async fn process(
     };
     let retry_at = delay.map(|d| Utc::now() + chrono::Duration::from_std(d).unwrap_or_default());
     tracing::warn!(job_id = row.id, kind = %row.kind, attempts = row.attempts, %reason, retry = retry_at.is_some(), "job failed");
-    match jobs::fail(&ctx.db, row.id, worker_id, &reason, retry_at).await {
+    match jobs::fail(&ctx.db, row.id, worker_id, &reason, retry_at, fatal).await {
         Ok(Some(updated)) if updated.state == "failed" => {
             run_exhausted(handler, &job, ctx, row.id, &reason, fatal).await;
         }

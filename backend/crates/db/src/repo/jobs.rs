@@ -28,6 +28,10 @@ pub struct JobRow {
     pub dedup_key: Option<String>,
     /// Пока задача выполнялась, пришёл новый запрос: по завершении её нужно выполнить ещё раз.
     pub rerun: bool,
+    /// Окончательный провал (повтор бессмыслен): оживление такую задачу не трогает.
+    pub fatal: bool,
+    /// Сколько раз задачу оживляло обслуживание ([`revive_failed`]).
+    pub revivals: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -205,6 +209,7 @@ pub async fn complete(
 /// с `run_after = retry_at`, иначе становится `failed`. Исключение — окончательный провал при
 /// выставленном `rerun`: новый запрос заслуживает своего цикла попыток, задача снова `queued`
 /// с нулём попыток (вызывающий смотрит на `state` и `on_exhausted` не вызывает).
+/// `fatal` записывается только при переходе в `failed`: окончательный провал, который не оживляют.
 /// `None` — задачу у `worker_id` перехватили, строка не тронута.
 pub async fn fail(
     db: impl PgExecutor<'_>,
@@ -212,6 +217,7 @@ pub async fn fail(
     worker_id: &str,
     error: &str,
     retry_at: Option<DateTime<Utc>>,
+    fatal: bool,
 ) -> sqlx::Result<Option<JobRow>> {
     sqlx::query_as(
         "WITH upd AS (
@@ -221,6 +227,7 @@ pub async fn fail(
                 run_after = CASE WHEN $3::timestamptz IS NOT NULL AND attempts < max_attempts THEN $3
                                  WHEN rerun THEN now() ELSE run_after END,
                 attempts = CASE WHEN rerun AND NOT ($3::timestamptz IS NOT NULL AND attempts < max_attempts) THEN 0 ELSE attempts END,
+                fatal = $5 AND NOT (($3::timestamptz IS NOT NULL AND attempts < max_attempts) OR rerun),
                 rerun = FALSE,
                 locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
             WHERE id = $1 AND state = 'running' AND locked_by = $4
@@ -233,6 +240,7 @@ pub async fn fail(
     .bind(error)
     .bind(retry_at)
     .bind(worker_id)
+    .bind(fatal)
     .fetch_optional(db)
     .await
 }
@@ -368,6 +376,52 @@ pub async fn purge_done(db: impl PgExecutor<'_>, older_than: Duration) -> sqlx::
     .rows_affected())
 }
 
+/// Удаляет `failed`-задачи старше `older_than`, которые больше не нужны: окончательные (`fatal`)
+/// и вытесненные более новой строкой с тем же `dedup_key`. Последние нефатальные остаются —
+/// их видно в «Фоновых задачах», а оживление ещё может их поднять.
+pub async fn purge_failed(db: impl PgExecutor<'_>, older_than: Duration) -> sqlx::Result<u64> {
+    Ok(sqlx::query(
+        "DELETE FROM jobs j
+         WHERE j.state = 'failed' AND j.updated_at < now() - make_interval(secs => $1)
+           AND (j.fatal OR EXISTS (SELECT 1 FROM jobs n WHERE n.dedup_key = j.dedup_key AND n.id > j.id))",
+    )
+    .bind(older_than.as_secs_f64())
+    .execute(db)
+    .await?
+    .rows_affected())
+}
+
+/// Оживляет упавшие (`failed`, не `fatal`) задачи видов `kinds`: возвращает их в очередь с нулём попыток.
+/// Пауза перед оживлением зависит от числа прошлых оживлений: `delays[revivals]`, последнее значение
+/// повторяется. Берётся только последняя задача с данным `dedup_key` и только если нет активной такой же.
+/// Возвращает оживлённые строки (для хука `on_retry`).
+pub async fn revive_failed(
+    db: impl PgExecutor<'_>,
+    kinds: &[&str],
+    delays: &[Duration],
+) -> sqlx::Result<Vec<JobRow>> {
+    if delays.is_empty() || kinds.is_empty() {
+        return Ok(Vec::new());
+    }
+    let secs: Vec<f64> = delays.iter().map(Duration::as_secs_f64).collect();
+    sqlx::query_as(
+        "WITH upd AS (
+            UPDATE jobs j SET state = 'queued', attempts = 0, run_after = now(), revivals = revivals + 1,
+                              priority = LEAST(priority, 0), rerun = FALSE, updated_at = now()
+            WHERE j.state = 'failed' AND NOT j.fatal AND j.kind = ANY($1)
+              AND j.updated_at < now() - make_interval(secs => ($2::float8[])[LEAST(j.revivals + 1, cardinality($2::float8[]))])
+              AND j.id = (SELECT max(x.id) FROM jobs x WHERE x.dedup_key = j.dedup_key)
+              AND NOT EXISTS (SELECT 1 FROM jobs a WHERE a.dedup_key = j.dedup_key AND a.state IN ('queued','running'))
+            RETURNING j.*
+         )
+         SELECT upd.* FROM upd LEFT JOIN LATERAL (SELECT pg_notify('jobs', upd.id::text)) n ON TRUE",
+    )
+    .bind(kinds)
+    .bind(secs)
+    .fetch_all(db)
+    .await
+}
+
 pub async fn list(
     db: impl PgExecutor<'_>,
     state: Option<&str>,
@@ -435,6 +489,7 @@ pub enum RetryOutcome {
 pub async fn retry(db: &sqlx::PgPool, id: i64, priority: i16) -> sqlx::Result<RetryOutcome> {
     let res: sqlx::Result<Option<JobRow>> = sqlx::query_as(
         "UPDATE jobs SET state = 'queued', attempts = 0, run_after = now(), priority = $2,
+                         fatal = FALSE, revivals = 0,
                          locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
          WHERE id = $1 AND state = 'failed' RETURNING *",
     )
