@@ -12,7 +12,7 @@ export function ArtistCard({ artist }: { artist: ArtistView }) {
   const importing = artist.albumCount === 0 && artist.trackCount === 0;
   return (
     <Link
-      className="bg-card/50 hover:bg-card dark:bg-card-dark/50 dark:hover:bg-card-dark focus-visible:ring-accent/40 flex h-full flex-col items-center gap-3 rounded-lg p-4 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+      className="hover:bg-card dark:hover:bg-card-dark focus-visible:ring-accent/40 flex h-full flex-col items-center gap-3 rounded-lg px-0 py-4 transition-colors focus-visible:ring-2 focus-visible:outline-none"
       data-testid="artist-card"
       to={`/artist/${artist.id}`}
     >

@@ -32,7 +32,7 @@ export function AlbumCard({ album, priority, actions }: Props) {
     <div className={cn('group/card relative h-full', className)} data-testid="album-card" {...press}>
       <Link
         className={cn(
-          'bg-card/50 hover:bg-card dark:bg-card-dark/50 dark:hover:bg-card-dark focus-visible:ring-accent/40 flex h-full flex-col gap-3 rounded-lg p-3 transition-colors focus-visible:ring-2 focus-visible:outline-none',
+          'hover:bg-card dark:hover:bg-card-dark focus-visible:ring-accent/40 flex h-full flex-col gap-3 rounded-lg px-0 py-3 transition-colors focus-visible:ring-2 focus-visible:outline-none',
           !album.in_library && 'opacity-80',
           dimmed && 'opacity-55',
         )}
@@ -52,7 +52,7 @@ export function AlbumCard({ album, priority, actions }: Props) {
       <AlbumOfflineBadge albumId={album.id} />
       <AlbumMenu albumId={album.id} artistId={album.artist_id} store={menu} />
       {actions ? (
-        <div className="absolute right-5 bottom-[7.5rem] opacity-0 transition-opacity group-focus-within/card:opacity-100 group-hover/card:opacity-100 [@media(hover:none)]:opacity-100">
+        <div className="absolute right-2 bottom-[7.5rem] opacity-0 transition-opacity group-focus-within/card:opacity-100 group-hover/card:opacity-100 [@media(hover:none)]:opacity-100">
           {actions}
         </div>
       ) : null}

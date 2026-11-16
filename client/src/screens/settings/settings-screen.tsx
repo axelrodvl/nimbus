@@ -195,7 +195,7 @@ export function SettingsScreen() {
                   <Link
                     aria-current={selected && param ? 'page' : undefined}
                     className={cn(
-                      'focus-visible:ring-accent/40 flex h-12 items-center gap-3 rounded-xl px-3 text-sm outline-none focus-visible:ring-2',
+                      'focus-visible:ring-accent/40 flex h-12 items-center gap-3 rounded-xl px-0 text-sm md:px-3 outline-none focus-visible:ring-2',
                       selected
                         ? 'md:bg-card md:dark:bg-card-dark font-semibold'
                         : 'text-muted hover:text-black dark:hover:text-white',
