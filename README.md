@@ -68,6 +68,7 @@ the **`scripts/`** set builds and runs your local checkout (development).
 |---|---|
 | `./start.sh [version]` | Pulls `ghcr.io/axelrodvl/nimbus` (+ Postgres) and starts the stack, waiting until both are healthy. The version is the argument (`./start.sh 0.3.0`), else `NIMBUS_VERSION` from `.env`, else `latest`. |
 | `./update.sh [version]` | Pulls the images and, only if a newer one was published (or the stack is down), runs `stop.sh` + `start.sh`. Data is kept. |
+| `./update-and-restart.sh [version]` | Always restarts: `stop.sh`, then `start.sh` (which pulls the images). Use it to force a restart even when nothing new was published. |
 | `./stop.sh` | Stops and removes the containers. The database and `./data` are kept. `--purge` also deletes the database volume. |
 
 Development (local images, `nimbus:local`):
