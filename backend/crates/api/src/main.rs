@@ -192,6 +192,7 @@ async fn main() -> anyhow::Result<()> {
         transcoder.ffmpeg
     );
     let state = AppState::new(db, Arc::new(config), events, mb)
+        .with_worker_stats(workers.stats())
         .with_engine(engine.clone())
         .with_settings(settings)
         .with_providers(providers)

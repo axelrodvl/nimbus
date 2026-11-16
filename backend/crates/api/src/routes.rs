@@ -143,6 +143,21 @@ pub struct HealthResponse {
     pub jobs: JobsHealth,
     /// Провайдеры торрентов и состояние их предохранителей.
     pub providers: Vec<ProviderHealthDto>,
+    /// Фоновые воркеры очереди.
+    pub workers: WorkersHealth,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct WorkersHealth {
+    /// Сколько раз циклы воркеров, обслуживания и слушателя перезапускались после паники.
+    /// Ненулевое значение — повод посмотреть логи (`loop panicked, restarting`).
+    pub restarts: u64,
+    /// Из них — циклы воркеров задач.
+    pub worker_restarts: u64,
+    /// Из них — цикл обслуживания очереди.
+    pub maintenance_restarts: u64,
+    /// Из них — слушатель `NOTIFY`.
+    pub listener_restarts: u64,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -217,6 +232,15 @@ pub async fn health(State(state): State<AppState>) -> Result<Json<HealthResponse
                 open_until: h.open_until,
             })
             .collect(),
+        workers: {
+            let c = state.worker_stats.restarts();
+            WorkersHealth {
+                restarts: c.total(),
+                worker_restarts: c.workers,
+                maintenance_restarts: c.maintenance,
+                listener_restarts: c.listener,
+            }
+        },
     }))
 }
 

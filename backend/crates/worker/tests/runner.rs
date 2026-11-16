@@ -723,3 +723,151 @@ async fn endlessly_deferred_job_eventually_fails_and_runs_the_exhausted_hook(poo
     assert_eq!(probe.exhausted(), 1);
     w.shutdown().await;
 }
+
+/// Хуки паникуют; сам `handle` исчерпывает попытки (`fail_first`) или падает с повтором.
+struct PanickyHooks {
+    calls: AtomicU32,
+    /// Первые `fail_first` вызовов `handle` возвращают `Fatal` (→ `on_exhausted`) или `Retry` (→ `on_retry`).
+    fail_first: u32,
+    fatal: bool,
+}
+
+#[async_trait]
+impl JobHandler for PanickyHooks {
+    fn kinds(&self) -> &'static [&'static str] {
+        &["discover_album"]
+    }
+    async fn handle(&self, _job: Job, _ctx: &JobCtx) -> Result<(), JobError> {
+        let n = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+        if n <= self.fail_first {
+            return Err(if self.fatal {
+                JobError::Fatal("nope".into())
+            } else {
+                JobError::Retry {
+                    after: Duration::from_millis(20),
+                    reason: "temp".into(),
+                }
+            });
+        }
+        Ok(())
+    }
+    async fn on_retry(&self, _job: &Job, _ctx: &JobCtx, _reason: &str) {
+        panic!("on_retry boom");
+    }
+    async fn on_exhausted(&self, _job: &Job, _ctx: &JobCtx, _reason: &str) -> Result<(), JobError> {
+        panic!("on_exhausted boom");
+    }
+}
+
+/// Один воркер: первая задача проваливает хук, вторая обязана всё равно выполниться.
+async fn second_job_runs_after_hook_panic(pool: PgPool, fatal: bool) {
+    let h = Arc::new(PanickyHooks {
+        calls: AtomicU32::new(0),
+        fail_first: 1,
+        fatal,
+    });
+    let w = WorkerPool::spawn(
+        ctx(&pool),
+        vec![(h.clone() as Arc<dyn JobHandler>, 1)],
+        fast_cfg(),
+    );
+    let first = jobs::enqueue(
+        &pool,
+        &Job::DiscoverAlbum { album_id: 1 },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    // fatal → failed; retry → queued → done (повтор после хука, который упал).
+    wait_state(&pool, first, if fatal { "failed" } else { "done" }).await;
+    let second = jobs::enqueue(
+        &pool,
+        &Job::DiscoverAlbum { album_id: 2 },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    wait_state(&pool, second, "done").await;
+    assert_eq!(
+        w.stats().restarts().total(),
+        0,
+        "хук изолирован: цикл не перезапускался"
+    );
+    w.shutdown().await;
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn worker_survives_panicking_on_exhausted_hook(pool: PgPool) {
+    second_job_runs_after_hook_panic(pool, true).await;
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn worker_survives_panicking_on_retry_hook(pool: PgPool) {
+    second_job_runs_after_hook_panic(pool, false).await;
+}
+
+/// Вид `discover_artist` — обычный; `discover_album` — хук паникует при исчерпании.
+struct Plain;
+
+#[async_trait]
+impl JobHandler for Plain {
+    fn kinds(&self) -> &'static [&'static str] {
+        &["discover_artist"]
+    }
+    async fn handle(&self, _job: Job, _ctx: &JobCtx) -> Result<(), JobError> {
+        Ok(())
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn maintenance_survives_panicking_step(pool: PgPool) {
+    // Зависшая задача с исчерпанными попытками: обслуживание вызовет паникующий `on_exhausted`.
+    let dead = jobs::enqueue(
+        &pool,
+        &Job::DiscoverAlbum { album_id: 1 },
+        EnqueueOpts {
+            max_attempts: Some(1),
+            ..EnqueueOpts::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    // Зависшая задача другого вида с попытками в запасе: на том же тике её надо вернуть в очередь.
+    let alive = jobs::enqueue(
+        &pool,
+        &Job::DiscoverArtist { artist_id: 1 },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    for kind in ["discover_album", "discover_artist"] {
+        jobs::claim(&pool, "ghost-0", &[kind])
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    let h = Arc::new(PanickyHooks {
+        calls: AtomicU32::new(0),
+        fail_first: 0,
+        fatal: true,
+    });
+    let w = WorkerPool::spawn(
+        ctx(&pool),
+        vec![
+            (h as Arc<dyn JobHandler>, 1),
+            (Arc::new(Plain) as Arc<dyn JobHandler>, 1),
+        ],
+        WorkerConfig {
+            maintenance_interval: Duration::from_millis(50),
+            stale_after: Duration::from_millis(100),
+            ..fast_cfg()
+        },
+    );
+    wait_state(&pool, dead, "failed").await;
+    wait_state(&pool, alive, "done").await;
+    w.shutdown().await;
+}

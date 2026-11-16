@@ -42,7 +42,7 @@
 | [B10](B10-graceful-shutdown.md) | P2 | Штатная остановка может не успевать до SIGKILL | — | [ ] |
 | [B11](B11-rerun-flag-and-atomic-enqueue.md) | P1 | Запрос во время выполнения задачи теряется; постановка задач вне транзакции | B06 | [ ] |
 | [B12](B12-cue-retry.md) | P1 | Образ с CUE: временная неудача навсегда лишает альбом источника | — | [ ] |
-| [B13](B13-supervise-worker-loops.md) | P1 | Циклы воркеров и обслуживания не переживают панику | — | [ ] |
+| [B13](B13-supervise-worker-loops.md) | P1 | Циклы воркеров и обслуживания не переживают панику | — | [x] |
 | [B14](B14-invariants-and-chaos-acceptance.md) | P1 | Проверка инвариантов и приёмочный сценарий «всё доводится до конца» | B01–B06, B08, B09, B11–B13 | [ ] |
 
 Рекомендуемый порядок: B13 → B06 → B11 → B01 → B02 → B03 → B12 → B05 → B04 → B09 → B08 → B07 → B10 → **B14**.
@@ -122,4 +122,4 @@ B14 превращает эту таблицу в автоматически п�
 
 ## Журнал
 
-(пусто)
+- **B13** — циклы `listener`, `maintenance` и каждый `worker_loop` под супервизором (`supervise`: `catch_unwind`, пауза `WorkerConfig::restart_pause`, перезапуск, выход по отмене); перезапущенный воркер сначала возвращает свои `running` (`release_workers`); `on_retry`/`on_exhausted` — в отдельных задачах (паника = ошибка хука); шаги обслуживания — отдельные `async fn` в `guarded`; `WorkerPool::stats()` → `GET /api/health` `workers {restarts, worker_restarts, maintenance_restarts, listener_restarts}`. Покрытие `worker` 95.56 %. Замечено: при параллельном прогоне всего набора `sqlx::test` иногда не может подключиться к БД (`UnexpectedEof`) — `RUST_TEST_THREADS=4` помогает.

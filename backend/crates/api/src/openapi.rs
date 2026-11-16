@@ -74,6 +74,7 @@ use crate::{library, routes, search, sources};
         routes::HealthResponse,
         routes::EngineHealth,
         routes::JobsHealth,
+        routes::WorkersHealth,
         routes::ProviderHealthDto,
         crate::auth::LoginRequest,
         crate::auth::SessionInfo,

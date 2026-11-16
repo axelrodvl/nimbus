@@ -43,6 +43,8 @@ pub struct AppState {
     pub downloads: crate::download_manager::DownloadHub,
     /// Сколько задач-источников снимков синхронизации сейчас живо (`GET /api/sync/snapshot`).
     pub sync_tasks: Arc<AtomicUsize>,
+    /// Счётчики перезапусков циклов фоновых воркеров (`GET /api/health`).
+    pub worker_stats: nimbus_worker::WorkerStats,
 }
 
 /// Включена ли автозагрузка в текущих настройках.
@@ -73,6 +75,7 @@ impl AppState {
             boot_performance: settings.get().performance.clone(),
             downloads: crate::download_manager::DownloadHub::default(),
             sync_tasks: Arc::new(AtomicUsize::new(0)),
+            worker_stats: nimbus_worker::WorkerStats::default(),
             settings,
             providers: Arc::new(nimbus_trackers::ProviderRegistry::new(vec![])),
             activity: nimbus_core::activity::Activity::default(),
@@ -122,6 +125,11 @@ impl AppState {
 
     pub fn with_providers(mut self, providers: Arc<nimbus_trackers::ProviderRegistry>) -> Self {
         self.providers = providers;
+        self
+    }
+
+    pub fn with_worker_stats(mut self, stats: nimbus_worker::WorkerStats) -> Self {
+        self.worker_stats = stats;
         self
     }
 

@@ -81,3 +81,18 @@ async fn health_without_providers_has_empty_list(pool: PgPool) {
     let (_, v) = get_json(router(state(pool)), "/api/health").await;
     assert_eq!(v["providers"], serde_json::json!([]));
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn health_reports_worker_restarts(pool: PgPool) {
+    let (_, v) = get_json(router(state(pool.clone())), "/api/health").await;
+    assert_eq!(v["workers"]["restarts"], 0);
+
+    // Пул, чей слушатель/воркер перезапускался, отражается в health через общие счётчики.
+    let stats = nimbus_worker::WorkerStats::default();
+    let st = state(pool).with_worker_stats(stats);
+    let (_, v) = get_json(router(st), "/api/health").await;
+    assert_eq!(v["workers"]["restarts"], 0);
+    assert_eq!(v["workers"]["worker_restarts"], 0);
+    assert_eq!(v["workers"]["maintenance_restarts"], 0);
+    assert_eq!(v["workers"]["listener_restarts"], 0);
+}

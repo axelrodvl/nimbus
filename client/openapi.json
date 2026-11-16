@@ -3710,7 +3710,8 @@
           "db",
           "version",
           "jobs",
-          "providers"
+          "providers",
+          "workers"
         ],
         "properties": {
           "db": {
@@ -3742,6 +3743,10 @@
           },
           "version": {
             "type": "string"
+          },
+          "workers": {
+            "$ref": "#/components/schemas/WorkersHealth",
+            "description": "Фоновые воркеры очереди."
           }
         }
       },
@@ -5120,6 +5125,41 @@
           "not_found",
           "ready"
         ]
+      },
+      "WorkersHealth": {
+        "type": "object",
+        "required": [
+          "restarts",
+          "worker_restarts",
+          "maintenance_restarts",
+          "listener_restarts"
+        ],
+        "properties": {
+          "listener_restarts": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Из них — слушатель `NOTIFY`.",
+            "minimum": 0
+          },
+          "maintenance_restarts": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Из них — цикл обслуживания очереди.",
+            "minimum": 0
+          },
+          "restarts": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Сколько раз циклы воркеров, обслуживания и слушателя перезапускались после паники.\nНенулевое значение — повод посмотреть логи (`loop panicked, restarting`).",
+            "minimum": 0
+          },
+          "worker_restarts": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Из них — циклы воркеров задач.",
+            "minimum": 0
+          }
+        }
       }
     }
   },

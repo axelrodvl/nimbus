@@ -9,4 +9,6 @@ pub mod runner;
 pub mod torrent_file;
 pub mod verify;
 
-pub use runner::{JobCtx, JobError, JobHandler, WorkerConfig, WorkerPool};
+pub use runner::{
+    JobCtx, JobError, JobHandler, RestartCounts, WorkerConfig, WorkerPool, WorkerStats,
+};

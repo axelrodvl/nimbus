@@ -1260,6 +1260,8 @@ export interface components {
             providers: components["schemas"]["ProviderHealthDto"][];
             status: string;
             version: string;
+            /** @description Фоновые воркеры очереди. */
+            workers: components["schemas"]["WorkersHealth"];
         };
         ImportLogEntryDto: {
             /** Format: date-time */
@@ -1720,6 +1722,29 @@ export interface components {
         };
         /** @enum {string} */
         TrackStatus: "adding" | "found" | "not_found" | "ready";
+        WorkersHealth: {
+            /**
+             * Format: int64
+             * @description Из них — слушатель `NOTIFY`.
+             */
+            listener_restarts: number;
+            /**
+             * Format: int64
+             * @description Из них — цикл обслуживания очереди.
+             */
+            maintenance_restarts: number;
+            /**
+             * Format: int64
+             * @description Сколько раз циклы воркеров, обслуживания и слушателя перезапускались после паники.
+             *     Ненулевое значение — повод посмотреть логи (`loop panicked, restarting`).
+             */
+            restarts: number;
+            /**
+             * Format: int64
+             * @description Из них — циклы воркеров задач.
+             */
+            worker_restarts: number;
+        };
     };
     responses: never;
     parameters: never;

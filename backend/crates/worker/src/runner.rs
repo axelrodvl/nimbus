@@ -1,9 +1,13 @@
 use std::collections::HashMap;
+use std::future::Future;
+use std::panic::AssertUnwindSafe;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
+use futures::FutureExt;
 use nimbus_core::events::EventBus;
 use nimbus_core::jobs::{Job, PRIORITY_BACKGROUND};
 use nimbus_db::repo::jobs::{self, JobRow};
@@ -208,6 +212,8 @@ pub struct WorkerConfig {
     /// Как часто ставить `RetryMissing` (автоповтор поиска, шаг 32), если включён `search.auto_retry`
     /// (`None` — не ставить).
     pub retry_missing_interval: Option<Duration>,
+    /// Пауза перед перезапуском цикла воркера, обслуживания или слушателя после паники.
+    pub restart_pause: Duration,
 }
 
 impl Default for WorkerConfig {
@@ -225,6 +231,7 @@ impl Default for WorkerConfig {
             shutdown_timeout: Duration::from_secs(10),
             evict_interval: Some(Duration::from_secs(10 * 60)),
             retry_missing_interval: Some(Duration::from_secs(5 * 60)),
+            restart_pause: Duration::from_secs(1),
         }
     }
 }
@@ -239,7 +246,42 @@ impl WorkerConfig {
     }
 }
 
+/// Сколько раз супервизор перезапускал циклы пула после паники. Ненулевое значение — повод
+/// заглянуть в логи (`GET /api/health` → `workers`). Дёшево клонируется: счётчики общие.
+#[derive(Debug, Clone, Default)]
+pub struct WorkerStats {
+    workers: Arc<AtomicU64>,
+    maintenance: Arc<AtomicU64>,
+    listener: Arc<AtomicU64>,
+}
+
+/// Снимок [`WorkerStats`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RestartCounts {
+    pub workers: u64,
+    pub maintenance: u64,
+    pub listener: u64,
+}
+
+impl RestartCounts {
+    /// Всего перезапусков.
+    pub fn total(&self) -> u64 {
+        self.workers + self.maintenance + self.listener
+    }
+}
+
+impl WorkerStats {
+    pub fn restarts(&self) -> RestartCounts {
+        RestartCounts {
+            workers: self.workers.load(Ordering::Relaxed),
+            maintenance: self.maintenance.load(Ordering::Relaxed),
+            listener: self.listener.load(Ordering::Relaxed),
+        }
+    }
+}
+
 pub struct WorkerPool {
+    stats: WorkerStats,
     token: CancellationToken,
     tasks: JoinSet<()>,
     worker_ids: Vec<String>,
@@ -296,36 +338,73 @@ impl WorkerPool {
         }
         let by_kind: HandlerMap = Arc::new(by_kind);
 
-        tasks.spawn(listen_loop(ctx.db.clone(), notify.clone(), token.clone()));
-        tasks.spawn(maintenance_loop(
-            ctx.clone(),
-            by_kind,
-            cfg.clone(),
-            token.clone(),
-        ));
+        let stats = WorkerStats::default();
+        let pause = cfg.restart_pause;
+
+        {
+            let (db, notify, tk) = (ctx.db.clone(), notify.clone(), token.clone());
+            tasks.spawn(supervise(
+                "listener",
+                token.clone(),
+                pause,
+                stats.listener.clone(),
+                move || listen_loop(db.clone(), notify.clone(), tk.clone()),
+            ));
+        }
+        {
+            let (ctx, cfg, tk) = (ctx.clone(), cfg.clone(), token.clone());
+            tasks.spawn(supervise(
+                "maintenance",
+                token.clone(),
+                pause,
+                stats.maintenance.clone(),
+                move || maintenance_loop(ctx.clone(), by_kind.clone(), cfg.clone(), tk.clone()),
+            ));
+        }
 
         for (handler, concurrency) in handlers {
             for n in 0..concurrency.max(1) {
                 let worker_id =
                     format!("{}-{}-{}", handler.kinds().join("+"), std::process::id(), n);
                 worker_ids.push(worker_id.clone());
-                tasks.spawn(worker_loop(
-                    worker_id,
+                let (handler, ctx, cfg, notify, tk) = (
                     handler.clone(),
                     ctx.clone(),
                     cfg.clone(),
                     notify.clone(),
                     token.clone(),
+                );
+                tasks.spawn(supervise(
+                    "worker",
+                    token.clone(),
+                    pause,
+                    stats.workers.clone(),
+                    move || {
+                        worker_loop(
+                            worker_id.clone(),
+                            handler.clone(),
+                            ctx.clone(),
+                            cfg.clone(),
+                            notify.clone(),
+                            tk.clone(),
+                        )
+                    },
                 ));
             }
         }
         Self {
+            stats,
             token,
             tasks,
             worker_ids,
             db: ctx.db.clone(),
             shutdown_timeout: cfg.shutdown_timeout,
         }
+    }
+
+    /// Счётчики перезапусков циклов (общие с пулом: клон видит обновления).
+    pub fn stats(&self) -> WorkerStats {
+        self.stats.clone()
     }
 
     /// Остановка: отменяет токен (новые задачи не берутся, обработчики получают `ctx.cancel`),
@@ -349,6 +428,48 @@ impl WorkerPool {
             Ok(n) => tracing::warn!(count = n, "returned interrupted jobs to the queue"),
             Err(e) => tracing::error!(error = %e, "cannot release jobs on shutdown"),
         }
+    }
+}
+
+/// Текст паники из `catch_unwind`.
+fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
+    panic
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_string())
+        .or_else(|| panic.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "non-string panic".into())
+}
+
+/// Выполняет цикл `make()` под защитой от паники: при панике пишет `error`, увеличивает `restarts`,
+/// ждёт `pause` (отменяемо) и запускает цикл заново. Нормальное завершение (по отмене) — выход.
+async fn supervise<F, Fut>(
+    name: &'static str,
+    token: CancellationToken,
+    pause: Duration,
+    restarts: Arc<AtomicU64>,
+    make: F,
+) where
+    F: Fn() -> Fut,
+    Fut: Future<Output = ()>,
+{
+    loop {
+        match AssertUnwindSafe(make()).catch_unwind().await {
+            Ok(()) => return,
+            Err(panic) => {
+                restarts.fetch_add(1, Ordering::Relaxed);
+                tracing::error!(task = name, panic = %panic_message(&*panic), "loop panicked, restarting");
+                if sleep_or_cancel(pause, &token).await {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+/// Один шаг обслуживания: паника шага логируется и не мешает остальным шагам тика.
+async fn guarded(step: &'static str, fut: impl Future<Output = ()>) {
+    if let Err(panic) = AssertUnwindSafe(fut).catch_unwind().await {
+        tracing::error!(step, panic = %panic_message(&*panic), "maintenance step panicked");
     }
 }
 
@@ -397,90 +518,129 @@ async fn sleep_or_cancel(d: Duration, token: &CancellationToken) -> bool {
 /// Как часто чистить надгробия синхронизации.
 const SYNC_PURGE_EVERY: Duration = Duration::from_secs(24 * 3600);
 
+/// Отметки времени периодических шагов обслуживания.
+struct MaintClock {
+    purge: std::time::Instant,
+    sync_purge: std::time::Instant,
+    evict: std::time::Instant,
+    retry_missing: std::time::Instant,
+}
+
 async fn maintenance_loop(
     ctx: JobCtx,
     handlers: HandlerMap,
     cfg: Arc<WorkerConfig>,
     token: CancellationToken,
 ) {
-    let db = &ctx.db;
-    let mut last_purge = std::time::Instant::now() - Duration::from_secs(24 * 3600);
-    let mut last_sync_purge = std::time::Instant::now() - SYNC_PURGE_EVERY;
-    let mut last_evict = std::time::Instant::now();
-    let mut last_retry_missing = std::time::Instant::now();
+    let mut clock = MaintClock {
+        purge: std::time::Instant::now() - Duration::from_secs(24 * 3600),
+        sync_purge: std::time::Instant::now() - SYNC_PURGE_EVERY,
+        evict: std::time::Instant::now(),
+        retry_missing: std::time::Instant::now(),
+    };
     loop {
-        match jobs::requeue_stale(db, cfg.stale_after).await {
-            Ok(out) => {
-                if out.requeued > 0 {
-                    tracing::warn!(count = out.requeued, "requeued stale jobs");
-                }
-                for row in &out.failed {
-                    tracing::warn!(job_id = row.id, kind = %row.kind, "stale job exhausted its attempts");
-                    exhausted(&handlers, &ctx, row, "worker lost; attempts exhausted").await;
-                }
-            }
-            Err(e) => tracing::error!(error = %e, "requeue_stale failed"),
+        guarded("requeue_stale", requeue_stale_step(&ctx, &handlers, &cfg)).await;
+        guarded("finalize_stuck_albums", finalize_stuck_step(&ctx, &cfg)).await;
+        guarded("purge", purge_step(&ctx, &cfg, &mut clock)).await;
+        guarded("sync_purge", sync_purge_step(&ctx, &cfg, &mut clock)).await;
+        guarded(
+            "enqueue_periodic",
+            enqueue_periodic_step(&ctx, &cfg, &mut clock),
+        )
+        .await;
+        if sleep_or_cancel(cfg.maintenance_interval, &token).await {
+            return;
         }
-        match crate::verify::finalize_stuck_albums(&ctx, cfg.stuck_grace).await {
-            Ok(0) => {}
-            Ok(n) => tracing::warn!(count = n, "finalized albums stuck in adding"),
-            Err(e) => tracing::error!(error = %e, "finalize_stuck_albums failed"),
-        }
-        if last_purge.elapsed() > Duration::from_secs(3600) {
-            last_purge = std::time::Instant::now();
-            if let Err(e) = jobs::purge_done(db, cfg.done_retention).await {
-                tracing::error!(error = %e, "purge_done failed");
+    }
+}
+
+/// Возвращает зависшие `running` в очередь; исчерпавшим попытки вызывает `on_exhausted`.
+async fn requeue_stale_step(ctx: &JobCtx, handlers: &HandlerMap, cfg: &WorkerConfig) {
+    match jobs::requeue_stale(&ctx.db, cfg.stale_after).await {
+        Ok(out) => {
+            if out.requeued > 0 {
+                tracing::warn!(count = out.requeued, "requeued stale jobs");
             }
-            // Просроченные ответы MusicBrainz живут ещё `STALE_GRACE` как запасной вариант при отказах.
-            if let Err(e) =
-                nimbus_db::repo::mb_cache::purge_expired(db, nimbus_db::repo::mb_cache::STALE_GRACE)
-                    .await
-            {
-                tracing::error!(error = %e, "mb_cache purge failed");
+            for row in &out.failed {
+                tracing::warn!(job_id = row.id, kind = %row.kind, "stale job exhausted its attempts");
+                exhausted(handlers, ctx, row, "worker lost; attempts exhausted").await;
             }
         }
-        if last_sync_purge.elapsed() >= SYNC_PURGE_EVERY {
-            last_sync_purge = std::time::Instant::now();
-            match nimbus_db::repo::sync::purge_tombstones(db, cfg.tombstone_retention).await {
-                Ok(0) => {}
-                Ok(n) => tracing::info!(count = n, "purged old sync tombstones"),
-                Err(e) => tracing::error!(error = %e, "sync tombstone purge failed"),
-            }
-        }
-        if cfg
-            .evict_interval
-            .is_some_and(|i| last_evict.elapsed() >= i)
+        Err(e) => tracing::error!(error = %e, "requeue_stale failed"),
+    }
+}
+
+async fn finalize_stuck_step(ctx: &JobCtx, cfg: &WorkerConfig) {
+    match crate::verify::finalize_stuck_albums(ctx, cfg.stuck_grace).await {
+        Ok(0) => {}
+        Ok(n) => tracing::warn!(count = n, "finalized albums stuck in adding"),
+        Err(e) => tracing::error!(error = %e, "finalize_stuck_albums failed"),
+    }
+}
+
+/// Раз в час: уборка завершённых задач и просроченного кэша MusicBrainz.
+async fn purge_step(ctx: &JobCtx, cfg: &WorkerConfig, clock: &mut MaintClock) {
+    if clock.purge.elapsed() <= Duration::from_secs(3600) {
+        return;
+    }
+    clock.purge = std::time::Instant::now();
+    if let Err(e) = jobs::purge_done(&ctx.db, cfg.done_retention).await {
+        tracing::error!(error = %e, "purge_done failed");
+    }
+    // Просроченные ответы MusicBrainz живут ещё `STALE_GRACE` как запасной вариант при отказах.
+    if let Err(e) =
+        nimbus_db::repo::mb_cache::purge_expired(&ctx.db, nimbus_db::repo::mb_cache::STALE_GRACE)
+            .await
+    {
+        tracing::error!(error = %e, "mb_cache purge failed");
+    }
+}
+
+async fn sync_purge_step(ctx: &JobCtx, cfg: &WorkerConfig, clock: &mut MaintClock) {
+    if clock.sync_purge.elapsed() < SYNC_PURGE_EVERY {
+        return;
+    }
+    clock.sync_purge = std::time::Instant::now();
+    match nimbus_db::repo::sync::purge_tombstones(&ctx.db, cfg.tombstone_retention).await {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(count = n, "purged old sync tombstones"),
+        Err(e) => tracing::error!(error = %e, "sync tombstone purge failed"),
+    }
+}
+
+/// Периодические задачи: вытеснение кэша и автоповтор поиска.
+async fn enqueue_periodic_step(ctx: &JobCtx, cfg: &WorkerConfig, clock: &mut MaintClock) {
+    let db = &ctx.db;
+    if cfg
+        .evict_interval
+        .is_some_and(|i| clock.evict.elapsed() >= i)
+    {
+        clock.evict = std::time::Instant::now();
+        if let Err(e) = jobs::enqueue(
+            db,
+            &Job::EvictCache,
+            jobs::EnqueueOpts::priority(PRIORITY_BACKGROUND),
+        )
+        .await
         {
-            last_evict = std::time::Instant::now();
+            tracing::error!(error = %e, "cannot enqueue cache eviction");
+        }
+    }
+    if cfg
+        .retry_missing_interval
+        .is_some_and(|i| clock.retry_missing.elapsed() >= i)
+    {
+        clock.retry_missing = std::time::Instant::now();
+        if ctx.settings.get().search.auto_retry {
             if let Err(e) = jobs::enqueue(
                 db,
-                &Job::EvictCache,
+                &Job::RetryMissing,
                 jobs::EnqueueOpts::priority(PRIORITY_BACKGROUND),
             )
             .await
             {
-                tracing::error!(error = %e, "cannot enqueue cache eviction");
+                tracing::error!(error = %e, "cannot enqueue retry_missing");
             }
-        }
-        if cfg
-            .retry_missing_interval
-            .is_some_and(|i| last_retry_missing.elapsed() >= i)
-        {
-            last_retry_missing = std::time::Instant::now();
-            if ctx.settings.get().search.auto_retry {
-                if let Err(e) = jobs::enqueue(
-                    db,
-                    &Job::RetryMissing,
-                    jobs::EnqueueOpts::priority(PRIORITY_BACKGROUND),
-                )
-                .await
-                {
-                    tracing::error!(error = %e, "cannot enqueue retry_missing");
-                }
-            }
-        }
-        if sleep_or_cancel(cfg.maintenance_interval, &token).await {
-            return;
         }
     }
 }
@@ -509,10 +669,26 @@ async fn run_exhausted(
     reason: &str,
 ) {
     for attempt in 1..=EXHAUSTED_TRIES {
-        match handler.on_exhausted(job, ctx, reason).await {
-            Ok(()) => return,
-            Err(e) => {
+        let (h, j, c, r) = (
+            handler.clone(),
+            job.clone(),
+            ctx.clone(),
+            reason.to_string(),
+        );
+        // Отдельная задача: паника хука — такая же ошибка хука, цикл воркера она не роняет.
+        let mut task = AbortOnDrop(tokio::spawn(
+            async move { h.on_exhausted(&j, &c, &r).await },
+        ));
+        match (&mut task.0).await {
+            Ok(Ok(())) => return,
+            Ok(Err(e)) => {
                 tracing::error!(job_id, error = %e, attempt, "on_exhausted failed");
+                if attempt < EXHAUSTED_TRIES {
+                    tokio::time::sleep(EXHAUSTED_PAUSE).await;
+                }
+            }
+            Err(e) => {
+                tracing::error!(job_id, error = %e, attempt, "on_exhausted panicked");
                 if attempt < EXHAUSTED_TRIES {
                     tokio::time::sleep(EXHAUSTED_PAUSE).await;
                 }
@@ -530,6 +706,15 @@ async fn worker_loop(
     token: CancellationToken,
 ) {
     let kinds = handler.kinds();
+    // Цикл мог быть перезапущен после паники посреди `process`: строка `running` за этим воркером
+    // осиротела. Возвращаем её без траты попытки — виноват не обработчик.
+    match jobs::release_workers(&ctx.db, std::slice::from_ref(&worker_id)).await {
+        Ok(0) => {}
+        Ok(n) => {
+            tracing::warn!(count = n, worker = %worker_id, "returned own running jobs to the queue")
+        }
+        Err(e) => tracing::error!(error = %e, worker = %worker_id, "release own jobs failed"),
+    }
     while !token.is_cancelled() {
         // Создаём до claim, чтобы не потерять NOTIFY между claim и ожиданием.
         let notified = notify.notified();
@@ -548,6 +733,20 @@ async fn worker_loop(
         }
     }
     tracing::debug!(worker = %worker_id, "worker stopped");
+}
+
+/// Вызывает `on_retry` в отдельной задаче: паника хука логируется и не роняет цикл воркера.
+async fn run_on_retry(handler: &Arc<dyn JobHandler>, job: &Job, ctx: &JobCtx, reason: &str) {
+    let (h, j, c, r) = (
+        handler.clone(),
+        job.clone(),
+        ctx.clone(),
+        reason.to_string(),
+    );
+    let mut task = AbortOnDrop(tokio::spawn(async move { h.on_retry(&j, &c, &r).await }));
+    if let Err(e) = (&mut task.0).await {
+        tracing::error!(error = %e, "on_retry panicked");
+    }
 }
 
 /// Пока задача выполняется, раз в `every` отмечает, что воркер жив.
@@ -627,7 +826,7 @@ async fn process(
                 Ok(updated) if updated.state == "failed" => {
                     run_exhausted(handler, &job, ctx, row.id, &reason).await;
                 }
-                Ok(_) => handler.on_retry(&job, ctx, &reason).await,
+                Ok(_) => run_on_retry(handler, &job, ctx, &reason).await,
                 Err(e) => tracing::error!(job_id = row.id, error = %e, "defer update failed"),
             }
             return;
@@ -646,7 +845,7 @@ async fn process(
         Ok(updated) if updated.state == "failed" => {
             run_exhausted(handler, &job, ctx, row.id, &reason).await;
         }
-        Ok(_) => handler.on_retry(&job, ctx, &reason).await,
+        Ok(_) => run_on_retry(handler, &job, ctx, &reason).await,
         Err(e) => tracing::error!(job_id = row.id, error = %e, "fail update failed"),
     }
 }
@@ -654,6 +853,7 @@ async fn process(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicU32;
 
     #[test]
     fn backoff_doubles_and_caps() {
@@ -663,5 +863,161 @@ mod tests {
         assert_eq!(cfg.backoff(3), Duration::from_secs(120));
         assert_eq!(cfg.backoff(20), Duration::from_secs(30 * 60));
         assert_eq!(cfg.backoff(1000), Duration::from_secs(30 * 60));
+    }
+
+    #[tokio::test]
+    async fn supervisor_restarts_panicking_loop_and_counts_it() {
+        let runs = Arc::new(AtomicU32::new(0));
+        let restarts = Arc::new(AtomicU64::new(0));
+        let r = runs.clone();
+        supervise(
+            "test",
+            CancellationToken::new(),
+            Duration::from_millis(1),
+            restarts.clone(),
+            move || {
+                let r = r.clone();
+                async move {
+                    if r.fetch_add(1, Ordering::SeqCst) < 2 {
+                        panic!("boom");
+                    }
+                }
+            },
+        )
+        .await;
+        assert_eq!(runs.load(Ordering::SeqCst), 3);
+        assert_eq!(restarts.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn supervisor_stops_on_cancel_during_restart_pause() {
+        let token = CancellationToken::new();
+        let restarts = Arc::new(AtomicU64::new(0));
+        let task = tokio::spawn(supervise(
+            "test",
+            token.clone(),
+            Duration::from_secs(3600),
+            restarts.clone(),
+            || async { panic!("boom") },
+        ));
+        while restarts.load(Ordering::Relaxed) == 0 {
+            tokio::task::yield_now().await;
+        }
+        token.cancel();
+        tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .expect("supervisor must not hang in the restart pause")
+            .unwrap();
+        assert_eq!(restarts.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn panic_message_reads_str_string_and_other_payloads() {
+        assert_eq!(panic_message(&"static"), "static");
+        assert_eq!(panic_message(&String::from("owned")), "owned");
+        assert_eq!(panic_message(&42_u32), "non-string panic");
+    }
+
+    #[tokio::test]
+    async fn guarded_step_swallows_panic() {
+        guarded("test", async { panic!("boom") }).await;
+    }
+
+    #[test]
+    fn stats_snapshot_sums_counters() {
+        let s = WorkerStats::default();
+        s.workers.fetch_add(2, Ordering::Relaxed);
+        s.maintenance.fetch_add(1, Ordering::Relaxed);
+        s.listener.fetch_add(4, Ordering::Relaxed);
+        let c = s.clone().restarts();
+        assert_eq!(
+            (c.workers, c.maintenance, c.listener, c.total()),
+            (2, 1, 4, 7)
+        );
+    }
+
+    /// `kinds()` паникует при первом вызове цикла — имитация паники вне `process`.
+    struct PanicsOnce {
+        kinds_calls: AtomicU32,
+        seen_attempt: std::sync::Mutex<Vec<i32>>,
+    }
+
+    #[async_trait]
+    impl JobHandler for PanicsOnce {
+        fn kinds(&self) -> &'static [&'static str] {
+            if self.kinds_calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                panic!("loop boom");
+            }
+            &["discover_album"]
+        }
+        async fn handle(&self, _job: Job, ctx: &JobCtx) -> Result<(), JobError> {
+            self.seen_attempt.lock().unwrap().push(ctx.attempt);
+            Ok(())
+        }
+    }
+
+    #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+    async fn restarted_worker_releases_its_running_job(pool: PgPool) {
+        let id = jobs::enqueue(
+            &pool,
+            &Job::DiscoverAlbum { album_id: 1 },
+            jobs::EnqueueOpts::default(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        // Строка `running` за воркером, который «умер» посреди `process`.
+        let row = jobs::claim(&pool, "w-0", &["discover_album"])
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!((row.id, row.attempts), (id, 1));
+
+        let h = Arc::new(PanicsOnce {
+            kinds_calls: AtomicU32::new(0),
+            seen_attempt: Default::default(),
+        });
+        let ctx = JobCtx::new(
+            pool.clone(),
+            EventBus::new(),
+            nimbus_musicbrainz::MbClient::new("NimbusTest/0.1 ( https://example.org )", None)
+                .unwrap(),
+            Arc::new(ProviderRegistry::new(vec![])),
+        );
+        let token = CancellationToken::new();
+        let restarts = Arc::new(AtomicU64::new(0));
+        let task = tokio::spawn({
+            let (h, ctx, token, restarts) = (h.clone(), ctx, token.clone(), restarts.clone());
+            let cfg = Arc::new(WorkerConfig {
+                poll_interval: Duration::from_millis(20),
+                ..WorkerConfig::default()
+            });
+            let notify = Arc::new(Notify::new());
+            supervise(
+                "worker",
+                token.clone(),
+                Duration::from_millis(5),
+                restarts,
+                move || {
+                    worker_loop(
+                        "w-0".into(),
+                        h.clone() as Arc<dyn JobHandler>,
+                        ctx.clone(),
+                        cfg.clone(),
+                        notify.clone(),
+                        token.clone(),
+                    )
+                },
+            )
+        });
+        nimbus_testkit::eventually(Duration::from_secs(5), || async {
+            !h.seen_attempt.lock().unwrap().is_empty()
+        })
+        .await;
+        token.cancel();
+        task.await.unwrap();
+        assert_eq!(restarts.load(Ordering::Relaxed), 1);
+        // Попытка возвращена при перезапуске: повторный запуск — снова первая попытка.
+        assert_eq!(*h.seen_attempt.lock().unwrap(), vec![1]);
     }
 }
