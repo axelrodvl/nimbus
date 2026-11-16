@@ -73,7 +73,7 @@ test('«Скачать на сервер» на экране альбома: п�
   await expect(page.getByTestId('server-download-done')).toHaveText('На сервере');
   await page.getByTestId('album-menu').click();
   await page.getByTestId('menu-remove').click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Убрать с сервера' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Удалить с сервера' }).click();
   await expect(page.getByTestId('server-download')).toHaveText('Скачать на сервер');
 });
 

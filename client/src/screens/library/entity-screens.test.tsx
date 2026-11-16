@@ -160,7 +160,7 @@ describe('альбом', () => {
     renderRoutes(routes, '/album/1');
     expect(screen.queryByTestId('album-needs-confirmation')).not.toBeInTheDocument();
     expect(screen.getByText('В библиотеке: 2 из 3')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Удалить' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Удалить из библиотеки' })).not.toBeInTheDocument();
   });
 
   it('нет такого альбома — «не найдено»; до гидратации — skeleton', () => {
@@ -225,7 +225,7 @@ describe('удаление из библиотеки', () => {
     seed(library());
     removeRequest.mockResolvedValue();
     renderRoutes(routes, '/artist/1');
-    await userEvent.click(screen.getByRole('button', { name: 'Удалить' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Удалить из библиотеки' }));
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Удалить' }));
     await waitFor(() => expect(removeRequest).toHaveBeenCalledWith('artist', 1));
     const s = appData().library.getState();

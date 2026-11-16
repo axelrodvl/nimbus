@@ -27,8 +27,7 @@ const SECONDARY_PILL =
   'border-divider dark:border-divider-dark border bg-white text-black hover:bg-card dark:bg-black dark:text-white dark:hover:bg-card-dark';
 
 /**
- * Действия над скачанным на сервер альбомом для общего меню «…» шапки: «Снять закрепление» и «Убрать с сервера»
- * (с подтверждением). Пусто, пока альбом не скачан или нет сети.
+ * Действия над скачанным на сервер альбомом для общего меню «…» шапки: «Удалить с сервера» (с подтверждением). Пусто, пока альбом не скачан или нет сети.
  */
 export function useServerMenu(albumId: number, title: string) {
   const t = useT();
@@ -39,15 +38,7 @@ export function useServerMenu(albumId: number, title: string) {
   const ctx = { queryClient };
   const actions: MenuAction[] = [];
   if (online && item?.state === 'downloaded') {
-    if (item.download?.pinned) {
-      actions.push({
-        id: 'unpin',
-        label: t('acq.server.keepFiles'),
-        onClick: () =>
-          void unpinAlbum(albumId, { deleteFiles: false }, ctx).catch(e => toast.error(apiErrorMessage(e, t))),
-      });
-    }
-    actions.push({ danger: true, id: 'remove', label: t('acq.server.remove'), onClick: confirm.show });
+    actions.push({ danger: true, id: 'remove', label: t('acq.deleteFiles'), onClick: confirm.show });
   }
   const dialog = (
     <ConfirmDialog
@@ -60,7 +51,7 @@ export function useServerMenu(albumId: number, title: string) {
           return false;
         }
       }}
-      confirmLabel={t('acq.server.remove')}
+      confirmLabel={t('acq.deleteFiles')}
       description={t('acq.deleteConfirm', { title })}
       store={confirm}
       title={t('acq.deleteConfirmTitle')}

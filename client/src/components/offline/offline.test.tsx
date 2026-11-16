@@ -120,7 +120,7 @@ describe('OfflineButton', () => {
         withLabel
       />,
     );
-    expect(screen.getByText('На устройство')).toBeInTheDocument();
+    expect(screen.getByText('Скачать на устройство')).toBeInTheDocument();
     unmount();
     renderWithProviders(
       <OfflineButton
@@ -258,10 +258,10 @@ describe('меню трека', () => {
     renderWithProviders(menu());
     ui.set({ 1: fileStatus('done', 1, 1), 2: fileStatus('done', 1, 1) }, { pins: new Set(['album:1']) });
     await userEvent.click(await openMenu());
-    const dialog = await screen.findByRole('dialog', { name: 'Снять закрепление альбома?' });
+    const dialog = await screen.findByRole('dialog', { name: 'Удалить альбом с устройства?' });
     expect(dialog).toHaveTextContent('«Alb»');
     expect(ui.manager.unpin).not.toHaveBeenCalled();
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Снять закрепление альбома' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Удалить альбом с устройства' }));
     await waitFor(() => expect(ui.manager.unpin).toHaveBeenCalledWith('album', 1));
     expect(ui.manager.unpin).toHaveBeenCalledWith('track', 1);
   });
@@ -270,7 +270,7 @@ describe('меню трека', () => {
     renderWithProviders(menu());
     ui.set({ 1: fileStatus('done', 1, 1) }, { pins: new Set(['playlist:5']) });
     await userEvent.click(await openMenu());
-    const dialog = await screen.findByRole('dialog', { name: 'Снять закрепление плейлиста?' });
+    const dialog = await screen.findByRole('dialog', { name: 'Удалить плейлист с устройства?' });
     expect(dialog).toHaveTextContent('«Mix»');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }));
     expect(ui.manager.unpin).not.toHaveBeenCalled();
@@ -278,7 +278,7 @@ describe('меню трека', () => {
     // «Избранное» (playlist:0): трек в нём, пока у него есть прослушивания.
     ui.set({ 1: fileStatus('done', 1, 1) }, { pins: new Set(['playlist:0']) });
     await userEvent.click(await openMenu());
-    const fav = await screen.findByRole('dialog', { name: 'Снять закрепление плейлиста?' });
+    const fav = await screen.findByRole('dialog', { name: 'Удалить плейлист с устройства?' });
     expect(fav).toHaveTextContent('«Любимое»');
   });
 

@@ -61,7 +61,11 @@ export function AlbumHeaderMenu({ albumId, title, inLibrary }: { albumId: number
           </Ariakit.MenuItem>
         ))}
         {inLibrary ? (
-          <Ariakit.MenuItem className={menuItemClass} data-testid="album-remove" onClick={remove.open}>
+          <Ariakit.MenuItem
+            className={`${menuItemClass} text-danger-fg`}
+            data-testid="album-remove"
+            onClick={remove.open}
+          >
             {t('remove.button')}
           </Ariakit.MenuItem>
         ) : null}

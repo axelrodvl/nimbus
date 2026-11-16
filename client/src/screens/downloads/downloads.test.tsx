@@ -626,7 +626,7 @@ describe('кнопка «Скачать на сервер» на экране а
     await userEvent.click(await screen.findByTestId('menu-remove'));
     expect(m.unpin).not.toHaveBeenCalled();
     await userEvent.click(
-      within(await screen.findByRole('dialog')).getByRole('button', { name: L('acq.server.remove') }),
+      within(await screen.findByRole('dialog')).getByRole('button', { name: L('acq.deleteFiles') }),
     );
     await waitFor(() => expect(m.unpin).toHaveBeenCalledWith(1, true));
   });

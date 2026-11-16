@@ -220,7 +220,7 @@ describe('раздел «На этом устройстве»', () => {
     open();
     ui.set({}, { pins: new Set(['playlist:0', 'album:99']) });
     expect(titles().sort()).toEqual(['Любимое', 'Недоступно'].sort());
-    expect(screen.getByText('Нет в библиотеке — закрепление скоро снимется')).toBeInTheDocument();
+    expect(screen.getByText('Нет в библиотеке — скоро будет удалено с устройства')).toBeInTheDocument();
   });
 
   it('удаление закрепления: подтверждение, затем снятие закрепления с треками', async () => {

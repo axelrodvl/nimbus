@@ -182,10 +182,10 @@ describe('фильтр «Только скачанные»', () => {
 });
 
 describe('шапки альбома и плейлиста', () => {
-  it('альбом: кнопка «На устройство» с подписью, сводка «Скачано N из M · X»', async () => {
+  it('альбом: кнопка «Скачать на устройство» с подписью, сводка «Скачано N из M · X»', async () => {
     renderRoutes([{ element: <AlbumScreen />, path: '/album/:id' }], '/album/1');
     const control = await screen.findByTestId('offline-control');
-    expect(control).toHaveTextContent('На устройство');
+    expect(control).toHaveTextContent('Скачать на устройство');
     ui.set({ 1: DONE, 2: fileStatus('downloading', 512, 1024) });
     expect(screen.getByTestId('album-status-summary')).toHaveTextContent('Скачано 1 из 2 · 1.5 КБ');
     await userEvent.click(within(control).getByRole('button'));
