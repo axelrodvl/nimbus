@@ -941,6 +941,9 @@ async fn album_progress_does_not_roll_back_when_a_track_finishes(pool: PgPool) {
     let mut m = DownloadManager::new(st.clone(), cfg());
     m.tick().await.unwrap();
     m.tick().await.unwrap();
+    // Как в работе: наблюдатель отмечает докачанный трек `ready`, и он выпадает из активных закреплений.
+    Watcher::new().tick(&st).await.unwrap();
+    m.tick().await.unwrap();
 
     let mut last = None;
     while let Ok(ev) = rx.try_recv() {
