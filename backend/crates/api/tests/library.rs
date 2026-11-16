@@ -1304,3 +1304,59 @@ async fn five_imports_at_once_share_the_musicbrainz_queue_without_false_stalls(p
     }
     assert!(started.elapsed() < std::time::Duration::from_secs(60));
 }
+
+/// Любая вставка в `jobs` падает: имитация сбоя постановки внутри транзакции.
+async fn break_job_inserts(pool: &PgPool) {
+    sqlx::query(
+        "CREATE FUNCTION fail_job_insert() RETURNS trigger LANGUAGE plpgsql AS
+         $$ BEGIN RAISE EXCEPTION 'injected enqueue failure'; END $$",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER fail_job_insert BEFORE INSERT ON jobs
+         FOR EACH ROW EXECUTE FUNCTION fail_job_insert()",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn add_artist_is_atomic(pool: PgPool) {
+    let server = mb_server().await;
+    let (_, router) = app(&pool, &server);
+    break_job_inserts(&pool).await;
+    let (status, _) = post_json(
+        router,
+        "/api/library",
+        json!({"type": "artist", "mbid": RADIOHEAD}),
+    )
+    .await;
+    assert!(status >= 500, "{status}");
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM artists WHERE in_library").await,
+        0,
+        "артист не должен остаться в библиотеке без импорта"
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn add_track_is_atomic(pool: PgPool) {
+    let server = mb_server().await;
+    let (_, router) = app(&pool, &server);
+    break_job_inserts(&pool).await;
+    let (status, _) = post_json(
+        router,
+        "/api/library",
+        json!({"type": "track", "mbid": PARANOID}),
+    )
+    .await;
+    assert!(status >= 500, "{status}");
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM tracks WHERE in_library").await,
+        0,
+        "трек не должен остаться в библиотеке без поиска"
+    );
+}

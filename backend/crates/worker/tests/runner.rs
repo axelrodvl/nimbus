@@ -1004,3 +1004,94 @@ async fn lost_ownership_cancels_handler(pool: PgPool) {
     assert_eq!(row.locked_by.as_deref(), Some("other"));
     w.shutdown().await;
 }
+
+/// Первый запуск «пропускает» работу и ждёт сигнала; повторный запрос во время выполнения
+/// обязан привести ко второму запуску.
+struct Gated {
+    calls: AtomicU32,
+    started: tokio::sync::Notify,
+    go: tokio::sync::Notify,
+}
+
+#[async_trait]
+impl JobHandler for Gated {
+    fn kinds(&self) -> &'static [&'static str] {
+        &["discover_album"]
+    }
+    async fn handle(&self, _job: Job, _ctx: &JobCtx) -> Result<(), JobError> {
+        if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+            self.started.notify_one();
+            self.go.notified().await;
+        }
+        Ok(())
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn request_during_run_causes_second_run(pool: PgPool) {
+    let h = Arc::new(Gated {
+        calls: AtomicU32::new(0),
+        started: tokio::sync::Notify::new(),
+        go: tokio::sync::Notify::new(),
+    });
+    let w = WorkerPool::spawn(
+        ctx(&pool),
+        vec![(h.clone() as Arc<dyn JobHandler>, 1)],
+        fast_cfg(),
+    );
+    let job = Job::DiscoverAlbum { album_id: 1 };
+    let id = jobs::enqueue(&pool, &job, EnqueueOpts::default())
+        .await
+        .unwrap()
+        .unwrap();
+    h.started.notified().await;
+    // Задача уже выполняется: новая строка не создаётся, но запрос запоминается.
+    assert!(jobs::enqueue(&pool, &job, EnqueueOpts::default())
+        .await
+        .unwrap()
+        .is_none());
+    h.go.notify_one();
+    let row = wait_state(&pool, id, "done").await;
+    assert_eq!(h.calls.load(Ordering::SeqCst), 2, "второй проход состоялся");
+    assert_eq!(row.attempts, 1, "у повторного запуска свой счётчик попыток");
+    w.shutdown().await;
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn artist_without_import_gets_import_job(pool: PgPool) {
+    let a = nimbus_db::repo::artists::upsert_by_mbid(
+        &pool,
+        &nimbus_core::model::NewArtist {
+            mbid: uuid::Uuid::new_v4(),
+            name: "Lost".into(),
+            sort_name: None,
+            disambiguation: None,
+        },
+    )
+    .await
+    .unwrap();
+    nimbus_db::repo::artists::set_in_library(&pool, a.id, true)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE artists SET added_at = now() - interval '1 hour'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let w = WorkerPool::spawn(
+        ctx(&pool),
+        vec![(Arc::new(Plain) as Arc<dyn JobHandler>, 1)],
+        WorkerConfig {
+            maintenance_interval: Duration::from_millis(50),
+            ..fast_cfg()
+        },
+    );
+    nimbus_testkit::eventually(Duration::from_secs(5), || async {
+        jobs::list(&pool, None, 50)
+            .await
+            .unwrap()
+            .iter()
+            .any(|r| r.dedup_key.as_deref() == Some(&format!("import_artist:{}", a.id)))
+    })
+    .await;
+    w.shutdown().await;
+}

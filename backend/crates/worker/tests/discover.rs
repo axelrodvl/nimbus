@@ -1203,3 +1203,85 @@ async fn discover_artist_with_unreachable_providers_retries_instead_of_giving_up
     let (c, _) = ctx(&pool, Some(Fake::new(|_| Ok(vec![]))), 1, 5);
     discover_artist(&c, artist_id).await.unwrap();
 }
+
+/// Обёртка над `DiscoverHandler`: после первого завершённого прохода (задача ещё `running`,
+/// треки уже финализированы) ждёт сигнала теста — в это окно приходит запрос на новый трек.
+struct PauseAfterFirstRun {
+    runs: std::sync::atomic::AtomicU32,
+    finished: tokio::sync::Notify,
+    go: tokio::sync::Notify,
+}
+
+#[async_trait]
+impl JobHandler for PauseAfterFirstRun {
+    fn kinds(&self) -> &'static [&'static str] {
+        DiscoverHandler.kinds()
+    }
+    async fn handle(&self, job: Job, ctx: &JobCtx) -> Result<(), JobError> {
+        DiscoverHandler.handle(job, ctx).await?;
+        if self.runs.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+            self.finished.notify_one();
+            self.go.notified().await;
+        }
+        Ok(())
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn track_added_during_running_discover_is_searched(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    let provider = Fake::new(|_| Ok(vec![]));
+    let (c, _) = ctx(&pool, Some(provider), 1, 5);
+    let handler = Arc::new(PauseAfterFirstRun {
+        runs: Default::default(),
+        finished: tokio::sync::Notify::new(),
+        go: tokio::sync::Notify::new(),
+    });
+    let w = nimbus_worker::WorkerPool::spawn(
+        c,
+        vec![(handler.clone() as Arc<dyn JobHandler>, 1)],
+        nimbus_worker::WorkerConfig {
+            poll_interval: std::time::Duration::from_millis(50),
+            maintenance_interval: std::time::Duration::from_secs(3600),
+            shutdown_timeout: std::time::Duration::from_secs(2),
+            ..Default::default()
+        },
+    );
+    let job = Job::DiscoverAlbum { album_id };
+    jobs::enqueue(&pool, &job, jobs::EnqueueOpts::default())
+        .await
+        .unwrap();
+    handler.finished.notified().await;
+    // Первый поиск закончен: треки стали `not_found`, но задача ещё `running`. Пользователь повторяет
+    // трек: статус `adding` и запрос на поиск (раньше он отбрасывался дедупликацией).
+    let first = tracks::list_by_album(&pool, album_id).await.unwrap()[0].id;
+    assert_eq!(
+        tracks::get(&pool, first).await.unwrap().unwrap().status,
+        TrackStatus::NotFound
+    );
+    tracks::set_status(&pool, first, TrackStatus::Adding, None)
+        .await
+        .unwrap();
+    assert!(jobs::enqueue(&pool, &job, jobs::EnqueueOpts::default())
+        .await
+        .unwrap()
+        .is_none());
+    handler.go.notify_one();
+
+    // Второй проход состоялся: он увидел `adding`-трек и довёл его до итога. Без rerun запрос
+    // был бы отброшен, и трек остался бы `adding` без задачи.
+    nimbus_testkit::eventually(std::time::Duration::from_secs(10), || async {
+        handler.runs.load(std::sync::atomic::Ordering::SeqCst) == 2
+            && tracks::get(&pool, first).await.unwrap().unwrap().status == TrackStatus::NotFound
+    })
+    .await;
+    assert!(
+        jobs::list(&pool, Some("queued"), 10)
+            .await
+            .unwrap()
+            .is_empty(),
+        "новых задач не осталось"
+    );
+    w.shutdown().await;
+}

@@ -8,5 +8,6 @@ mod service;
 
 pub use error::LibraryError;
 pub use service::{
-    AddOutcome, ImportSummary, LibraryService, LibraryType, EXCLUDED_SECONDARY_TYPES,
+    enqueue_import_in, AddOutcome, ImportSummary, LibraryService, LibraryType,
+    EXCLUDED_SECONDARY_TYPES,
 };

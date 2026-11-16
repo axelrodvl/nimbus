@@ -33,10 +33,18 @@ async fn dedup_while_active_then_allowed_after_complete(pool: PgPool) {
             .await
             .unwrap()
             .is_none(),
-        "running → no-op"
+        "running → строка не создаётся (выставляется rerun)"
     );
 
-    assert!(jobs::complete(&pool, id, "w").await.unwrap());
+    assert_eq!(
+        jobs::complete(&pool, id, "w").await.unwrap(),
+        jobs::Completion::Requeued
+    );
+    jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+    assert_eq!(
+        jobs::complete(&pool, id, "w").await.unwrap(),
+        jobs::Completion::Done
+    );
     let id2 = jobs::enqueue(&pool, &job, EnqueueOpts::default())
         .await
         .unwrap()
@@ -220,7 +228,10 @@ async fn requeue_stale_and_purge(pool: PgPool) {
     assert_eq!(again.id, id);
     assert_eq!(again.locked_by.as_deref(), Some("w2"));
 
-    assert!(jobs::complete(&pool, id, "w2").await.unwrap());
+    assert_eq!(
+        jobs::complete(&pool, id, "w2").await.unwrap(),
+        jobs::Completion::Done
+    );
     assert_eq!(
         jobs::purge_done(&pool, Duration::from_secs(7 * 86400))
             .await
@@ -309,11 +320,14 @@ async fn enqueue_with_higher_priority_bumps_queued_duplicate(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
-async fn enqueue_does_not_bump_running_duplicate(pool: PgPool) {
+async fn enqueue_bumps_running_duplicate_priority_for_the_rerun(pool: PgPool) {
     enq(&pool, 1, EnqueueOpts::default()).await.unwrap();
     jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
     assert!(enq(&pool, 1, EnqueueOpts::priority(10)).await.is_none());
-    assert_eq!(jobs::list(&pool, None, 10).await.unwrap()[0].priority, 0);
+    assert_eq!(jobs::list(&pool, None, 10).await.unwrap()[0].priority, 10);
+    // Меньший приоритет не понижает.
+    assert!(enq(&pool, 1, EnqueueOpts::priority(0)).await.is_none());
+    assert_eq!(jobs::list(&pool, None, 10).await.unwrap()[0].priority, 10);
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
@@ -330,7 +344,10 @@ async fn heartbeat_keeps_job_fresh_and_only_for_owner(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(out.requeued, 0, "свежий heartbeat держит задачу");
-    assert!(jobs::complete(&pool, id, "w").await.unwrap());
+    assert_eq!(
+        jobs::complete(&pool, id, "w").await.unwrap(),
+        jobs::Completion::Done
+    );
     assert!(
         !jobs::heartbeat(&pool, id, "w").await.unwrap(),
         "завершённую строку heartbeat не оживляет"
@@ -513,9 +530,15 @@ async fn assert_running_by_b(pool: &PgPool, id: i64) {
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn complete_by_lost_worker_is_ignored(pool: PgPool) {
     let id = taken_over(&pool).await;
-    assert!(!jobs::complete(&pool, id, "A").await.unwrap());
+    assert_eq!(
+        jobs::complete(&pool, id, "A").await.unwrap(),
+        jobs::Completion::Lost
+    );
     assert_running_by_b(&pool, id).await;
-    assert!(jobs::complete(&pool, id, "B").await.unwrap());
+    assert_eq!(
+        jobs::complete(&pool, id, "B").await.unwrap(),
+        jobs::Completion::Done
+    );
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
@@ -555,4 +578,157 @@ async fn release_by_lost_worker_is_ignored(pool: PgPool) {
     assert!(!jobs::release(&pool, id, "A").await.unwrap());
     assert_running_by_b(&pool, id).await;
     assert!(jobs::release(&pool, id, "B").await.unwrap());
+}
+
+async fn job_row(pool: &PgPool, id: i64) -> jobs::JobRow {
+    jobs::list(pool, None, 50)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|r| r.id == id)
+        .unwrap()
+}
+
+/// Ставит и забирает задачу; повторный запрос во время выполнения (дедупликация → `rerun`).
+async fn running_with_request(pool: &PgPool) -> i64 {
+    let id = enq(pool, 1, EnqueueOpts::default()).await.unwrap();
+    jobs::claim(pool, "w", KINDS).await.unwrap().unwrap();
+    assert!(
+        enq(pool, 1, EnqueueOpts::priority(7)).await.is_none(),
+        "новая строка не создаётся"
+    );
+    id
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn enqueue_during_running_sets_rerun(pool: PgPool) {
+    let id = running_with_request(&pool).await;
+    let r = job_row(&pool, id).await;
+    assert_eq!(
+        (r.state.as_str(), r.rerun, r.priority),
+        ("running", true, 7)
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn enqueue_during_queued_does_not_set_rerun(pool: PgPool) {
+    let id = enq(&pool, 1, EnqueueOpts::default()).await.unwrap();
+    assert!(enq(&pool, 1, EnqueueOpts::default()).await.is_none());
+    assert!(!job_row(&pool, id).await.rerun);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn complete_with_rerun_requeues_with_fresh_attempts_and_notifies(pool: PgPool) {
+    let mut listener = sqlx::postgres::PgListener::connect_with(&pool)
+        .await
+        .unwrap();
+    listener.listen(jobs::NOTIFY_CHANNEL).await.unwrap();
+    let id = running_with_request(&pool).await;
+    // уведомление о первой постановке
+    listener.recv().await.unwrap();
+    assert_eq!(
+        jobs::complete(&pool, id, "w").await.unwrap(),
+        jobs::Completion::Requeued
+    );
+    let r = job_row(&pool, id).await;
+    assert_eq!(
+        (r.state.as_str(), r.attempts, r.rerun, r.locked_by),
+        ("queued", 0, false, None)
+    );
+    let n = tokio::time::timeout(Duration::from_secs(5), listener.recv())
+        .await
+        .expect("NOTIFY при повторной постановке")
+        .unwrap();
+    assert_eq!(n.payload(), id.to_string());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn rerun_is_cleared_after_requeue(pool: PgPool) {
+    let id = running_with_request(&pool).await;
+    jobs::complete(&pool, id, "w").await.unwrap();
+    jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+    assert_eq!(
+        jobs::complete(&pool, id, "w").await.unwrap(),
+        jobs::Completion::Done
+    );
+    assert_eq!(job_row(&pool, id).await.state, "done");
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn final_failure_with_rerun_requeues(pool: PgPool) {
+    let id = running_with_request(&pool).await;
+    let row = jobs::fail(&pool, id, "w", "boom", None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (row.state.as_str(), row.attempts, row.rerun),
+        ("queued", 0, false)
+    );
+    // без rerun тот же провал окончателен
+    jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+    let row = jobs::fail(&pool, id, "w", "boom", None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.state, "failed");
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn retryable_failure_with_rerun_keeps_backoff_but_clears_flag(pool: PgPool) {
+    let id = running_with_request(&pool).await;
+    let at = Utc::now() + chrono::Duration::minutes(5);
+    let row = jobs::fail(&pool, id, "w", "boom", Some(at))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (row.state.as_str(), row.attempts, row.rerun),
+        ("queued", 1, false)
+    );
+    assert!(row.run_after > Utc::now() + chrono::Duration::minutes(4));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn aged_defer_with_rerun_requeues_instead_of_failing(pool: PgPool) {
+    let id = running_with_request(&pool).await;
+    sqlx::query("UPDATE jobs SET created_at = now() - interval '2 days'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let age = Duration::from_secs(3600);
+    let row = jobs::defer(
+        &pool,
+        id,
+        "w",
+        "x",
+        Utc::now() + chrono::Duration::hours(1),
+        age,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        (row.state.as_str(), row.attempts, row.rerun),
+        ("queued", 0, false)
+    );
+    assert!(row.run_after <= Utc::now());
+    // без rerun — по-прежнему failed
+    jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+    let row = jobs::defer(&pool, id, "w", "x", Utc::now(), age)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.state, "failed");
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn release_and_stale_requeue_clear_rerun(pool: PgPool) {
+    let id = running_with_request(&pool).await;
+    assert!(jobs::release(&pool, id, "w").await.unwrap());
+    assert!(!job_row(&pool, id).await.rerun);
+    jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+    enq(&pool, 1, EnqueueOpts::default()).await;
+    jobs::requeue_stale(&pool, Duration::ZERO).await.unwrap();
+    assert!(!job_row(&pool, id).await.rerun);
 }

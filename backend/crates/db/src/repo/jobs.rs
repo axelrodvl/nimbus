@@ -26,6 +26,8 @@ pub struct JobRow {
     pub locked_by: Option<String>,
     pub last_error: Option<String>,
     pub dedup_key: Option<String>,
+    /// Пока задача выполнялась, пришёл новый запрос: по завершении её нужно выполнить ещё раз.
+    pub rerun: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -66,8 +68,10 @@ impl EnqueueOpts {
 }
 
 /// Ставит задачу в очередь и шлёт `NOTIFY jobs` (одним оператором, атомарно).
-/// Возвращает `None`, если задача с таким `dedup_key` уже активна (queued/running);
-/// при этом приоритет ожидающей (`queued`) задачи поднимается до приоритета новой, если тот выше.
+/// Возвращает `None`, если задача с таким `dedup_key` уже активна (queued/running); новая строка
+/// при этом не создаётся. Запрос не теряется: приоритет ожидающей (`queued`) задачи поднимается
+/// до приоритета новой, если тот выше, а у выполняющейся (`running`) выставляется `rerun` —
+/// по завершении она будет поставлена в очередь ещё раз (см. [`complete`]).
 pub async fn enqueue(
     db: impl PgExecutor<'_>,
     job: &Job,
@@ -83,6 +87,10 @@ pub async fn enqueue(
          ), bump AS (
             UPDATE jobs SET priority = $6, updated_at = now()
             WHERE dedup_key = $3 AND state = 'queued' AND priority < $6
+            RETURNING id
+         ), rer AS (
+            UPDATE jobs SET rerun = TRUE, priority = GREATEST(priority, $6), updated_at = now()
+            WHERE dedup_key = $3 AND state = 'running'
             RETURNING id
          )
          SELECT ins.id FROM ins, LATERAL (SELECT pg_notify('jobs', ins.id::text)) n",
@@ -135,26 +143,56 @@ pub async fn heartbeat(db: impl PgExecutor<'_>, id: i64, worker_id: &str) -> sql
         > 0)
 }
 
+/// Итог [`complete`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Completion {
+    /// Задача завершена (`done`).
+    Done,
+    /// Пока задача выполнялась, пришёл новый запрос (`rerun`): она снова `queued` со свежим циклом попыток.
+    Requeued,
+    /// Задачу у этого воркера перехватили: строка не тронута, итог запишет новый владелец.
+    Lost,
+}
+
 /// Завершает задачу успешно. `worker_id` — воркер, взявший её через [`claim`]: если задачу уже
-/// перехватили (`requeue_stale` вернул её в очередь и взял другой воркер), строка не меняется и
-/// результат — `false` (итог запишет новый владелец).
-pub async fn complete(db: impl PgExecutor<'_>, id: i64, worker_id: &str) -> sqlx::Result<bool> {
-    Ok(sqlx::query(
-        "UPDATE jobs SET state = 'done', locked_at = NULL, locked_by = NULL, heartbeat_at = NULL,
-                         updated_at = now()
-         WHERE id = $1 AND state = 'running' AND locked_by = $2",
+/// перехватили (`requeue_stale` вернул её в очередь и взял другой воркер), строка не меняется
+/// ([`Completion::Lost`]). Если во время выполнения пришёл повторный запрос (`rerun`), задача
+/// ставится в очередь заново с нулём попыток ([`Completion::Requeued`]).
+pub async fn complete(
+    db: impl PgExecutor<'_>,
+    id: i64,
+    worker_id: &str,
+) -> sqlx::Result<Completion> {
+    let state: Option<String> = sqlx::query_scalar(
+        "WITH upd AS (
+            UPDATE jobs SET
+                state = CASE WHEN rerun THEN 'queued' ELSE 'done' END,
+                attempts = CASE WHEN rerun THEN 0 ELSE attempts END,
+                run_after = CASE WHEN rerun THEN now() ELSE run_after END,
+                rerun = FALSE,
+                locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
+            WHERE id = $1 AND state = 'running' AND locked_by = $2
+            RETURNING id, state
+         )
+         SELECT upd.state FROM upd
+         LEFT JOIN LATERAL (SELECT pg_notify('jobs', upd.id::text) WHERE upd.state = 'queued') n ON TRUE",
     )
     .bind(id)
     .bind(worker_id)
-    .execute(db)
-    .await?
-    .rows_affected()
-        > 0)
+    .fetch_optional(db)
+    .await?;
+    Ok(match state.as_deref() {
+        None => Completion::Lost,
+        Some("queued") => Completion::Requeued,
+        Some(_) => Completion::Done,
+    })
 }
 
 /// Если задан `retry_at` и попытки не исчерпаны — задача возвращается в `queued`
-/// с `run_after = retry_at`, иначе становится `failed`. `None` — задачу у `worker_id` перехватили,
-/// строка не тронута.
+/// с `run_after = retry_at`, иначе становится `failed`. Исключение — окончательный провал при
+/// выставленном `rerun`: новый запрос заслуживает своего цикла попыток, задача снова `queued`
+/// с нулём попыток (вызывающий смотрит на `state` и `on_exhausted` не вызывает).
+/// `None` — задачу у `worker_id` перехватили, строка не тронута.
 pub async fn fail(
     db: impl PgExecutor<'_>,
     id: i64,
@@ -163,12 +201,20 @@ pub async fn fail(
     retry_at: Option<DateTime<Utc>>,
 ) -> sqlx::Result<Option<JobRow>> {
     sqlx::query_as(
-        "UPDATE jobs SET
-            last_error = $2,
-            state = CASE WHEN $3::timestamptz IS NOT NULL AND attempts < max_attempts THEN 'queued' ELSE 'failed' END,
-            run_after = CASE WHEN $3::timestamptz IS NOT NULL AND attempts < max_attempts THEN $3 ELSE run_after END,
-            locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
-         WHERE id = $1 AND state = 'running' AND locked_by = $4 RETURNING *",
+        "WITH upd AS (
+            UPDATE jobs SET
+                last_error = $2,
+                state = CASE WHEN ($3::timestamptz IS NOT NULL AND attempts < max_attempts) OR rerun THEN 'queued' ELSE 'failed' END,
+                run_after = CASE WHEN $3::timestamptz IS NOT NULL AND attempts < max_attempts THEN $3
+                                 WHEN rerun THEN now() ELSE run_after END,
+                attempts = CASE WHEN rerun AND NOT ($3::timestamptz IS NOT NULL AND attempts < max_attempts) THEN 0 ELSE attempts END,
+                rerun = FALSE,
+                locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
+            WHERE id = $1 AND state = 'running' AND locked_by = $4
+            RETURNING *
+         )
+         SELECT upd.* FROM upd
+         LEFT JOIN LATERAL (SELECT pg_notify('jobs', upd.id::text) WHERE upd.state = 'queued') n ON TRUE",
     )
     .bind(id)
     .bind(error)
@@ -180,7 +226,8 @@ pub async fn fail(
 
 /// Откладывает задачу «без вины»: возвращает в `queued` с `run_after = retry_at`, **не тратя попытку**
 /// (причина не в задаче: провайдер недоступен, предохранитель разомкнут). Чтобы отложенная задача не жила
-/// вечно, после `max_age` с момента создания она становится `failed` (тогда вызывается `on_exhausted`).
+/// вечно, после `max_age` с момента создания она становится `failed` (тогда вызывается `on_exhausted`);
+/// при выставленном `rerun` — вместо этого `queued` с нулём попыток, как в [`fail`].
 /// `None` — задачу у `worker_id` перехватили, строка не тронута.
 pub async fn defer(
     db: impl PgExecutor<'_>,
@@ -191,13 +238,19 @@ pub async fn defer(
     max_age: Duration,
 ) -> sqlx::Result<Option<JobRow>> {
     sqlx::query_as(
-        "UPDATE jobs SET
-            last_error = $2,
-            state = CASE WHEN created_at < now() - make_interval(secs => $4) THEN 'failed' ELSE 'queued' END,
-            attempts = GREATEST(attempts - 1, 0),
-            run_after = $3,
-            locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
-         WHERE id = $1 AND state = 'running' AND locked_by = $5 RETURNING *",
+        "WITH upd AS (
+            UPDATE jobs SET
+                last_error = $2,
+                state = CASE WHEN created_at < now() - make_interval(secs => $4) AND NOT rerun THEN 'failed' ELSE 'queued' END,
+                attempts = CASE WHEN rerun AND created_at < now() - make_interval(secs => $4) THEN 0 ELSE GREATEST(attempts - 1, 0) END,
+                run_after = CASE WHEN rerun AND created_at < now() - make_interval(secs => $4) THEN now() ELSE $3 END,
+                rerun = FALSE,
+                locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
+            WHERE id = $1 AND state = 'running' AND locked_by = $5
+            RETURNING *
+         )
+         SELECT upd.* FROM upd
+         LEFT JOIN LATERAL (SELECT pg_notify('jobs', upd.id::text) WHERE upd.state = 'queued' AND upd.run_after <= now()) n ON TRUE",
     )
     .bind(id)
     .bind(reason)
@@ -228,7 +281,7 @@ pub async fn requeue_stale(
         "UPDATE jobs SET
             state = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'queued' END,
             last_error = CASE WHEN attempts >= max_attempts THEN 'worker lost; attempts exhausted' ELSE last_error END,
-            locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
+            rerun = FALSE, locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
          WHERE state = 'running'
            AND COALESCE(heartbeat_at, locked_at) < now() - make_interval(secs => $1)
          RETURNING *",
@@ -252,7 +305,7 @@ pub async fn requeue_stale(
 /// воркеров на БД, поэтому всё `running` на этот момент осиротело.
 pub async fn recover_orphans(db: impl PgExecutor<'_>) -> sqlx::Result<u64> {
     Ok(sqlx::query(
-        "UPDATE jobs SET state = 'queued', attempts = GREATEST(attempts - 1, 0), run_after = now(),
+        "UPDATE jobs SET state = 'queued', attempts = GREATEST(attempts - 1, 0), run_after = now(), rerun = FALSE,
                          locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
          WHERE state = 'running'",
     )
@@ -265,7 +318,7 @@ pub async fn recover_orphans(db: impl PgExecutor<'_>) -> sqlx::Result<u64> {
 /// (остановка процесса: задачи, не успевшие завершиться за `shutdown_timeout`).
 pub async fn release_workers(db: impl PgExecutor<'_>, worker_ids: &[String]) -> sqlx::Result<u64> {
     Ok(sqlx::query(
-        "UPDATE jobs SET state = 'queued', attempts = GREATEST(attempts - 1, 0), run_after = now(),
+        "UPDATE jobs SET state = 'queued', attempts = GREATEST(attempts - 1, 0), run_after = now(), rerun = FALSE,
                          locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
          WHERE state = 'running' AND locked_by = ANY($1)",
     )
@@ -279,7 +332,7 @@ pub async fn release_workers(db: impl PgExecutor<'_>, worker_ids: &[String]) -> 
 /// `false` — задача уже не принадлежит `worker_id`, строка не тронута.
 pub async fn release(db: impl PgExecutor<'_>, id: i64, worker_id: &str) -> sqlx::Result<bool> {
     Ok(sqlx::query(
-        "UPDATE jobs SET state = 'queued', attempts = GREATEST(attempts - 1, 0), run_after = now(),
+        "UPDATE jobs SET state = 'queued', attempts = GREATEST(attempts - 1, 0), run_after = now(), rerun = FALSE,
                          locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
          WHERE id = $1 AND state = 'running' AND locked_by = $2",
     )

@@ -542,9 +542,11 @@ pub async fn add_magnet(
         },
     )
     .await?;
-    album_torrents::link(&state.db, id, torrent.id, "manual", 1.0).await?;
+    // Привязка и проверка — одна транзакция: раздача не должна остаться привязанной без задачи.
+    let mut tx = state.db.begin().await?;
+    album_torrents::link(&mut *tx, id, torrent.id, "manual", 1.0).await?;
     let queued = jobs::enqueue(
-        &state.db,
+        &mut *tx,
         &Job::VerifyTorrent {
             torrent_id: torrent.id,
             album_id: id,
@@ -553,6 +555,7 @@ pub async fn add_magnet(
     )
     .await?
     .is_some();
+    tx.commit().await?;
     Ok((
         StatusCode::ACCEPTED,
         Json(AddMagnetResponse {

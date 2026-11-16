@@ -522,6 +522,7 @@ const SYNC_PURGE_EVERY: Duration = Duration::from_secs(24 * 3600);
 struct MaintClock {
     purge: std::time::Instant,
     sync_purge: std::time::Instant,
+    imports: std::time::Instant,
     evict: std::time::Instant,
     retry_missing: std::time::Instant,
 }
@@ -535,6 +536,7 @@ async fn maintenance_loop(
     let mut clock = MaintClock {
         purge: std::time::Instant::now() - Duration::from_secs(24 * 3600),
         sync_purge: std::time::Instant::now() - SYNC_PURGE_EVERY,
+        imports: std::time::Instant::now() - Duration::from_secs(24 * 3600),
         evict: std::time::Instant::now(),
         retry_missing: std::time::Instant::now(),
     };
@@ -543,6 +545,7 @@ async fn maintenance_loop(
         guarded("finalize_stuck_albums", finalize_stuck_step(&ctx, &cfg)).await;
         guarded("purge", purge_step(&ctx, &cfg, &mut clock)).await;
         guarded("sync_purge", sync_purge_step(&ctx, &cfg, &mut clock)).await;
+        guarded("missing_imports", missing_imports_step(&ctx, &mut clock)).await;
         guarded(
             "enqueue_periodic",
             enqueue_periodic_step(&ctx, &cfg, &mut clock),
@@ -593,6 +596,35 @@ async fn purge_step(ctx: &JobCtx, cfg: &WorkerConfig, clock: &mut MaintClock) {
             .await
     {
         tracing::error!(error = %e, "mb_cache purge failed");
+    }
+}
+
+/// Сколько артист может быть в библиотеке без альбомов и без задачи импорта, прежде чем
+/// страховка поставит импорт сама.
+const IMPORT_GRACE: Duration = Duration::from_secs(15 * 60);
+
+/// Раз в час: артисты в библиотеке без альбомов и без задачи `import_artist` (потерянная
+/// постановка) получают импорт.
+async fn missing_imports_step(ctx: &JobCtx, clock: &mut MaintClock) {
+    if clock.imports.elapsed() <= Duration::from_secs(3600) {
+        return;
+    }
+    clock.imports = std::time::Instant::now();
+    let ids = match nimbus_db::repo::artists::without_import(&ctx.db, IMPORT_GRACE).await {
+        Ok(ids) => ids,
+        Err(e) => {
+            tracing::error!(error = %e, "artists without import lookup failed");
+            return;
+        }
+    };
+    for id in ids {
+        tracing::warn!(
+            artist_id = id,
+            "artist in the library has no import job; queueing it"
+        );
+        if let Err(e) = nimbus_library::enqueue_import_in(&ctx.db, id).await {
+            tracing::error!(artist_id = id, error = %e, "cannot enqueue artist import");
+        }
     }
 }
 
@@ -835,8 +867,11 @@ async fn process(
     let (reason, delay) = match result {
         Ok(Ok(())) => {
             match jobs::complete(&ctx.db, row.id, worker_id).await {
-                Ok(true) => {}
-                Ok(false) => log_taken_over(row, worker_id),
+                Ok(jobs::Completion::Done) => {}
+                Ok(jobs::Completion::Requeued) => {
+                    tracing::debug!(job_id = row.id, kind = %row.kind, "request arrived during the run; job queued again");
+                }
+                Ok(jobs::Completion::Lost) => log_taken_over(row, worker_id),
                 Err(e) => tracing::error!(job_id = row.id, error = %e, "complete failed"),
             }
             return;

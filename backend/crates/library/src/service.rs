@@ -344,14 +344,14 @@ impl LibraryService {
         if track.status == TrackStatus::NotFound {
             tracks::set_status(&mut *tx, track.id, TrackStatus::Adding, None).await?;
         }
-        tx.commit().await?;
-
+        // Поиск ставится в той же транзакции: сбой между ними оставил бы трек `adding` без поиска.
         jobs::enqueue(
-            &self.db,
+            &mut *tx,
             &Job::DiscoverAlbum { album_id: album.id },
             EnqueueOpts::priority(PRIORITY_INTERACTIVE),
         )
         .await?;
+        tx.commit().await?;
         if track.status == TrackStatus::NotFound {
             self.events.publish(Event::TrackStatus {
                 track_id: track.id,
@@ -371,8 +371,12 @@ impl LibraryService {
         if artist.in_library {
             return Ok(AddOutcome::Exists { id: artist.id });
         }
-        artists::set_in_library(&self.db, artist.id, true).await?;
-        self.enqueue_import(artist.id).await?;
+        // Одна транзакция: иначе сбой между ними оставил бы артиста в библиотеке без импорта,
+        // а повторное добавление вернуло бы `Exists` и импорт не поставило.
+        let mut tx = self.db.begin().await?;
+        artists::set_in_library(&mut *tx, artist.id, true).await?;
+        enqueue_import_in(&mut *tx, artist.id).await?;
+        tx.commit().await?;
         self.changed(Entity::Artist, artist.id);
         Ok(AddOutcome::Importing { id: artist.id })
     }
@@ -380,17 +384,7 @@ impl LibraryService {
     /// Ставит задачу импорта дискографии (повторно можно вызывать после неудачи: активная задача не дублируется).
     /// Попыток больше обычного: MusicBrainz часто отвечает 503, и импорт должен пережить паузу.
     pub async fn enqueue_import(&self, artist_id: i64) -> Result<()> {
-        jobs::enqueue(
-            &self.db,
-            &Job::ImportArtist { artist_id },
-            EnqueueOpts {
-                max_attempts: Some(IMPORT_MAX_ATTEMPTS),
-                priority: PRIORITY_NORMAL,
-                ..EnqueueOpts::default()
-            },
-        )
-        .await?;
-        Ok(())
+        enqueue_import_in(&self.db, artist_id).await
     }
 
     /// Тело задачи `ImportArtist`: альбомы и EP артиста, кроме отключённых типов,
@@ -713,6 +707,21 @@ fn apply_mb_event(progress: &mut ImportProgress, step: &mut String, event: MbEve
             }
         }
     }
+}
+
+/// Ставит задачу импорта дискографии на переданном исполнителе (соединение или транзакция вызывающего).
+pub async fn enqueue_import_in(db: impl sqlx::PgExecutor<'_>, artist_id: i64) -> Result<()> {
+    jobs::enqueue(
+        db,
+        &Job::ImportArtist { artist_id },
+        EnqueueOpts {
+            max_attempts: Some(IMPORT_MAX_ATTEMPTS),
+            priority: PRIORITY_NORMAL,
+            ..EnqueueOpts::default()
+        },
+    )
+    .await?;
+    Ok(())
 }
 
 #[cfg(test)]

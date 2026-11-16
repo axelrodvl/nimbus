@@ -74,6 +74,28 @@ pub async fn library_artist_ids(db: impl PgExecutor<'_>) -> sqlx::Result<Vec<i64
         .await
 }
 
+/// Артисты библиотеки без единого альбома, добавленные больше `grace` назад, у которых нет
+/// задачи `import_artist` в состояниях `queued`/`running`/`done`/`failed` (упавшую оживляет
+/// отдельный механизм). Это страховка от потерянной постановки импорта.
+pub async fn without_import(
+    db: impl PgExecutor<'_>,
+    grace: std::time::Duration,
+) -> sqlx::Result<Vec<i64>> {
+    sqlx::query_scalar(
+        "SELECT a.id FROM artists a
+         WHERE a.in_library
+           AND a.added_at < now() - make_interval(secs => $1)
+           AND NOT EXISTS (SELECT 1 FROM albums al WHERE al.artist_id = a.id)
+           AND NOT EXISTS (SELECT 1 FROM jobs j
+                           WHERE j.dedup_key = 'import_artist:' || a.id
+                             AND j.state IN ('queued', 'running', 'done', 'failed'))
+         ORDER BY a.id",
+    )
+    .bind(grace.as_secs_f64())
+    .fetch_all(db)
+    .await
+}
+
 /// `(mbid, id)` для артистов из `mbids`, которые находятся в библиотеке.
 pub async fn library_ids_by_mbid(
     db: impl PgExecutor<'_>,
