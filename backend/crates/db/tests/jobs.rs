@@ -695,7 +695,7 @@ async fn retryable_failure_with_rerun_keeps_backoff_but_clears_flag(pool: PgPool
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn aged_defer_with_rerun_requeues_instead_of_failing(pool: PgPool) {
     let id = running_with_request(&pool).await;
-    sqlx::query("UPDATE jobs SET created_at = now() - interval '2 days'")
+    sqlx::query("UPDATE jobs SET deferred_since = now() - interval '2 days'")
         .execute(&pool)
         .await
         .unwrap();
@@ -718,11 +718,114 @@ async fn aged_defer_with_rerun_requeues_instead_of_failing(pool: PgPool) {
     assert!(row.run_after <= Utc::now());
     // без rerun — по-прежнему failed
     jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+    sqlx::query("UPDATE jobs SET deferred_since = now() - interval '2 days'")
+        .execute(&pool)
+        .await
+        .unwrap();
     let row = jobs::defer(&pool, id, "w", "x", Utc::now(), age)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(row.state, "failed");
+}
+
+async fn deferred_since(pool: &PgPool, id: i64) -> Option<chrono::DateTime<Utc>> {
+    sqlx::query_scalar("SELECT deferred_since FROM jobs WHERE id = $1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn defer_age_counts_from_first_defer(pool: PgPool) {
+    // Задача давно в очереди (created_at старый), но ни разу не откладывалась: первый Defer — `queued`.
+    let id = enq(&pool, 1, EnqueueOpts::default()).await.unwrap();
+    sqlx::query("UPDATE jobs SET created_at = now() - interval '2 days'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+    assert!(deferred_since(&pool, id).await.is_none());
+    let age = Duration::from_secs(3600);
+    let row = jobs::defer(&pool, id, "w", "x", Utc::now(), age)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.state, "queued");
+    let first = deferred_since(&pool, id).await.unwrap();
+    // Повторный Defer метку не сдвигает.
+    jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+    jobs::defer(&pool, id, "w", "x", Utc::now(), age)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(deferred_since(&pool, id).await, Some(first));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn defer_expires_after_max_age_since_first_defer(pool: PgPool) {
+    let id = enq(&pool, 1, EnqueueOpts::default()).await.unwrap();
+    jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+    let age = Duration::from_secs(3600);
+    jobs::defer(&pool, id, "w", "x", Utc::now(), age)
+        .await
+        .unwrap()
+        .unwrap();
+    sqlx::query("UPDATE jobs SET deferred_since = now() - interval '2 hours', run_after = now()")
+        .execute(&pool)
+        .await
+        .unwrap();
+    jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+    let row = jobs::defer(&pool, id, "w", "x", Utc::now(), age)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.state, "failed");
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn complete_fail_and_retry_clear_deferred_since(pool: PgPool) {
+    let age = Duration::from_secs(3600);
+    let id = enq(&pool, 1, EnqueueOpts::default()).await.unwrap();
+    for finish in 0..3 {
+        jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+        jobs::defer(&pool, id, "w", "x", Utc::now(), age)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(deferred_since(&pool, id).await.is_some());
+        jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+        match finish {
+            0 => {
+                jobs::complete(&pool, id, "w").await.unwrap();
+            }
+            1 => {
+                jobs::fail(&pool, id, "w", "boom", None, false)
+                    .await
+                    .unwrap()
+                    .unwrap();
+            }
+            _ => unreachable!(),
+        }
+        assert!(deferred_since(&pool, id).await.is_none(), "after {finish}");
+        if finish == 0 {
+            // `done` — заново ставим для следующего круга.
+            sqlx::query("UPDATE jobs SET state = 'queued', run_after = now()")
+                .execute(&pool)
+                .await
+                .unwrap();
+        } else {
+            break;
+        }
+    }
+    // retry после failed
+    sqlx::query("UPDATE jobs SET deferred_since = now()")
+        .execute(&pool)
+        .await
+        .unwrap();
+    jobs::retry(&pool, id, 0).await.unwrap();
+    assert!(deferred_since(&pool, id).await.is_none());
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]

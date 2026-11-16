@@ -994,7 +994,7 @@ async fn reconcile_resets_missing_completed_files(pool: PgPool) {
         })
     ));
 
-    // Файл на месте — ничего не трогаем.
+    // Файл на месте, трек остался `found` (сбой при завершении) — доводим до `ready`; повтор — no-op.
     downloads::upsert(
         &f.pool,
         &NewDownload {
@@ -1010,6 +1010,27 @@ async fn reconcile_resets_missing_completed_files(pool: PgPool) {
     downloads::mark_completed(&f.pool, f.torrent_id, 0)
         .await
         .unwrap();
+    let _ = rx.try_recv();
+    assert_eq!(
+        nimbus_api::stream::reconcile_downloads(&st).await.unwrap(),
+        1,
+        "completed_download_with_found_tracks_is_healed_on_start"
+    );
+    assert_eq!(
+        tracks::get(&f.pool, f.track_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        TrackStatus::Ready
+    );
+    assert!(matches!(
+        rx.try_recv(),
+        Ok(Event::TrackStatus {
+            status: TrackStatus::Ready,
+            ..
+        })
+    ));
     assert_eq!(
         nimbus_api::stream::reconcile_downloads(&st).await.unwrap(),
         0

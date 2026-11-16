@@ -291,3 +291,73 @@ async fn maintenance_skips_retry_missing_when_auto_retry_is_off(pool: PgPool) {
     let kinds = maintenance_with(&pool, false).await;
     assert!(!kinds.iter().any(|k| k == "retry_missing"), "{kinds:?}");
 }
+
+/// Тест-хук: вставка `discover_album` для этого альбома падает (как нарушение ссылки при гонке).
+async fn break_enqueue_for(pool: &PgPool, album_id: i64) {
+    sqlx::query(
+        "CREATE FUNCTION fail_discover() RETURNS trigger AS $$
+         BEGIN RAISE EXCEPTION 'injected failure'; END $$ LANGUAGE plpgsql",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(&format!(
+        "CREATE TRIGGER fail_discover BEFORE INSERT ON jobs
+         FOR EACH ROW WHEN (NEW.dedup_key = 'discover_album:{album_id}')
+         EXECUTE FUNCTION fail_discover()"
+    ))
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn one_bad_album_does_not_block_batch(pool: PgPool) {
+    let ar = artist(&pool).await;
+    let first = album(&pool, ar, &[NotFound], true).await;
+    let bad = album(&pool, ar, &[NotFound], true).await;
+    let third = album(&pool, ar, &[NotFound], true).await;
+    break_enqueue_for(&pool, bad).await;
+
+    RetryMissingHandler
+        .handle(Job::RetryMissing, &ctx(&pool, EventBus::new()))
+        .await
+        .unwrap();
+
+    let mut got: Vec<i64> = discover_jobs(&pool)
+        .await
+        .iter()
+        .map(|j| j.payload["album_id"].as_i64().unwrap())
+        .collect();
+    got.sort_unstable();
+    assert_eq!(got, vec![first, third]);
+    // Плохой альбом: отложен на час, попытка не засчитана, треки остались `not_found`.
+    let s = acquisition::get_state(&pool, bad).await.unwrap().unwrap();
+    assert_eq!(s.auto_retries, 1);
+    let at = s.next_retry_at.unwrap();
+    assert!(at > chrono::Utc::now() + chrono::Duration::minutes(50));
+    assert_eq!(
+        tracks::list_by_album(&pool, bad).await.unwrap()[0].status,
+        TrackStatus::NotFound
+    );
+    for a in [first, third] {
+        let s = acquisition::get_state(&pool, a).await.unwrap().unwrap();
+        assert_eq!((s.auto_retries, s.next_retry_at), (2, None));
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn failure_of_every_album_fails_the_job_and_keeps_schedule(pool: PgPool) {
+    let ar = artist(&pool).await;
+    let bad = album(&pool, ar, &[NotFound], true).await;
+    break_enqueue_for(&pool, bad).await;
+    let r = RetryMissingHandler
+        .handle(Job::RetryMissing, &ctx(&pool, EventBus::new()))
+        .await;
+    assert!(matches!(r, Err(nimbus_worker::JobError::Unexpected(_))));
+    // Транзакция откатилась: расписание прежнее, альбом снова будет взят.
+    let s = acquisition::get_state(&pool, bad).await.unwrap().unwrap();
+    assert_eq!(s.auto_retries, 1);
+    assert!(s.next_retry_at.unwrap() <= chrono::Utc::now());
+    assert!(discover_jobs(&pool).await.is_empty());
+}

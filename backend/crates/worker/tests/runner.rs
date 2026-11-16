@@ -728,8 +728,8 @@ async fn deferred_job_waits_without_spending_an_attempt(pool: PgPool) {
 async fn endlessly_deferred_job_eventually_fails_and_runs_the_exhausted_hook(pool: PgPool) {
     let probe = Probe::new(Behavior::Defer);
     let id = enqueue_album(&pool, None).await;
-    // Задача создана давно: терпение кончилось.
-    sqlx::query("UPDATE jobs SET created_at = now() - interval '7 hours' WHERE id = $1")
+    // Откладывается давно (с первого `Defer`): терпение кончилось.
+    sqlx::query("UPDATE jobs SET deferred_since = now() - interval '7 hours' WHERE id = $1")
         .bind(id)
         .execute(&pool)
         .await

@@ -4,11 +4,15 @@ use async_trait::async_trait;
 use nimbus_core::jobs::{Job, PRIORITY_BACKGROUND};
 use nimbus_db::repo::acquisition;
 use nimbus_library::retry::{publish_tracks, retry_album_in, RetryOptions};
+use sqlx::Acquire;
 
 use crate::runner::{JobCtx, JobError, JobHandler};
 
 /// Сколько альбомов берёт один запуск (остальные дождутся следующего).
 pub const BATCH: i64 = 200;
+
+/// На сколько откладывается альбом, повтор которого не удался (ошибка БД на этом альбоме).
+const POSTPONE: std::time::Duration = std::time::Duration::from_secs(3600);
 
 pub struct RetryMissingHandler;
 
@@ -38,13 +42,36 @@ impl JobHandler for RetryMissingHandler {
         }
         let ids = acquisition::take_due(&mut tx, BATCH).await?;
         let mut changed = Vec::new();
+        let mut failed = 0usize;
         for id in &ids {
-            changed.extend(retry_album_in(&mut tx, *id, opts).await?.0);
+            // Каждый альбом — в своей точке сохранения: сбой одного не откатывает остальных.
+            let mut sp = (&mut *tx).begin().await?;
+            match retry_album_in(&mut sp, *id, opts).await {
+                Ok((c, _)) => {
+                    sp.commit().await?;
+                    changed.extend(c);
+                }
+                Err(e) => {
+                    sp.rollback().await?;
+                    failed += 1;
+                    tracing::warn!(album_id = id, error = %e, "auto-retry of the album failed, postponed");
+                    acquisition::postpone(&mut *tx, *id, POSTPONE).await?;
+                }
+            }
+        }
+        if failed > 0 && failed == ids.len() {
+            // Упали все — вероятно, общая причина: откатываем порцию, пусть сработает backoff задачи.
+            return Err(JobError::Unexpected(format!(
+                "auto-retry failed for all {failed} albums"
+            )));
         }
         tx.commit().await?;
         publish_tracks(&ctx.events, &changed);
-        if !ids.is_empty() {
-            tracing::info!(albums = ids.len(), "auto-retry of missing albums queued");
+        if ids.len() > failed {
+            tracing::info!(
+                albums = ids.len() - failed,
+                "auto-retry of missing albums queued"
+            );
         }
         Ok(())
     }

@@ -903,16 +903,24 @@ impl Watcher {
             }
 
             if p.finished {
-                downloads::mark_completed(&state.db, torrent_id, file_index).await?;
+                // Завершение файла и перевод треков в `ready` — одна транзакция: иначе сбой между
+                // ними оставил бы треки в `found` при завершённом файле. События — после коммита.
+                let mut tx = state.db.begin().await?;
+                downloads::mark_completed(&mut *tx, torrent_id, file_index).await?;
+                let mut ready = Vec::new();
                 for t in of_file.iter().filter(|t| t.status == TrackStatus::Found) {
-                    set_track_status_and_publish(
-                        &state.db,
-                        &state.events,
-                        t.track_id,
-                        TrackStatus::Ready,
-                        None,
-                    )
-                    .await?;
+                    ready.push(
+                        tracks::set_status(&mut *tx, t.track_id, TrackStatus::Ready, None).await?,
+                    );
+                }
+                tx.commit().await?;
+                for t in ready {
+                    state.events.publish(Event::TrackStatus {
+                        track_id: t.id,
+                        album_id: t.album_id,
+                        status: t.status,
+                        reason: t.status_reason.clone(),
+                    });
                 }
                 // После завершения файла проверяем, не превышен ли лимит кэша. Не в транзакции с
                 // записью выше сознательно: потерянная постановка безопасна — вытеснение ставит
@@ -979,7 +987,7 @@ pub fn spawn_watcher_with(
                 _ = interval.tick() => {}
             }
             // Тик не прерываем отменой: он состоит из коротких запросов к БД, а обрыв посередине
-            // (между `mark_completed` и переводом треков в `ready`) оставил бы треки в `found`.
+            // (между коммитами) оставил бы события неопубликованными.
             match std::panic::AssertUnwindSafe(w.tick(&state))
                 .catch_unwind()
                 .await
@@ -1010,6 +1018,29 @@ pub async fn reconcile_downloads(state: &AppState) -> Result<usize, sqlx::Error>
     let mut fixed = 0;
     for d in downloads::list_completed(&state.db).await? {
         if FsPath::new(&d.local_path).exists() {
+            // Файл на месте, но треки застряли в `found` (сбой при завершении) — доводим до `ready`.
+            for t in track_sources::tracks_with_primary(
+                &state.db,
+                d.torrent_id,
+                d.file_index,
+                TrackStatus::Found,
+            )
+            .await?
+            {
+                tracing::warn!(
+                    track_id = t.id,
+                    "track of a completed file is `found`, healing"
+                );
+                set_track_status_and_publish(
+                    &state.db,
+                    &state.events,
+                    t.id,
+                    TrackStatus::Ready,
+                    None,
+                )
+                .await?;
+                fixed += 1;
+            }
             continue;
         }
         tracing::warn!(path = %d.local_path, "completed download is missing on disk, resetting");

@@ -285,6 +285,27 @@ pub async fn schedule_missing_now(db: impl PgExecutor<'_>) -> sqlx::Result<u64> 
     .rows_affected())
 }
 
+/// Откладывает авто-повтор альбома, который [`take_due`] взял, но повторить не удалось: расписание
+/// `now() + interval`, счётчик `auto_retries` возвращается к значению до `take_due` (попытки не было).
+pub async fn postpone(
+    db: impl PgExecutor<'_>,
+    album_id: i64,
+    interval: std::time::Duration,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO album_search_state (album_id, next_retry_at)
+         VALUES ($1, now() + make_interval(secs => $2))
+         ON CONFLICT (album_id) DO UPDATE SET
+            next_retry_at = now() + make_interval(secs => $2),
+            auto_retries = GREATEST(album_search_state.auto_retries - 1, 0)",
+    )
+    .bind(album_id)
+    .bind(interval.as_secs_f64())
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 /// Берёт до `limit` альбомов, которым нужен повтор (есть `not_found`-треки и ничего не ищется,
 /// независимо от загрузок), с наступившим `next_retry_at` для авто-повтора:
 /// `auto_retries += 1`, `next_retry_at = NULL` (переустановит завершение поиска). Параллельные

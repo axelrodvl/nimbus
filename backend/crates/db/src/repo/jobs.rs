@@ -186,7 +186,7 @@ pub async fn complete(
                 state = CASE WHEN rerun THEN 'queued' ELSE 'done' END,
                 attempts = CASE WHEN rerun THEN 0 ELSE attempts END,
                 run_after = CASE WHEN rerun THEN now() ELSE run_after END,
-                rerun = FALSE,
+                rerun = FALSE, deferred_since = NULL,
                 locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
             WHERE id = $1 AND state = 'running' AND locked_by = $2
             RETURNING id, state
@@ -228,7 +228,7 @@ pub async fn fail(
                                  WHEN rerun THEN now() ELSE run_after END,
                 attempts = CASE WHEN rerun AND NOT ($3::timestamptz IS NOT NULL AND attempts < max_attempts) THEN 0 ELSE attempts END,
                 fatal = $5 AND NOT (($3::timestamptz IS NOT NULL AND attempts < max_attempts) OR rerun),
-                rerun = FALSE,
+                rerun = FALSE, deferred_since = NULL,
                 locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
             WHERE id = $1 AND state = 'running' AND locked_by = $4
             RETURNING *
@@ -247,7 +247,7 @@ pub async fn fail(
 
 /// Откладывает задачу «без вины»: возвращает в `queued` с `run_after = retry_at`, **не тратя попытку**
 /// (причина не в задаче: провайдер недоступен, предохранитель разомкнут). Чтобы отложенная задача не жила
-/// вечно, после `max_age` с момента создания она становится `failed` (тогда вызывается `on_exhausted`);
+/// вечно, после `max_age` с момента **первого** откладывания (`deferred_since`) она становится `failed` (тогда вызывается `on_exhausted`);
 /// при выставленном `rerun` — вместо этого `queued` с нулём попыток, как в [`fail`].
 /// `None` — задачу у `worker_id` перехватили, строка не тронута.
 pub async fn defer(
@@ -262,10 +262,11 @@ pub async fn defer(
         "WITH upd AS (
             UPDATE jobs SET
                 last_error = $2,
-                state = CASE WHEN created_at < now() - make_interval(secs => $4) AND NOT rerun THEN 'failed' ELSE 'queued' END,
-                attempts = CASE WHEN rerun AND created_at < now() - make_interval(secs => $4) THEN 0 ELSE GREATEST(attempts - 1, 0) END,
-                run_after = CASE WHEN rerun AND created_at < now() - make_interval(secs => $4) THEN now() ELSE $3 END,
+                state = CASE WHEN COALESCE(deferred_since, now()) < now() - make_interval(secs => $4) AND NOT rerun THEN 'failed' ELSE 'queued' END,
+                attempts = CASE WHEN rerun AND COALESCE(deferred_since, now()) < now() - make_interval(secs => $4) THEN 0 ELSE GREATEST(attempts - 1, 0) END,
+                run_after = CASE WHEN rerun AND COALESCE(deferred_since, now()) < now() - make_interval(secs => $4) THEN now() ELSE $3 END,
                 rerun = FALSE,
+                deferred_since = COALESCE(deferred_since, now()),
                 locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
             WHERE id = $1 AND state = 'running' AND locked_by = $5
             RETURNING *
@@ -415,7 +416,7 @@ pub async fn revive_failed(
     let secs: Vec<f64> = delays.iter().map(Duration::as_secs_f64).collect();
     sqlx::query_as(
         "WITH upd AS (
-            UPDATE jobs j SET state = 'queued', attempts = 0, run_after = now(), revivals = revivals + 1,
+            UPDATE jobs j SET state = 'queued', attempts = 0, run_after = now(), revivals = revivals + 1, deferred_since = NULL,
                               priority = LEAST(priority, 0), rerun = FALSE, updated_at = now()
             WHERE j.state = 'failed' AND NOT j.fatal AND j.kind = ANY($1)
               AND j.updated_at < now() - make_interval(secs => ($2::float8[])[LEAST(j.revivals + 1, cardinality($2::float8[]))])
@@ -498,7 +499,7 @@ pub enum RetryOutcome {
 pub async fn retry(db: &sqlx::PgPool, id: i64, priority: i16) -> sqlx::Result<RetryOutcome> {
     let res: sqlx::Result<Option<JobRow>> = sqlx::query_as(
         "UPDATE jobs SET state = 'queued', attempts = 0, run_after = now(), priority = $2,
-                         fatal = FALSE, revivals = 0,
+                         fatal = FALSE, revivals = 0, deferred_since = NULL,
                          locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
          WHERE id = $1 AND state = 'failed' RETURNING *",
     )
