@@ -316,6 +316,8 @@ pub struct Torrent {
     pub leechers: Option<i32>,
     pub kind: TorrentKind,
     pub meta_status: MetaStatus,
+    /// Сколько раз запрашивали метаданные из сети: одна попытка — один запрос, сколько бы задач
+    /// проверки (по альбомам дискографии) его ни ждало.
     pub meta_attempts: i32,
     pub meta_error: Option<String>,
     pub fetched_at: Option<DateTime<Utc>>,

@@ -35,6 +35,8 @@ enum Reply {
 struct FakeFetcher {
     replies: Mutex<std::collections::HashMap<String, Reply>>,
     calls: AtomicUsize,
+    /// Пауза перед ответом: чтобы параллельные задачи успели столкнуться.
+    delay: std::time::Duration,
 }
 
 impl FakeFetcher {
@@ -47,6 +49,20 @@ impl FakeFetcher {
                     .collect(),
             ),
             calls: AtomicUsize::new(0),
+            delay: std::time::Duration::ZERO,
+        })
+    }
+
+    fn slow(replies: Vec<(InfoHash, Reply)>, delay: std::time::Duration) -> Arc<Self> {
+        Arc::new(Self {
+            replies: Mutex::new(
+                replies
+                    .into_iter()
+                    .map(|(h, r)| (h.to_string(), r))
+                    .collect(),
+            ),
+            calls: AtomicUsize::new(0),
+            delay,
         })
     }
 }
@@ -55,6 +71,7 @@ impl FakeFetcher {
 impl MetadataFetcher for FakeFetcher {
     async fn fetch_metadata(&self, magnet: &str) -> Result<TorrentMeta, EngineError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
+        tokio::time::sleep(self.delay).await;
         let hash = InfoHash::from_magnet(magnet).unwrap();
         let replies = self.replies.lock().unwrap();
         match replies.get(hash.as_str()) {
@@ -1268,5 +1285,69 @@ mod stuck {
                 .await
                 .unwrap();
         }
+    }
+}
+
+/// Одна раздача-дискография, привязанная к `n` альбомам (у каждого свои артист и треки).
+async fn discography(pool: &PgPool, n: usize) -> (i64, Vec<i64>) {
+    let mut albums = vec![];
+    let mut tid = 0;
+    for _ in 0..n {
+        let s = setup(pool, &OK).await;
+        tid = add_torrent(pool, s.album_id, 1, 0.9).await;
+        albums.push(s.album_id);
+    }
+    (tid, albums)
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn discography_timeout_counts_one_attempt(pool: PgPool) {
+    let (tid, albums) = discography(&pool, 6).await;
+    let fetcher = FakeFetcher::slow(
+        vec![(hash(1), Reply::Timeout)],
+        std::time::Duration::from_millis(100),
+    );
+    let (ctx, _) = ctx(&pool, fetcher.clone());
+    let results =
+        futures::future::join_all(albums.iter().map(|a| verify_torrent(&ctx, tid, *a))).await;
+    for r in &results {
+        match r {
+            Err(JobError::Retry { after, .. }) => assert_eq!(after.as_secs(), 60),
+            other => panic!("expected Retry, got {other:?}"),
+        }
+    }
+    assert_eq!(
+        fetcher.calls.load(Ordering::SeqCst),
+        1,
+        "один сетевой запрос на раздачу"
+    );
+    let t = torrents::get(&pool, tid).await.unwrap().unwrap();
+    assert_eq!((t.meta_status, t.meta_attempts), (MetaStatus::Timeout, 1));
+    assert!(ctx.meta_locks.is_empty());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn discography_metadata_fetched_once(pool: PgPool) {
+    let (tid, albums) = discography(&pool, 6).await;
+    let fetcher = FakeFetcher::slow(
+        vec![(hash(1), Reply::Files(good_files()))],
+        std::time::Duration::from_millis(100),
+    );
+    let (ctx, _) = ctx(&pool, fetcher.clone());
+    let results =
+        futures::future::join_all(albums.iter().map(|a| verify_torrent(&ctx, tid, *a))).await;
+    for r in results {
+        r.unwrap();
+    }
+    assert_eq!(fetcher.calls.load(Ordering::SeqCst), 1);
+    for a in &albums {
+        let linked: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM track_sources ts JOIN tracks t ON t.id = ts.track_id WHERE t.album_id = $1",
+        )
+        .bind(a)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(linked > 0, "у альбома {a} нет источников");
     }
 }

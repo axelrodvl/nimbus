@@ -47,6 +47,8 @@ pub struct JobCtx {
     pub cancel: CancellationToken,
     /// Приоритет выполняемой задачи; порождаемые ею задачи наследуют его (выставляет раннер).
     pub priority: i16,
+    /// Блокировки по раздаче: метаданные одной раздачи запрашивает одна задача за раз (`verify_torrent`).
+    pub meta_locks: Arc<crate::keyed_locks::KeyedLocks>,
 }
 
 impl JobCtx {
@@ -73,6 +75,7 @@ impl JobCtx {
             max_attempts: 1,
             cancel: CancellationToken::new(),
             priority: nimbus_core::jobs::PRIORITY_NORMAL,
+            meta_locks: Arc::default(),
         }
     }
 

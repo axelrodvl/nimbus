@@ -56,6 +56,8 @@ pub async fn get(db: impl PgExecutor<'_>, id: i64) -> sqlx::Result<Option<Torren
 }
 
 /// Меняет `meta_status`. `fetching` увеличивает `meta_attempts`, `ok` выставляет `fetched_at`.
+/// Статус `ok` с файлами не понижается (поздний таймаут параллельной задачи не стирает успех):
+/// тогда строка не меняется и возвращается как есть.
 pub async fn set_meta_status(
     db: impl PgExecutor<'_>,
     id: i64,
@@ -69,10 +71,14 @@ pub async fn set_meta_status(
                meta_error = $3,
                meta_attempts = meta_attempts + CASE WHEN $2 = 'fetching' THEN 1 ELSE 0 END,
                fetched_at = CASE WHEN $2 = 'ok' THEN now() ELSE fetched_at END
-            WHERE id = $1 RETURNING *)
+            WHERE id = $1
+              AND NOT ($2 IN ('fetching', 'timeout', 'dead', 'error')
+                       AND meta_status = 'ok'
+                       AND EXISTS (SELECT 1 FROM torrent_files f WHERE f.torrent_id = torrents.id))
+            RETURNING *)
          SELECT ",
         crate::torrent_cols!(),
-        " FROM t"
+        " FROM (SELECT * FROM t UNION ALL SELECT * FROM torrents WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM t)) t"
     ))
     .bind(id)
     .bind(status)

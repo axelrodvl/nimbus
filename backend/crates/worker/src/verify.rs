@@ -24,7 +24,8 @@ pub const RETRY_SCHEDULE: [Duration; 3] = [
     Duration::from_secs(5 * 60),
     Duration::from_secs(30 * 60),
 ];
-/// Сколько раз пробуем получить метаданные, прежде чем считать раздачу мёртвой:
+/// Сколько раз пробуем получить метаданные, прежде чем считать раздачу мёртвой. Одна попытка —
+/// один сетевой запрос, сколько бы задач (по альбомам дискографии) его ни ждало:
 /// первая попытка и по одной на каждую паузу [`RETRY_SCHEDULE`]; следующая неудача — `dead`.
 pub const MAX_META_ATTEMPTS: i32 = RETRY_SCHEDULE.len() as i32 + 1;
 
@@ -131,6 +132,30 @@ async fn load_files(ctx: &JobCtx, torrent: &Torrent) -> Result<FileList, JobErro
     }
 
     let fetcher = ctx.fetcher()?;
+    // Сеть — по одной задаче на раздачу: у дискографии столько задач, сколько альбомов, и каждая
+    // тратила бы свою «попытку» на один и тот же запрос.
+    let attempts_before = torrent.meta_attempts;
+    let _guard = ctx.run(ctx.meta_locks.lock(torrent.id)).await?;
+    let fresh = torrents::get(&ctx.db, torrent.id)
+        .await?
+        .ok_or_else(|| JobError::Fatal(format!("torrent {} not found", torrent.id)))?;
+    match fresh.meta_status {
+        MetaStatus::Ok => {
+            let files = torrents::files(&ctx.db, fresh.id).await?;
+            if !files.is_empty() {
+                return Ok(FileList(files));
+            }
+        }
+        MetaStatus::Dead | MetaStatus::Error => return Ok(FileList(vec![])),
+        // Другая задача только что потратила попытку на этот же запрос — не повторяем его сразу.
+        MetaStatus::Timeout if fresh.meta_attempts > attempts_before => {
+            return Err(JobError::Retry {
+                after: retry_delay(fresh.meta_attempts),
+                reason: format!("metadata timeout (attempt {})", fresh.meta_attempts),
+            });
+        }
+        _ => {}
+    }
     let t = torrents::set_meta_status(&ctx.db, torrent.id, MetaStatus::Fetching, None).await?;
     match ctx.run(fetcher.fetch_metadata(&t.magnet)).await? {
         Ok(meta) => {

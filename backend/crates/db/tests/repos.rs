@@ -1029,3 +1029,63 @@ async fn migration_backfills_artist_torrents_from_linked_discographies(pool: PgP
     .unwrap();
     assert_eq!(n, 1);
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn timeout_does_not_downgrade_ok(pool: PgPool) {
+    let t = torrents::upsert_by_info_hash(
+        &pool,
+        &NewTorrent {
+            info_hash: InfoHash::parse(&"ab".repeat(20)).unwrap(),
+            magnet: "magnet:?xt=urn:btih:abababababababababababababababababababab".into(),
+            source: TorrentSource::Tpb,
+            source_topic_id: None,
+            title: "t".into(),
+            size_bytes: None,
+            seeders: None,
+            leechers: None,
+            kind: TorrentKind::Album,
+        },
+    )
+    .await
+    .unwrap();
+    // `ok` без файлов понижается как обычно.
+    let r = torrents::set_meta_status(&pool, t.id, MetaStatus::Ok, None)
+        .await
+        .unwrap();
+    assert_eq!(r.meta_status, MetaStatus::Ok);
+    let r = torrents::set_meta_status(&pool, t.id, MetaStatus::Timeout, None)
+        .await
+        .unwrap();
+    assert_eq!(r.meta_status, MetaStatus::Timeout);
+    // `ok` с файлами — нет.
+    torrents::replace_files(
+        &pool,
+        t.id,
+        &[NewTorrentFile {
+            file_index: 0,
+            path: "a.flac".into(),
+            size_bytes: 1,
+            ext: Some("flac".into()),
+        }],
+    )
+    .await
+    .unwrap();
+    torrents::set_meta_status(&pool, t.id, MetaStatus::Ok, None)
+        .await
+        .unwrap();
+    for st in [
+        MetaStatus::Timeout,
+        MetaStatus::Dead,
+        MetaStatus::Error,
+        MetaStatus::Fetching,
+    ] {
+        let r = torrents::set_meta_status(&pool, t.id, st, Some("late"))
+            .await
+            .unwrap();
+        assert_eq!(
+            (r.meta_status, r.meta_attempts),
+            (MetaStatus::Ok, 0),
+            "{st:?}"
+        );
+    }
+}

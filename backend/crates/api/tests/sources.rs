@@ -344,7 +344,10 @@ async fn retry_album_resets_not_found_and_timeouts(pool: PgPool) {
     tracks::set_status(&pool, w.other_track_id, TrackStatus::Ready, None)
         .await
         .unwrap();
-    torrents::set_meta_status(&pool, w.torrent_id, MetaStatus::Timeout, None)
+    // Напрямую: `set_meta_status` не понижает `ok` с файлами, а здесь нужен именно таймаут.
+    sqlx::query("UPDATE torrents SET meta_status = 'timeout' WHERE id = $1")
+        .bind(w.torrent_id)
+        .execute(&pool)
         .await
         .unwrap();
     album_torrents::mark_verified(&pool, w.album_id, w.torrent_id)
