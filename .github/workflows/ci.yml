@@ -26,7 +26,7 @@ jobs:
           POSTGRES_DB: nimbus
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U nimbus" --health-interval 2s --health-timeout 3s --health-retries 30
+          --init --health-cmd "pg_isready -U nimbus -t 2" --health-interval 2s --health-timeout 5s --health-retries 30
     env:
       DATABASE_URL: postgres://nimbus:nimbus@localhost:5432/nimbus
     defaults:

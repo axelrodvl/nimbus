@@ -5,6 +5,10 @@ name: nimbus
 services:
   db:
     image: postgres:17
+    # init: PID 1 — tini, а не postmaster. Иначе осиротевший pg_isready проверки здоровья (под нагрузкой проверка
+    # не укладывается в timeout, Docker убивает её оболочку) достаётся postmaster'у: тот принимает чужой
+    # код выхода 2 за падение своего процесса и перезапускает все соединения (crash recovery).
+    init: true
     shm_size: 512mb
     environment:
       POSTGRES_USER: nimbus
@@ -15,9 +19,9 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nimbus"]
+      test: ["CMD", "pg_isready", "-U", "nimbus", "-t", "2"]
       interval: 2s
-      timeout: 3s
+      timeout: 5s
       retries: 30
 
   nimbus:
