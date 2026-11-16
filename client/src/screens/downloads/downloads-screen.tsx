@@ -55,7 +55,7 @@ function SpaceMeter({ id, used, limit, label }: { id: string; used: number; limi
   const free = Math.max(0, limit - used);
   return (
     <div
-      className="border-divider dark:border-divider-dark flex flex-col gap-2 px-3 py-3 max-md:border-b max-md:px-5"
+      className="border-divider dark:border-divider-dark flex flex-col gap-2 px-3 py-3 max-md:border-b"
       data-testid={`acq-space-${id}`}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-xs">
@@ -162,7 +162,7 @@ export function DownloadsScreen() {
           {groups.map(group => (
             <section aria-labelledby={`acq-group-${group.id}`} data-testid={`acq-group-${group.id}`} key={group.id}>
               <h2
-                className="text-muted mb-1.5 px-3 text-xs font-semibold max-md:px-5 tracking-wide uppercase"
+                className="text-muted mb-1.5 px-3 text-xs font-semibold tracking-wide uppercase"
                 id={`acq-group-${group.id}`}
               >
                 {t(`acq.group.${group.id}`)}
