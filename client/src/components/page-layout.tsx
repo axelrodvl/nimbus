@@ -16,7 +16,7 @@ type Props = {
 export function PageLayout({ title, documentTitle, brand, children }: Props) {
   useTitle(documentTitle ?? title);
   return (
-    <div className="px-6 py-6 sm:px-8">
+    <div className="px-4 py-6">
       {title && brand ? (
         <h1 className="text-accent-fg mb-6 inline-flex items-center gap-2 text-3xl font-bold tracking-tight">
           <MusicNote className="text-accent-fg" size={32} />

@@ -35,7 +35,7 @@ export function PlaylistScreen() {
   if (ref === null) return <ItemNotFound />;
   if (state === 'loading') {
     return (
-      <div className="px-6 py-6 sm:px-8" data-testid="screen-skeleton">
+      <div className="px-4 py-6" data-testid="screen-skeleton">
         <TrackListSkeleton />
       </div>
     );
