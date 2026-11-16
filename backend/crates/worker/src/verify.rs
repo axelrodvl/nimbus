@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use nimbus_core::events::{Event, JobStage};
-use nimbus_core::jobs::{Job, PRIORITY_BACKGROUND};
+use nimbus_core::jobs::{Job, PRIORITY_BACKGROUND, PRIORITY_NORMAL};
 use nimbus_core::model::{
     InfoHash, MetaStatus, NewTorrentFile, NewTrackSource, NotFoundReason, Torrent, TrackStatus,
 };
@@ -293,8 +293,10 @@ pub async fn verify_torrent(ctx: &JobCtx, torrent_id: i64, album_id: i64) -> Res
         }
         for c in &outcome.cue_candidates {
             tracing::info!(torrent_id, album_id, dir = %c.dir, "cue image candidate");
+            // Кандидат и его задача — одна транзакция: иначе сбой между ними оставил бы кандидата без задачи.
+            let mut tx = ctx.db.begin().await?;
             cue_candidates::upsert(
-                &ctx.db,
+                &mut *tx,
                 torrent_id,
                 album_id,
                 c.cue_file_index as i32,
@@ -302,7 +304,7 @@ pub async fn verify_torrent(ctx: &JobCtx, torrent_id: i64, album_id: i64) -> Res
             )
             .await?;
             jobs::enqueue(
-                &ctx.db,
+                &mut *tx,
                 &Job::ProcessCue {
                     torrent_id,
                     album_id,
@@ -311,6 +313,7 @@ pub async fn verify_torrent(ctx: &JobCtx, torrent_id: i64, album_id: i64) -> Res
                 EnqueueOpts::priority(ctx.priority),
             )
             .await?;
+            tx.commit().await?;
         }
         tracing::info!(
             torrent_id,
@@ -353,20 +356,73 @@ pub(crate) async fn finalize_album(ctx: &JobCtx, album_id: i64) -> Result<(), Jo
     finalize(ctx, album_id, None).await
 }
 
-/// Страховка от «зависших» альбомов: две задачи поиска (`discover_album` и `discover_artist`)
-/// могут закончиться одновременно, и каждая, увидев другую `running`, отложит решение — тогда
-/// треки навсегда остаются `adding`. Обслуживание раз в тик финализирует такие альбомы
-/// (`finalize` сам проверяет непроверенные раздачи, CUE и активный поиск). Возвращает число
-/// просмотренных альбомов.
+/// Страховка от «зависших» альбомов. У альбома с треками `adding` и без активного поиска
+/// (`discover_album`/`discover_artist`) решение могло не быть принято по двум причинам:
+/// 1. две задачи поиска закончились одновременно, и каждая отложила решение другой;
+/// 2. непроверенной раздаче или неразобранному CUE-образу не хватает задачи (`link` и постановка
+///    идут разными операциями; задачу могли потерять) — тогда `finalize` выходит вечно.
+///
+/// Обслуживание раз в тик для каждого такого альбома сначала восстанавливает недостающие
+/// `verify_torrent`/`process_cue` (`warn` с `album_id` — это сигнал о дыре, а не штатный путь), затем
+/// зовёт `finalize` (он сам проверяет непроверенные раздачи, CUE и активный поиск). Ошибка одного
+/// альбома логируется и не мешает остальным. Возвращает число успешно обработанных альбомов.
 pub async fn finalize_stuck_albums(
     ctx: &JobCtx,
     grace: std::time::Duration,
 ) -> Result<usize, JobError> {
     let ids = tracks::albums_stuck_in_adding(&ctx.db, grace).await?;
-    for id in &ids {
-        finalize_album(ctx, *id).await?;
+    let mut done = 0;
+    for id in ids {
+        let res = async {
+            requeue_lost_jobs(ctx, id).await?;
+            finalize_album(ctx, id).await
+        }
+        .await;
+        match res {
+            Ok(()) => done += 1,
+            Err(e) => tracing::error!(album_id = id, error = %e, "stuck album handling failed"),
+        }
     }
-    Ok(ids.len())
+    Ok(done)
+}
+
+/// Ставит `verify_torrent` непроверенным раздачам и `process_cue` неразобранным CUE-образам альбома,
+/// у которых нет активной задачи. Возвращает, сколько задач поставлено.
+async fn requeue_lost_jobs(ctx: &JobCtx, album_id: i64) -> Result<usize, JobError> {
+    let mut n = 0;
+    for torrent_id in album_torrents::unverified_without_job(&ctx.db, album_id).await? {
+        let job = Job::VerifyTorrent {
+            torrent_id,
+            album_id,
+        };
+        n += usize::from(
+            jobs::enqueue(&ctx.db, &job, EnqueueOpts::priority(PRIORITY_NORMAL))
+                .await?
+                .is_some(),
+        );
+    }
+    for (torrent_id, cue_file_index) in
+        cue_candidates::pending_without_job(&ctx.db, album_id).await?
+    {
+        let job = Job::ProcessCue {
+            torrent_id,
+            album_id,
+            cue_file_index,
+        };
+        n += usize::from(
+            jobs::enqueue(&ctx.db, &job, EnqueueOpts::priority(PRIORITY_NORMAL))
+                .await?
+                .is_some(),
+        );
+    }
+    if n > 0 {
+        tracing::warn!(
+            album_id,
+            jobs = n,
+            "lost verify/cue jobs of a stuck album re-enqueued"
+        );
+    }
+    Ok(n)
 }
 
 /// То же, но вызывается самой задачей поиска (`discover_album`/`discover_artist`) перед

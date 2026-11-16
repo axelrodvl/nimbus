@@ -85,3 +85,23 @@ pub async fn count_pending(db: impl PgExecutor<'_>, album_id: i64) -> sqlx::Resu
         .fetch_one(db)
         .await
 }
+
+/// Неразобранные CUE-образы альбома `(torrent_id, cue_file_index)`, для которых нет активной задачи
+/// `process_cue`. Непустой результат у альбома без поиска — дыра: задачу потеряли.
+pub async fn pending_without_job(
+    db: impl PgExecutor<'_>,
+    album_id: i64,
+) -> sqlx::Result<Vec<(i64, i32)>> {
+    sqlx::query_as(
+        "SELECT c.torrent_id, c.cue_file_index FROM cue_candidates c
+         WHERE c.album_id = $1 AND NOT c.processed
+           AND NOT EXISTS (SELECT 1 FROM jobs j
+                           WHERE j.state IN ('queued','running')
+                             AND j.dedup_key = 'process_cue:' || c.torrent_id || ':' || c.album_id
+                                               || ':' || c.cue_file_index)
+         ORDER BY c.torrent_id, c.cue_file_index",
+    )
+    .bind(album_id)
+    .fetch_all(db)
+    .await
+}

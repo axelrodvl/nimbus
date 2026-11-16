@@ -825,7 +825,7 @@ async fn process(
     let job = match row.job() {
         Ok(j) => j,
         Err(e) => {
-            tracing::error!(job_id = row.id, kind = %row.kind, error = %e, "unparsable job payload");
+            tracing::error!(job_id = row.id, kind = %row.kind, dedup_key = ?row.dedup_key, error = %e, "unparsable job payload");
             match jobs::fail(
                 &ctx.db,
                 row.id,

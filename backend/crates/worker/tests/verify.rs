@@ -1162,6 +1162,40 @@ async fn verify_without_an_active_search_does_not_touch_search_state(pool: PgPoo
         .is_none());
 }
 
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn cue_candidate_and_job_are_atomic(pool: PgPool) {
+    let s = setup(&pool, &OK).await;
+    let a = add_torrent(&pool, s.album_id, 1, 0.9).await;
+    let files = vec![
+        (
+            "Radiohead - OK Computer (1997)/OK Computer.flac",
+            300_000_000,
+        ),
+        ("Radiohead - OK Computer (1997)/OK Computer.cue", 3_000),
+    ];
+    let (ctx, _) = ctx(
+        &pool,
+        FakeFetcher::new(vec![(hash(1), Reply::Files(files))]),
+    );
+    verify_torrent(&ctx, a, s.album_id).await.unwrap();
+    let pending = cue_candidates::pending_without_job(&pool, s.album_id)
+        .await
+        .unwrap();
+    assert!(
+        pending.is_empty(),
+        "у каждого кандидата есть активная задача: {pending:?}"
+    );
+    let all = cue_candidates::list_for_album(&pool, s.album_id)
+        .await
+        .unwrap();
+    assert!(!all.is_empty());
+    let queued = jobs::list(&pool, Some("queued"), 50).await.unwrap();
+    assert_eq!(
+        queued.iter().filter(|j| j.kind == "process_cue").count(),
+        all.len()
+    );
+}
+
 // ---- Страховка от зависших альбомов (шаг 35)
 
 mod stuck {
@@ -1285,6 +1319,134 @@ mod stuck {
                 .await
                 .unwrap();
         }
+    }
+
+    async fn link_unverified(pool: &PgPool, album_id: i64, n: u8) -> i64 {
+        let h = format!("{n:02x}").repeat(20);
+        let t = nimbus_db::repo::torrents::upsert_by_info_hash(
+            pool,
+            &nimbus_core::model::NewTorrent {
+                info_hash: nimbus_core::model::InfoHash::parse(&h).unwrap(),
+                magnet: format!("magnet:?xt=urn:btih:{h}"),
+                source: nimbus_core::model::TorrentSource::Tpb,
+                source_topic_id: None,
+                title: "t".into(),
+                size_bytes: None,
+                seeders: None,
+                leechers: None,
+                kind: nimbus_core::model::TorrentKind::Album,
+            },
+        )
+        .await
+        .unwrap();
+        nimbus_db::repo::album_torrents::link(pool, album_id, t.id, "q", 0.5)
+            .await
+            .unwrap();
+        t.id
+    }
+
+    async fn active_kinds(pool: &PgPool, kind: &str) -> usize {
+        jobs::list(pool, Some("queued"), 100)
+            .await
+            .unwrap()
+            .iter()
+            .filter(|j| j.kind == kind)
+            .count()
+    }
+
+    #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+    async fn stuck_album_with_unverified_link_gets_verify_job(pool: PgPool) {
+        let (_, album_id, track_id) = album_with_adding_track(&pool).await;
+        let torrent_id = link_unverified(&pool, album_id, 1).await;
+        let c = ctx(&pool);
+        assert_eq!(finalize_stuck_albums(&c, Duration::ZERO).await.unwrap(), 1);
+        assert_eq!(active_kinds(&pool, "verify_torrent").await, 1);
+        assert_eq!(
+            status(&pool, track_id).await,
+            "adding",
+            "решение ждёт проверку"
+        );
+        // Проверка отработала (здесь — просто сняла блокировку): альбом финализируется.
+        nimbus_db::repo::album_torrents::mark_verified(&pool, album_id, torrent_id)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE jobs SET state = 'done' WHERE kind = 'verify_torrent'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(finalize_stuck_albums(&c, Duration::ZERO).await.unwrap(), 1);
+        assert_eq!(status(&pool, track_id).await, "not_found");
+    }
+
+    #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+    async fn stuck_album_with_pending_cue_gets_cue_job(pool: PgPool) {
+        let (_, album_id, track_id) = album_with_adding_track(&pool).await;
+        let torrent_id = link_unverified(&pool, album_id, 2).await;
+        nimbus_db::repo::album_torrents::mark_verified(&pool, album_id, torrent_id)
+            .await
+            .unwrap();
+        nimbus_db::repo::cue_candidates::upsert(&pool, torrent_id, album_id, 1, 0)
+            .await
+            .unwrap();
+        let c = ctx(&pool);
+        assert_eq!(finalize_stuck_albums(&c, Duration::ZERO).await.unwrap(), 1);
+        assert_eq!(active_kinds(&pool, "process_cue").await, 1);
+        assert_eq!(status(&pool, track_id).await, "adding");
+        nimbus_db::repo::cue_candidates::mark_processed(&pool, torrent_id, album_id, 1)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE jobs SET state = 'done' WHERE kind = 'process_cue'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        finalize_stuck_albums(&c, Duration::ZERO).await.unwrap();
+        assert_eq!(status(&pool, track_id).await, "not_found");
+    }
+
+    #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+    async fn self_heal_does_not_duplicate_active_job(pool: PgPool) {
+        let (_, album_id, _) = album_with_adding_track(&pool).await;
+        let torrent_id = link_unverified(&pool, album_id, 3).await;
+        jobs::enqueue(
+            &pool,
+            &Job::VerifyTorrent {
+                torrent_id,
+                album_id,
+            },
+            EnqueueOpts::default(),
+        )
+        .await
+        .unwrap();
+        let c = ctx(&pool);
+        for _ in 0..2 {
+            finalize_stuck_albums(&c, Duration::ZERO).await.unwrap();
+        }
+        assert_eq!(active_kinds(&pool, "verify_torrent").await, 1);
+        let rerun: bool =
+            sqlx::query_scalar("SELECT rerun FROM jobs WHERE kind = 'verify_torrent'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(!rerun, "активную задачу не трогаем");
+    }
+
+    #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+    async fn finalize_stuck_continues_after_error(pool: PgPool) {
+        let (_, bad_album, bad_track) = album_with_adding_track(&pool).await;
+        let (_, good_album, good_track) = album_with_adding_track(&pool).await;
+        // Обновление треков первого альбома падает: его обработка заканчивается ошибкой.
+        sqlx::raw_sql(&format!(
+            "CREATE FUNCTION fail_bad() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'boom'; END $$ LANGUAGE plpgsql;
+             CREATE TRIGGER fail_bad BEFORE UPDATE ON tracks FOR EACH ROW WHEN (OLD.album_id = {bad_album}) EXECUTE FUNCTION fail_bad();"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let c = ctx(&pool);
+        assert_eq!(finalize_stuck_albums(&c, Duration::ZERO).await.unwrap(), 1);
+        assert_eq!(status(&pool, bad_track).await, "adding");
+        assert_eq!(status(&pool, good_track).await, "not_found");
+        let _ = good_album;
     }
 }
 

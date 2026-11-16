@@ -107,6 +107,25 @@ pub async fn count_unverified(db: impl PgExecutor<'_>, album_id: i64) -> sqlx::R
         .await
 }
 
+/// Раздачи альбома, которые ещё не проверены и для которых нет активной задачи `verify_torrent`
+/// (по возрастанию `torrent_id`). Непустой результат у альбома без поиска — дыра: задачу потеряли.
+pub async fn unverified_without_job(
+    db: impl PgExecutor<'_>,
+    album_id: i64,
+) -> sqlx::Result<Vec<i64>> {
+    sqlx::query_scalar(
+        "SELECT at.torrent_id FROM album_torrents at
+         WHERE at.album_id = $1 AND NOT at.verified
+           AND NOT EXISTS (SELECT 1 FROM jobs j
+                           WHERE j.state IN ('queued','running')
+                             AND j.dedup_key = 'verify_torrent:' || at.torrent_id || ':' || at.album_id)
+         ORDER BY at.torrent_id",
+    )
+    .bind(album_id)
+    .fetch_all(db)
+    .await
+}
+
 /// (всего раздач у альбома, из них проверенных).
 pub async fn progress(db: impl PgExecutor<'_>, album_id: i64) -> sqlx::Result<(i64, i64)> {
     sqlx::query_as(
