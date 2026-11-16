@@ -187,7 +187,8 @@ describe('удаление из библиотеки', () => {
     return rows;
   };
   const confirmRemoval = async () => {
-    await userEvent.click(screen.getByRole('button', { name: 'Удалить' }));
+    await userEvent.click(screen.getByTestId('album-menu'));
+    await userEvent.click(await screen.findByTestId('album-remove'));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText(/«Album 1» исчезнет из библиотеки/)).toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Удалить' }));

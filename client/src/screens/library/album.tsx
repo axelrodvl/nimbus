@@ -2,7 +2,7 @@ import { AlertTriangle } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 import { Cover } from '@/components/library/cover';
 import { AlbumProgress } from '@/components/library/album-progress';
-import { RemoveFromLibraryButton } from '@/components/library/remove-from-library-button';
+import { AlbumHeaderMenu } from '@/components/library/album-menu';
 import { StatusMiniBar } from '@/components/library/status-mini-bar';
 import { ServerDownloadButton } from '@/components/downloads/server-download-button';
 import { OfflineControl } from '@/components/offline/subject-control';
@@ -76,16 +76,7 @@ export function AlbumScreen() {
                 <AlertTriangle aria-hidden className="size-4" /> {t('album.needsCheck')}
               </span>
             ) : null}
-            <Link
-              className="border-divider hover:bg-card dark:border-divider-dark dark:hover:bg-card-dark focus-visible:ring-accent/40 inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold focus-visible:ring-2 focus-visible:outline-none"
-              data-testid="album-sources-link"
-              to={`/album/${album.id}/sources`}
-            >
-              {t('album.sources')}
-            </Link>
-            {album.in_library ? (
-              <RemoveFromLibraryButton id={album.id} redirectTo="/library/albums" title={album.title} type="album" />
-            ) : null}
+            <AlbumHeaderMenu albumId={album.id} inLibrary={album.in_library} title={album.title} />
             {!album.in_library && inLibraryCount > 0 ? (
               <span className="text-muted text-xs">
                 {t('album.inLibraryCount', { count: inLibraryCount, total: album.trackCount })}

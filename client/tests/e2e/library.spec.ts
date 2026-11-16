@@ -72,7 +72,8 @@ test.describe('экраны библиотеки', () => {
     await waitSynced(page);
     await expect(page.getByTestId('tab-albums')).toContainText('8');
     await page.getByTestId('library-albums').getByRole('link', { name: /Album 8/ }).click();
-    await page.getByRole('button', { name: 'Удалить' }).click();
+    await page.getByTestId('album-menu').click();
+    await page.getByTestId('album-remove').click();
     await page.getByRole('dialog').getByRole('button', { name: 'Удалить' }).click();
     await expect(page).toHaveURL(/\/library\/albums$/);
     await expect(page.getByTestId('tab-albums')).toContainText('7');
@@ -88,11 +89,12 @@ test.describe('экраны библиотеки', () => {
     await failDelete(request, true);
     await page.goto('/album/8');
     await waitSynced(page);
-    await page.getByRole('button', { name: 'Удалить' }).click();
+    await page.getByTestId('album-menu').click();
+    await page.getByTestId('album-remove').click();
     await page.getByRole('dialog').getByRole('button', { name: 'Удалить' }).click();
     await expect(page.getByText('delete failed')).toBeVisible();
     await expect(page).toHaveURL(/\/album\/8$/);
-    await expect(page.getByRole('button', { name: 'Удалить' })).toBeVisible();
+    await expect(page.getByTestId('album-menu')).toBeVisible();
     await page.goto('/library/albums');
     await expect(page.getByTestId('tab-albums')).toContainText('8');
   });

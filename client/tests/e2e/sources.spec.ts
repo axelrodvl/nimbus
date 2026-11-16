@@ -12,6 +12,7 @@ test.beforeEach(async ({ request }) => {
 test('страница источников: раздачи в таблице, добавление magnet — новая строка', async ({ page }) => {
   await page.goto('/album/913');
   await waitSynced(page);
+  await page.getByTestId('album-menu').click();
   await page.getByTestId('album-sources-link').click();
   await expect(page).toHaveURL(/\/album\/913\/sources$/);
   await expect(page.getByTestId('torrent-item')).toHaveCount(2);
@@ -39,6 +40,7 @@ test('«Повторить поиск» на странице источнико
   await waitSynced(page);
   const lost = page.locator('[data-track-id="9133"]');
   await expect(lost.locator('[data-status]').first()).toHaveAttribute('data-status', 'not_found');
+  await page.getByTestId('album-menu').click();
   await page.getByTestId('album-sources-link').click();
   await page.getByTestId('retry-album').click();
   await expect(page.getByText('Поиск запущен заново').first()).toBeVisible();

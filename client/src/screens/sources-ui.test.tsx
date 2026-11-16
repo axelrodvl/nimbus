@@ -246,7 +246,8 @@ describe('экран источников альбома', () => {
 
   it('ссылка «Источники» в шапке альбома ведёт сюда', async () => {
     const { router } = renderRoutes(routes, '/album/2');
-    await userEvent.click(screen.getByTestId('album-sources-link'));
+    await userEvent.click(screen.getByTestId('album-menu'));
+    await userEvent.click(await screen.findByTestId('album-sources-link'));
     expect(router.state.location.pathname).toBe('/album/2/sources');
   });
 });
