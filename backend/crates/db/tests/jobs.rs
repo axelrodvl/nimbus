@@ -359,14 +359,14 @@ async fn recover_orphans_requeues_running_and_returns_the_attempt(pool: PgPool) 
     let id = enq(&pool, 1, EnqueueOpts::default()).await.unwrap();
     let other = enq(&pool, 2, EnqueueOpts::default()).await.unwrap();
     jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
-    assert_eq!(jobs::recover_orphans(&pool).await.unwrap(), 1);
+    assert_eq!(jobs::recover_orphans(&pool, 3).await.unwrap().requeued, 1);
     let rows = jobs::list(&pool, Some("queued"), 10).await.unwrap();
     assert_eq!(rows.len(), 2);
     let r = rows.iter().find(|r| r.id == id).unwrap();
     assert_eq!((r.attempts, r.locked_by.clone()), (0, None));
     assert!(rows.iter().any(|r| r.id == other));
     // Без running — ничего не делает, попытки не уходят в минус.
-    assert_eq!(jobs::recover_orphans(&pool).await.unwrap(), 0);
+    assert_eq!(jobs::recover_orphans(&pool, 3).await.unwrap().requeued, 0);
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
@@ -1207,4 +1207,64 @@ async fn rolled_back_request_leaves_running_job_untouched(pool: PgPool) {
         jobs::Completion::Done
     );
     assert!(enq(&pool, 1, EnqueueOpts::default()).await.is_some());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn recover_orphans_counts_crashes_and_fails_at_threshold(pool: PgPool) {
+    let id = enq(&pool, 1, EnqueueOpts::default()).await.unwrap();
+    for round in 1..=2 {
+        jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+        let out = jobs::recover_orphans(&pool, 3).await.unwrap();
+        assert_eq!((out.requeued, out.failed.len()), (1, 0));
+        let r = job_row(&pool, id).await;
+        assert_eq!(
+            (r.state.as_str(), r.attempts, r.crashes),
+            ("queued", 0, round)
+        );
+    }
+    jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+    let out = jobs::recover_orphans(&pool, 3).await.unwrap();
+    assert_eq!((out.requeued, out.failed.len()), (0, 1));
+    let r = job_row(&pool, id).await;
+    assert_eq!((r.state.as_str(), r.fatal, r.crashes), ("failed", false, 3));
+    assert!(r.last_error.unwrap().contains("crashed 3 times"));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn graceful_release_does_not_count_crash(pool: PgPool) {
+    let id = enq(&pool, 1, EnqueueOpts::default()).await.unwrap();
+    for _ in 0..5 {
+        jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+        jobs::release_workers(&pool, &["w".to_string()])
+            .await
+            .unwrap();
+    }
+    assert_eq!(job_row(&pool, id).await.crashes, 0);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn retry_resets_crashes(pool: PgPool) {
+    let id = enq(&pool, 1, EnqueueOpts::default()).await.unwrap();
+    jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+    jobs::recover_orphans(&pool, 1).await.unwrap();
+    assert_eq!(job_row(&pool, id).await.crashes, 1);
+    jobs::retry(&pool, id, 0).await.unwrap();
+    assert_eq!(job_row(&pool, id).await.crashes, 0);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn revive_resets_crashes(pool: PgPool) {
+    let id = enq(&pool, 1, EnqueueOpts::default()).await.unwrap();
+    jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+    jobs::recover_orphans(&pool, 1).await.unwrap();
+    sqlx::query("UPDATE jobs SET updated_at = now() - interval '1 day'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let kind = job_row(&pool, id).await.kind;
+    let n = jobs::revive_failed(&pool, &[kind.as_str()], &[Duration::from_secs(1)])
+        .await
+        .unwrap();
+    assert_eq!(n.len(), 1);
+    assert_eq!(job_row(&pool, id).await.crashes, 0);
 }

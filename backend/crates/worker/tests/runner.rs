@@ -570,6 +570,40 @@ async fn start_recovers_orphans_and_returns_their_attempt(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn start_runs_on_exhausted_for_crash_looping_job(pool: PgPool) {
+    let poison = enqueue_album(&pool, Some(5)).await;
+    let healthy = jobs::enqueue(
+        &pool,
+        &Job::DiscoverAlbum { album_id: 99 },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    jobs::claim(&pool, "crashed", &["discover_album"])
+        .await
+        .unwrap()
+        .unwrap();
+    sqlx::query("UPDATE jobs SET crashes = 2 WHERE id = $1")
+        .bind(poison)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let probe = Probe::new(Behavior::Ok);
+    let w = WorkerPool::start(
+        ctx(&pool),
+        vec![(probe.clone() as Arc<dyn JobHandler>, 1)],
+        fast_cfg(),
+    )
+    .await
+    .unwrap();
+    wait_state(&pool, poison, "failed").await;
+    assert_eq!(probe.exhausted(), 1);
+    wait_state(&pool, healthy, "done").await;
+    w.shutdown().await;
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn higher_priority_jobs_run_first(pool: PgPool) {
     // Один воркер: порядок выполнения = порядок claim.
     struct Order(std::sync::Mutex<Vec<i64>>);

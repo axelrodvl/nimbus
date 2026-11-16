@@ -233,6 +233,8 @@ pub struct WorkerConfig {
     pub revive_delays: Vec<Duration>,
     /// Сколько хранятся окончательно провалённые и вытесненные `failed`-задачи.
     pub failed_retention: Duration,
+    /// Сколько падений процесса задача переживает при старте, прежде чем стать `failed` (B07).
+    pub max_crashes: i32,
 }
 
 impl Default for WorkerConfig {
@@ -258,6 +260,7 @@ impl Default for WorkerConfig {
                 Duration::from_secs(24 * 3600),
             ],
             failed_retention: Duration::from_secs(30 * 24 * 3600),
+            max_crashes: 3,
         }
     }
 }
@@ -336,9 +339,32 @@ impl WorkerPool {
         handlers: Vec<(Arc<dyn JobHandler>, usize)>,
         cfg: WorkerConfig,
     ) -> sqlx::Result<Self> {
-        let n = jobs::recover_orphans(&ctx.db).await?;
-        if n > 0 {
-            tracing::warn!(count = n, "returned orphaned running jobs to the queue");
+        let out = jobs::recover_orphans(&ctx.db, cfg.max_crashes).await?;
+        if out.requeued > 0 {
+            tracing::warn!(
+                count = out.requeued,
+                "returned orphaned running jobs to the queue"
+            );
+        }
+        if !out.failed.is_empty() {
+            let mut by_kind: HashMap<&'static str, Arc<dyn JobHandler>> = HashMap::new();
+            for (h, _) in &handlers {
+                for k in h.kinds() {
+                    by_kind.insert(k, h.clone());
+                }
+            }
+            let by_kind: HandlerMap = Arc::new(by_kind);
+            for row in &out.failed {
+                tracing::error!(job_id = row.id, kind = %row.kind, payload = %row.payload,
+                    crashes = row.crashes, "job crashed the process repeatedly; marked failed");
+                exhausted(
+                    &by_kind,
+                    &ctx,
+                    row,
+                    "process crashed repeatedly while running this job",
+                )
+                .await;
+            }
         }
         Ok(Self::spawn(ctx, handlers, cfg))
     }

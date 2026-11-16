@@ -32,6 +32,8 @@ pub struct JobRow {
     pub fatal: bool,
     /// Сколько раз задачу оживляло обслуживание ([`revive_failed`]).
     pub revivals: i32,
+    /// Сколько раз процесс упал, пока задача выполнялась ([`recover_orphans`]).
+    pub crashes: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -311,18 +313,52 @@ pub async fn requeue_stale(
     Ok(out)
 }
 
-/// Штатный путь: возвращает в `queued` **все** задачи `running` и возвращает потраченную попытку.
-/// Вызывается при старте до запуска воркеров: допущение — в процессе работает один экземпляр
-/// воркеров на БД, поэтому всё `running` на этот момент осиротело.
-pub async fn recover_orphans(db: impl PgExecutor<'_>) -> sqlx::Result<u64> {
-    Ok(sqlx::query(
-        "UPDATE jobs SET state = 'queued', attempts = GREATEST(attempts - 1, 0), run_after = now(), rerun = FALSE,
-                         locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
-         WHERE state = 'running'",
+/// Итог [`recover_orphans`].
+#[derive(Debug, Default)]
+pub struct OrphanOutcome {
+    /// Сколько задач вернулось в `queued`.
+    pub requeued: u64,
+    /// Задачи, переживавшие `max_crashes` падений процесса: стали `failed` (нефатально) —
+    /// для них нужно вызвать `on_exhausted`.
+    pub failed: Vec<JobRow>,
+}
+
+/// Восстановление после падения: вызывается при старте до запуска воркеров; допущение — в процессе
+/// работает один экземпляр воркеров на БД, поэтому всё `running` на этот момент осиротело.
+/// Каждой такой задаче засчитывается падение (`crashes + 1`). Пока их меньше `max_crashes`, задача
+/// возвращается в `queued` вместе с потраченной попыткой; иначе — `failed` (нефатально: оживление и
+/// авто-повтор альбома доведут её позже). Падение засчитывается и «невиновным» задачам, бывшим в
+/// работе в тот же момент: при пороге 3 и нефатальном провале это допустимо.
+pub async fn recover_orphans(
+    db: impl PgExecutor<'_>,
+    max_crashes: i32,
+) -> sqlx::Result<OrphanOutcome> {
+    let rows: Vec<JobRow> = sqlx::query_as(
+        "UPDATE jobs SET
+            crashes = crashes + 1,
+            state = CASE WHEN crashes + 1 >= $1 THEN 'failed' ELSE 'queued' END,
+            fatal = FALSE,
+            last_error = CASE WHEN crashes + 1 >= $1
+                              THEN 'process crashed ' || (crashes + 1) || ' times while running this job'
+                              ELSE last_error END,
+            attempts = CASE WHEN crashes + 1 >= $1 THEN attempts ELSE GREATEST(attempts - 1, 0) END,
+            run_after = now(), rerun = FALSE,
+            locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
+         WHERE state = 'running'
+         RETURNING *",
     )
-    .execute(db)
-    .await?
-    .rows_affected())
+    .bind(max_crashes)
+    .fetch_all(db)
+    .await?;
+    let mut out = OrphanOutcome::default();
+    for r in rows {
+        if r.state == "failed" {
+            out.failed.push(r);
+        } else {
+            out.requeued += 1;
+        }
+    }
+    Ok(out)
 }
 
 /// То же, что [`recover_orphans`], но только для задач, захваченных указанными воркерами
@@ -405,7 +441,7 @@ pub async fn revive_failed(
     let secs: Vec<f64> = delays.iter().map(Duration::as_secs_f64).collect();
     sqlx::query_as(
         "WITH upd AS (
-            UPDATE jobs j SET state = 'queued', attempts = 0, run_after = now(), revivals = revivals + 1, deferred_since = NULL,
+            UPDATE jobs j SET state = 'queued', attempts = 0, run_after = now(), revivals = revivals + 1, crashes = 0, deferred_since = NULL,
                               priority = LEAST(priority, 0), rerun = FALSE, updated_at = now()
             WHERE j.state = 'failed' AND NOT j.fatal AND j.kind = ANY($1)
               AND j.updated_at < now() - make_interval(secs => ($2::float8[])[LEAST(j.revivals + 1, cardinality($2::float8[]))])
@@ -488,7 +524,7 @@ pub enum RetryOutcome {
 pub async fn retry(db: &sqlx::PgPool, id: i64, priority: i16) -> sqlx::Result<RetryOutcome> {
     let res: sqlx::Result<Option<JobRow>> = sqlx::query_as(
         "UPDATE jobs SET state = 'queued', attempts = 0, run_after = now(), priority = $2,
-                         fatal = FALSE, revivals = 0, deferred_since = NULL,
+                         fatal = FALSE, revivals = 0, crashes = 0, deferred_since = NULL,
                          locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
          WHERE id = $1 AND state = 'failed' RETURNING *",
     )
