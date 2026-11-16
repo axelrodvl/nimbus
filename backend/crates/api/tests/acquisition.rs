@@ -265,7 +265,10 @@ async fn summary_counts_states_and_failed_jobs(pool: PgPool) {
     .unwrap()
     .unwrap();
     jobs::claim(&pool, "w", &["discover_album"]).await.unwrap();
-    jobs::fail(&pool, id, "boom", None).await.unwrap();
+    jobs::fail(&pool, id, "w", "boom", None)
+        .await
+        .unwrap()
+        .unwrap();
 
     let (code, v) = get_json(router(state(pool)), "/api/acquisition/summary").await;
     assert_eq!(code, 200);

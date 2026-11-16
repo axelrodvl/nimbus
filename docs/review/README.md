@@ -35,7 +35,7 @@
 | [B03](B03-stuck-albums-self-heal.md) | P1 | Альбом навсегда в `adding`: раздача или CUE без задачи | — | [ ] |
 | [B04](B04-pinned-downloads-retry.md) | P1 | Загрузки на сервер сдаются после 5 повторов и не ищут новые источники | — | [ ] |
 | [B05](B05-revive-failed-jobs.md) | P1 | Упавшие `import_artist` / `discover_artist` никогда не перезапускаются | — | [ ] |
-| [B06](B06-job-ownership-guard.md) | P1 | `complete/fail/defer/release` без проверки владельца (backlog B1) | — | [ ] |
+| [B06](B06-job-ownership-guard.md) | P1 | `complete/fail/defer/release` без проверки владельца (backlog B1) | — | [x] |
 | [B07](B07-crash-loop-guard.md) | P2 | «Ядовитая» задача крутит crash-loop (backlog B2) | B05 | [ ] |
 | [B08](B08-small-robustness-fixes.md) | P2 | Мелкие дыры: завершение загрузки не атомарно, обслуживание обрывается на первой ошибке, возраст `Defer` | — | [ ] |
 | [B09](B09-partial-provider-failure-schedule.md) | P2 | Сбой части провайдеров при непустой выдаче → повтор только через 6 часов | — | [ ] |
@@ -123,3 +123,4 @@ B14 превращает эту таблицу в автоматически п�
 ## Журнал
 
 - **B13** — циклы `listener`, `maintenance` и каждый `worker_loop` под супервизором (`supervise`: `catch_unwind`, пауза `WorkerConfig::restart_pause`, перезапуск, выход по отмене); перезапущенный воркер сначала возвращает свои `running` (`release_workers`); `on_retry`/`on_exhausted` — в отдельных задачах (паника = ошибка хука); шаги обслуживания — отдельные `async fn` в `guarded`; `WorkerPool::stats()` → `GET /api/health` `workers {restarts, worker_restarts, maintenance_restarts, listener_restarts}`. Покрытие `worker` 95.56 %. Замечено: при параллельном прогоне всего набора `sqlx::test` иногда не может подключиться к БД (`UnexpectedEof`) — `RUST_TEST_THREADS=4` помогает.
+- **B06** — `complete/fail/defer/release` принимают `worker_id` и обновляют только `state = 'running' AND locked_by = $worker` (`bool` / `Option<JobRow>`); `process` при потере владения пишет `warn` и не вызывает хуки; `heartbeat_loop` при `Ok(false)` отменяет токен задачи (`ctx.cancel` обработчика — дочерний от пула). Запись B1 удалена из `docs/backlog.md`. Покрытие: `worker` 95.61 %, `db::repo::jobs` 98.33 %.

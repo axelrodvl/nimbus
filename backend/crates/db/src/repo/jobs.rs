@@ -135,50 +135,61 @@ pub async fn heartbeat(db: impl PgExecutor<'_>, id: i64, worker_id: &str) -> sql
         > 0)
 }
 
-pub async fn complete(db: impl PgExecutor<'_>, id: i64) -> sqlx::Result<()> {
-    sqlx::query(
+/// Завершает задачу успешно. `worker_id` — воркер, взявший её через [`claim`]: если задачу уже
+/// перехватили (`requeue_stale` вернул её в очередь и взял другой воркер), строка не меняется и
+/// результат — `false` (итог запишет новый владелец).
+pub async fn complete(db: impl PgExecutor<'_>, id: i64, worker_id: &str) -> sqlx::Result<bool> {
+    Ok(sqlx::query(
         "UPDATE jobs SET state = 'done', locked_at = NULL, locked_by = NULL, heartbeat_at = NULL,
-                         updated_at = now() WHERE id = $1",
+                         updated_at = now()
+         WHERE id = $1 AND state = 'running' AND locked_by = $2",
     )
     .bind(id)
+    .bind(worker_id)
     .execute(db)
-    .await?;
-    Ok(())
+    .await?
+    .rows_affected()
+        > 0)
 }
 
 /// Если задан `retry_at` и попытки не исчерпаны — задача возвращается в `queued`
-/// с `run_after = retry_at`, иначе становится `failed`.
+/// с `run_after = retry_at`, иначе становится `failed`. `None` — задачу у `worker_id` перехватили,
+/// строка не тронута.
 pub async fn fail(
     db: impl PgExecutor<'_>,
     id: i64,
+    worker_id: &str,
     error: &str,
     retry_at: Option<DateTime<Utc>>,
-) -> sqlx::Result<JobRow> {
+) -> sqlx::Result<Option<JobRow>> {
     sqlx::query_as(
         "UPDATE jobs SET
             last_error = $2,
             state = CASE WHEN $3::timestamptz IS NOT NULL AND attempts < max_attempts THEN 'queued' ELSE 'failed' END,
             run_after = CASE WHEN $3::timestamptz IS NOT NULL AND attempts < max_attempts THEN $3 ELSE run_after END,
             locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
-         WHERE id = $1 RETURNING *",
+         WHERE id = $1 AND state = 'running' AND locked_by = $4 RETURNING *",
     )
     .bind(id)
     .bind(error)
     .bind(retry_at)
-    .fetch_one(db)
+    .bind(worker_id)
+    .fetch_optional(db)
     .await
 }
 
 /// Откладывает задачу «без вины»: возвращает в `queued` с `run_after = retry_at`, **не тратя попытку**
 /// (причина не в задаче: провайдер недоступен, предохранитель разомкнут). Чтобы отложенная задача не жила
 /// вечно, после `max_age` с момента создания она становится `failed` (тогда вызывается `on_exhausted`).
+/// `None` — задачу у `worker_id` перехватили, строка не тронута.
 pub async fn defer(
     db: impl PgExecutor<'_>,
     id: i64,
+    worker_id: &str,
     reason: &str,
     retry_at: DateTime<Utc>,
     max_age: Duration,
-) -> sqlx::Result<JobRow> {
+) -> sqlx::Result<Option<JobRow>> {
     sqlx::query_as(
         "UPDATE jobs SET
             last_error = $2,
@@ -186,13 +197,14 @@ pub async fn defer(
             attempts = GREATEST(attempts - 1, 0),
             run_after = $3,
             locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
-         WHERE id = $1 RETURNING *",
+         WHERE id = $1 AND state = 'running' AND locked_by = $5 RETURNING *",
     )
     .bind(id)
     .bind(reason)
     .bind(retry_at)
     .bind(max_age.as_secs_f64())
-    .fetch_one(db)
+    .bind(worker_id)
+    .fetch_optional(db)
     .await
 }
 
@@ -264,16 +276,19 @@ pub async fn release_workers(db: impl PgExecutor<'_>, worker_ids: &[String]) -> 
 }
 
 /// Возвращает одну задачу в `queued` без траты попытки (обработчик прерван отменой).
-pub async fn release(db: impl PgExecutor<'_>, id: i64) -> sqlx::Result<()> {
-    sqlx::query(
+/// `false` — задача уже не принадлежит `worker_id`, строка не тронута.
+pub async fn release(db: impl PgExecutor<'_>, id: i64, worker_id: &str) -> sqlx::Result<bool> {
+    Ok(sqlx::query(
         "UPDATE jobs SET state = 'queued', attempts = GREATEST(attempts - 1, 0), run_after = now(),
                          locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
-         WHERE id = $1 AND state = 'running'",
+         WHERE id = $1 AND state = 'running' AND locked_by = $2",
     )
     .bind(id)
+    .bind(worker_id)
     .execute(db)
-    .await?;
-    Ok(())
+    .await?
+    .rows_affected()
+        > 0)
 }
 
 /// Удаляет завершённые (`done`) задачи старше `older_than`.

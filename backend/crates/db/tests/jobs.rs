@@ -36,7 +36,7 @@ async fn dedup_while_active_then_allowed_after_complete(pool: PgPool) {
         "running → no-op"
     );
 
-    jobs::complete(&pool, id).await.unwrap();
+    assert!(jobs::complete(&pool, id, "w").await.unwrap());
     let id2 = jobs::enqueue(&pool, &job, EnqueueOpts::default())
         .await
         .unwrap()
@@ -145,7 +145,10 @@ async fn fail_retries_then_gives_up(pool: PgPool) {
 
     jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
     let retry_at = Utc::now() + chrono::Duration::minutes(5);
-    let row = jobs::fail(&pool, id, "boom", Some(retry_at)).await.unwrap();
+    let row = jobs::fail(&pool, id, "w", "boom", Some(retry_at))
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(row.state, "queued");
     assert!(row.run_after > Utc::now() + chrono::Duration::minutes(4));
     assert_eq!(row.last_error.as_deref(), Some("boom"));
@@ -160,8 +163,9 @@ async fn fail_retries_then_gives_up(pool: PgPool) {
         .unwrap();
     let r = jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
     assert_eq!(r.attempts, 2);
-    let row = jobs::fail(&pool, id, "boom again", Some(retry_at))
+    let row = jobs::fail(&pool, id, "w", "boom again", Some(retry_at))
         .await
+        .unwrap()
         .unwrap();
     assert_eq!(row.state, "failed", "попытки исчерпаны");
 
@@ -176,7 +180,11 @@ async fn fail_retries_then_gives_up(pool: PgPool) {
     .unwrap();
     jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
     assert_eq!(
-        jobs::fail(&pool, id2, "fatal", None).await.unwrap().state,
+        jobs::fail(&pool, id2, "w", "fatal", None)
+            .await
+            .unwrap()
+            .unwrap()
+            .state,
         "failed"
     );
 }
@@ -212,7 +220,7 @@ async fn requeue_stale_and_purge(pool: PgPool) {
     assert_eq!(again.id, id);
     assert_eq!(again.locked_by.as_deref(), Some("w2"));
 
-    jobs::complete(&pool, id).await.unwrap();
+    assert!(jobs::complete(&pool, id, "w2").await.unwrap());
     assert_eq!(
         jobs::purge_done(&pool, Duration::from_secs(7 * 86400))
             .await
@@ -322,7 +330,7 @@ async fn heartbeat_keeps_job_fresh_and_only_for_owner(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(out.requeued, 0, "свежий heartbeat держит задачу");
-    jobs::complete(&pool, id).await.unwrap();
+    assert!(jobs::complete(&pool, id, "w").await.unwrap());
     assert!(
         !jobs::heartbeat(&pool, id, "w").await.unwrap(),
         "завершённую строку heartbeat не оживляет"
@@ -369,7 +377,7 @@ async fn release_workers_touches_only_listed_workers(pool: PgPool) {
 async fn release_returns_single_job_without_spending_attempt(pool: PgPool) {
     let id = enq(&pool, 1, EnqueueOpts::default()).await.unwrap();
     jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
-    jobs::release(&pool, id).await.unwrap();
+    assert!(jobs::release(&pool, id, "w").await.unwrap());
     let r = &jobs::list(&pool, None, 10).await.unwrap()[0];
     assert_eq!((r.state.as_str(), r.attempts), ("queued", 0));
 }
@@ -415,7 +423,10 @@ async fn retry_requeues_only_failed_jobs(pool: PgPool) {
         jobs::RetryOutcome::NotFound
     ));
     jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
-    jobs::fail(&pool, id, "boom", None).await.unwrap();
+    jobs::fail(&pool, id, "w", "boom", None)
+        .await
+        .unwrap()
+        .unwrap();
     match jobs::retry(&pool, id, 10).await.unwrap() {
         jobs::RetryOutcome::Queued(r) => {
             assert_eq!(
@@ -431,7 +442,10 @@ async fn retry_requeues_only_failed_jobs(pool: PgPool) {
 async fn retry_conflicts_with_active_duplicate(pool: PgPool) {
     let id = enq(&pool, 1, EnqueueOpts::default()).await.unwrap();
     jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
-    jobs::fail(&pool, id, "boom", None).await.unwrap();
+    jobs::fail(&pool, id, "w", "boom", None)
+        .await
+        .unwrap()
+        .unwrap();
     enq(&pool, 1, EnqueueOpts::default()).await.unwrap(); // новая активная
     assert!(matches!(
         jobs::retry(&pool, id, 10).await.unwrap(),
@@ -459,7 +473,7 @@ async fn counts_and_filtered_list(pool: PgPool) {
         .unwrap()
         .unwrap();
     assert_eq!(c.id, b);
-    jobs::fail(&pool, b, "x", None).await.unwrap();
+    jobs::fail(&pool, b, "w", "x", None).await.unwrap().unwrap();
     let counts = jobs::counts(&pool).await.unwrap();
     assert_eq!((counts.queued, counts.running, counts.failed), (1, 1, 1));
     let only_artist = jobs::list_filtered(&pool, None, Some("discover_artist"), 10)
@@ -470,4 +484,75 @@ async fn counts_and_filtered_list(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(failed.len(), 1);
+}
+
+/// A взял задачу, `requeue_stale(0)` вернул её, B взял снова: A «оживает» и пытается записать итог.
+async fn taken_over(pool: &PgPool) -> i64 {
+    let id = enq(pool, 1, EnqueueOpts::default()).await.unwrap();
+    jobs::claim(pool, "A", KINDS).await.unwrap().unwrap();
+    let out = jobs::requeue_stale(pool, Duration::ZERO).await.unwrap();
+    assert_eq!(out.requeued, 1);
+    let row = jobs::claim(pool, "B", KINDS).await.unwrap().unwrap();
+    assert_eq!(row.id, id);
+    id
+}
+
+async fn assert_running_by_b(pool: &PgPool, id: i64) {
+    let r = jobs::list(pool, None, 10)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|r| r.id == id)
+        .unwrap();
+    assert_eq!(
+        (r.state.as_str(), r.locked_by.as_deref(), r.attempts),
+        ("running", Some("B"), 2)
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn complete_by_lost_worker_is_ignored(pool: PgPool) {
+    let id = taken_over(&pool).await;
+    assert!(!jobs::complete(&pool, id, "A").await.unwrap());
+    assert_running_by_b(&pool, id).await;
+    assert!(jobs::complete(&pool, id, "B").await.unwrap());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn fail_by_lost_worker_is_ignored(pool: PgPool) {
+    let id = taken_over(&pool).await;
+    let retry = Some(Utc::now());
+    assert!(jobs::fail(&pool, id, "A", "x", retry)
+        .await
+        .unwrap()
+        .is_none());
+    assert_running_by_b(&pool, id).await;
+    assert!(jobs::fail(&pool, id, "B", "x", retry)
+        .await
+        .unwrap()
+        .is_some());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn defer_by_lost_worker_is_ignored(pool: PgPool) {
+    let id = taken_over(&pool).await;
+    let at = Utc::now();
+    let age = Duration::from_secs(3600);
+    assert!(jobs::defer(&pool, id, "A", "x", at, age)
+        .await
+        .unwrap()
+        .is_none());
+    assert_running_by_b(&pool, id).await;
+    assert!(jobs::defer(&pool, id, "B", "x", at, age)
+        .await
+        .unwrap()
+        .is_some());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn release_by_lost_worker_is_ignored(pool: PgPool) {
+    let id = taken_over(&pool).await;
+    assert!(!jobs::release(&pool, id, "A").await.unwrap());
+    assert_running_by_b(&pool, id).await;
+    assert!(jobs::release(&pool, id, "B").await.unwrap());
 }

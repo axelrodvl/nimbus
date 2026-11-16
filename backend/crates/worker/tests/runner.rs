@@ -871,3 +871,136 @@ async fn maintenance_survives_panicking_step(pool: PgPool) {
     wait_state(&pool, alive, "done").await;
     w.shutdown().await;
 }
+
+/// Первый вызов «зависает» до сигнала и потом падает; остальные завершаются сразу. Считает хуки.
+struct Hangs {
+    calls: AtomicU32,
+    release: tokio::sync::Notify,
+    first_returned: std::sync::atomic::AtomicBool,
+    hooks: AtomicU32,
+}
+
+#[async_trait]
+impl JobHandler for Hangs {
+    fn kinds(&self) -> &'static [&'static str] {
+        &["discover_album"]
+    }
+    async fn handle(&self, _job: Job, _ctx: &JobCtx) -> Result<(), JobError> {
+        if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+            self.release.notified().await;
+            self.first_returned.store(true, Ordering::SeqCst);
+            return Err(JobError::Fatal("late failure".into()));
+        }
+        Ok(())
+    }
+    async fn on_retry(&self, _job: &Job, _ctx: &JobCtx, _reason: &str) {
+        self.hooks.fetch_add(1, Ordering::SeqCst);
+    }
+    async fn on_exhausted(&self, _job: &Job, _ctx: &JobCtx, _reason: &str) -> Result<(), JobError> {
+        self.hooks.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn taken_over_job_drops_result_and_skips_hooks(pool: PgPool) {
+    let h = Arc::new(Hangs {
+        calls: AtomicU32::new(0),
+        release: tokio::sync::Notify::new(),
+        first_returned: Default::default(),
+        hooks: AtomicU32::new(0),
+    });
+    let w = WorkerPool::spawn(
+        ctx(&pool),
+        vec![(h.clone() as Arc<dyn JobHandler>, 2)],
+        WorkerConfig {
+            // Heartbeat не успевает: первый воркер «завис», задачу возвращает обслуживание.
+            heartbeat_interval: Duration::from_secs(3600),
+            stale_after: Duration::from_millis(200),
+            maintenance_interval: Duration::from_millis(50),
+            ..fast_cfg()
+        },
+    );
+    let id = jobs::enqueue(
+        &pool,
+        &Job::DiscoverAlbum { album_id: 1 },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    // Второй воркер перехватил и выполнил задачу.
+    wait_state(&pool, id, "done").await;
+    // Теперь «ожил» первый и дописывает свой (проваленный) итог.
+    h.release.notify_one();
+    nimbus_testkit::eventually(Duration::from_secs(5), || async {
+        h.first_returned.load(Ordering::SeqCst)
+    })
+    .await;
+    // Дать раннеру первого воркера дойти до записи итога.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let row = wait_state(&pool, id, "done").await;
+    assert_eq!(row.attempts, 2);
+    assert_eq!(
+        h.hooks.load(Ordering::SeqCst),
+        0,
+        "хуки чужого итога не вызываются"
+    );
+    w.shutdown().await;
+}
+
+/// Ждёт отмены `ctx.cancel` и сообщает об этом.
+struct WaitsForCancel {
+    cancelled: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait]
+impl JobHandler for WaitsForCancel {
+    fn kinds(&self) -> &'static [&'static str] {
+        &["discover_album"]
+    }
+    async fn handle(&self, _job: Job, ctx: &JobCtx) -> Result<(), JobError> {
+        ctx.cancel.cancelled().await;
+        self.cancelled.store(true, Ordering::SeqCst);
+        Err(JobError::Cancelled)
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn lost_ownership_cancels_handler(pool: PgPool) {
+    let h = Arc::new(WaitsForCancel {
+        cancelled: Default::default(),
+    });
+    let w = WorkerPool::spawn(
+        ctx(&pool),
+        vec![(h.clone() as Arc<dyn JobHandler>, 1)],
+        WorkerConfig {
+            heartbeat_interval: Duration::from_millis(30),
+            ..fast_cfg()
+        },
+    );
+    let id = jobs::enqueue(
+        &pool,
+        &Job::DiscoverAlbum { album_id: 1 },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    wait_state(&pool, id, "running").await;
+    // Задачу перехватил другой воркер.
+    sqlx::query("UPDATE jobs SET locked_by = 'other' WHERE id = $1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    nimbus_testkit::eventually(Duration::from_secs(5), || async {
+        h.cancelled.load(Ordering::SeqCst)
+    })
+    .await;
+    // Итог прерванного воркера (`release`) чужой захват не трогает.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let row = wait_state(&pool, id, "running").await;
+    assert_eq!(row.locked_by.as_deref(), Some("other"));
+    w.shutdown().await;
+}

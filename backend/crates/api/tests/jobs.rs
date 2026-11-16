@@ -41,7 +41,10 @@ async fn seed(pool: &PgPool) -> (i64, i64, i64) {
         .await
         .unwrap()
         .unwrap();
-    jobs::fail(pool, b, "boom", None).await.unwrap();
+    jobs::fail(pool, b, "w", "boom", None)
+        .await
+        .unwrap()
+        .unwrap();
     (a, b, c)
 }
 

@@ -750,7 +750,13 @@ async fn run_on_retry(handler: &Arc<dyn JobHandler>, job: &Job, ctx: &JobCtx, re
 }
 
 /// Пока задача выполняется, раз в `every` отмечает, что воркер жив.
-async fn heartbeat_loop(db: PgPool, id: i64, worker_id: String, every: Duration) {
+async fn heartbeat_loop(
+    db: PgPool,
+    id: i64,
+    worker_id: String,
+    every: Duration,
+    lost: CancellationToken,
+) {
     loop {
         tokio::time::sleep(every).await;
         match jobs::heartbeat(&db, id, &worker_id).await {
@@ -760,11 +766,18 @@ async fn heartbeat_loop(db: PgPool, id: i64, worker_id: String, every: Duration)
                     job_id = id,
                     "job no longer belongs to this worker; heartbeat stopped"
                 );
+                // Задачу перехватили: прерываем обработчик, чтобы он не работал параллельно с новым владельцем.
+                lost.cancel();
                 return;
             }
             Err(e) => tracing::warn!(job_id = id, error = %e, "heartbeat failed"),
         }
     }
+}
+
+/// Итог не записан: задачу перехватил другой воркер (он и запишет итог; хуки не вызываем).
+fn log_taken_over(row: &JobRow, worker_id: &str) {
+    tracing::warn!(job_id = row.id, kind = %row.kind, worker = worker_id, "job was taken over; result dropped");
 }
 
 async fn process(
@@ -778,18 +791,31 @@ async fn process(
         Ok(j) => j,
         Err(e) => {
             tracing::error!(job_id = row.id, kind = %row.kind, error = %e, "unparsable job payload");
-            if let Err(e) = jobs::fail(&ctx.db, row.id, &format!("bad payload: {e}"), None).await {
-                tracing::error!(job_id = row.id, error = %e, "fail update failed");
+            match jobs::fail(
+                &ctx.db,
+                row.id,
+                worker_id,
+                &format!("bad payload: {e}"),
+                None,
+            )
+            .await
+            {
+                Ok(Some(_)) => {}
+                Ok(None) => log_taken_over(row, worker_id),
+                Err(e) => tracing::error!(job_id = row.id, error = %e, "fail update failed"),
             }
             return;
         }
     };
 
+    // Токен задачи: дочерний от отмены пула; heartbeat отменяет его при потере владения.
+    let job_cancel = ctx.cancel.child_token();
     let mut heartbeat = AbortOnDrop(tokio::spawn(heartbeat_loop(
         ctx.db.clone(),
         row.id,
         worker_id.to_string(),
         cfg.heartbeat_interval,
+        job_cancel.clone(),
     )));
     // Отдельная задача: паника в обработчике не убивает воркер. При drop (abort воркера
     // на остановке) прерывается и она.
@@ -798,6 +824,7 @@ async fn process(
     c.attempt = row.attempts;
     c.max_attempts = row.max_attempts;
     c.priority = row.priority;
+    c.cancel = job_cancel;
     let handled_job = job.clone();
     let mut task = AbortOnDrop(tokio::spawn(async move { h.handle(handled_job, &c).await }));
     let result = (&mut task.0).await;
@@ -807,26 +834,32 @@ async fn process(
 
     let (reason, delay) = match result {
         Ok(Ok(())) => {
-            if let Err(e) = jobs::complete(&ctx.db, row.id).await {
-                tracing::error!(job_id = row.id, error = %e, "complete failed");
+            match jobs::complete(&ctx.db, row.id, worker_id).await {
+                Ok(true) => {}
+                Ok(false) => log_taken_over(row, worker_id),
+                Err(e) => tracing::error!(job_id = row.id, error = %e, "complete failed"),
             }
             return;
         }
         Ok(Err(JobError::Cancelled)) => {
-            tracing::info!(job_id = row.id, kind = %row.kind, "job cancelled, returned to the queue");
-            if let Err(e) = jobs::release(&ctx.db, row.id).await {
-                tracing::error!(job_id = row.id, error = %e, "release failed");
+            match jobs::release(&ctx.db, row.id, worker_id).await {
+                Ok(true) => {
+                    tracing::info!(job_id = row.id, kind = %row.kind, "job cancelled, returned to the queue");
+                }
+                Ok(false) => log_taken_over(row, worker_id),
+                Err(e) => tracing::error!(job_id = row.id, error = %e, "release failed"),
             }
             return;
         }
         Ok(Err(JobError::Defer { after, reason })) => {
             let retry_at = Utc::now() + chrono::Duration::from_std(after).unwrap_or_default();
             tracing::info!(job_id = row.id, kind = %row.kind, %reason, ?after, "job deferred");
-            match jobs::defer(&ctx.db, row.id, &reason, retry_at, DEFER_MAX_AGE).await {
-                Ok(updated) if updated.state == "failed" => {
+            match jobs::defer(&ctx.db, row.id, worker_id, &reason, retry_at, DEFER_MAX_AGE).await {
+                Ok(Some(updated)) if updated.state == "failed" => {
                     run_exhausted(handler, &job, ctx, row.id, &reason).await;
                 }
-                Ok(_) => run_on_retry(handler, &job, ctx, &reason).await,
+                Ok(Some(_)) => run_on_retry(handler, &job, ctx, &reason).await,
+                Ok(None) => log_taken_over(row, worker_id),
                 Err(e) => tracing::error!(job_id = row.id, error = %e, "defer update failed"),
             }
             return;
@@ -841,11 +874,12 @@ async fn process(
     };
     let retry_at = delay.map(|d| Utc::now() + chrono::Duration::from_std(d).unwrap_or_default());
     tracing::warn!(job_id = row.id, kind = %row.kind, attempts = row.attempts, %reason, retry = retry_at.is_some(), "job failed");
-    match jobs::fail(&ctx.db, row.id, &reason, retry_at).await {
-        Ok(updated) if updated.state == "failed" => {
+    match jobs::fail(&ctx.db, row.id, worker_id, &reason, retry_at).await {
+        Ok(Some(updated)) if updated.state == "failed" => {
             run_exhausted(handler, &job, ctx, row.id, &reason).await;
         }
-        Ok(_) => run_on_retry(handler, &job, ctx, &reason).await,
+        Ok(Some(_)) => run_on_retry(handler, &job, ctx, &reason).await,
+        Ok(None) => log_taken_over(row, worker_id),
         Err(e) => tracing::error!(job_id = row.id, error = %e, "fail update failed"),
     }
 }
