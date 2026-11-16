@@ -18,7 +18,7 @@
   и каталог `data/`. Файлы можно скачать заново, а вот закрепления, плейлисты и настройки живут только в БД.
 - Восстановление: `docker compose up -d db`, `docker compose exec -T db psql -U nimbus nimbus < nimbus.sql`, вернуть `data/`, `./scripts/start.sh`.
 - Обновление: `./scripts/stop.sh && ./scripts/build.sh && ./scripts/start.sh` (миграции БД применяются при старте, только вперёд) или,
-  для опубликованных образов, `./stop.sh && ./start.sh [версия]` (корневые скрипты работают с `deploy/docker-compose.release.yml`; версия — аргумент или `NIMBUS_VERSION`).
+  для опубликованных образов, `./update.sh [версия]` (перезапускает стек, только если вышли новые образы) или `./stop.sh && ./start.sh [версия]` (корневые скрипты работают с `deploy/docker-compose.release.yml`; версия — аргумент или `NIMBUS_VERSION`).
 
 ## Переменные окружения
 

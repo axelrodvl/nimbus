@@ -67,6 +67,7 @@ the **`scripts/`** set builds and runs your local checkout (development).
 | Script | What it does |
 |---|---|
 | `./start.sh [version]` | Pulls `ghcr.io/axelrodvl/nimbus` (+ Postgres) and starts the stack, waiting until both are healthy. The version is the argument (`./start.sh 0.3.0`), else `NIMBUS_VERSION` from `.env`, else `latest`. |
+| `./update.sh [version]` | Pulls the images and, only if a newer one was published (or the stack is down), runs `stop.sh` + `start.sh`. Data is kept. |
 | `./stop.sh` | Stops and removes the containers. The database and `./data` are kept. `--purge` also deletes the database volume. |
 
 Development (local images, `nimbus:local`):
@@ -80,7 +81,7 @@ Development (local images, `nimbus:local`):
 `build.sh` and `start.sh` create `.env` from `.env.example` if it does not exist yet. Shortcuts if you have
 [just](https://github.com/casey/just): `just build`, `just start`, `just stop`, `just up` (build + start).
 
-To update the published build: `./stop.sh && ./start.sh` (pulls the new `latest`, or pass a version). To update a local build: `git pull`, `./scripts/stop.sh`, `./scripts/build.sh`, `./scripts/start.sh`. Both sets use one Compose project (`nimbus`) and the same database volume and ports, so run only one at a time. Data (database, `./data`)
+To update the published build: `./update.sh` (or `./stop.sh && ./start.sh`; pulls the new `latest`, or pass a version). To update a local build: `git pull`, `./scripts/stop.sh`, `./scripts/build.sh`, `./scripts/start.sh`. Both sets use one Compose project (`nimbus`) and the same database volume and ports, so run only one at a time. Data (database, `./data`)
 is kept; the installed app in the browser updates itself (a banner offers the new version).
 
 Upgrading from the old Next.js version (separate `web` and `caddy` containers): same steps; `stop.sh` removes the
