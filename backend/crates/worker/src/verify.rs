@@ -10,8 +10,8 @@ use nimbus_core::model::{
 };
 use nimbus_db::repo::jobs::EnqueueOpts;
 use nimbus_db::repo::{
-    acquisition, album_torrents, albums, artists, cue_candidates, jobs, torrents, track_sources,
-    tracks,
+    acquisition, album_torrents, albums, artists, cue_candidates, jobs, pins, torrents,
+    track_sources, tracks,
 };
 use nimbus_matcher::{match_album, AlbumInput, FileInput, MatchConfig, TrackInput};
 use nimbus_torrent::{parse_torrent_file, EngineError, TorrentMeta};
@@ -288,7 +288,18 @@ pub async fn verify_torrent(ctx: &JobCtx, torrent_id: i64, album_id: i64) -> Res
         // Primary — лучший источник (сначала уверенные, затем по оценке); существующий не меняется.
         track_sources::ensure_primaries(&mut *tx, &track_ids).await?;
         let found = tracks::mark_found(&mut *tx, &track_ids).await?;
+        // Новый источник оживляет закрепления, у которых прежние источники зависли (B04).
+        let revived = pins::requeue_stalled_for_tracks(&mut *tx, &track_ids).await?;
         tx.commit().await?;
+        if !revived.is_empty() {
+            // Закрепление вернулось в очередь — будим менеджер загрузок и обновляем статус альбома.
+            tracing::info!(
+                album_id,
+                pins = revived.len(),
+                "stalled pins revived by a new source"
+            );
+            ctx.events.publish_acquisition_changed(album_id);
+        }
         for t in found {
             ctx.events.publish(Event::TrackStatus {
                 track_id: t.id,

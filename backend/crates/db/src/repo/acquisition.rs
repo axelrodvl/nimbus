@@ -140,6 +140,22 @@ pub async fn mark_search_started(db: impl PgExecutor<'_>, album_id: i64) -> sqlx
     Ok(())
 }
 
+/// Поиск альбома начинался за последние `interval`.
+pub async fn searched_within(
+    db: impl PgExecutor<'_>,
+    album_id: i64,
+    interval: std::time::Duration,
+) -> sqlx::Result<bool> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM album_search_state
+                        WHERE album_id = $1 AND last_started_at > now() - make_interval(secs => $2))",
+    )
+    .bind(album_id)
+    .bind(interval.as_secs_f64())
+    .fetch_one(db)
+    .await
+}
+
 /// Запоминает, что дал поиск: число кандидатов и ошибки провайдеров `[{source, error}]`.
 /// Итог и расписание повтора ставит [`finish_search`], когда альбом финализирован.
 pub async fn record_search_results(

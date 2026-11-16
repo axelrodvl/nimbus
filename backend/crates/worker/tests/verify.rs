@@ -455,6 +455,48 @@ async fn second_torrent_adds_backup_sources_without_changing_primary(pool: PgPoo
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn new_source_revives_dead_pin(pool: PgPool) {
+    let s = setup(&pool, &OK).await;
+    let a = add_torrent(&pool, s.album_id, 1, 0.9).await;
+    let b = add_torrent(&pool, s.album_id, 2, 0.5).await;
+    let fetcher = FakeFetcher::new(vec![
+        (hash(1), Reply::Files(good_files())),
+        (hash(2), Reply::Files(good_files())),
+    ]);
+    let (ctx, events) = ctx(&pool, fetcher);
+    verify_torrent(&ctx, a, s.album_id).await.unwrap();
+    // Единственный источник умер: закрепление `dead`; у другого трека — обычная загрузка.
+    nimbus_db::repo::pins::pin_tracks(&pool, &s.track_ids, true)
+        .await
+        .unwrap();
+    nimbus_db::repo::pins::fail(&pool, s.track_ids[0], "dead", None, true)
+        .await
+        .unwrap();
+    let mut rx = events.subscribe();
+
+    verify_torrent(&ctx, b, s.album_id).await.unwrap();
+    let p = nimbus_db::repo::pins::get(&pool, s.track_ids[0])
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((p.state, p.error, p.retries), (PinState::Queued, None, 0));
+    // Событие может прийти замыкающим (коалесценция): ждём его с дедлайном.
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !matches!(
+            rx.recv().await,
+            Ok(Event::AcquisitionChanged { album_id }) if album_id == s.album_id
+        ) {}
+    })
+    .await
+    .expect("acquisition.changed is published");
+    let other = nimbus_db::repo::pins::get(&pool, s.track_ids[1])
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(other.state, PinState::Queued);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn not_found_track_becomes_found_when_better_torrent_appears(pool: PgPool) {
     let s = setup(&pool, &OK).await;
     let a = add_torrent(&pool, s.album_id, 1, 0.9).await;

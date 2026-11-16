@@ -10,10 +10,12 @@ use std::time::{Duration, Instant};
 
 use futures::FutureExt;
 use nimbus_core::events::Event;
+use nimbus_core::jobs::{Job, PRIORITY_BACKGROUND};
 use nimbus_core::model::{InfoHash, NewDownload, PinState, TrackSource, TrackStatus};
 use nimbus_db::helpers::set_track_status_and_publish;
+use nimbus_db::repo::jobs::{self, EnqueueOpts};
 use nimbus_db::repo::pins::{self, PinWork};
-use nimbus_db::repo::{downloads, torrents, track_sources};
+use nimbus_db::repo::{acquisition, downloads, torrents, track_sources};
 use nimbus_torrent::{EngineError, FileProvider, TorrentHandleId};
 use nimbus_worker::torrent_file;
 use tokio::sync::Notify;
@@ -65,10 +67,14 @@ pub struct ManagerConfig {
     pub progress_every: Duration,
     /// Сколько файл может не двигаться, прежде чем источник будет заменён.
     pub stall_timeout: Duration,
-    /// Через сколько `failed` повторяется автоматически.
-    pub retry_after: Duration,
-    /// Сколько авто-повторов, затем закрепление остаётся `failed`.
-    pub max_retries: i32,
+    /// Паузы перед повтором после временных сбоев (хранилище, движок): ступени по порядку,
+    /// последняя повторяется без ограничения числа попыток.
+    pub transient_pauses: Vec<Duration>,
+    /// Паузы между циклами «источники не отдают данные» (`stalled`); когда они исчерпаны,
+    /// закрепление становится `dead` и ждёт нового источника.
+    pub stalled_pauses: Vec<Duration>,
+    /// Как часто можно запрашивать новый поиск раздач для альбома с зависшими закреплениями.
+    pub discover_interval: Duration,
     /// Пауза перед перезапуском менеджера после паники в тике.
     pub restart_pause: Duration,
 }
@@ -79,8 +85,11 @@ impl Default for ManagerConfig {
             tick: Duration::from_secs(1),
             progress_every: Duration::from_secs(1),
             stall_timeout: Duration::from_secs(600),
-            retry_after: Duration::from_secs(3600),
-            max_retries: 5,
+            transient_pauses: [60, 300, 900, 3600].map(Duration::from_secs).to_vec(),
+            stalled_pauses: [1, 3, 6, 12, 24, 24]
+                .map(|h| Duration::from_secs(h * 3600))
+                .to_vec(),
+            discover_interval: Duration::from_secs(6 * 3600),
             restart_pause: Duration::from_secs(1),
         }
     }
@@ -89,6 +98,44 @@ impl Default for ManagerConfig {
 /// Файл торрента: `(torrent_id, file_index)`.
 type FileKey = (i64, i32);
 
+/// Класс неудачи запуска или загрузки: от него зависит, как и когда закрепление повторится.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Failure {
+    /// Временный сбой (хранилище, движок, таймаут запуска): повтор по лесенке пауз без ограничения.
+    Transient,
+    /// Источник не отдаёт данные (нет метаданных, зависание): сначала другой источник, затем цикл пауз.
+    NoPeers,
+    /// Повтор бессмыслен (плохая ссылка, неверный индекс файла, раздачи нет в БД).
+    Permanent,
+    /// Сбой БД самого менеджера: ничего не фиксируется, закрепление остаётся в очереди до следующего тика.
+    Db,
+}
+
+/// Класс неудачи движка.
+pub fn classify(e: &EngineError) -> Failure {
+    match e {
+        EngineError::MetadataTimeout => Failure::NoPeers,
+        EngineError::InvalidMagnet(_) | EngineError::InvalidFileIndex(_) => Failure::Permanent,
+        EngineError::NotFound
+        | EngineError::Io(_)
+        | EngineError::Storage(_)
+        | EngineError::Internal(_) => Failure::Transient,
+    }
+}
+
+/// Пауза ступени `step`; за пределами списка — последняя.
+fn pause_at(pauses: &[Duration], step: usize) -> Duration {
+    pauses
+        .get(step)
+        .or(pauses.last())
+        .copied()
+        .unwrap_or_default()
+}
+
+fn db_failure(e: impl std::fmt::Display) -> (Failure, String) {
+    (Failure::Db, e.to_string())
+}
+
 pub struct DownloadManager {
     state: AppState,
     cfg: ManagerConfig,
@@ -96,6 +143,10 @@ pub struct DownloadManager {
     stalls: HashMap<FileKey, (u64, Instant)>,
     /// Источники трека, на которых загрузка уже зависала: по кругу между ними не ходим.
     tried: HashMap<i64, Vec<i64>>,
+    /// Файлы, у которых после зависания уже был перезапуск того же источника.
+    restarted: HashSet<FileKey>,
+    /// Ступень лесенки пауз после временных сбоев (по треку); сбрасывается успехом и рестартом.
+    transient_steps: HashMap<i64, usize>,
     /// Торренты, которые менеджер поставил на паузу (их нужно возобновить).
     paused_torrents: HashSet<i64>,
     last_progress: Option<Instant>,
@@ -108,6 +159,8 @@ impl DownloadManager {
             cfg,
             stalls: HashMap::new(),
             tried: HashMap::new(),
+            restarted: HashSet::new(),
+            transient_steps: HashMap::new(),
             paused_torrents: HashSet::new(),
             last_progress: None,
         }
@@ -134,13 +187,21 @@ impl DownloadManager {
         };
         let db = &self.state.db;
         let paused = nimbus_db::settings::downloads_paused(db).await?;
-        for track_id in
-            pins::retry_failed(db, self.cfg.retry_after.as_secs_f64(), self.cfg.max_retries).await?
-        {
+        for track_id in pins::retry_failed(db).await? {
             tracing::info!(track_id, "pinned download retried automatically");
         }
 
         let open = pins::list_open(db).await?;
+        // Уборка: состояние снятых закреплений не копится.
+        let open_files: HashSet<FileKey> = open
+            .iter()
+            .filter_map(|p| p.torrent_id.zip(p.file_index))
+            .collect();
+        let open_tracks: HashSet<i64> = open.iter().map(|p| p.track_id).collect();
+        self.stalls.retain(|k, _| open_files.contains(k));
+        self.restarted.retain(|k| open_files.contains(k));
+        self.tried.retain(|t, _| open_tracks.contains(t));
+        self.transient_steps.retain(|t, _| open_tracks.contains(t));
         let keys: Vec<FileKey> = open
             .iter()
             .filter_map(|p| Some((p.torrent_id?, p.file_index?)))
@@ -174,10 +235,17 @@ impl DownloadManager {
                     self.set(p, PinState::Done, None).await?;
                 }
                 self.stalls.remove(&key);
+                self.restarted.remove(&key);
                 self.tried.remove(&p.track_id);
+                self.transient_steps.remove(&p.track_id);
+                if p.retries > 0 {
+                    self.reset_retries(p.track_id).await;
+                }
                 continue;
             }
             match p.state {
+                // Нет строки `downloads` — `found → ready` не наступит никогда: запускаем заново.
+                PinState::Downloading if !existing.contains_key(&key) => queued.push((p, key)),
                 PinState::Downloading => {
                     active.insert(torrent_id);
                     downloading.push(p);
@@ -197,11 +265,27 @@ impl DownloadManager {
         // Зависание.
         let mut still: Vec<&PinWork> = Vec::new();
         for p in downloading {
-            if self.is_stalled(&files, p) {
-                self.handle_stall(p).await?;
-                active.remove(&p.torrent_id.unwrap_or_default());
-            } else {
+            if !self.is_stalled(&files, p).await {
                 still.push(p);
+                continue;
+            }
+            let (Some(torrent_id), Some(file_index)) = (p.torrent_id, p.file_index) else {
+                continue;
+            };
+            if self.restarted.insert((torrent_id, file_index)) {
+                // Сначала один перезапуск того же источника (движок мог потерять торрент или
+                // перевести его в ошибку); отсчёт зависания начнётся заново.
+                self.stalls.remove(&(torrent_id, file_index));
+                match self.start_group(&files, torrent_id, &[p]).await {
+                    Ok(()) => still.push(p),
+                    Err((failure, message)) => {
+                        self.apply_failure(&[p], failure, &message).await?;
+                        active.remove(&torrent_id);
+                    }
+                }
+            } else {
+                self.give_up_source(p).await?;
+                active.remove(&torrent_id);
             }
         }
         // `active` мог потерять торрент, у которого остались другие файлы.
@@ -254,14 +338,12 @@ impl DownloadManager {
                 match result {
                     Ok(()) => {
                         for p in pins_of {
+                            self.transient_steps.remove(&p.track_id);
                             self.set(p, PinState::Downloading, None).await?;
                         }
                     }
-                    Err(message) => {
-                        for p in pins_of {
-                            tracing::warn!(track_id = p.track_id, error = %message, "pinned download failed to start");
-                            self.set(p, PinState::Failed, Some(&message)).await?;
-                        }
+                    Err((failure, message)) => {
+                        self.apply_failure(pins_of, failure, &message).await?;
                     }
                 }
             }
@@ -271,7 +353,9 @@ impl DownloadManager {
     }
 
     /// Файл не двигается дольше `stall_timeout` (нет `file_progress` — тоже «не двигается»).
-    fn is_stalled(&mut self, files: &Arc<dyn FileProvider>, p: &PinWork) -> bool {
+    /// Любое движение байтов обнуляет счётчик повторов закрепления: медленная, но живая раздача
+    /// не исчерпывает бюджет.
+    async fn is_stalled(&mut self, files: &Arc<dyn FileProvider>, p: &PinWork) -> bool {
         let (Some(torrent_id), Some(file_index), Some(hash)) =
             (p.torrent_id, p.file_index, p.info_hash.as_deref())
         else {
@@ -296,6 +380,10 @@ impl DownloadManager {
         match (self.stalls.get(&key).copied(), bytes) {
             (Some((last, _)), Some(b)) if b != last => {
                 self.stalls.insert(key, (b, now));
+                self.restarted.remove(&key);
+                if p.retries > 0 {
+                    self.reset_retries(p.track_id).await;
+                }
                 false
             }
             (Some((_, since)), _) => since.elapsed() >= self.cfg.stall_timeout,
@@ -306,10 +394,58 @@ impl DownloadManager {
         }
     }
 
-    /// Зависший файл: следующий источник трека, а если его нет — `failed("stalled")`.
-    async fn handle_stall(&mut self, p: &PinWork) -> sqlx::Result<()> {
+    async fn reset_retries(&self, track_id: i64) {
+        if let Err(e) = pins::reset_retries(&self.state.db, track_id).await {
+            tracing::warn!(track_id, error = %e, "cannot reset pin retries");
+        }
+    }
+
+    /// Применяет неудачу к закреплениям группы по её классу (см. [`Failure`]).
+    async fn apply_failure(
+        &mut self,
+        pins_of: &[&PinWork],
+        failure: Failure,
+        message: &str,
+    ) -> sqlx::Result<()> {
+        for p in pins_of {
+            tracing::warn!(track_id = p.track_id, error = %message, ?failure, "pinned download failed");
+            match failure {
+                Failure::Db => {}
+                Failure::Transient => {
+                    let step = self.transient_steps.entry(p.track_id).or_insert(0);
+                    let pause = pause_at(&self.cfg.transient_pauses, *step);
+                    *step += 1;
+                    self.fail(p, message, Some(pause), false).await?;
+                }
+                Failure::Permanent => self.fail(p, message, None, false).await?,
+                Failure::NoPeers => self.give_up_source(p).await?,
+            }
+        }
+        Ok(())
+    }
+
+    /// `failed` с расписанием: `pause = None` — без автоматического повтора.
+    async fn fail(
+        &self,
+        p: &PinWork,
+        error: &str,
+        pause: Option<Duration>,
+        count: bool,
+    ) -> sqlx::Result<()> {
+        let next = pause.map(|d| {
+            chrono::Utc::now() + chrono::Duration::from_std(d).unwrap_or(chrono::Duration::days(1))
+        });
+        pins::fail(&self.state.db, p.track_id, error, next, count).await?;
+        self.state.events.publish_acquisition_changed(p.album_id);
+        Ok(())
+    }
+
+    /// Источник не отдаёт данные: следующий источник трека, а если его нет — `failed("stalled")`
+    /// с растущей паузой, после исчерпания пауз — `dead`; параллельно просим поиск новых раздач.
+    async fn give_up_source(&mut self, p: &PinWork) -> sqlx::Result<()> {
         if let Some(key) = p.torrent_id.zip(p.file_index) {
             self.stalls.remove(&key);
+            self.restarted.remove(&key);
         }
         let source: Option<TrackSource> = match p.source_id {
             Some(id) => track_sources::get(&self.state.db, id).await?,
@@ -319,7 +455,11 @@ impl DownloadManager {
             let tried = self.tried.entry(p.track_id).or_default();
             tried.push(source.id);
             if crate::stream::switch_to_next_source(&self.state, source, tried).await {
-                // `set_primary` вернул закрепление в `queued`; старый файл больше не нужен.
+                // `set_primary` вернул закрепление в `queued` и обнулил `retries`, а цикл «нет сидов»
+                // должен копиться между сменами источника.
+                if p.retries > 0 {
+                    pins::set_retries(&self.state.db, p.track_id, p.retries).await?;
+                }
                 self.state.events.publish_acquisition_changed(p.album_id);
                 crate::sources::release_unneeded(&self.state, source).await;
                 return Ok(());
@@ -329,27 +469,55 @@ impl DownloadManager {
             track_id = p.track_id,
             "pinned download stalled, no other source"
         );
-        // Авто-повтор начнёт с чистого листа.
+        // Следующий цикл начнёт с чистого листа.
         self.tried.remove(&p.track_id);
-        self.set(p, PinState::Failed, Some("stalled")).await
+        let cycle = usize::try_from(p.retries).unwrap_or_default();
+        if cycle >= self.cfg.stalled_pauses.len() {
+            self.fail(p, "dead", None, true).await?;
+        } else {
+            let pause = pause_at(&self.cfg.stalled_pauses, cycle);
+            self.fail(p, "stalled", Some(pause), true).await?;
+        }
+        self.request_new_sources(p.album_id).await;
+        Ok(())
+    }
+
+    /// Ставит поиск раздач для альбома, если последний поиск был давно (дубликаты задач схлопывает очередь).
+    async fn request_new_sources(&self, album_id: i64) {
+        let db = &self.state.db;
+        match acquisition::searched_within(db, album_id, self.cfg.discover_interval).await {
+            Ok(true) => {}
+            Ok(false) => {
+                if let Err(e) = jobs::enqueue(
+                    db,
+                    &Job::DiscoverAlbum { album_id },
+                    EnqueueOpts::priority(PRIORITY_BACKGROUND),
+                )
+                .await
+                {
+                    tracing::warn!(album_id, error = %e, "cannot queue the search for new sources");
+                }
+            }
+            Err(e) => tracing::warn!(album_id, error = %e, "cannot check the last album search"),
+        }
     }
 
     /// Запрашивает у движка все файлы группы одним `ensure_files` и создаёт строки `downloads`.
-    /// `Err(message)` — причина для `pinned_tracks.error`.
+    /// `Err((класс, сообщение))` — сообщение пойдёт в `pinned_tracks.error`.
     async fn start_group(
         &self,
         files: &Arc<dyn FileProvider>,
         torrent_id: i64,
         pins_of: &[&PinWork],
-    ) -> Result<(), String> {
+    ) -> Result<(), (Failure, String)> {
         let db = &self.state.db;
         let torrent = torrents::get(db, torrent_id)
             .await
-            .map_err(|e| e.to_string())?
-            .ok_or("torrent not found")?;
+            .map_err(db_failure)?
+            .ok_or_else(|| (Failure::Permanent, "torrent not found".to_string()))?;
         let tref = torrent_file::torrent_ref(db, &torrent)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(db_failure)?;
         let mut indexes: Vec<usize> = pins_of
             .iter()
             .filter_map(|p| p.file_index)
@@ -363,10 +531,19 @@ impl DownloadManager {
         );
         let handle = tokio::time::timeout(guard, files.ensure_files(&tref, &indexes))
             .await
-            .map_err(|_| "timed out starting the torrent".to_string())?
-            .map_err(|e| match e {
-                EngineError::Storage(m) => format!("storage: {m}"),
-                other => other.to_string(),
+            .map_err(|_| {
+                (
+                    Failure::Transient,
+                    "timed out starting the torrent".to_string(),
+                )
+            })?
+            .map_err(|e| {
+                let failure = classify(&e);
+                let message = match e {
+                    EngineError::Storage(m) => format!("storage: {m}"),
+                    other => other.to_string(),
+                };
+                (failure, message)
             })?;
         torrent_file::remember_engine_file(db, files.as_ref(), &handle, &torrent).await;
         for p in pins_of {
@@ -375,14 +552,14 @@ impl DownloadManager {
             };
             let exists = downloads::get(db, torrent_id, file_index)
                 .await
-                .map_err(|e| e.to_string())?
+                .map_err(db_failure)?
                 .is_some();
             if exists {
                 continue;
             }
             let path = files
                 .file_path(&handle, file_index as usize)
-                .ok_or("file path is unknown")?;
+                .ok_or_else(|| (Failure::Transient, "file path is unknown".to_string()))?;
             let total = files
                 .file_progress(&handle, file_index as usize)
                 .map(|p| p.bytes_total as i64)
@@ -399,7 +576,7 @@ impl DownloadManager {
                 },
             )
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(db_failure)?;
         }
         if let Err(e) = files.resume_torrent(&handle).await {
             tracing::debug!(torrent_id, error = %e, "resume_torrent after ensure_files failed");
@@ -558,7 +735,7 @@ pub fn spawn_download_manager(
     spawn_download_manager_with(state, cancel, ManagerConfig::default())
 }
 
-/// Супервизор: тик раз в `cfg.tick`, по `Notify` и по `track.status → found`. Паника в тике
+/// Супервизор: тик раз в `cfg.tick`, по `Notify`, по `track.status → found` и по `acquisition.changed`. Паника в тике
 /// логируется (`error`), состояние менеджера создаётся заново, цикл продолжается; ошибка БД —
 /// предупреждение. Тик не прерывается отменой: он состоит из коротких операций.
 pub fn spawn_download_manager_with(
@@ -586,6 +763,8 @@ pub fn spawn_download_manager_with(
                 () = state.downloads.notify.notified() => {}
                 ev = events.recv() => match ev {
                     Ok(Event::TrackStatus { status: TrackStatus::Found, .. })
+                    // Новый источник мог оживить закрепление (verify_torrent, B04).
+                    | Ok(Event::AcquisitionChanged { .. })
                     | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                     Ok(_) => continue,
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {

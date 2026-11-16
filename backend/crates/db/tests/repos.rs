@@ -1135,3 +1135,130 @@ async fn cue_candidates_mark_failed_and_reset_failed(pool: PgPool) {
         .unwrap()
         .is_empty());
 }
+
+async fn pinned_track(pool: &PgPool) -> (i64, i64) {
+    let (artist, album) = seed_album(pool).await;
+    let t = tracks::upsert_by_mbid_track(
+        pool,
+        &NewTrack {
+            mbid_recording: Uuid::new_v4(),
+            mbid_track: None,
+            album_id: album.id,
+            artist_id: artist.id,
+            title: "T".into(),
+            disc_no: 1,
+            position: 1,
+            duration_ms: None,
+        },
+    )
+    .await
+    .unwrap();
+    tracks::set_status(pool, t.id, TrackStatus::Found, None)
+        .await
+        .unwrap();
+    pins::pin_tracks(pool, &[t.id], false).await.unwrap();
+    (album.id, t.id)
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn pin_fail_schedules_retry_and_counts_only_on_request(pool: PgPool) {
+    let (_, t) = pinned_track(&pool).await;
+    let soon = chrono::Utc::now() + chrono::Duration::hours(1);
+    pins::fail(&pool, t, "storage: x", Some(soon), false)
+        .await
+        .unwrap();
+    let p = pins::get(&pool, t).await.unwrap().unwrap();
+    assert_eq!((p.state, p.retries), (PinState::Failed, 0));
+    assert_eq!(p.error.as_deref(), Some("storage: x"));
+    assert!(p.next_retry_at.is_some());
+    // Срок не наступил — не повторяется.
+    assert!(pins::retry_failed(&pool).await.unwrap().is_empty());
+
+    pins::fail(&pool, t, "stalled", Some(chrono::Utc::now()), true)
+        .await
+        .unwrap();
+    assert_eq!(pins::get(&pool, t).await.unwrap().unwrap().retries, 1);
+    assert_eq!(pins::retry_failed(&pool).await.unwrap(), vec![t]);
+    let p = pins::get(&pool, t).await.unwrap().unwrap();
+    // `retries` — ступень расписания, повтор её не сбрасывает.
+    assert_eq!(
+        (p.state, p.error, p.retries, p.next_retry_at),
+        (PinState::Queued, None, 1, None)
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn pin_without_schedule_is_never_retried(pool: PgPool) {
+    let (_, t) = pinned_track(&pool).await;
+    pins::fail(&pool, t, "dead", None, true).await.unwrap();
+    assert!(pins::retry_failed(&pool).await.unwrap().is_empty());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn pin_reset_retries_and_requeue_clear_the_schedule(pool: PgPool) {
+    let (_, t) = pinned_track(&pool).await;
+    pins::set_retries(&pool, t, 3).await.unwrap();
+    pins::reset_retries(&pool, t).await.unwrap();
+    assert_eq!(pins::get(&pool, t).await.unwrap().unwrap().retries, 0);
+
+    for (name, revive) in [("requeue", 0), ("pin_tracks", 1)] {
+        pins::fail(&pool, t, "stalled", Some(chrono::Utc::now()), true)
+            .await
+            .unwrap();
+        if revive == 0 {
+            pins::requeue(&pool, t).await.unwrap();
+        } else {
+            pins::pin_tracks(&pool, &[t], false).await.unwrap();
+        }
+        let p = pins::get(&pool, t).await.unwrap().unwrap();
+        assert_eq!(
+            (p.state, p.error, p.retries, p.next_retry_at),
+            (PinState::Queued, None, 0, None),
+            "{name}"
+        );
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn stalled_pins_need_sources_and_new_sources_requeue_them(pool: PgPool) {
+    let (album_id, t) = pinned_track(&pool).await;
+    assert!(!pins::album_needs_sources(&pool, album_id).await.unwrap());
+    pins::fail(&pool, t, "storage: x", None, false)
+        .await
+        .unwrap();
+    assert!(!pins::album_needs_sources(&pool, album_id).await.unwrap());
+    assert!(pins::requeue_stalled_for_tracks(&pool, &[t])
+        .await
+        .unwrap()
+        .is_empty());
+    pins::fail(&pool, t, "dead", None, true).await.unwrap();
+    assert!(pins::album_needs_sources(&pool, album_id).await.unwrap());
+    assert_eq!(
+        pins::requeue_stalled_for_tracks(&pool, &[t]).await.unwrap(),
+        vec![t]
+    );
+    assert_eq!(
+        pins::get(&pool, t).await.unwrap().unwrap().state,
+        PinState::Queued
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn searched_within_looks_at_the_last_search_start(pool: PgPool) {
+    let (album_id, _) = pinned_track(&pool).await;
+    let day = Duration::from_secs(86_400);
+    assert!(!acquisition::searched_within(&pool, album_id, day)
+        .await
+        .unwrap());
+    acquisition::mark_search_started(&pool, album_id)
+        .await
+        .unwrap();
+    assert!(acquisition::searched_within(&pool, album_id, day)
+        .await
+        .unwrap());
+    assert!(
+        !acquisition::searched_within(&pool, album_id, Duration::ZERO)
+            .await
+            .unwrap()
+    );
+}

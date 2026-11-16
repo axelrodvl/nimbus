@@ -42,6 +42,7 @@ pub async fn pin_tracks(
             state = CASE WHEN pinned_tracks.state = 'failed' THEN 'queued' ELSE pinned_tracks.state END,
             error = CASE WHEN pinned_tracks.state = 'failed' THEN NULL ELSE pinned_tracks.error END,
             retries = CASE WHEN pinned_tracks.state = 'failed' THEN 0 ELSE pinned_tracks.retries END,
+            next_retry_at = CASE WHEN pinned_tracks.state = 'failed' THEN NULL ELSE pinned_tracks.next_retry_at END,
             updated_at = now()",
     )
     .bind(track_ids)
@@ -129,10 +130,12 @@ pub async fn set_state(
     Ok(())
 }
 
-/// Возвращает закрепление в очередь (сменился primary-источник). Нет закрепления — ничего.
+/// Возвращает закрепление в очередь (сменился primary-источник): ошибка, счётчик повторов и
+/// расписание обнуляются. Нет закрепления — ничего.
 pub async fn requeue(db: impl PgExecutor<'_>, track_id: i64) -> sqlx::Result<()> {
     sqlx::query(
-        "UPDATE pinned_tracks SET state = 'queued', error = NULL, updated_at = now()
+        "UPDATE pinned_tracks SET state = 'queued', error = NULL, retries = 0, next_retry_at = NULL,
+                updated_at = now()
          WHERE track_id = $1 AND state <> 'waiting_source'",
     )
     .bind(track_id)
@@ -151,21 +154,86 @@ pub async fn requeue_downloading(db: impl PgExecutor<'_>) -> sqlx::Result<u64> {
     Ok(r.rows_affected())
 }
 
-/// Авто-повтор `failed`: старше `after_secs` секунд и не больше `max_retries` повторов.
-pub async fn retry_failed(
+/// Закрепление не удалось: `failed` с причиной и расписанием. `next_retry_at = None` — повторов не будет
+/// (окончательная неудача или `dead`); `count` — засчитать неудачу в `retries` (счётчик циклов «нет сидов»).
+pub async fn fail(
     db: impl PgExecutor<'_>,
-    after_secs: f64,
-    max_retries: i32,
-) -> sqlx::Result<Vec<i64>> {
+    track_id: i64,
+    error: &str,
+    next_retry_at: Option<chrono::DateTime<chrono::Utc>>,
+    count: bool,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "UPDATE pinned_tracks
+         SET state = 'failed', error = $2, next_retry_at = $3, retries = retries + $4, updated_at = now()
+         WHERE track_id = $1",
+    )
+    .bind(track_id)
+    .bind(error)
+    .bind(next_retry_at)
+    .bind(i32::from(count))
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Авто-повтор `failed`: у кого наступил `next_retry_at`, возвращаются в очередь. `retries` не трогается —
+/// это номер ступени расписания; обнуляет его прогресс загрузки ([`reset_retries`]).
+pub async fn retry_failed(db: impl PgExecutor<'_>) -> sqlx::Result<Vec<i64>> {
     sqlx::query_scalar(
-        "UPDATE pinned_tracks SET state = 'queued', error = NULL, retries = retries + 1, updated_at = now()
-         WHERE state = 'failed' AND retries < $2
-           AND updated_at <= now() - make_interval(secs => $1)
+        "UPDATE pinned_tracks SET state = 'queued', error = NULL, next_retry_at = NULL, updated_at = now()
+         WHERE state = 'failed' AND next_retry_at <= now()
          RETURNING track_id",
     )
-    .bind(after_secs)
-    .bind(max_retries)
     .fetch_all(db)
+    .await
+}
+
+/// Загрузка пошла: счётчик повторов обнуляется (один UPDATE, только если он был ненулевым).
+pub async fn reset_retries(db: impl PgExecutor<'_>, track_id: i64) -> sqlx::Result<()> {
+    sqlx::query("UPDATE pinned_tracks SET retries = 0 WHERE track_id = $1 AND retries > 0")
+        .bind(track_id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+/// Задаёт счётчик повторов (после смены источника `requeue` его обнуляет, а цикл «нет сидов» должен копиться).
+pub async fn set_retries(db: impl PgExecutor<'_>, track_id: i64, retries: i32) -> sqlx::Result<()> {
+    sqlx::query("UPDATE pinned_tracks SET retries = $2 WHERE track_id = $1")
+        .bind(track_id)
+        .bind(retries)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+/// Закрепления `failed("stalled"|"dead")` среди `track_ids` возвращаются в очередь: у трека появился
+/// новый источник. Возвращает id вернувшихся треков.
+pub async fn requeue_stalled_for_tracks(
+    db: impl PgExecutor<'_>,
+    track_ids: &[i64],
+) -> sqlx::Result<Vec<i64>> {
+    sqlx::query_scalar(
+        "UPDATE pinned_tracks SET state = 'queued', error = NULL, retries = 0, next_retry_at = NULL,
+                updated_at = now()
+         WHERE track_id = ANY($1) AND state = 'failed' AND error IN ('stalled','dead')
+         RETURNING track_id",
+    )
+    .bind(track_ids)
+    .fetch_all(db)
+    .await
+}
+
+/// Есть ли у альбома закрепление, источники которого мертвы (`failed` со `stalled`/`dead`): нужен новый поиск.
+pub async fn album_needs_sources(db: impl PgExecutor<'_>, album_id: i64) -> sqlx::Result<bool> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (
+            SELECT 1 FROM pinned_tracks p JOIN tracks t ON t.id = p.track_id
+            WHERE t.album_id = $1 AND p.state = 'failed' AND p.error IN ('stalled','dead'))",
+    )
+    .bind(album_id)
+    .fetch_one(db)
     .await
 }
 
@@ -232,11 +300,12 @@ pub struct Pin {
     pub state: PinState,
     pub error: Option<String>,
     pub retries: i32,
+    pub next_retry_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 pub async fn get(db: impl PgExecutor<'_>, track_id: i64) -> sqlx::Result<Option<Pin>> {
     sqlx::query_as(
-        "SELECT track_id, album_pin, state, error, retries FROM pinned_tracks WHERE track_id = $1",
+        "SELECT track_id, album_pin, state, error, retries, next_retry_at FROM pinned_tracks WHERE track_id = $1",
     )
     .bind(track_id)
     .fetch_optional(db)

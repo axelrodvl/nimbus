@@ -42,7 +42,8 @@
   active_jobs }`. `download` есть, если у альбома идёт загрузка или есть закрепления: `pinned` — есть закреплённые треки,
   `state` — агрегат закреплений (`downloading` > `queued` > `failed` > `waiting_source` > `done`, `null` — не закреплён),
   `down_bps`/`peers` — живая статистика менеджера загрузок (0, если не качается), `error` — причина `failed`
-  (например `stalled`).
+  (например `stalled` — источники не отдают данные, повтор по расписанию; `dead` — расписание исчерпано, закрепление
+  оживёт при новом источнике или ручном повторе).
   `reason` — преобладающая причина `not_found` (`search_failed` > `no_torrents` > `dead_torrents` > `no_match`).
 - `GET /api/acquisition/summary` → `{ searching, missing, partial, available, downloading, downloaded, failed_jobs }`.
 - `POST /api/acquisition/retry { scope: "missing" | "albums", album_ids?, reset_dead? }` → `202 { queued }`.

@@ -13,7 +13,7 @@ use nimbus_core::model::{
     TrackStatus,
 };
 use nimbus_db::repo::jobs::EnqueueOpts;
-use nimbus_db::repo::{acquisition, album_torrents, albums, artists, jobs, torrents, tracks};
+use nimbus_db::repo::{acquisition, album_torrents, albums, artists, jobs, pins, torrents, tracks};
 use nimbus_torrent::parse_torrent_file;
 use nimbus_trackers::rank::{classify, score, FormatPrefs, RankInput};
 use nimbus_trackers::{
@@ -411,11 +411,13 @@ async fn load_album(ctx: &JobCtx, album_id: i64) -> Result<(Album, Artist), JobE
 pub async fn discover_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError> {
     let (album, artist) = load_album(ctx, album_id).await?;
 
-    // Нечего искать, если нет добавленных в библиотеку треков в статусе `adding`.
+    // Нечего искать, если нет добавленных в библиотеку треков в статусе `adding` и нет закреплений
+    // с мёртвыми источниками (B04: им нужны новые раздачи).
     let needs_search = tracks::list_by_album(&ctx.db, album_id)
         .await?
         .iter()
-        .any(|t| t.in_library && t.status == TrackStatus::Adding);
+        .any(|t| t.in_library && t.status == TrackStatus::Adding)
+        || pins::album_needs_sources(&ctx.db, album_id).await?;
     if !needs_search {
         tracing::debug!(album_id, "nothing to discover");
         return Ok(());

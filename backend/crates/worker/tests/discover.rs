@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use nimbus_core::events::{Event, EventBus, JobStage};
 use nimbus_core::jobs::Job;
 use nimbus_core::model::*;
-use nimbus_db::repo::{acquisition, album_torrents, albums, artists, jobs, torrents, tracks};
+use nimbus_db::repo::{acquisition, album_torrents, albums, artists, jobs, pins, torrents, tracks};
 use nimbus_trackers::*;
 use nimbus_worker::discover::{discover_album, discover_artist, DiscoverHandler, EARLY_WAVE};
 use nimbus_worker::{JobCtx, JobError, JobHandler};
@@ -370,6 +370,51 @@ async fn provider_errors_retry_then_not_found_on_last_attempt(pool: PgPool) {
             (TrackStatus::NotFound, Some("no_torrents"))
         );
     }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn discover_album_searches_for_stalled_pin(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    let ids: Vec<i64> = tracks::list_by_album(&pool, album_id)
+        .await
+        .unwrap()
+        .iter()
+        .map(|t| t.id)
+        .collect();
+    for &id in &ids {
+        tracks::set_status(&pool, id, TrackStatus::Found, None)
+            .await
+            .unwrap();
+    }
+    pins::pin_tracks(&pool, &ids, true).await.unwrap();
+    let provider = Fake::new(|_| {
+        Ok(vec![cand(
+            "Radiohead - OK Computer (1997) [FLAC]",
+            Some(1),
+            50,
+        )])
+    });
+    let (c, _) = ctx(&pool, Some(provider.clone()), 1, 5);
+
+    // Пока закрепления живы, искать нечего.
+    discover_album(&c, album_id).await.unwrap();
+    assert!(provider.queries.lock().unwrap().is_empty());
+
+    // Источники зависли: нужен новый поиск, найденная раздача привязывается и уходит на проверку.
+    pins::fail(&pool, ids[0], "stalled", None, true)
+        .await
+        .unwrap();
+    discover_album(&c, album_id).await.unwrap();
+    assert!(!provider.queries.lock().unwrap().is_empty());
+    assert_eq!(
+        album_torrents::list_for_album(&pool, album_id)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(queued(&pool, "verify_torrent").await.len(), 1);
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
