@@ -179,6 +179,26 @@ async fn takes_only_due_missing_and_partial_albums(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn orphan_album_gets_search(pool: PgPool) {
+    let ar = artist(&pool).await;
+    let a = album(&pool, ar, &[NotFound], true).await;
+    sqlx::query("DELETE FROM album_search_state WHERE album_id = $1")
+        .bind(a)
+        .execute(&pool)
+        .await
+        .unwrap();
+    RetryMissingHandler
+        .handle(Job::RetryMissing, &ctx(&pool, EventBus::new()))
+        .await
+        .unwrap();
+    let jobs = discover_jobs(&pool).await;
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].payload["album_id"].as_i64(), Some(a));
+    let t = tracks::list_by_album(&pool, a).await.unwrap();
+    assert_eq!(t[0].status, TrackStatus::Adding);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn one_run_takes_at_most_a_batch_and_the_rest_wait(pool: PgPool) {
     let ar = artist(&pool).await;
     for _ in 0..(BATCH + 3) {

@@ -18,7 +18,7 @@ impl JobHandler for RetryMissingHandler {
         &[Job::RETRY_MISSING]
     }
 
-    /// Берёт до [`BATCH`] альбомов `missing`/`partial` с наступившим `next_retry_at` и ставит им
+    /// Усыновляет альбомы без расписания, затем берёт до [`BATCH`] альбомов, которым нужен повтор, с наступившим `next_retry_at` и ставит им
     /// поиск с фоновым приоритетом. Выбор и постановка — одна транзакция: повтор задачи или сбой
     /// посередине не теряют альбомы и не удваивают попытки.
     async fn handle(&self, job: Job, ctx: &JobCtx) -> Result<(), JobError> {
@@ -32,6 +32,10 @@ impl JobHandler for RetryMissingHandler {
             manual: false,
         };
         let mut tx = ctx.db.begin().await?;
+        let adopted = acquisition::adopt_orphans(&mut tx, BATCH).await?;
+        if adopted > 0 {
+            tracing::warn!(albums = adopted, "albums without a retry schedule adopted");
+        }
         let ids = acquisition::take_due(&mut tx, BATCH).await?;
         let mut changed = Vec::new();
         for id in &ids {

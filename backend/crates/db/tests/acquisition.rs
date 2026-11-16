@@ -472,12 +472,15 @@ async fn finish_search_reason_priority_and_fallback(pool: PgPool) {
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn finish_search_happens_once_per_search(pool: PgPool) {
     let ar = artist(&pool).await;
-    let a = album(&pool, ar, &[NotFound]).await;
+    let found_album = album(&pool, ar, &[Found]).await;
     assert_eq!(
-        acquisition::finish_search(&pool, a, None).await.unwrap(),
+        acquisition::finish_search(&pool, found_album, None)
+            .await
+            .unwrap(),
         None,
-        "поиска не было"
+        "поиска не было, искать нечего"
     );
+    let a = album(&pool, ar, &[NotFound]).await;
     acquisition::mark_search_started(&pool, a).await.unwrap();
     assert!(acquisition::finish_search(&pool, a, None)
         .await
@@ -638,11 +641,12 @@ async fn take_due_picks_only_due_missing_and_partial(pool: PgPool) {
         assert_eq!((s.auto_retries, s.next_retry_at), (2, None));
     }
     assert!(get(not_due).await.next_retry_at.is_some(), "ещё не пора");
-    // Просрочка у уже найденного/ищущегося сброшена, счётчик не тронут.
-    for a in [due_found, due_searching] {
-        let s = get(a).await;
-        assert_eq!((s.auto_retries, s.next_retry_at), (1, None));
-    }
+    // Просрочка у уже найденного сброшена, счётчик не тронут; у ищущегося расписание не трогаем.
+    let s = get(due_found).await;
+    assert_eq!((s.auto_retries, s.next_retry_at), (1, None));
+    let s = get(due_searching).await;
+    assert_eq!(s.auto_retries, 1);
+    assert!(s.next_retry_at.is_some());
     assert!(acquisition::get_state(&pool, no_row)
         .await
         .unwrap()
@@ -859,4 +863,177 @@ async fn track_status_change_publishes_acquisition_changed(pool: PgPool) {
         .iter()
         .any(|e| matches!(e, Event::TrackStatus { track_id, .. } if *track_id == t)));
     assert!(got.contains(&Event::AcquisitionChanged { album_id: a }));
+}
+
+// ------------------------------------------------------------------ B02
+
+async fn set_retry(pool: &PgPool, a: i64, when: &str) {
+    sqlx::query(&format!(
+        "INSERT INTO album_search_state (album_id, next_retry_at, auto_retries) VALUES ($1, {when}, 1)
+         ON CONFLICT (album_id) DO UPDATE SET next_retry_at = {when}"
+    ))
+    .bind(a)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn take_due_keeps_schedule_while_downloading(pool: PgPool) {
+    let ar = artist(&pool).await;
+    let a = album(&pool, ar, &[Found, NotFound]).await;
+    let found = tracks::list_by_album(&pool, a).await.unwrap()[0].id;
+    attach_download(&pool, found, 1, false).await;
+    assert_eq!(states(&pool).await[&a], AcquisitionState::Downloading);
+    set_retry(&pool, a, "now() - interval '1 hour'").await;
+
+    let mut conn = pool.acquire().await.unwrap();
+    assert_eq!(acquisition::take_due(&mut conn, 10).await.unwrap(), vec![a]);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn take_due_resets_only_fully_found(pool: PgPool) {
+    let ar = artist(&pool).await;
+    let done = album(&pool, ar, &[Found, Ready]).await;
+    let searching = album(&pool, ar, &[Adding, NotFound]).await;
+    set_retry(&pool, done, "now() - interval '1 hour'").await;
+    set_retry(&pool, searching, "now() - interval '1 hour'").await;
+    let mut conn = pool.acquire().await.unwrap();
+    assert!(acquisition::take_due(&mut conn, 10)
+        .await
+        .unwrap()
+        .is_empty());
+    drop(conn);
+    let s = acquisition::get_state(&pool, done).await.unwrap().unwrap();
+    assert_eq!(s.next_retry_at, None);
+    let s = acquisition::get_state(&pool, searching)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        s.next_retry_at.is_some(),
+        "ищущемуся альбому расписание не стираем"
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn finish_search_without_started_search_schedules_retry(pool: PgPool) {
+    let ar = artist(&pool).await;
+    let a = album(&pool, ar, &[NotFound]).await;
+    assert!(acquisition::get_state(&pool, a).await.unwrap().is_none());
+    assert!(acquisition::finish_search(&pool, a, None)
+        .await
+        .unwrap()
+        .is_some());
+    let s = acquisition::get_state(&pool, a).await.unwrap().unwrap();
+    assert!(s.next_retry_at.is_some());
+    assert_eq!(s.attempts, 1);
+    assert_eq!(
+        acquisition::finish_search(&pool, a, None).await.unwrap(),
+        None,
+        "повторный вызов ничего не пишет"
+    );
+    assert_eq!(
+        acquisition::get_state(&pool, a)
+            .await
+            .unwrap()
+            .unwrap()
+            .attempts,
+        1
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn finish_search_without_started_search_ignores_found_albums(pool: PgPool) {
+    let ar = artist(&pool).await;
+    let a = album(&pool, ar, &[Found]).await;
+    assert_eq!(
+        acquisition::finish_search(&pool, a, None).await.unwrap(),
+        None
+    );
+    assert!(acquisition::get_state(&pool, a).await.unwrap().is_none());
+}
+
+async fn orphans(pool: &PgPool) -> u64 {
+    let mut tx = pool.begin().await.unwrap();
+    let n = acquisition::adopt_orphans(&mut tx, 100).await.unwrap();
+    tx.commit().await.unwrap();
+    n
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn adopt_orphans_schedules_albums_without_schedule(pool: PgPool) {
+    let ar = artist(&pool).await;
+    let no_row = album(&pool, ar, &[NotFound]).await;
+    let null_old = album(&pool, ar, &[Found, NotFound]).await;
+    sqlx::query(
+        "INSERT INTO album_search_state (album_id, last_finished_at) VALUES ($1, now() - interval '7 hours')",
+    )
+    .bind(null_old)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(orphans(&pool).await, 2);
+    for a in [no_row, null_old] {
+        let s = acquisition::get_state(&pool, a).await.unwrap().unwrap();
+        assert!(s.next_retry_at.unwrap() <= Utc::now());
+    }
+    assert_eq!(orphans(&pool).await, 0, "уже с расписанием");
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn adopt_orphans_skips_active_recent_and_found(pool: PgPool) {
+    let ar = artist(&pool).await;
+    let ar2 = artist(&pool).await;
+    let with_job = album(&pool, ar, &[NotFound]).await;
+    let by_artist_job = album(&pool, ar2, &[NotFound]).await;
+    let recent = album(&pool, ar, &[NotFound]).await;
+    let found = album(&pool, ar, &[Found, Ready]).await;
+    let searching = album(&pool, ar, &[Adding, NotFound]).await;
+    sqlx::query(
+        "INSERT INTO album_search_state (album_id, last_finished_at) VALUES ($1, now() - interval '1 hour')",
+    )
+    .bind(recent)
+    .execute(&pool)
+    .await
+    .unwrap();
+    for (kind, payload, key) in [
+        (
+            "discover_album",
+            json!({"album_id": with_job}),
+            format!("discover_album:{with_job}"),
+        ),
+        (
+            "discover_artist",
+            json!({"artist_id": ar2}),
+            format!("discover_artist:{ar2}"),
+        ),
+    ] {
+        sqlx::query("INSERT INTO jobs (kind, payload, dedup_key) VALUES ($1, $2, $3)")
+            .bind(kind)
+            .bind(payload)
+            .bind(key)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    // `recent`, `found`, `searching` и `with_job` (того же артиста, что и `recent`) не усыновляются,
+    // `by_artist_job` закрыт задачей артиста.
+    assert_eq!(orphans(&pool).await, 0);
+    for a in [with_job, by_artist_job, recent, found, searching] {
+        let s = acquisition::get_state(&pool, a).await.unwrap();
+        assert!(s.is_none_or(|s| s.next_retry_at.is_none()), "{a}");
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn schedule_missing_now_includes_downloading_with_not_found(pool: PgPool) {
+    let ar = artist(&pool).await;
+    let a = album(&pool, ar, &[Found, NotFound]).await;
+    let found = tracks::list_by_album(&pool, a).await.unwrap()[0].id;
+    attach_download(&pool, found, 2, false).await;
+    assert_eq!(states(&pool).await[&a], AcquisitionState::Downloading);
+    assert_eq!(acquisition::schedule_missing_now(&pool).await.unwrap(), 1);
+    let s = acquisition::get_state(&pool, a).await.unwrap().unwrap();
+    assert!(s.next_retry_at.is_some());
 }

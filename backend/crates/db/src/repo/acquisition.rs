@@ -18,6 +18,40 @@ macro_rules! reasons {
     };
 }
 
+/// Расписание повтора по числу неудачных поисков: `$ar` — выражение с `auto_retries`, `$out` — исход.
+/// Для `search_failed` пауза короче (не смогли спросить провайдеров, а не «ничего нет»); для `found` — `NULL`.
+macro_rules! retry_schedule {
+    ($out:expr, $ar:expr) => {
+        concat!(
+            "CASE WHEN ",
+            $out,
+            " = 'found' THEN NULL
+                WHEN ",
+            $out,
+            " = 'search_failed' THEN now() +
+                CASE ",
+            $ar,
+            " WHEN 0 THEN interval '10 minutes' WHEN 1 THEN interval '30 minutes'
+                              WHEN 2 THEN interval '2 hours' WHEN 3 THEN interval '6 hours'
+                              ELSE interval '1 day' END
+                ELSE now() +
+                CASE ",
+            $ar,
+            " WHEN 0 THEN interval '6 hours' WHEN 1 THEN interval '1 day'
+                              WHEN 2 THEN interval '3 days' WHEN 3 THEN interval '7 days'
+                              ELSE interval '30 days' END END"
+        )
+    };
+}
+
+/// Условие «альбому нужен повтор поиска» над таблицей `st`: есть `not_found`-трек и ничего не ищется.
+/// Не зависит от загрузок: альбом с докачкой найденных треков тоже должен искать недостающие.
+macro_rules! needs_retry {
+    ($st:literal) => {
+        concat!($st, ".not_found > 0 AND ", $st, ".adding = 0")
+    };
+}
+
 /// Таблица `st`: по строке на альбом с треками в библиотеке — счётчики статусов, прогресс активной
 /// загрузки и вычисленное `state`. Приоритет: searching > downloading > partial > missing >
 /// available > downloaded. «Активная загрузка» — строка `downloads` без `completed_at` у файла,
@@ -134,7 +168,10 @@ pub async fn record_search_results(
 /// 10 мин, 30 мин, 2 ч, 6 ч, далее сутки; для `found` — `NULL` и `auto_retries = 0`).
 ///
 /// Срабатывает ровно один раз на поиск: только если `last_started_at` позже `last_finished_at`.
-/// Вызывать в транзакции с блокировкой строки альбома. `None` — активного поиска не было.
+/// Если поиск не был начат (`last_started_at IS NULL` или строки нет — например, задача исчерпала
+/// попытки до `mark_search_started`), а у альбома есть `not_found`-треки и нет расписания, строка
+/// создаётся/дополняется тем же итогом, чтобы альбом не выпал из авто-повтора.
+/// Вызывать в транзакции с блокировкой строки альбома. `None` — писать было нечего.
 pub async fn finish_search(
     db: impl PgExecutor<'_>,
     album_id: i64,
@@ -144,37 +181,41 @@ pub async fn finish_search(
         "WITH c AS (
             SELECT count(*) AS total,
                    count(*) FILTER (WHERE status IN ('found','ready')) AS ok,
+                   count(*) FILTER (WHERE status = 'not_found') AS nf,
                    min(CASE status_reason
                          WHEN 'search_failed' THEN 1 WHEN 'no_torrents' THEN 2
                          WHEN 'dead_torrents' THEN 3 WHEN 'no_match' THEN 4 END)
                        FILTER (WHERE status = 'not_found') AS reason_rank
             FROM tracks WHERE album_id = $1 AND in_library
          ), o AS (
-            SELECT CASE WHEN total > 0 AND ok = total THEN 'found'
+            SELECT c.nf, CASE WHEN total > 0 AND ok = total THEN 'found'
                         WHEN ok > 0 THEN 'partial'
                         ELSE COALESCE((",
         reasons!(),
         ")[reason_rank], $2, 'no_match') END AS outcome
             FROM c
          )
-         UPDATE album_search_state s SET
+         INSERT INTO album_search_state AS s
+                (album_id, attempts, last_finished_at, last_outcome, next_retry_at, auto_retries)
+         SELECT $1, 1, now(), o.outcome, ",
+        retry_schedule!("o.outcome", "0"),
+        ", 0
+         FROM o
+         WHERE (o.nf > 0 AND o.outcome <> 'found')
+            OR EXISTS (SELECT 1 FROM album_search_state x
+                       WHERE x.album_id = $1 AND x.last_started_at IS NOT NULL)
+         ON CONFLICT (album_id) DO UPDATE SET
             attempts = s.attempts + 1,
             last_finished_at = now(),
-            last_outcome = o.outcome,
-            next_retry_at = CASE WHEN o.outcome = 'found' THEN NULL
-                WHEN o.outcome = 'search_failed' THEN now() +
-                CASE s.auto_retries WHEN 0 THEN interval '10 minutes' WHEN 1 THEN interval '30 minutes'
-                                    WHEN 2 THEN interval '2 hours' WHEN 3 THEN interval '6 hours'
-                                    ELSE interval '1 day' END
-                ELSE now() +
-                CASE s.auto_retries WHEN 0 THEN interval '6 hours' WHEN 1 THEN interval '1 day'
-                                    WHEN 2 THEN interval '3 days' WHEN 3 THEN interval '7 days'
-                                    ELSE interval '30 days' END END,
-            auto_retries = CASE WHEN o.outcome = 'found' THEN 0 ELSE s.auto_retries END
-         FROM o
-         WHERE s.album_id = $1
-           AND s.last_started_at IS NOT NULL
-           AND s.last_started_at > COALESCE(s.last_finished_at, '-infinity'::timestamptz)
+            last_outcome = EXCLUDED.last_outcome,
+            next_retry_at = ",
+        retry_schedule!("EXCLUDED.last_outcome", "s.auto_retries"),
+        ",
+            auto_retries = CASE WHEN EXCLUDED.last_outcome = 'found' THEN 0 ELSE s.auto_retries END
+         WHERE (s.last_started_at IS NOT NULL
+                AND s.last_started_at > COALESCE(s.last_finished_at, '-infinity'::timestamptz))
+            OR (s.last_started_at IS NULL AND s.next_retry_at IS NULL
+                AND EXCLUDED.last_outcome <> 'found')
          RETURNING s.last_outcome"
     ))
     .bind(album_id)
@@ -196,13 +237,16 @@ pub async fn reset_auto_retries(db: impl PgExecutor<'_>, album_id: i64) -> sqlx:
     Ok(())
 }
 
-/// Всем альбомам `missing`/`partial` назначает авто-повтор «сейчас» (сменились провайдеры).
+/// Всем альбомам, которым нужен повтор (есть `not_found`-треки, ничего не ищется — в том числе
+/// `downloading`), назначает авто-повтор «сейчас» (сменились провайдеры).
 /// Возвращает число затронутых альбомов.
 pub async fn schedule_missing_now(db: impl PgExecutor<'_>) -> sqlx::Result<u64> {
     Ok(sqlx::query(concat!(
         state_cte!(),
         " INSERT INTO album_search_state (album_id, next_retry_at)
-          SELECT album_id, now() FROM st WHERE state IN ('missing', 'partial')
+          SELECT album_id, now() FROM st WHERE ",
+        needs_retry!("st"),
+        "
           ON CONFLICT (album_id) DO UPDATE SET next_retry_at = now()"
     ))
     .execute(db)
@@ -210,10 +254,12 @@ pub async fn schedule_missing_now(db: impl PgExecutor<'_>) -> sqlx::Result<u64> 
     .rows_affected())
 }
 
-/// Берёт до `limit` альбомов `missing`/`partial` с наступившим `next_retry_at` для авто-повтора:
+/// Берёт до `limit` альбомов, которым нужен повтор (есть `not_found`-треки и ничего не ищется,
+/// независимо от загрузок), с наступившим `next_retry_at` для авто-повтора:
 /// `auto_retries += 1`, `next_retry_at = NULL` (переустановит завершение поиска). Параллельные
-/// вызовы не пересекаются (`SKIP LOCKED`). Просроченные записи альбомов в других состояниях
-/// (уже найдены, ищутся) просто сбрасываются. Вызывать в транзакции вместе с постановкой поиска:
+/// вызовы не пересекаются (`SKIP LOCKED`). Просроченные записи полностью найденных альбомов (и
+/// вышедших из библиотеки) просто сбрасываются; у ищущихся (`adding > 0`) расписание не трогается —
+/// его перезапишет `finish_search`. Вызывать в транзакции вместе с постановкой поиска:
 /// иначе сбой между ними навсегда снимет альбом с авто-повтора.
 pub async fn take_due(tx: &mut PgConnection, limit: i64) -> sqlx::Result<Vec<i64>> {
     sqlx::query(concat!(
@@ -221,7 +267,7 @@ pub async fn take_due(tx: &mut PgConnection, limit: i64) -> sqlx::Result<Vec<i64
         " UPDATE album_search_state s SET next_retry_at = NULL
           WHERE s.next_retry_at <= now()
             AND NOT EXISTS (SELECT 1 FROM st WHERE st.album_id = s.album_id
-                            AND st.state IN ('missing', 'partial'))"
+                            AND (st.not_found > 0 OR st.adding > 0))"
     ))
     .execute(&mut *tx)
     .await?;
@@ -229,7 +275,9 @@ pub async fn take_due(tx: &mut PgConnection, limit: i64) -> sqlx::Result<Vec<i64
         state_cte!(),
         " , due AS (
             SELECT s.album_id FROM album_search_state s
-              JOIN st ON st.album_id = s.album_id AND st.state IN ('missing', 'partial')
+              JOIN st ON st.album_id = s.album_id AND ",
+        needs_retry!("st"),
+        "
             WHERE s.next_retry_at <= now()
             ORDER BY s.next_retry_at, s.album_id
             LIMIT $1
@@ -243,6 +291,40 @@ pub async fn take_due(tx: &mut PgConnection, limit: i64) -> sqlx::Result<Vec<i64
     .bind(limit)
     .fetch_all(&mut *tx)
     .await
+}
+
+/// Страховка: альбомам, которым нужен повтор, но у которых нет расписания (`next_retry_at IS NULL`
+/// или нет строки состояния), нет активной задачи поиска (`discover_album:{id}` / `discover_artist:{artist}`)
+/// и последний поиск закончился больше 6 часов назад, ставит `next_retry_at = now()`. Закрывает дыры,
+/// через которые расписание могло потеряться. Возвращает число усыновлённых альбомов (это признак дыры).
+/// Вызывать в той же транзакции, что и [`take_due`], перед ним.
+pub async fn adopt_orphans(tx: &mut PgConnection, limit: i64) -> sqlx::Result<u64> {
+    Ok(sqlx::query(concat!(
+        state_cte!(),
+        " , orphans AS (
+            SELECT st.album_id FROM st
+              JOIN albums a ON a.id = st.album_id
+              LEFT JOIN album_search_state s ON s.album_id = st.album_id
+            WHERE ",
+        needs_retry!("st"),
+        "
+              AND s.next_retry_at IS NULL
+              AND COALESCE(s.last_finished_at, '-infinity'::timestamptz) < now() - interval '6 hours'
+              AND NOT EXISTS (SELECT 1 FROM jobs j
+                              WHERE j.state IN ('queued','running')
+                                AND j.dedup_key IN ('discover_album:' || st.album_id,
+                                                    'discover_artist:' || a.artist_id))
+            ORDER BY st.album_id
+            LIMIT $1
+          )
+          INSERT INTO album_search_state (album_id, next_retry_at)
+          SELECT album_id, now() FROM orphans
+          ON CONFLICT (album_id) DO UPDATE SET next_retry_at = now()"
+    ))
+    .bind(limit)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected())
 }
 
 // ------------------------------------------------------------------ выборки
