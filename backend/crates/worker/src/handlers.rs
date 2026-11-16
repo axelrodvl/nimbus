@@ -61,7 +61,13 @@ impl JobHandler for ImportArtistHandler {
     }
 
     /// Импорт окончательно провален: UI должен увидеть новый статус артиста.
-    async fn on_exhausted(&self, job: &Job, ctx: &JobCtx, _reason: &str) -> Result<(), JobError> {
+    async fn on_exhausted(
+        &self,
+        job: &Job,
+        ctx: &JobCtx,
+        _reason: &str,
+        _fatal: bool,
+    ) -> Result<(), JobError> {
         if let Job::ImportArtist { artist_id } = job {
             publish_artist_changed(ctx, *artist_id);
         }

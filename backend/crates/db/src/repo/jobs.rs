@@ -38,6 +38,9 @@ impl JobRow {
     }
 }
 
+/// Сколько попыток у `process_cue` (около полутора часов с лестницей пауз).
+pub const PROCESS_CUE_ATTEMPTS: i32 = 8;
+
 /// Параметры постановки задачи в очередь.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EnqueueOpts {
@@ -54,6 +57,16 @@ impl EnqueueOpts {
     pub fn priority(priority: i16) -> Self {
         Self {
             priority,
+            ..Self::default()
+        }
+    }
+
+    /// Опции `process_cue`: раздающий может быть офлайн долго, поэтому попыток больше, чем у остальных
+    /// (с растущей паузой — см. `nimbus_worker::cue::retry_delay`).
+    pub fn process_cue(priority: i16) -> Self {
+        Self {
+            priority,
+            max_attempts: Some(PROCESS_CUE_ATTEMPTS),
             ..Self::default()
         }
     }

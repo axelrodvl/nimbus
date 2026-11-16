@@ -1089,3 +1089,49 @@ async fn timeout_does_not_downgrade_ok(pool: PgPool) {
         );
     }
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn cue_candidates_mark_failed_and_reset_failed(pool: PgPool) {
+    use nimbus_db::repo::cue_candidates;
+    let (_, album) = seed_album(&pool).await;
+    let t = torrents::upsert_by_info_hash(&pool, &new_torrent(&"ab".repeat(20)))
+        .await
+        .unwrap();
+    for idx in [1, 3, 5] {
+        cue_candidates::upsert(&pool, t.id, album.id, idx, 0)
+            .await
+            .unwrap();
+    }
+    cue_candidates::mark_failed(&pool, t.id, album.id, 1)
+        .await
+        .unwrap();
+    cue_candidates::mark_processed(&pool, t.id, album.id, 3)
+        .await
+        .unwrap();
+    let rows = cue_candidates::list_for_album(&pool, album.id)
+        .await
+        .unwrap();
+    let flags: Vec<_> = rows.iter().map(|c| (c.processed, c.failed)).collect();
+    assert_eq!(flags, [(true, true), (true, false), (false, false)]);
+    assert_eq!(
+        cue_candidates::count_pending(&pool, album.id)
+            .await
+            .unwrap(),
+        1
+    );
+
+    // Сброс возвращает только неудавшихся; окончательно разобранный не трогается.
+    assert_eq!(
+        cue_candidates::reset_failed(&pool, album.id).await.unwrap(),
+        vec![(t.id, 1)]
+    );
+    let rows = cue_candidates::list_for_album(&pool, album.id)
+        .await
+        .unwrap();
+    let flags: Vec<_> = rows.iter().map(|c| (c.processed, c.failed)).collect();
+    assert_eq!(flags, [(false, false), (true, false), (false, false)]);
+    assert!(cue_candidates::reset_failed(&pool, album.id)
+        .await
+        .unwrap()
+        .is_empty());
+}

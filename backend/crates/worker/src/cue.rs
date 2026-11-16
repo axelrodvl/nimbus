@@ -17,7 +17,15 @@ use crate::verify::finalize_album;
 /// Сколько ждём скачивания CUE-файла (он весит килобайты).
 pub const CUE_FETCH_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL: Duration = Duration::from_millis(200);
-const RETRY_AFTER: Duration = Duration::from_secs(60);
+/// Паузы между попытками по номеру попытки (с 1): 1, 2, 5, 10, 20, 30, 30 мин — раздающий может быть
+/// офлайн долго; после последней (`PROCESS_CUE_ATTEMPTS = 8`) кандидат помечается неудавшимся.
+const RETRY_LADDER_MIN: [u64; 7] = [1, 2, 5, 10, 20, 30, 30];
+
+/// Пауза перед повтором после неудачной попытки `attempt` (нумерация с 1; дальше — последняя ступень).
+pub fn retry_delay(attempt: i32) -> Duration {
+    let i = (attempt.max(1) as usize - 1).min(RETRY_LADDER_MIN.len() - 1);
+    Duration::from_secs(RETRY_LADDER_MIN[i] * 60)
+}
 /// Оценка совпадения для треков, привязанных по CUE.
 const CUE_SCORE: f32 = 0.9;
 
@@ -42,8 +50,16 @@ impl JobHandler for ProcessCueHandler {
     }
 
     /// Кандидат не должен блокировать финализацию альбома вечно: при исчерпании попыток или
-    /// фатальной ошибке помечаем его разобранным и финализируем альбом.
-    async fn on_exhausted(&self, job: &Job, ctx: &JobCtx, _reason: &str) -> Result<(), JobError> {
+    /// фатальной ошибке помечаем его разобранным и финализируем альбом. Окончательно («битый CUE»)
+    /// — только при `fatal`; исчерпание на временных ошибках оставляет метку `failed`: повтор
+    /// альбома разберёт образ ещё раз.
+    async fn on_exhausted(
+        &self,
+        job: &Job,
+        ctx: &JobCtx,
+        _reason: &str,
+        fatal: bool,
+    ) -> Result<(), JobError> {
         let Job::ProcessCue {
             torrent_id,
             album_id,
@@ -52,7 +68,12 @@ impl JobHandler for ProcessCueHandler {
         else {
             return Ok(());
         };
-        cue_candidates::mark_processed(&ctx.db, *torrent_id, *album_id, *cue_file_index).await?;
+        if fatal {
+            cue_candidates::mark_processed(&ctx.db, *torrent_id, *album_id, *cue_file_index)
+                .await?;
+        } else {
+            cue_candidates::mark_failed(&ctx.db, *torrent_id, *album_id, *cue_file_index).await?;
+        }
         finalize_album(ctx, *album_id).await
     }
 }
@@ -62,17 +83,23 @@ async fn fetch_cue(
     ctx: &JobCtx,
     torrent: &Torrent,
     cue_file_index: usize,
+    attempt: i32,
 ) -> Result<Vec<u8>, JobError> {
+    let retry = |reason: String| JobError::Retry {
+        after: retry_delay(attempt),
+        reason,
+    };
     let files = ctx.files()?;
     let tref = crate::torrent_file::torrent_ref(&ctx.db, torrent).await?;
     let handle = ctx
         .run(files.ensure_file(&tref, cue_file_index))
         .await?
         .map_err(|e| match e {
-            EngineError::MetadataTimeout => JobError::Retry {
-                after: RETRY_AFTER,
-                reason: "torrent metadata timeout".into(),
-            },
+            EngineError::MetadataTimeout => retry("torrent metadata timeout".into()),
+            // Диск, ввод-вывод и внутренние сбои движка проходят сами — ждём по той же лестнице.
+            EngineError::Io(_) | EngineError::Storage(_) | EngineError::Internal(_) => {
+                retry(e.to_string())
+            }
             other => JobError::Unexpected(other.to_string()),
         })?;
     crate::torrent_file::remember_engine_file(&ctx.db, files.as_ref(), &handle, torrent).await;
@@ -92,10 +119,7 @@ async fn fetch_cue(
         .await?
         .is_err()
     {
-        return Err(JobError::Retry {
-            after: RETRY_AFTER,
-            reason: "cue file download timeout".into(),
-        });
+        return Err(retry("cue file download timeout".into()));
     }
     let path = files
         .file_path(&handle, cue_file_index)
@@ -135,7 +159,7 @@ pub async fn process_cue(
         .ok_or_else(|| JobError::Fatal(format!("artist {} not found", album.artist_id)))?;
     let files = torrents::files(&ctx.db, torrent_id).await?;
 
-    let bytes = fetch_cue(ctx, &torrent, cue_file_index as usize).await?;
+    let bytes = fetch_cue(ctx, &torrent, cue_file_index as usize, ctx.attempt).await?;
     let sheet = match parse_cue(&bytes) {
         Ok(s) => s,
         Err(e) => {

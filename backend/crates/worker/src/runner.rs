@@ -186,7 +186,15 @@ pub trait JobHandler: Send + Sync {
 
     /// Вызывается один раз, когда задача окончательно стала `failed`. Должен привести данные
     /// в согласованное состояние (ничего не должно навсегда остаться «в процессе»).
-    async fn on_exhausted(&self, _job: &Job, _ctx: &JobCtx, _reason: &str) -> Result<(), JobError> {
+    /// `fatal` — причина окончательная (`JobError::Fatal`), а не исчерпание попыток на временных
+    /// ошибках, потере воркера или откладываниях: во втором случае повтор позже может помочь.
+    async fn on_exhausted(
+        &self,
+        _job: &Job,
+        _ctx: &JobCtx,
+        _reason: &str,
+        _fatal: bool,
+    ) -> Result<(), JobError> {
         Ok(())
     }
 }
@@ -687,7 +695,7 @@ async fn exhausted(handlers: &HandlerMap, ctx: &JobCtx, row: &JobRow, reason: &s
         return;
     };
     let Ok(job) = row.job() else { return };
-    run_exhausted(handler, &job, ctx, row.id, reason).await;
+    run_exhausted(handler, &job, ctx, row.id, reason, false).await;
 }
 
 /// Сколько раз пробуем хук исчерпания, прежде чем сдаться, и пауза между попытками.
@@ -702,6 +710,7 @@ async fn run_exhausted(
     ctx: &JobCtx,
     job_id: i64,
     reason: &str,
+    fatal: bool,
 ) {
     for attempt in 1..=EXHAUSTED_TRIES {
         let (h, j, c, r) = (
@@ -711,9 +720,9 @@ async fn run_exhausted(
             reason.to_string(),
         );
         // Отдельная задача: паника хука — такая же ошибка хука, цикл воркера она не роняет.
-        let mut task = AbortOnDrop(tokio::spawn(
-            async move { h.on_exhausted(&j, &c, &r).await },
-        ));
+        let mut task = AbortOnDrop(tokio::spawn(async move {
+            h.on_exhausted(&j, &c, &r, fatal).await
+        }));
         match (&mut task.0).await {
             Ok(Ok(())) => return,
             Ok(Err(e)) => {
@@ -867,6 +876,7 @@ async fn process(
     heartbeat.0.abort();
     let _ = (&mut heartbeat.0).await;
 
+    let fatal = matches!(result, Ok(Err(JobError::Fatal(_))));
     let (reason, delay) = match result {
         Ok(Ok(())) => {
             match jobs::complete(&ctx.db, row.id, worker_id).await {
@@ -894,7 +904,7 @@ async fn process(
             tracing::info!(job_id = row.id, kind = %row.kind, %reason, ?after, "job deferred");
             match jobs::defer(&ctx.db, row.id, worker_id, &reason, retry_at, DEFER_MAX_AGE).await {
                 Ok(Some(updated)) if updated.state == "failed" => {
-                    run_exhausted(handler, &job, ctx, row.id, &reason).await;
+                    run_exhausted(handler, &job, ctx, row.id, &reason, false).await;
                 }
                 Ok(Some(_)) => run_on_retry(handler, &job, ctx, &reason).await,
                 Ok(None) => log_taken_over(row, worker_id),
@@ -914,7 +924,7 @@ async fn process(
     tracing::warn!(job_id = row.id, kind = %row.kind, attempts = row.attempts, %reason, retry = retry_at.is_some(), "job failed");
     match jobs::fail(&ctx.db, row.id, worker_id, &reason, retry_at).await {
         Ok(Some(updated)) if updated.state == "failed" => {
-            run_exhausted(handler, &job, ctx, row.id, &reason).await;
+            run_exhausted(handler, &job, ctx, row.id, &reason, fatal).await;
         }
         Ok(Some(_)) => run_on_retry(handler, &job, ctx, &reason).await,
         Ok(None) => log_taken_over(row, worker_id),

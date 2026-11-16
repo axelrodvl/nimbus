@@ -715,6 +715,7 @@ async fn exhausted_verify_marks_torrent_verified_and_tracks_not_found(pool: PgPo
             },
             &ctx,
             "db down",
+            false,
         )
         .await
         .unwrap();
@@ -748,6 +749,7 @@ async fn exhausted_verify_keeps_successful_metadata_status(pool: PgPool) {
             },
             &ctx,
             "boom",
+            false,
         )
         .await
         .unwrap();
@@ -1133,6 +1135,7 @@ async fn dead_torrents_outcome_and_exhausted_verify_finish_the_search(pool: PgPo
             },
             &ctx,
             "metadata timeout",
+            false,
         )
         .await
         .unwrap();

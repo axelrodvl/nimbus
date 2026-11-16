@@ -5,7 +5,7 @@ use nimbus_core::events::{Event, EventBus};
 use nimbus_core::jobs::Job;
 use nimbus_core::model::{Track, TrackStatus};
 use nimbus_db::repo::jobs::{self, EnqueueOpts};
-use nimbus_db::repo::{acquisition, album_torrents, tracks};
+use nimbus_db::repo::{acquisition, album_torrents, cue_candidates, tracks};
 use sqlx::{PgConnection, PgPool};
 
 /// Параметры повтора.
@@ -49,6 +49,23 @@ pub async fn retry_album_in(
         album_torrents::reset_dead(&mut *conn, album_id).await?;
     } else {
         album_torrents::reset_verified_timeouts(&mut *conn, album_id).await?;
+    }
+    if opts.reset_dead {
+        // CUE-образы, разбор которых сорвался по временной причине, получают новую попытку.
+        for (torrent_id, cue_file_index) in
+            cue_candidates::reset_failed(&mut *conn, album_id).await?
+        {
+            jobs::enqueue(
+                &mut *conn,
+                &Job::ProcessCue {
+                    torrent_id,
+                    album_id,
+                    cue_file_index,
+                },
+                EnqueueOpts::process_cue(opts.priority),
+            )
+            .await?;
+        }
     }
     if opts.manual {
         acquisition::reset_auto_retries(&mut *conn, album_id).await?;

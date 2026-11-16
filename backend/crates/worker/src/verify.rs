@@ -56,7 +56,13 @@ impl JobHandler for VerifyHandler {
     /// Раздача так и не проверена: помечаем проверенной (иначе альбом навсегда ждал бы её),
     /// а если метаданные не получены — раздача `error`; затем альбом финализируется
     /// (оставшиеся `adding` → `not_found`).
-    async fn on_exhausted(&self, job: &Job, ctx: &JobCtx, reason: &str) -> Result<(), JobError> {
+    async fn on_exhausted(
+        &self,
+        job: &Job,
+        ctx: &JobCtx,
+        reason: &str,
+        _fatal: bool,
+    ) -> Result<(), JobError> {
         let Job::VerifyTorrent {
             torrent_id,
             album_id,
@@ -310,7 +316,7 @@ pub async fn verify_torrent(ctx: &JobCtx, torrent_id: i64, album_id: i64) -> Res
                     album_id,
                     cue_file_index: c.cue_file_index as i32,
                 },
-                EnqueueOpts::priority(ctx.priority),
+                EnqueueOpts::process_cue(ctx.priority),
             )
             .await?;
             tx.commit().await?;
@@ -410,7 +416,7 @@ async fn requeue_lost_jobs(ctx: &JobCtx, album_id: i64) -> Result<usize, JobErro
             cue_file_index,
         };
         n += usize::from(
-            jobs::enqueue(&ctx.db, &job, EnqueueOpts::priority(PRIORITY_NORMAL))
+            jobs::enqueue(&ctx.db, &job, EnqueueOpts::process_cue(PRIORITY_NORMAL))
                 .await?
                 .is_some(),
         );

@@ -229,6 +229,8 @@ struct Probe {
     retried: AtomicU32,
     /// Сколько ближайших вызовов `on_exhausted` должны упасть с ошибкой.
     hook_failures: AtomicU32,
+    /// Значения `fatal`, с которыми вызывался `on_exhausted`.
+    fatal_seen: std::sync::Mutex<Vec<bool>>,
 }
 
 impl Probe {
@@ -239,6 +241,7 @@ impl Probe {
             exhausted: AtomicU32::new(0),
             retried: AtomicU32::new(0),
             hook_failures: AtomicU32::new(0),
+            fatal_seen: Default::default(),
         })
     }
     fn retried(&self) -> u32 {
@@ -281,7 +284,13 @@ impl JobHandler for Probe {
     async fn on_retry(&self, _job: &Job, _ctx: &JobCtx, _reason: &str) {
         self.retried.fetch_add(1, Ordering::SeqCst);
     }
-    async fn on_exhausted(&self, _job: &Job, _ctx: &JobCtx, _reason: &str) -> Result<(), JobError> {
+    async fn on_exhausted(
+        &self,
+        _job: &Job,
+        _ctx: &JobCtx,
+        _reason: &str,
+        fatal: bool,
+    ) -> Result<(), JobError> {
         if self
             .hook_failures
             .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
@@ -289,6 +298,7 @@ impl JobHandler for Probe {
         {
             return Err(JobError::Unexpected("hook db error".into()));
         }
+        self.fatal_seen.lock().unwrap().push(fatal);
         self.exhausted.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -437,6 +447,11 @@ async fn on_exhausted_is_called_once_when_attempts_run_out(pool: PgPool) {
     tokio::time::sleep(Duration::from_millis(300)).await; // убедиться, что повторов хука нет
     assert_eq!((probe.calls(), probe.exhausted()), (2, 1));
     assert_eq!(
+        *probe.fatal_seen.lock().unwrap(),
+        [false],
+        "исчерпание попыток не фатально"
+    );
+    assert_eq!(
         probe.retried(),
         1,
         "on_retry — только для запланированного повтора"
@@ -464,6 +479,7 @@ async fn on_exhausted_is_called_for_fatal_errors(pool: PgPool) {
     wait_state(&pool, id, "failed").await;
     nimbus_testkit::eventually(Duration::from_secs(5), || async { probe.exhausted() == 1 }).await;
     assert_eq!(probe.calls(), 1);
+    assert_eq!(*probe.fatal_seen.lock().unwrap(), [true]);
     w.shutdown().await;
 }
 
@@ -501,7 +517,7 @@ impl JobHandler for FlakyWithHook {
     async fn handle(&self, job: Job, ctx: &JobCtx) -> Result<(), JobError> {
         self.inner.handle(job, ctx).await
     }
-    async fn on_exhausted(&self, _: &Job, _: &JobCtx, _: &str) -> Result<(), JobError> {
+    async fn on_exhausted(&self, _: &Job, _: &JobCtx, _: &str, _: bool) -> Result<(), JobError> {
         self.exhausted.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -598,7 +614,7 @@ async fn exhausted_import_publishes_artist_changed(pool: PgPool) {
     let c = ctx(&pool);
     let mut rx = c.events.subscribe();
     nimbus_worker::handlers::ImportArtistHandler
-        .on_exhausted(&Job::ImportArtist { artist_id: 7 }, &c, "mb down")
+        .on_exhausted(&Job::ImportArtist { artist_id: 7 }, &c, "mb down", false)
         .await
         .unwrap();
     assert_eq!(
@@ -754,7 +770,13 @@ impl JobHandler for PanickyHooks {
     async fn on_retry(&self, _job: &Job, _ctx: &JobCtx, _reason: &str) {
         panic!("on_retry boom");
     }
-    async fn on_exhausted(&self, _job: &Job, _ctx: &JobCtx, _reason: &str) -> Result<(), JobError> {
+    async fn on_exhausted(
+        &self,
+        _job: &Job,
+        _ctx: &JobCtx,
+        _reason: &str,
+        _fatal: bool,
+    ) -> Result<(), JobError> {
         panic!("on_exhausted boom");
     }
 }
@@ -896,7 +918,13 @@ impl JobHandler for Hangs {
     async fn on_retry(&self, _job: &Job, _ctx: &JobCtx, _reason: &str) {
         self.hooks.fetch_add(1, Ordering::SeqCst);
     }
-    async fn on_exhausted(&self, _job: &Job, _ctx: &JobCtx, _reason: &str) -> Result<(), JobError> {
+    async fn on_exhausted(
+        &self,
+        _job: &Job,
+        _ctx: &JobCtx,
+        _reason: &str,
+        _fatal: bool,
+    ) -> Result<(), JobError> {
         self.hooks.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }

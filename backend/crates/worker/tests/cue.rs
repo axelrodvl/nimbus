@@ -40,6 +40,7 @@ impl FileProvider for Fake {
         match self.fail {
             "metadata_timeout" => return Err(EngineError::MetadataTimeout),
             "storage" => return Err(EngineError::Storage("disk full".into())),
+            "io" => return Err(EngineError::Io(std::io::Error::other("reset by peer"))),
             _ => {}
         }
         Ok(TorrentHandleId(
@@ -302,7 +303,7 @@ async fn unusable_cue_is_fatal_and_does_not_block_the_album(pool: PgPool) {
     let ctx = ctx(&pool, b"this is not a cue sheet");
     let err = ProcessCueHandler.handle(job(&w), &ctx).await.unwrap_err();
     assert!(matches!(err, JobError::Fatal(_)));
-    // Раннер при `Fatal` вызывает хук исчерпания: кандидат закрывается, альбом финализируется.
+    // Раннер при `Fatal` вызывает хук исчерпания (`fatal = true`): кандидат закрывается, альбом финализируется.
     assert_eq!(
         cue_candidates::count_pending(&pool, w.album_id)
             .await
@@ -311,7 +312,7 @@ async fn unusable_cue_is_fatal_and_does_not_block_the_album(pool: PgPool) {
         "до хука кандидат ещё ждёт"
     );
     ProcessCueHandler
-        .on_exhausted(&job(&w), &ctx, &err.to_string())
+        .on_exhausted(&job(&w), &ctx, &err.to_string(), true)
         .await
         .unwrap();
     assert_eq!(
@@ -326,6 +327,141 @@ async fn unusable_cue_is_fatal_and_does_not_block_the_album(pool: PgPool) {
             TrackStatus::NotFound
         );
     }
+    let c = &cue_candidates::list_for_album(&pool, w.album_id)
+        .await
+        .unwrap()[0];
+    assert!(c.processed && !c.failed, "битый CUE — окончательно");
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn cue_timeout_exhaustion_marks_failed_not_final(pool: PgPool) {
+    let w = world(&pool).await;
+    let ctx = failing_ctx(&pool, "metadata_timeout");
+    let err = ProcessCueHandler.handle(job(&w), &ctx).await.unwrap_err();
+    assert!(matches!(err, JobError::Retry { .. }));
+    // Попытки кончились на временной ошибке (`fatal = false`).
+    ProcessCueHandler
+        .on_exhausted(&job(&w), &ctx, &err.to_string(), false)
+        .await
+        .unwrap();
+    let c = &cue_candidates::list_for_album(&pool, w.album_id)
+        .await
+        .unwrap()[0];
+    assert!(c.processed && c.failed);
+    for &tid in &w.track_ids {
+        assert_eq!(
+            tracks::get(&pool, tid).await.unwrap().unwrap().status,
+            TrackStatus::NotFound,
+            "альбом не висит в adding"
+        );
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn engine_io_error_is_retried(pool: PgPool) {
+    let w = world(&pool).await;
+    let err = ProcessCueHandler
+        .handle(job(&w), &failing_ctx(&pool, "io"))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, JobError::Retry { reason, .. } if reason.contains("reset by peer")));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn retry_delays_grow(pool: PgPool) {
+    use nimbus_worker::cue::retry_delay;
+    let mins: Vec<u64> = (1..=9).map(|a| retry_delay(a).as_secs() / 60).collect();
+    assert_eq!(mins, [1, 2, 5, 10, 20, 30, 30, 30, 30]);
+    // Пауза в самой задаче следует номеру попытки.
+    let w = world(&pool).await;
+    let mut ctx = failing_ctx(&pool, "metadata_timeout");
+    ctx.attempt = 3;
+    match ProcessCueHandler.handle(job(&w), &ctx).await.unwrap_err() {
+        JobError::Retry { after, .. } => assert_eq!(after, retry_delay(3)),
+        e => panic!("{e:?}"),
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn auto_retry_reprocesses_failed_cue(pool: PgPool) {
+    use nimbus_worker::acquisition::RetryMissingHandler;
+    let w = world(&pool).await;
+    let bad = failing_ctx(&pool, "metadata_timeout");
+    let err = ProcessCueHandler.handle(job(&w), &bad).await.unwrap_err();
+    ProcessCueHandler
+        .on_exhausted(&job(&w), &bad, &err.to_string(), false)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO album_search_state (album_id, next_retry_at) VALUES ($1, now() - interval '1 minute')
+         ON CONFLICT (album_id) DO UPDATE SET next_retry_at = now() - interval '1 minute'",
+    )
+    .bind(w.album_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    RetryMissingHandler
+        .handle(Job::RetryMissing, &bad)
+        .await
+        .unwrap();
+    let c = &cue_candidates::list_for_album(&pool, w.album_id)
+        .await
+        .unwrap()[0];
+    assert!(!c.processed && !c.failed, "кандидат возвращён в работу");
+    let queued = nimbus_db::repo::jobs::list(&pool, Some("queued"), 50)
+        .await
+        .unwrap();
+    let cue_job = queued.iter().find(|j| j.kind == "process_cue").unwrap();
+    assert_eq!(cue_job.max_attempts, 8);
+
+    // Раздающий вернулся: задача разбирает образ, треки находятся с источниками по CUE.
+    let good = ctx(&pool, CUE.as_bytes());
+    ProcessCueHandler.handle(job(&w), &good).await.unwrap();
+    for &tid in &w.track_ids {
+        assert_eq!(
+            tracks::get(&pool, tid).await.unwrap().unwrap().status,
+            TrackStatus::Found
+        );
+        assert!(track_sources::primary_for_track(&pool, tid)
+            .await
+            .unwrap()
+            .unwrap()
+            .cue_start_ms
+            .is_some());
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn auto_retry_does_not_touch_final_cue(pool: PgPool) {
+    use nimbus_worker::acquisition::RetryMissingHandler;
+    let w = world(&pool).await;
+    let ctx = ctx(&pool, b"this is not a cue sheet");
+    let err = ProcessCueHandler.handle(job(&w), &ctx).await.unwrap_err();
+    ProcessCueHandler
+        .on_exhausted(&job(&w), &ctx, &err.to_string(), true)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO album_search_state (album_id, next_retry_at) VALUES ($1, now() - interval '1 minute')
+         ON CONFLICT (album_id) DO UPDATE SET next_retry_at = now() - interval '1 minute'",
+    )
+    .bind(w.album_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    RetryMissingHandler
+        .handle(Job::RetryMissing, &ctx)
+        .await
+        .unwrap();
+    let c = &cue_candidates::list_for_album(&pool, w.album_id)
+        .await
+        .unwrap()[0];
+    assert!(c.processed && !c.failed);
+    let queued = nimbus_db::repo::jobs::list(&pool, Some("queued"), 50)
+        .await
+        .unwrap();
+    assert!(!queued.iter().any(|j| j.kind == "process_cue"));
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
@@ -402,7 +538,7 @@ async fn engine_failures_while_fetching_the_cue_map_to_job_errors(pool: PgPool) 
         ("metadata_timeout", |e| matches!(e, JobError::Retry { .. })),
         (
             "storage",
-            |e| matches!(e, JobError::Unexpected(m) if m.contains("disk full")),
+            |e| matches!(e, JobError::Retry { reason, .. } if reason.contains("disk full")),
         ),
         (
             "no_path",

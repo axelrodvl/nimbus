@@ -64,7 +64,13 @@ impl JobHandler for DiscoverHandler {
     /// Поиск окончательно не удался. Альбом: если нет ни одной раздачи — его треки
     /// `adding → not_found` (`search_failed`), иначе он финализируется по найденному.
     /// Артист: его альбомы финализируются (их финализация ждала окончания этой задачи).
-    async fn on_exhausted(&self, job: &Job, ctx: &JobCtx, _reason: &str) -> Result<(), JobError> {
+    async fn on_exhausted(
+        &self,
+        job: &Job,
+        ctx: &JobCtx,
+        _reason: &str,
+        _fatal: bool,
+    ) -> Result<(), JobError> {
         let album_id = match job {
             Job::DiscoverAlbum { album_id } => album_id,
             Job::DiscoverArtist { artist_id } => {

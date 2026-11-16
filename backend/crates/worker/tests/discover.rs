@@ -643,7 +643,12 @@ async fn exhausted_discover_without_torrents_marks_search_failed(pool: PgPool) {
     assert!(matches!(err, JobError::Retry { .. }), "{err:?}");
 
     DiscoverHandler
-        .on_exhausted(&Job::DiscoverAlbum { album_id }, &ctx, "providers down")
+        .on_exhausted(
+            &Job::DiscoverAlbum { album_id },
+            &ctx,
+            "providers down",
+            false,
+        )
         .await
         .unwrap();
     for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
@@ -686,7 +691,7 @@ async fn exhausted_discover_with_linked_torrent_finalizes_instead(pool: PgPool) 
         .unwrap();
     let (ctx, _) = ctx(&pool, None, 5, 5);
     DiscoverHandler
-        .on_exhausted(&Job::DiscoverAlbum { album_id }, &ctx, "boom")
+        .on_exhausted(&Job::DiscoverAlbum { album_id }, &ctx, "boom", false)
         .await
         .unwrap();
     for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
@@ -841,7 +846,7 @@ async fn exhausted_discover_artist_finalizes_its_albums(pool: PgPool) {
     let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
     let (c, _) = ctx(&pool, None, 5, 5);
     DiscoverHandler
-        .on_exhausted(&Job::DiscoverArtist { artist_id }, &c, "boom")
+        .on_exhausted(&Job::DiscoverArtist { artist_id }, &c, "boom", false)
         .await
         .unwrap();
     for t in tracks::list_by_album(&pool, album_id).await.unwrap() {
@@ -969,7 +974,12 @@ async fn exhausted_search_finishes_as_search_failed(pool: PgPool) {
     );
     assert!(discover_album(&c, album_id).await.is_err());
     DiscoverHandler
-        .on_exhausted(&Job::DiscoverAlbum { album_id }, &c, "attempts exhausted")
+        .on_exhausted(
+            &Job::DiscoverAlbum { album_id },
+            &c,
+            "attempts exhausted",
+            false,
+        )
         .await
         .unwrap();
 
