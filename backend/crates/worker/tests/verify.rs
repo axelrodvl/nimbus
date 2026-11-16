@@ -1571,6 +1571,65 @@ async fn discography_job_started_after_timeout_waits_out_the_pause(pool: PgPool)
     assert_eq!(fetcher.calls.load(Ordering::SeqCst), 2);
 }
 
+/// Мёртвая дискография ожила при повторе одного альбома: остальные её альбомы были «проверены»,
+/// когда файлов ещё не было, — их связи открываются заново и получают свою проверку.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn revived_discography_is_reverified_for_all_albums(pool: PgPool) {
+    let (tid, albums) = discography(&pool, 3).await;
+    sqlx::query("UPDATE torrents SET meta_status = 'dead', meta_attempts = 4 WHERE id = $1")
+        .bind(tid)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE album_torrents SET verified = TRUE WHERE torrent_id = $1")
+        .bind(tid)
+        .execute(&pool)
+        .await
+        .unwrap();
+    // Авто-повтор первого альбома сбрасывает раздачу; у остальных связи остаются проверенными.
+    album_torrents::reset_dead(&pool, albums[0]).await.unwrap();
+    let fetcher = FakeFetcher::new(vec![(hash(1), Reply::Files(good_files()))]);
+    let (ctx, _) = ctx(&pool, fetcher);
+    verify_torrent(&ctx, tid, albums[0]).await.unwrap();
+
+    let queued: Vec<i64> = sqlx::query_scalar(
+        "SELECT (payload->>'album_id')::bigint FROM jobs
+         WHERE kind = 'verify_torrent' AND state = 'queued' ORDER BY 1",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let mut expected = albums[1..].to_vec();
+    expected.sort_unstable();
+    assert_eq!(queued, expected, "остальным альбомам поставлена проверка");
+    for a in &albums[1..] {
+        verify_torrent(&ctx, tid, *a).await.unwrap();
+    }
+    for a in &albums {
+        let linked: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM track_sources ts JOIN tracks t ON t.id = ts.track_id WHERE t.album_id = $1",
+        )
+        .bind(a)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(linked > 0, "у альбома {a} нет источников");
+    }
+    let unverified: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM album_torrents WHERE NOT verified")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(unverified, 0);
+    // Повторная проверка уже известных файлов новых задач не порождает.
+    let jobs_after: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = 'verify_torrent'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(jobs_after, 2);
+}
+
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn discography_metadata_fetched_once(pool: PgPool) {
     let (tid, albums) = discography(&pool, 6).await;

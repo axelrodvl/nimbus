@@ -107,6 +107,20 @@ pub async fn count_unverified(db: impl PgExecutor<'_>, album_id: i64) -> sqlx::R
         .await
 }
 
+/// У раздачи появились файлы: связи, отмеченные проверенными раньше (когда сопоставлять было не с
+/// чем — раздача была мёртвой), снова открываются. Возвращает альбомы этих связей — каждому нужно
+/// поставить `verify_torrent` в той же транзакции.
+pub async fn reopen_verified(db: impl PgExecutor<'_>, torrent_id: i64) -> sqlx::Result<Vec<i64>> {
+    sqlx::query_scalar(
+        "UPDATE album_torrents SET verified = FALSE
+         WHERE torrent_id = $1 AND verified
+         RETURNING album_id",
+    )
+    .bind(torrent_id)
+    .fetch_all(db)
+    .await
+}
+
 /// Раздачи альбома, которые ещё не проверены и для которых нет активной задачи `verify_torrent`
 /// (по возрастанию `torrent_id`). Непустой результат у альбома без поиска — дыра: задачу потеряли.
 pub async fn unverified_without_job(

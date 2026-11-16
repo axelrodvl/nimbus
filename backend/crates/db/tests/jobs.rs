@@ -1137,3 +1137,74 @@ async fn purge_removes_old_fatal_and_superseded_failed(pool: PgPool) {
     assert!(!left.contains(&fatal_old) && !left.contains(&superseded));
     assert!(left.contains(&latest) && left.contains(&fatal_fresh) && left.contains(&lone));
 }
+
+/// Повторный запрос на ожидающую задачу из незакоммиченной транзакции: воркер не должен взять
+/// задачу, пока данные запроса не видны (иначе обработчик прочитал бы состояние без них).
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn queued_job_is_not_claimed_until_the_requesting_transaction_commits(pool: PgPool) {
+    let id = enq(&pool, 1, EnqueueOpts::default()).await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    assert_eq!(
+        jobs::enqueue(
+            &mut *tx,
+            &Job::DiscoverAlbum { album_id: 1 },
+            EnqueueOpts::default()
+        )
+        .await
+        .unwrap(),
+        None
+    );
+    assert!(
+        jobs::claim(&pool, "w", KINDS).await.unwrap().is_none(),
+        "запрос ещё не закоммичен"
+    );
+    tx.commit().await.unwrap();
+    assert_eq!(
+        jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap().id,
+        id
+    );
+}
+
+/// Выполняющаяся задача не завершается, пока транзакция с повторным запросом не закоммичена;
+/// после коммита она видит `rerun` и ставится заново.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn running_job_completes_only_after_the_requesting_transaction(pool: PgPool) {
+    let id = enq(&pool, 1, EnqueueOpts::default()).await.unwrap();
+    jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    jobs::enqueue(
+        &mut *tx,
+        &Job::DiscoverAlbum { album_id: 1 },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap();
+    let p = pool.clone();
+    let done = tokio::spawn(async move { jobs::complete(&p, id, "w").await.unwrap() });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!done.is_finished(), "complete ждёт коммита запроса");
+    tx.commit().await.unwrap();
+    assert_eq!(done.await.unwrap(), jobs::Completion::Requeued);
+}
+
+/// Ключ свободен (прежняя задача завершена) — ставится новая строка; откат транзакции запроса
+/// не оставляет следов на активной задаче.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn rolled_back_request_leaves_running_job_untouched(pool: PgPool) {
+    let id = enq(&pool, 1, EnqueueOpts::default()).await.unwrap();
+    jobs::claim(&pool, "w", KINDS).await.unwrap().unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    jobs::enqueue(
+        &mut *tx,
+        &Job::DiscoverAlbum { album_id: 1 },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap();
+    tx.rollback().await.unwrap();
+    assert_eq!(
+        jobs::complete(&pool, id, "w").await.unwrap(),
+        jobs::Completion::Done
+    );
+    assert!(enq(&pool, 1, EnqueueOpts::default()).await.is_some());
+}

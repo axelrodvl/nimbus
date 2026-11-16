@@ -84,42 +84,31 @@ impl EnqueueOpts {
     }
 }
 
-/// Ставит задачу в очередь и шлёт `NOTIFY jobs` (одним оператором, атомарно).
+/// Ставит задачу в очередь и шлёт `NOTIFY jobs` (функция БД `enqueue_job`, миграция 0018).
 /// Возвращает `None`, если задача с таким `dedup_key` уже активна (queued/running); новая строка
 /// при этом не создаётся. Запрос не теряется: приоритет ожидающей (`queued`) задачи поднимается
 /// до приоритета новой, если тот выше, а у выполняющейся (`running`) выставляется `rerun` —
 /// по завершении она будет поставлена в очередь ещё раз (см. [`complete`]).
+///
+/// Активная строка при этом блокируется до конца транзакции вызывающего: [`claim`] (`SKIP LOCKED`)
+/// не возьмёт ожидающую задачу, а [`complete`] не завершит выполняющуюся, пока данные запроса не
+/// закоммичены, — иначе обработчик прочитал бы состояние без них. Если активная задача завершилась
+/// между проверкой конфликта и блокировкой, вставка повторяется на свежем снимке.
 pub async fn enqueue(
     db: impl PgExecutor<'_>,
     job: &Job,
     opts: EnqueueOpts,
 ) -> sqlx::Result<Option<i64>> {
     let (kind, payload) = job.to_parts();
-    sqlx::query_scalar(
-        "WITH ins AS (
-            INSERT INTO jobs (kind, payload, dedup_key, run_after, max_attempts, priority)
-            VALUES ($1, $2, $3, COALESCE($4, now()), COALESCE($5, 5), $6)
-            ON CONFLICT (dedup_key) WHERE state IN ('queued','running') DO NOTHING
-            RETURNING id
-         ), bump AS (
-            UPDATE jobs SET priority = $6, updated_at = now()
-            WHERE dedup_key = $3 AND state = 'queued' AND priority < $6
-            RETURNING id
-         ), rer AS (
-            UPDATE jobs SET rerun = TRUE, priority = GREATEST(priority, $6), updated_at = now()
-            WHERE dedup_key = $3 AND state = 'running'
-            RETURNING id
-         )
-         SELECT ins.id FROM ins, LATERAL (SELECT pg_notify('jobs', ins.id::text)) n",
-    )
-    .bind(kind)
-    .bind(payload)
-    .bind(job.dedup_key())
-    .bind(opts.run_after)
-    .bind(opts.max_attempts)
-    .bind(opts.priority)
-    .fetch_optional(db)
-    .await
+    sqlx::query_scalar("SELECT enqueue_job($1, $2, $3, $4, $5, $6)")
+        .bind(kind)
+        .bind(payload)
+        .bind(job.dedup_key())
+        .bind(opts.run_after)
+        .bind(opts.max_attempts)
+        .bind(opts.priority)
+        .fetch_one(db)
+        .await
 }
 
 /// Забирает следующую готовую задачу одного из видов `kinds` (`FOR UPDATE SKIP LOCKED`):

@@ -83,7 +83,9 @@ impl JobHandler for VerifyHandler {
 
 struct FileList(Vec<nimbus_core::model::TorrentFile>);
 
-/// Записывает список файлов раздачи и `meta_status = ok`.
+/// Записывает список файлов раздачи и `meta_status = ok`. Вызывается, только когда файлов у раздачи
+/// ещё не было, поэтому связи с другими альбомами, «проверенные» без файлов (раздача была мёртвой
+/// и ожила при повторе одного альбома дискографии), открываются заново и получают свою проверку.
 pub(crate) async fn store_files(
     ctx: &JobCtx,
     torrent_id: i64,
@@ -101,6 +103,31 @@ pub(crate) async fn store_files(
         .collect();
     torrents::replace_files(&ctx.db, torrent_id, &new).await?;
     torrents::set_meta_status(&ctx.db, torrent_id, MetaStatus::Ok, None).await?;
+    if new.is_empty() {
+        return Ok(());
+    }
+    // Связь и её задача — одна транзакция: непроверенная связь без задачи держала бы финализацию.
+    let mut tx = ctx.db.begin().await?;
+    let reopened = album_torrents::reopen_verified(&mut *tx, torrent_id).await?;
+    for album_id in &reopened {
+        jobs::enqueue(
+            &mut *tx,
+            &Job::VerifyTorrent {
+                torrent_id,
+                album_id: *album_id,
+            },
+            EnqueueOpts::priority(PRIORITY_BACKGROUND),
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    if !reopened.is_empty() {
+        tracing::info!(
+            torrent_id,
+            albums = reopened.len(),
+            "torrent got its files; albums verified without them are re-verified"
+        );
+    }
     Ok(())
 }
 
