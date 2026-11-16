@@ -59,6 +59,18 @@ export function TrackOfflineIndicator({ trackId, className }: { trackId: number;
   );
 }
 
+/**
+ * Одна иконка доступности трека в строке: если трек есть на устройстве (скачан, качается, в очереди, ошибка) —
+ * его состояние на устройстве (скачанное на устройство заведомо есть и на сервере); иначе — `fallback`
+ * (статус поиска и сервера).
+ */
+export function TrackAvailability({ trackId, fallback }: { trackId: number; fallback: ReactNode }) {
+  const supported = useOfflineSupported();
+  const state = useTrackOffline(trackId);
+  if (!supported || state.kind === 'none' || state.kind === 'partial') return <>{fallback}</>;
+  return <TrackOfflineIndicator trackId={trackId} />;
+}
+
 type Cover = { kind: 'album' | 'playlist'; id: number; name: string };
 
 /** Какое закрепление держит этот трек на устройстве (альбом, затем плейлист); `null` — только сам трек. */
