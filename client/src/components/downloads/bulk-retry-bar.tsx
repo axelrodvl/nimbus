@@ -21,8 +21,9 @@ type Props = {
 };
 
 /**
- * Массовые действия вкладки «Требуют внимания»: повтор для всех ненайденных (с подтверждением, если их больше 50)
- * и для выбранных строк; флажок «перепроверить мёртвые раздачи» передаётся как `reset_dead`.
+ * Массовые действия раздела «Требуют внимания»: повтор для всех ненайденных (с подтверждением, если их больше 50),
+ * под ним — строка выбора над списком («выбрать все», «повторить для выбранных»). Флажок «перепроверить мёртвые
+ * раздачи» относится к обоим повторам и уходит как `reset_dead`.
  */
 export function BulkRetryBar({ rows, selected, onSelectAll, onRetried }: Props) {
   const t = useT();
@@ -52,25 +53,39 @@ export function BulkRetryBar({ rows, selected, onSelectAll, onRetried }: Props) 
   const retrySelected = () => run(() => retryAlbums([...selected], { resetDead }, { queryClient }));
 
   return (
-    <div className="mb-3 flex flex-wrap items-center gap-2" data-testid="bulk-bar">
-      <Button
-        data-testid="retry-all"
-        disabled={total === 0}
-        onClick={() => (total > BULK_CONFIRM_THRESHOLD ? confirm.show() : void retryAll())}
-        pending={pending}
-        variant="primary"
-      >
-        {pending ? null : <RefreshCw aria-hidden className="size-4" />}
-        {t('acq.retryAll', { count: total })}
-      </Button>
-      {selected.size > 0 ? (
-        <Button data-testid="retry-selected" onClick={() => void retrySelected()} pending={pending} variant="secondary">
-          {t('acq.retrySelected', { count: selected.size })}
+    <div className="mb-1 flex flex-col gap-3" data-testid="bulk-bar">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <Button
+          data-testid="retry-all"
+          disabled={total === 0}
+          onClick={() => (total > BULK_CONFIRM_THRESHOLD ? confirm.show() : void retryAll())}
+          pending={pending}
+          variant="primary"
+        >
+          {pending ? null : <RefreshCw aria-hidden className="size-4" />}
+          {t('acq.retryAll', { count: total })}
         </Button>
-      ) : null}
-      <Checkbox checked={resetDead} label={t('acq.resetDead')} onCheckedChange={setResetDead} />
+        <Checkbox checked={resetDead} label={t('acq.resetDead')} onCheckedChange={setResetDead} plain />
+      </div>
       {rows.length > 0 ? (
-        <Checkbox checked={allSelected} label={t('acq.selectAll')} onCheckedChange={onSelectAll} />
+        <div
+          className="border-divider/70 dark:border-divider-dark/70 flex min-h-11 flex-wrap items-center gap-2 border-b pb-1"
+          data-testid="selection-bar"
+        >
+          <Checkbox checked={allSelected} label={t('acq.selectAll')} onCheckedChange={onSelectAll} plain />
+          {selected.size > 0 ? (
+            <Button
+              className="ml-auto"
+              data-testid="retry-selected"
+              onClick={() => void retrySelected()}
+              pending={pending}
+              size="sm"
+              variant="secondary"
+            >
+              {t('acq.retrySelected', { count: selected.size })}
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       <ConfirmDialog
         confirmAction={retryAll}

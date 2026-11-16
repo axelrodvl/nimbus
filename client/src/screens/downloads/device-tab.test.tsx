@@ -78,12 +78,14 @@ const open = (path = '/downloads/device') => renderRoutes(routes, path);
 
 const usage = (bytes: number, limit = 10 * GB, quota: number | null = 100 * GB) => ({ usage: { bytes, limit, quota } });
 
-describe('вкладка «На устройстве»', () => {
-  it('есть в списке вкладок; серверные действия на ней скрыты; счётчик — активные и ожидающие', async () => {
+describe('раздел «На этом устройстве»', () => {
+  it('отдельная группа «Это устройство» в конце списка; серверные действия скрыты; счётчик — активные и ожидающие', async () => {
     open('/downloads/attention');
     const link = await screen.findByTestId('acq-tab-link-device');
-    expect(link).toHaveTextContent('На устройстве');
-    expect(within(screen.getByRole('tablist')).getAllByRole('tab').at(-1)).toBe(link);
+    expect(link).toHaveTextContent('На этом устройстве');
+    const groups = within(screen.getByTestId('acq-nav')).getAllByRole('region');
+    expect(groups.at(-1)).toHaveTextContent('Это устройство');
+    expect(within(groups.at(-1) as HTMLElement).getByRole('link')).toBe(link);
     expect(link).not.toHaveTextContent(/\d/);
     ui.set({ 1: fileStatus('queued') }, { activeCount: 1, queueLength: 40 });
     expect(link).toHaveTextContent('41');
@@ -93,7 +95,7 @@ describe('вкладка «На устройстве»', () => {
     expect(screen.queryByTestId('download-all')).toBeNull();
   });
 
-  it('без поддержки вкладки нет, адрес — «не найдено»', async () => {
+  it('без поддержки раздела нет, адрес — «не найдено»', async () => {
     installOfflineUi({ supported: false });
     open('/downloads/attention');
     await screen.findByTestId('acq-tab-attention');
@@ -102,11 +104,11 @@ describe('вкладка «На устройстве»', () => {
     expect(second.container.querySelector('[data-testid="device-tab"]')).toBeNull();
   });
 
-  it('без связи вкладка первая и открывается по умолчанию', async () => {
+  it('без связи открывается по умолчанию', async () => {
     vi.stubGlobal('navigator', { ...navigator, onLine: false });
     open('/downloads');
     expect(await screen.findByTestId('device-tab')).toBeInTheDocument();
-    expect(within(screen.getByRole('tablist')).getAllByRole('tab')[0]).toBe(screen.getByTestId('acq-tab-link-device'));
+    expect(screen.getByTestId('acq-section')).toHaveTextContent('На этом устройстве');
   });
 
   it('сводка: занято / лимит / квота, число треков', () => {

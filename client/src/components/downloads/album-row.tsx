@@ -47,7 +47,7 @@ function ProviderErrors({ item }: { item: AcquisitionItem }) {
   return (
     <>
       <button
-        className="text-warning-fg focus-visible:ring-accent/40 rounded text-xs underline focus-visible:ring-2 focus-visible:outline-none"
+        className="text-warning-fg focus-visible:ring-accent/40 shrink-0 rounded text-xs underline focus-visible:ring-2 focus-visible:outline-none"
         data-testid="provider-errors"
         onClick={store.show}
         type="button"
@@ -68,7 +68,7 @@ function ProviderErrors({ item }: { item: AcquisitionItem }) {
   );
 }
 
-/** Строка альбома экрана «Загрузки»: содержимое и действия зависят от вкладки. */
+/** Строка альбома экрана «Загрузки»: название, артист; содержимое и действия зависят от раздела. */
 export function AlbumRow({ item, tab, paused, now, selected, onSelect }: Props) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -136,13 +136,17 @@ export function AlbumRow({ item, tab, paused, now, selected, onSelect }: Props) 
           {search.attempts > 0 ? ` · ${t('acq.attempts', { count: search.attempts })}` : ''}
           {next ? ` · ${next}` : ''}
         </p>
-        {reason ? (
-          <p className="truncate text-xs" data-testid="row-reason">
-            <span className="text-warning-fg font-medium">{reason.reason}</span>
-            <span className="text-muted hidden sm:inline"> — {reason.hint}</span>
-          </p>
+        {reason || search.provider_errors.length > 0 ? (
+          <div className="flex min-w-0 items-baseline gap-2 text-xs">
+            {reason ? (
+              <span className="min-w-0 truncate" data-testid="row-reason">
+                <span className="text-warning-fg font-medium">{reason.reason}</span>
+                <span className="text-muted hidden sm:inline"> — {reason.hint}</span>
+              </span>
+            ) : null}
+            <ProviderErrors item={item} />
+          </div>
         ) : null}
-        <ProviderErrors item={item} />
       </>
     );
   } else if (tab === 'searching') {
@@ -224,17 +228,16 @@ export function AlbumRow({ item, tab, paused, now, selected, onSelect }: Props) 
         />
       ) : null}
       <Cover alt={album.title} className="size-14 shrink-0 sm:size-16" src={album.cover_url} thumb={250} />
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p className="truncate text-sm font-semibold">
           <Link className="hover:underline" to={`/album/${album.id}`}>
             {album.title}
           </Link>
-          <span className="text-muted font-normal">
-            {' · '}
-            <Link className="hover:underline" to={`/artist/${album.artist.id}`}>
-              {album.artist.name}
-            </Link>
-          </span>
+        </p>
+        <p className="text-muted truncate text-xs">
+          <Link className="hover:underline" to={`/artist/${album.artist.id}`}>
+            {album.artist.name}
+          </Link>
         </p>
         {details}
       </div>

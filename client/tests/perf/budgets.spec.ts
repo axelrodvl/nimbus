@@ -50,7 +50,7 @@ const NAV = (href: string) => `[data-testid=sidebar] a[href="${href}"]`;
 const HOPS: { name: string; click: string; ready: string }[] = [
   { click: NAV('/library'), name: 'библиотека', ready: '[data-testid=library-albums] [data-testid=album-card]' },
   { click: '[data-testid=tab-tracks]', name: 'треки', ready: '[data-testid=library-tracks] [data-testid=track-row]' },
-  { click: NAV('/downloads'), name: 'загрузки', ready: '[data-testid=acq-tabs-scroll]' },
+  { click: NAV('/downloads'), name: 'загрузки', ready: '[data-testid=acq-nav]' },
   { click: NAV('/settings'), name: 'настройки', ready: '[data-testid=settings-nav]' },
   { click: NAV('/search'), name: 'поиск', ready: 'main input' },
   { click: NAV('/'), name: 'главная', ready: '[data-testid=home-recent]' },

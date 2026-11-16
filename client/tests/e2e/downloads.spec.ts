@@ -112,8 +112,9 @@ test('вкладка «Торренты»: пауза одного торрен�
   await expect(first.getByTestId('torrent-pause')).toBeVisible();
 });
 
-test('упавшая задача: «Повторить» — строка исчезает', async ({ page }) => {
+test('упавшая задача (раздел настроек «Фоновые задачи»): «Повторить» — строка исчезает', async ({ page }) => {
   await page.goto('/downloads/jobs');
+  await expect(page).toHaveURL(/\/settings\/jobs$/);
   const job = page.getByTestId('job-71');
   await expect(job).toContainText('provider exploded');
   await expect(job.getByRole('link')).toHaveAttribute('href', '/album/921');
@@ -127,16 +128,27 @@ test('старый адрес /settings/downloads ведёт на торрент
   await expect(page).toHaveURL(/\/downloads\/torrents$/);
 });
 
-test('мобильный размер: вкладки прокручиваются по горизонтали, действия строки — через меню', async ({ page }) => {
+test('мобильный размер: «Загрузки» — список разделов по группам, раздел открывается с «назад», действия строки — через меню', async ({
+  page,
+}) => {
   await page.setViewportSize({ height: 800, width: 390 });
   await page.goto('/downloads');
   await waitSynced(page);
-  const scroller = page.getByTestId('acq-tabs-scroll');
-  await expect(scroller).toBeVisible();
-  expect(await scroller.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+  const nav = page.getByTestId('acq-nav');
+  await expect(nav).toBeVisible();
+  await expect(page.getByTestId('acq-section')).toBeHidden();
+  await expect(nav.getByTestId('acq-group-search')).toContainText('Поиск музыки');
+  await expect(nav.getByTestId('acq-group-server')).toContainText('Сервер');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await tab(page, 'attention').click();
+  await expect(page).toHaveURL(/\/downloads\/attention$/);
+  await expect(nav).toBeHidden();
   await row(page, 921).getByTestId('row-menu').click();
   const menu = page.getByRole('menu');
   await expect(menu.getByTestId('menu-sources')).toBeVisible();
   await expect(menu.getByTestId('menu-magnet')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByTestId('acq-back').click();
+  await expect(page).toHaveURL(/\/downloads$/);
+  await expect(nav).toBeVisible();
 });

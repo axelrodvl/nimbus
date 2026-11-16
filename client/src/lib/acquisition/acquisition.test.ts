@@ -20,9 +20,11 @@ import { albumKey, downloadsKey, jobsKey, listKey, MAX_REFETCH_PAGES } from './k
 import {
   attentionCount,
   defaultTab,
+  downloadGroups,
   downloadTabs,
   DOWNLOAD_TABS,
   isAlbumTab,
+  isDownloadTab,
   isActiveDownload,
   jobKindKey,
   jobTarget,
@@ -50,7 +52,7 @@ describe('вкладки и счётчики', () => {
     expect(defaultTab(undefined)).toBe('attention');
   });
 
-  it('счётчики берутся из сводки; у «Торренты» счётчика нет, у «Задачи» — упавшие задачи', () => {
+  it('счётчики берутся из сводки; у «Торренты» и «На этом устройстве» счётчика нет', () => {
     const s = summary({
       available: 4,
       downloaded: 9,
@@ -63,10 +65,10 @@ describe('вкладки и счётчики', () => {
     expect(attentionCount(s)).toBe(6);
     expect(attentionCount(undefined)).toBe(0);
     expect(
-      (['attention', 'searching', 'downloading', 'available', 'downloaded', 'torrents', 'jobs'] as const).map(tab =>
+      (['attention', 'searching', 'downloading', 'available', 'downloaded', 'torrents', 'device'] as const).map(tab =>
         tabCount(tab, s),
       ),
-    ).toEqual([6, 7, 3, 4, 9, undefined, 2]);
+    ).toEqual([6, 7, 3, 4, 9, undefined, undefined]);
     expect(tabCount('attention', undefined)).toBeUndefined();
   });
 
@@ -313,15 +315,19 @@ describe('массовое закрепление', () => {
   });
 });
 
-describe('вкладки «Загрузок»', () => {
-  it('«На устройстве»: нет поддержки — нет вкладки; есть — в конце, без связи — первой; серверной не считается', () => {
-    expect(DOWNLOAD_TABS).toContain('device');
-    expect(downloadTabs(false, false)).not.toContain('device');
-    expect(downloadTabs(false, true)).not.toContain('device');
-    expect(downloadTabs(true, false).at(-1)).toBe('device');
-    expect(downloadTabs(true, true)[0]).toBe('device');
-    expect(downloadTabs(true, true)).toHaveLength(downloadTabs(true, false).length);
+describe('разделы «Загрузок»', () => {
+  it('сгруппированы по месту: поиск, сервер, устройство; без поддержки офлайна группы «устройство» нет', () => {
+    expect(downloadGroups(true).map(g => [g.id, g.tabs])).toEqual([
+      ['search', ['attention', 'searching', 'available']],
+      ['server', ['downloading', 'downloaded', 'torrents']],
+      ['device', ['device']],
+    ]);
+    expect(downloadGroups(false).map(g => g.id)).toEqual(['search', 'server']);
+    expect(downloadTabs(true)).toEqual([...DOWNLOAD_TABS]);
+    expect(downloadTabs(false)).not.toContain('device');
+    expect(isDownloadTab('jobs')).toBe(false);
     expect(isAlbumTab('device')).toBe(false);
+    expect(isAlbumTab('torrents')).toBe(false);
     expect(isAlbumTab('attention')).toBe(true);
   });
 });

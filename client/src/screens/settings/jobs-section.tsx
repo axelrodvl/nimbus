@@ -12,6 +12,7 @@ import { jobKindKey, jobTarget } from '@/lib/acquisition/model';
 import type { JobInfo } from '@/lib/api/acquisition';
 import { apiErrorMessage } from '@/lib/api/error-message';
 import { useT } from '@/lib/i18n/provider';
+import { PageHeader } from './section-frame';
 
 function JobRow({ job }: { job: JobInfo }) {
   const t = useT();
@@ -32,7 +33,7 @@ function JobRow({ job }: { job: JobInfo }) {
   }
   return (
     <li
-      className="border-divider/70 dark:border-divider-dark/70 flex items-center gap-3 border-b py-3"
+      className="border-divider/70 dark:border-divider-dark/70 flex items-center gap-3 border-b py-3 last:border-b-0"
       data-testid={`job-${job.id}`}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -57,8 +58,7 @@ function JobRow({ job }: { job: JobInfo }) {
   );
 }
 
-/** Упавшие фоновые задачи: вид, к чему относятся, ошибка, число попыток; «Повторить» возвращает задачу в очередь. */
-export function JobsTab() {
+function FailedJobs() {
   const t = useT();
   const query = useFailedJobs();
   if (query.isPending) return <Skeleton className="h-24 w-full rounded-xl" />;
@@ -74,10 +74,24 @@ export function JobsTab() {
   const jobs = query.data?.jobs ?? [];
   if (jobs.length === 0) return <EmptyState body={t('acq.emptyHint.jobs')} title={t('acq.empty.jobs')} />;
   return (
-    <ul data-testid="jobs-list">
+    <ul className="bg-card dark:bg-card-dark rounded-2xl px-4 sm:px-5" data-testid="jobs-list">
       {jobs.map(job => (
         <JobRow job={job} key={job.id} />
       ))}
     </ul>
+  );
+}
+
+/**
+ * Раздел настроек «Фоновые задачи»: упавшие задачи сервера — вид, к чему относятся, ошибка, число попыток;
+ * «Повторить» возвращает задачу в очередь. Нужна связь с сервером.
+ */
+export function JobsSection() {
+  const t = useT();
+  return (
+    <div className="flex flex-col gap-4" data-testid="settings-jobs">
+      <PageHeader description={t('settings.jobsHint')} title={t('settings.jobs')} />
+      <FailedJobs />
+    </div>
   );
 }

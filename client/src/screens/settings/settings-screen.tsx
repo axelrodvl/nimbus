@@ -6,18 +6,21 @@ import {
   Globe,
   HardDriveDownload,
   Info,
+  ListRestart,
   Music,
   Palette,
   Search,
   SlidersHorizontal,
   type LucideIcon,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
 import { PageLayout } from '@/components/page-layout';
+import { Badge } from '@/components/ui/badge';
 import { ErrorState } from '@/components/ui/error-state';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useAcquisitionSummary } from '@/lib/acquisition/hooks';
 import type { MessageKey } from '@/lib/i18n/messages';
 import { useT } from '@/lib/i18n/provider';
 import { OfflineNotice } from '@/components/offline-notice';
@@ -26,6 +29,7 @@ import { useOfflineSupported } from '@/lib/offline/hooks';
 import { useSettings } from '@/lib/settings/hooks';
 import type { ServerSettings } from '@/lib/settings/types';
 import { cn } from '@/lib/utils';
+import { JobsSection } from './jobs-section';
 import { AboutSection, AppearanceSection } from './local-sections';
 import { OfflineSection } from './offline-section';
 import {
@@ -49,9 +53,26 @@ type Section = {
   href?: string;
   /** Раздел нужен только там, где есть офлайн-хранилище (в браузере без OPFS он скрыт). */
   needsOfflineStorage?: boolean;
+  /** Метка справа от пункта списка (например, число упавших задач). */
+  NavBadge?: ComponentType;
 };
 
-/** Разделы настроек в порядке показа. Новый раздел — запись здесь (шаг 44 добавит «Загрузки», шаг 47 — «Офлайн»). */
+/** Число упавших фоновых задач у пункта «Фоновые задачи»; нет упавших — метки нет. */
+function FailedJobsBadge() {
+  const t = useT();
+  const count = useAcquisitionSummary().data?.failed_jobs ?? 0;
+  if (count === 0) return null;
+  return (
+    <Badge data-testid="settings-jobs-count" tone="danger">
+      <span className="sr-only">{t('settings.jobsFailed', { count })}</span>
+      <span aria-hidden className="tabular-nums">
+        {count}
+      </span>
+    </Badge>
+  );
+}
+
+/** Разделы настроек в порядке показа. Новый раздел — запись здесь. */
 export const SETTINGS_SECTIONS: readonly Section[] = [
   {
     icon: Globe,
@@ -94,6 +115,14 @@ export const SETTINGS_SECTIONS: readonly Section[] = [
     label: 'settings.perf',
     render: (s, ro) => <PerformanceSection readOnly={ro} settings={s} />,
     server: true,
+  },
+  {
+    NavBadge: FailedJobsBadge,
+    icon: ListRestart,
+    id: 'jobs',
+    label: 'settings.jobs',
+    render: () => <JobsSection />,
+    server: false,
   },
   {
     icon: HardDriveDownload,
@@ -159,6 +188,7 @@ export function SettingsScreen() {
           <ul className="flex flex-col gap-1">
             {sections.map(s => {
               const Icon = s.icon;
+              const NavBadge = s.NavBadge;
               const selected = s.id === active.id;
               return (
                 <li key={s.id}>
@@ -175,6 +205,7 @@ export function SettingsScreen() {
                   >
                     <Icon aria-hidden className="size-5" />
                     <span className="flex-1">{t(s.label)}</span>
+                    {NavBadge ? <NavBadge /> : null}
                     <ChevronRight aria-hidden className="text-muted size-4 md:hidden" />
                   </Link>
                 </li>

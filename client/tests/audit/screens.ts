@@ -48,20 +48,12 @@ const SETTINGS = [
   'playback',
   'storage',
   'performance',
+  'jobs',
   'offline',
   'appearance',
   'about',
 ];
-const DOWNLOAD_TABS = [
-  'attention',
-  'searching',
-  'downloading',
-  'available',
-  'downloaded',
-  'torrents',
-  'jobs',
-  'device',
-];
+const DOWNLOAD_TABS = ['attention', 'searching', 'available', 'downloading', 'downloaded', 'torrents', 'device'];
 
 /** Статус импорта показывается у артиста, добавленного только что (как в e2e библиотеки). */
 const importable = (request: APIRequestContext) =>
@@ -166,6 +158,7 @@ export const SCREENS: Screen[] = [
   },
   ...SETTINGS.map(id => ({ dense: true, name: `settings-${id}`, path: `/settings/${id}` }) satisfies Screen),
   { dense: true, name: 'downloads-empty', path: '/downloads/attention' },
+  { dense: true, name: 'downloads-list', path: '/downloads', seed: ({ request }) => seedAcquisition(request) },
   ...DOWNLOAD_TABS.map(
     id =>
       ({

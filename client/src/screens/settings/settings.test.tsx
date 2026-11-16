@@ -3,12 +3,14 @@ import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/lib/api/errors';
+import * as acqApi from '@/lib/api/acquisition';
 import * as api from '@/lib/api/settings';
 import * as crash from '@/components/crash-screen';
 import { session } from '@/lib/auth';
 import type { MessageKey } from '@/lib/i18n/messages';
 import ru from '@/lib/i18n/messages/ru';
 import type { ServerSettings } from '@/lib/settings/types';
+import { summary } from '@/test/acquisition';
 import { renderRoutes } from '@/test/render';
 import { SettingsScreen } from './settings-screen';
 
@@ -21,6 +23,11 @@ vi.mock('@/lib/api/settings', () => ({
   reimportArtists: vi.fn(),
   retryMissing: vi.fn(),
   testProvider: vi.fn(),
+}));
+vi.mock('@/lib/api/acquisition', async importOriginal => ({
+  ...(await importOriginal<typeof acqApi>()),
+  getAcquisitionSummary: vi.fn(),
+  getFailedJobs: vi.fn(),
 }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() } }));
 
@@ -78,6 +85,8 @@ beforeEach(() => {
   for (const fn of [m.fetchSettings, m.putSettings, m.fetchStorage, m.testProvider, m.reimportArtists, m.retryMissing])
     fn.mockReset();
   m.fetchServerVersion.mockReset().mockResolvedValue('9.9.9');
+  vi.mocked(acqApi.getAcquisitionSummary).mockResolvedValue(summary());
+  vi.mocked(acqApi.getFailedJobs).mockResolvedValue({ counts: { failed: 0, queued: 0, running: 0 }, jobs: [] });
 });
 afterEach(() => {
   setOnline(true);
@@ -89,7 +98,7 @@ describe('макет и маршруты', () => {
     setup('/settings/about');
     expect(await screen.findByTestId('settings-about')).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: L('settings.nav') });
-    expect(within(nav).getAllByRole('link')).toHaveLength(8);
+    expect(within(nav).getAllByRole('link')).toHaveLength(9);
     expect(within(nav).getByRole('link', { name: L('settings.about') })).toHaveAttribute('aria-current', 'page');
   });
 
@@ -101,6 +110,23 @@ describe('макет и маршруты', () => {
     expect(within(screen.getByTestId('settings-nav')).getByTestId('settings-link-sources')).not.toHaveAttribute(
       'aria-current',
     );
+  });
+
+  it('«Фоновые задачи»: у пункта — число упавших задач; раздел без связи с настройками сервера', async () => {
+    vi.mocked(acqApi.getAcquisitionSummary).mockResolvedValue(summary({ failed_jobs: 3 }));
+    setup('/settings/jobs');
+    expect(await screen.findByTestId('settings-jobs')).toBeInTheDocument();
+    const link = screen.getByTestId('settings-link-jobs');
+    expect(link).toHaveAttribute('aria-current', 'page');
+    await waitFor(() => expect(within(link).getByTestId('settings-jobs-count')).toHaveTextContent('3'));
+    expect(await screen.findByText(L('acq.empty.jobs'))).toBeInTheDocument();
+  });
+
+  it('нет упавших задач — метки у пункта нет', async () => {
+    setup('/settings/about');
+    await screen.findByTestId('settings-about');
+    await waitFor(() => expect(acqApi.getAcquisitionSummary).toHaveBeenCalled());
+    expect(screen.queryByTestId('settings-jobs-count')).toBeNull();
   });
 
   it('неизвестный раздел — страница 404', () => {

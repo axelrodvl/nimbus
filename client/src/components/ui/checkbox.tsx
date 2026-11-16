@@ -9,17 +9,23 @@ type Props = {
   disabled?: boolean;
   /** Подпись только для скринридеров (флажок в строке списка). */
   hideLabel?: boolean;
+  /** Без рамки-«пилюли»: флажок с подписью в строке текста (настройка действия, «выбрать все»). */
+  plain?: boolean;
   className?: string;
 };
 
 /** Флажок для наборов значений; подпись — часть элемента (кликабельна). */
-export function Checkbox({ checked, onCheckedChange, label, disabled, hideLabel, className }: Props) {
+export function Checkbox({ checked, onCheckedChange, label, disabled, hideLabel, plain, className }: Props) {
   return (
     <label
       className={cn(
         'has-focus-visible:ring-accent/40 inline-flex h-10 cursor-pointer items-center gap-2 rounded-full text-sm has-focus-visible:ring-2 has-disabled:cursor-not-allowed has-disabled:opacity-50 pointer-coarse:h-11',
-        hideLabel ? 'w-10 justify-center pointer-coarse:w-11' : 'border-divider dark:border-divider-dark border px-3.5',
-        !hideLabel && (checked ? 'bg-accent/10 border-accent/50' : 'text-muted'),
+        hideLabel
+          ? 'w-10 justify-center pointer-coarse:w-11'
+          : plain
+            ? 'px-3'
+            : 'border-divider dark:border-divider-dark border px-3.5',
+        !hideLabel && !plain && (checked ? 'bg-accent/10 border-accent/50' : 'text-muted'),
         className,
       )}
     >

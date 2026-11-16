@@ -1,36 +1,43 @@
 import type { MessageKey, TFn } from '@/lib/i18n/messages';
 import type { AcquisitionItem, AcquisitionState, AcquisitionSummary } from '@/lib/api/acquisition';
 
-/** Вкладки экрана «Загрузки» в порядке показа. */
+/** Разделы экрана «Загрузки» в порядке показа. */
 export const DOWNLOAD_TABS = [
   'attention',
   'searching',
-  'downloading',
   'available',
+  'downloading',
   'downloaded',
   'torrents',
-  'jobs',
   'device',
 ] as const;
 export type DownloadTab = (typeof DOWNLOAD_TABS)[number];
 
-/** Вкладки, содержимое которых — список альбомов с сервера. */
+/** Разделы, содержимое которых — список альбомов с сервера. */
 export type AlbumTab = 'attention' | 'searching' | 'downloading' | 'available' | 'downloaded';
 
 export const isDownloadTab = (value: string | undefined): value is DownloadTab =>
   DOWNLOAD_TABS.includes(value as DownloadTab);
-export const isAlbumTab = (tab: DownloadTab): tab is AlbumTab =>
-  tab !== 'torrents' && tab !== 'jobs' && tab !== 'device';
+export const isAlbumTab = (tab: DownloadTab): tab is AlbumTab => tab !== 'torrents' && tab !== 'device';
+
+export type DownloadGroup = { id: 'search' | 'server' | 'device'; tabs: readonly DownloadTab[] };
 
 /**
- * Вкладки в порядке показа. «На устройстве» есть, только если поддерживается офлайн-хранилище: в конце списка,
- * а без связи — первой (серверные вкладки без сервера недоступны).
+ * Разделы «Загрузок», сгруппированные по тому, где музыка: поиск источников, диск сервера (с торрентами движка),
+ * это устройство. Группа «Это устройство» есть, только если поддерживается офлайн-хранилище.
  */
-export function downloadTabs(deviceSupported: boolean, offline: boolean): readonly DownloadTab[] {
-  const server = DOWNLOAD_TABS.filter(tab => tab !== 'device');
-  if (!deviceSupported) return server;
-  return offline ? ['device', ...server] : [...server, 'device'];
+export function downloadGroups(deviceSupported: boolean): readonly DownloadGroup[] {
+  const groups: DownloadGroup[] = [
+    { id: 'search', tabs: ['attention', 'searching', 'available'] },
+    { id: 'server', tabs: ['downloading', 'downloaded', 'torrents'] },
+  ];
+  if (deviceSupported) groups.push({ id: 'device', tabs: ['device'] });
+  return groups;
 }
+
+/** Все доступные разделы в порядке показа. */
+export const downloadTabs = (deviceSupported: boolean): readonly DownloadTab[] =>
+  downloadGroups(deviceSupported).flatMap(g => g.tabs);
 
 /** Какие состояния сервера запрашивает вкладка. «Загружаются» и «Доступны» дополнительно фильтруются на клиенте. */
 export const TAB_STATES: Record<AlbumTab, readonly AcquisitionState[]> = {
@@ -44,7 +51,7 @@ export const TAB_STATES: Record<AlbumTab, readonly AcquisitionState[]> = {
 /** Число альбомов, требующих внимания (значок в навигации и счётчик вкладки). */
 export const attentionCount = (s: AcquisitionSummary | undefined): number => (s ? s.missing + s.partial : 0);
 
-/** Счётчик вкладки по сводке; у «Торренты» его нет, у «Задачи» — число упавших задач. */
+/** Счётчик раздела по сводке; у «Торренты» и «На этом устройстве» его здесь нет. */
 export function tabCount(tab: DownloadTab, s: AcquisitionSummary | undefined): number | undefined {
   if (!s) return undefined;
   switch (tab) {
@@ -58,8 +65,6 @@ export function tabCount(tab: DownloadTab, s: AcquisitionSummary | undefined): n
       return s.available;
     case 'downloaded':
       return s.downloaded;
-    case 'jobs':
-      return s.failed_jobs;
     default:
       return undefined;
   }

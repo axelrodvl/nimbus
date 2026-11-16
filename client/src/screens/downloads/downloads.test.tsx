@@ -16,6 +16,7 @@ import { NAV_ITEMS } from '@/lib/nav/items';
 import { item, L, page, summary, torrent } from '@/test/acquisition';
 import { mockLayout, ScrollHost } from '@/test/layout';
 import { renderRoutes } from '@/test/render';
+import { JobsSection } from '../settings/jobs-section';
 import { DownloadsScreen, LegacyDownloadsRedirect } from './downloads-screen';
 
 vi.mock('@/lib/api/settings', () => ({
@@ -101,28 +102,81 @@ const routes = [
     path: '/downloads/:tab?',
   },
   { element: <LegacyDownloadsRedirect />, path: '/settings/downloads' },
+  { element: <JobsSection />, path: '/settings/jobs' },
   { element: <p data-testid="settings">settings</p>, path: '/settings/:section?' },
 ];
 const open = (path = '/downloads') => renderRoutes(routes, path);
 
-describe('вкладки', () => {
-  it('по умолчанию — «Требуют внимания»; на вкладках счётчики из сводки', async () => {
+describe('разделы', () => {
+  it('сгруппированы по месту: поиск музыки, сервер, устройство; по умолчанию — «Требуют внимания»; счётчики из сводки', async () => {
     m.summary.mockResolvedValue(
       summary({ available: 4, downloaded: 9, downloading: 3, failed_jobs: 2, missing: 5, partial: 1, searching: 7 }),
     );
+    m.downloads.mockResolvedValue(overview({ torrents: [torrent('aaa'), torrent('bbb')] }));
     open();
     expect(await screen.findByTestId('acq-tab-attention')).toBeInTheDocument();
-    const tabs = screen.getByRole('tablist', { name: L('acq.tabs') });
-    await waitFor(() => expect(within(tabs).getByTestId('acq-tab-link-attention')).toHaveTextContent('6'));
-    expect(within(tabs).getByTestId('acq-tab-link-searching')).toHaveTextContent('7');
-    expect(within(tabs).getByTestId('acq-tab-link-downloading')).toHaveTextContent('3');
-    expect(within(tabs).getByTestId('acq-tab-link-available')).toHaveTextContent('4');
-    expect(within(tabs).getByTestId('acq-tab-link-downloaded')).toHaveTextContent('9');
-    expect(within(tabs).getByTestId('acq-tab-link-jobs')).toHaveTextContent('2');
-    expect(within(tabs).getByTestId('acq-tab-link-torrents')).not.toHaveTextContent(/\d/);
+    const nav = screen.getByRole('navigation', { name: L('acq.tabs') });
+    const group = (id: string) => within(within(nav).getByTestId(`acq-group-${id}`)).getAllByRole('link');
+    expect(group('search').map(a => a.getAttribute('href'))).toEqual([
+      '/downloads/attention',
+      '/downloads/searching',
+      '/downloads/available',
+    ]);
+    expect(group('server').map(a => a.getAttribute('href'))).toEqual([
+      '/downloads/downloading',
+      '/downloads/downloaded',
+      '/downloads/torrents',
+    ]);
+    expect(within(nav).getByTestId('acq-group-server')).toHaveTextContent(L('acq.group.server'));
+    await waitFor(() => expect(within(nav).getByTestId('acq-tab-link-attention')).toHaveTextContent('6'));
+    expect(within(nav).getByTestId('acq-tab-link-searching')).toHaveTextContent('7');
+    expect(within(nav).getByTestId('acq-tab-link-downloading')).toHaveTextContent('3');
+    expect(within(nav).getByTestId('acq-tab-link-available')).toHaveTextContent('4');
+    expect(within(nav).getByTestId('acq-tab-link-downloaded')).toHaveTextContent('9');
+    await waitFor(() => expect(within(nav).getByTestId('acq-tab-link-torrents')).toHaveTextContent('2'));
+    // «Задачи» переехали в настройки: в «Загрузках» их нет.
+    expect(within(nav).queryByText(L('settings.jobs'))).toBeNull();
+    // Раздел подписан и объяснён.
+    const section = screen.getByTestId('acq-section');
+    expect(within(section).getByRole('heading', { name: L('acq.tab.attention') })).toBeInTheDocument();
+    expect(section).toHaveTextContent(L('acq.desc.attention'));
   });
 
-  it('нет ненайденного — открывается первая непустая вкладка', async () => {
+  it('действия — в своих разделах: «скачать всё» в «Найдены», пауза — в загрузках и торрентах, хранилище — в «Скачаны»', async () => {
+    const all = ['download-all', 'pause-all', 'acq-storage'];
+    const cases: [string, string[]][] = [
+      ['/downloads/attention', []],
+      ['/downloads/searching', []],
+      ['/downloads/available', ['download-all']],
+      ['/downloads/downloading', ['pause-all']],
+      ['/downloads/downloaded', ['acq-storage']],
+      ['/downloads/torrents', ['pause-all']],
+    ];
+    for (const [path, expected] of cases) {
+      const { unmount } = open(path);
+      await screen.findByTestId('acq-section');
+      for (const id of expected) expect(await screen.findByTestId(id)).toBeInTheDocument();
+      for (const id of all.filter(id => !expected.includes(id))) expect(screen.queryByTestId(id)).toBeNull();
+      unmount();
+    }
+  });
+
+  it('открытый раздел отмечен в списке; «назад» ведёт к списку разделов', async () => {
+    const { router } = open('/downloads/searching');
+    const link = await screen.findByTestId('acq-tab-link-searching');
+    expect(link).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByTestId('acq-tab-link-attention')).not.toHaveAttribute('aria-current');
+    await userEvent.click(screen.getByTestId('acq-back'));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/downloads'));
+  });
+
+  it('загрузки на сервер на паузе — метка у пункта «Качаются на сервер»', async () => {
+    m.downloads.mockResolvedValue(overview({ paused: true }));
+    open();
+    await waitFor(() => expect(screen.getByTestId('acq-tab-link-downloading')).toHaveTextContent(L('acq.paused')));
+  });
+
+  it('нет ненайденного — открывается первый непустой раздел', async () => {
     m.summary.mockResolvedValue(summary({ downloading: 1 }));
     serve({
       'downloading,available': [
@@ -133,11 +187,14 @@ describe('вкладки', () => {
     expect(await screen.findByTestId('acq-tab-downloading')).toBeInTheDocument();
   });
 
-  it('неизвестная вкладка — страница не найдена; старый адрес настроек ведёт на торренты', async () => {
-    const { unmount } = open('/downloads/nope');
+  it('неизвестный раздел — страница не найдена; старые адреса ведут на торренты и в настройки', async () => {
+    const first = open('/downloads/nope');
     await waitFor(() => expect(screen.queryByTestId('acq-tab-attention')).not.toBeInTheDocument());
-    expect(screen.queryByTestId('acq-tabs-scroll')).not.toBeInTheDocument();
-    unmount();
+    expect(screen.queryByTestId('acq-nav')).not.toBeInTheDocument();
+    first.unmount();
+    const jobs = open('/downloads/jobs');
+    await waitFor(() => expect(jobs.router.state.location.pathname).toBe('/settings/jobs'));
+    jobs.unmount();
     const { router } = open('/settings/downloads');
     await waitFor(() => expect(router.state.location.pathname).toBe('/downloads/torrents'));
     expect(
@@ -412,7 +469,7 @@ describe('«В поиске», «Загружаются», «Доступны»,
   });
 });
 
-describe('«Торренты» и «Задачи»', () => {
+describe('«Торренты» и фоновые задачи (в настройках)', () => {
   it('торренты движка: состояние и скорость; пауза одного и возобновление', async () => {
     m.downloads.mockResolvedValue(
       overview({
@@ -438,7 +495,7 @@ describe('«Торренты» и «Задачи»', () => {
     const { unmount } = open('/downloads/torrents');
     expect(await screen.findByText(L('acq.empty.torrents'))).toBeInTheDocument();
     unmount();
-    open('/downloads/jobs');
+    open('/settings/jobs');
     expect(await screen.findByText(L('acq.empty.jobs'))).toBeInTheDocument();
   });
 
@@ -462,7 +519,7 @@ describe('«Торренты» и «Задачи»', () => {
       jobs: [job(1), job(2, { kind: 'import_artist', payload: { artist_id: 9 } })],
     });
     m.retryJob.mockResolvedValue({} as never);
-    open('/downloads/jobs');
+    open('/settings/jobs');
     const row = await screen.findByTestId('job-1');
     expect(row).toHaveTextContent(L('acq.job.discover_album'));
     expect(row).toHaveTextContent('provider exploded');
@@ -479,7 +536,7 @@ describe('«Торренты» и «Задачи»', () => {
   it('409 от сервера — понятное сообщение, строка остаётся', async () => {
     m.jobs.mockResolvedValue({ counts: { failed: 1, queued: 0, running: 0 }, jobs: [job(1)] });
     m.retryJob.mockRejectedValue(new ApiError(409, 'duplicate', 'dup'));
-    open('/downloads/jobs');
+    open('/settings/jobs');
     await userEvent.click(await within(await screen.findByTestId('job-1')).findByTestId('job-retry'));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(L('error.duplicate')));
     expect(screen.getByTestId('job-1')).toBeInTheDocument();
