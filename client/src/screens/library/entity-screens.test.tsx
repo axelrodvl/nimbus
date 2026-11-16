@@ -158,7 +158,7 @@ describe('альбом', () => {
     rows.tracks[1]!.needs_confirmation = true;
     seed(rows);
     renderRoutes(routes, '/album/1');
-    expect(screen.getByTestId('album-needs-confirmation')).toBeInTheDocument();
+    expect(screen.queryByTestId('album-needs-confirmation')).not.toBeInTheDocument();
     expect(screen.getByText('В библиотеке: 2 из 3')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Удалить' })).not.toBeInTheDocument();
   });

@@ -1,4 +1,3 @@
-import { AlertTriangle } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 import { Cover } from '@/components/library/cover';
 import { AlbumProgress } from '@/components/library/album-progress';
@@ -68,14 +67,6 @@ export function AlbumScreen() {
               subject={{ id: album.id, kind: 'album', title: album.title, trackIds: queueIds }}
               summary={offlineSummary}
             />
-            {tracks.some(tr => tr.in_library && tr.needs_confirmation) ? (
-              <span
-                className="text-warning-fg inline-flex items-center gap-1 text-xs"
-                data-testid="album-needs-confirmation"
-              >
-                <AlertTriangle aria-hidden className="size-4" /> {t('album.needsCheck')}
-              </span>
-            ) : null}
             <AlbumHeaderMenu albumId={album.id} inLibrary={album.in_library} title={album.title} />
             {!album.in_library && inLibraryCount > 0 ? (
               <span className="text-muted text-xs">

@@ -1,4 +1,4 @@
-import { ArrowLeft } from 'lucide-react';
+import { AlertTriangle, ArrowLeft } from 'lucide-react';
 import { Link, useParams } from 'react-router';
 import { PageLayout } from '@/components/page-layout';
 import { AddMagnetForm } from '@/components/sources/add-magnet-form';
@@ -44,6 +44,14 @@ export function SourcesScreen() {
         <ArrowLeft aria-hidden className="size-4" /> {album?.title ?? t('common.back')}
       </Link>
       <h1 className="mb-6 text-3xl font-bold tracking-tight">{t('sources.title')}</h1>
+      {tracks.some(tr => tr.in_library && tr.needs_confirmation) ? (
+        <p
+          className="text-warning-fg mb-4 inline-flex items-center gap-1 text-sm"
+          data-testid="album-needs-confirmation"
+        >
+          <AlertTriangle aria-hidden className="size-4" /> {t('album.needsCheck')}
+        </p>
+      ) : null}
       <div className="mb-6 flex flex-col gap-3">
         <div>
           <RetryAlbumButton albumId={id} />
