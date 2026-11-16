@@ -179,7 +179,7 @@ export function DownloadsScreen() {
                         <Link
                           aria-current={selected && param ? 'page' : undefined}
                           className={cn(
-                            'focus-visible:ring-accent/40 flex min-h-12 items-center gap-3 rounded-xl px-3 py-2.5 text-sm outline-none focus-visible:ring-2 md:py-0',
+                            'focus-visible:ring-accent/40 flex min-h-12 items-center gap-3 rounded-xl px-3 py-3 text-sm outline-none focus-visible:ring-2 max-md:items-start md:py-0',
                             selected
                               ? 'md:bg-card md:dark:bg-card-dark md:font-semibold'
                               : 'md:text-muted md:hover:text-black md:dark:hover:text-white',
@@ -190,7 +190,7 @@ export function DownloadsScreen() {
                           <Icon
                             aria-hidden
                             className={cn(
-                              'size-5 shrink-0',
+                              'size-5 shrink-0 max-md:mt-px',
                               id === 'attention' && n ? 'text-warning-fg' : 'text-muted',
                             )}
                           />
