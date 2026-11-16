@@ -541,6 +541,78 @@ async fn backoff_grows_with_auto_retries(pool: PgPool) {
     }
 }
 
+/// Поиск с `errors`, завершённый для альбома с заданными статусами; возвращает состояние.
+async fn finished_with_errors(
+    pool: &PgPool,
+    statuses: &[TrackStatus],
+    errors: serde_json::Value,
+) -> acquisition::SearchState {
+    let ar = artist(pool).await;
+    let a = album(pool, ar, statuses).await;
+    acquisition::mark_search_started(pool, a).await.unwrap();
+    acquisition::record_search_results(pool, a, 3, &errors)
+        .await
+        .unwrap();
+    acquisition::finish_search(pool, a, None).await.unwrap();
+    acquisition::get_state(pool, a).await.unwrap().unwrap()
+}
+
+fn wait_minutes(s: &acquisition::SearchState) -> i64 {
+    (s.next_retry_at.unwrap() - Utc::now()).num_minutes()
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn partial_provider_failure_uses_short_schedule(pool: PgPool) {
+    let errors = json!([{"source": "tpb", "error": "blocked: down"}]);
+    let s = finished_with_errors(&pool, &[NotFound], errors).await;
+    assert_eq!(s.last_outcome, Some(SearchOutcome::NoMatch));
+    assert!((8..=10).contains(&wait_minutes(&s)), "{}", wait_minutes(&s));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn clean_no_match_uses_long_schedule(pool: PgPool) {
+    let s = finished_with_errors(&pool, &[NotFound], json!([])).await;
+    assert_eq!(s.last_outcome, Some(SearchOutcome::NoMatch));
+    assert!((5 * 60..=6 * 60).contains(&wait_minutes(&s)));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn partial_outcome_with_errors_uses_short_schedule(pool: PgPool) {
+    let errors = json!([{"source": "tpb", "error": "blocked: down"}]);
+    let s = finished_with_errors(&pool, &[Found, NotFound], errors).await;
+    assert_eq!(s.last_outcome, Some(SearchOutcome::Partial));
+    assert!((8..=10).contains(&wait_minutes(&s)));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn found_clears_schedule_regardless_of_errors(pool: PgPool) {
+    let errors = json!([{"source": "tpb", "error": "blocked: down"}]);
+    let s = finished_with_errors(&pool, &[Found], errors).await;
+    assert_eq!(
+        (s.last_outcome, s.next_retry_at),
+        (Some(SearchOutcome::Found), None)
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn later_search_overwrites_provider_errors(pool: PgPool) {
+    let ar = artist(&pool).await;
+    let a = album(&pool, ar, &[NotFound]).await;
+    let errors = json!([{"source": "tpb", "error": "blocked: down"}]);
+    // Первая попытка — с ошибкой, последняя — чистая: расписание длинное.
+    acquisition::record_search_results(&pool, a, 1, &errors)
+        .await
+        .unwrap();
+    acquisition::record_search_results(&pool, a, 1, &json!([]))
+        .await
+        .unwrap();
+    acquisition::mark_search_started(&pool, a).await.unwrap();
+    acquisition::finish_search(&pool, a, None).await.unwrap();
+    let s = acquisition::get_state(&pool, a).await.unwrap().unwrap();
+    assert_eq!(s.provider_errors, json!([]));
+    assert!(wait_minutes(&s) > 60);
+}
+
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn success_resets_auto_retries_and_schedule(pool: PgPool) {
     let ar = artist(&pool).await;

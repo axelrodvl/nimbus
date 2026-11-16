@@ -18,17 +18,21 @@ macro_rules! reasons {
     };
 }
 
-/// Расписание повтора по числу неудачных поисков: `$ar` — выражение с `auto_retries`, `$out` — исход.
-/// Для `search_failed` пауза короче (не смогли спросить провайдеров, а не «ничего нет»); для `found` — `NULL`.
+/// Расписание повтора по числу неудачных поисков: `$ar` — выражение с `auto_retries`, `$out` — исход,
+/// `$errs` — булево выражение «часть провайдеров ответила ошибкой».
+/// Для `search_failed` или при ошибках провайдеров пауза короче (спросили не всех, а не «ничего нет»);
+/// для `found` — `NULL`.
 macro_rules! retry_schedule {
-    ($out:expr, $ar:expr) => {
+    ($out:expr, $ar:expr, $errs:expr) => {
         concat!(
             "CASE WHEN ",
             $out,
             " = 'found' THEN NULL
                 WHEN ",
             $out,
-            " = 'search_failed' THEN now() +
+            " = 'search_failed' OR ",
+            $errs,
+            " THEN now() +
                 CASE ",
             $ar,
             " WHEN 0 THEN interval '10 minutes' WHEN 1 THEN interval '30 minutes'
@@ -180,8 +184,10 @@ pub async fn record_search_results(
 /// Завершает поиск альбома: `attempts += 1`, `last_finished_at`, `last_outcome` (по трекам библиотеки:
 /// все найдены — `found`, часть — `partial`, иначе преобладающая причина `not_found`; при её
 /// отсутствии — `fallback`), `next_retry_at` с растущей паузой (6 ч, 1 д, 3 д, 7 д, далее 30 д по
-/// `auto_retries`; если причина — `search_failed` (не смогли спросить провайдеров, а не «ничего нет»), пауза короче:
-/// 10 мин, 30 мин, 2 ч, 6 ч, далее сутки; для `found` — `NULL` и `auto_retries = 0`).
+/// `auto_retries`; если причина — `search_failed` или хоть один провайдер ответил ошибкой
+/// (`provider_errors` последнего поиска не пуст: «не найдено» неполное, а не «ничего нет»), пауза короче:
+/// 10 мин, 30 мин, 2 ч, 6 ч, далее сутки; для `found` — `NULL` и `auto_retries = 0`;
+/// `last_outcome` от ошибок провайдеров не меняется).
 ///
 /// Срабатывает ровно один раз на поиск: только если `last_started_at` позже `last_finished_at`.
 /// Если поиск не был начат (`last_started_at IS NULL` или строки нет — например, задача исчерпала
@@ -214,7 +220,12 @@ pub async fn finish_search(
          INSERT INTO album_search_state AS s
                 (album_id, attempts, last_finished_at, last_outcome, next_retry_at, auto_retries)
          SELECT $1, 1, now(), o.outcome, ",
-        retry_schedule!("o.outcome", "0"),
+        retry_schedule!(
+            "o.outcome",
+            "0",
+            "COALESCE((SELECT x.provider_errors <> '[]'::jsonb FROM album_search_state x
+                       WHERE x.album_id = $1), false)"
+        ),
         ", 0
          FROM o
          WHERE (o.nf > 0 AND o.outcome <> 'found')
@@ -225,7 +236,11 @@ pub async fn finish_search(
             last_finished_at = now(),
             last_outcome = EXCLUDED.last_outcome,
             next_retry_at = ",
-        retry_schedule!("EXCLUDED.last_outcome", "s.auto_retries"),
+        retry_schedule!(
+            "EXCLUDED.last_outcome",
+            "s.auto_retries",
+            "s.provider_errors <> '[]'::jsonb"
+        ),
         ",
             auto_retries = CASE WHEN EXCLUDED.last_outcome = 'found' THEN 0 ELSE s.auto_retries END
          WHERE (s.last_started_at IS NOT NULL

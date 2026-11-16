@@ -970,6 +970,73 @@ async fn backoff_follows_auto_retries_in_the_worker(pool: PgPool) {
     assert_eq!(s.attempts, 5);
 }
 
+/// Движок, у которого раздача — чужой альбом: проверка не находит нужных треков.
+struct ForeignFiles;
+
+#[async_trait]
+impl nimbus_torrent::MetadataFetcher for ForeignFiles {
+    async fn fetch_metadata(
+        &self,
+        magnet: &str,
+    ) -> Result<nimbus_torrent::TorrentMeta, nimbus_torrent::EngineError> {
+        Ok(nimbus_torrent::TorrentMeta {
+            info_hash: InfoHash::from_magnet(magnet).unwrap(),
+            name: "t".into(),
+            piece_length: 16384,
+            files: vec![nimbus_torrent::FileEntry {
+                index: 0,
+                path: "Muse - Absolution/01 - Apocalypse Please.flac".into(),
+                size: 1 << 25,
+            }],
+            torrent_file: None,
+        })
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn provider_error_with_other_results_schedules_quick_retry(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 1, true).await;
+    // Один провайдер ответил ошибкой, другой — раздачей, которая не подойдёт.
+    let broken = Fake::new(|_| Err(ProviderError::Blocked("down".into())));
+    let other = Arc::new(Fake {
+        source: TorrentSource::Torznab,
+        search: Box::new(|_| {
+            Ok(vec![cand(
+                "Radiohead - OK Computer (1997) [FLAC]",
+                Some(1),
+                50,
+            )])
+        }),
+        queries: Mutex::new(vec![]),
+        resolve_to: None,
+    });
+    let (mut c, _) = ctx(&pool, None, 1, 5);
+    c.providers = Arc::new(ProviderRegistry::new(vec![
+        broken as Arc<dyn TorrentProvider>,
+        other as Arc<dyn TorrentProvider>,
+    ]));
+    c = c.with_fetcher(Arc::new(ForeignFiles));
+    discover_album(&c, album_id).await.unwrap();
+    let linked = album_torrents::list_for_album(&pool, album_id)
+        .await
+        .unwrap();
+    nimbus_worker::verify::verify_torrent(&c, linked[0].torrent.id, album_id)
+        .await
+        .unwrap();
+
+    let t = &tracks::list_by_album(&pool, album_id).await.unwrap()[0];
+    assert_eq!(t.status, TrackStatus::NotFound);
+    let s = acquisition::get_state(&pool, album_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(s.last_outcome, Some(SearchOutcome::NoMatch));
+    assert_eq!(s.provider_errors.as_array().unwrap().len(), 1);
+    let wait = s.next_retry_at.unwrap() - s.last_finished_at.unwrap();
+    assert!(wait.num_minutes() <= 15, "{wait}");
+}
+
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn provider_errors_are_stored_with_source_and_text(pool: PgPool) {
     let artist_id = artist(&pool, "Radiohead").await;
