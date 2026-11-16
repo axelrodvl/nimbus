@@ -161,6 +161,15 @@ describe('разделы', () => {
     }
   });
 
+  it('у группы «Сервер» — занято и свободно на диске сервера', async () => {
+    open();
+    const meter = await screen.findByTestId('acq-space-server');
+    expect(meter).toHaveTextContent('Занято 12 ГБ из 50 ГБ');
+    expect(meter).toHaveTextContent('свободно 38 ГБ');
+    expect(within(meter).getByRole('progressbar', { name: L('acq.space.serverLabel') })).toBeInTheDocument();
+    expect(within(screen.getByTestId('acq-group-search')).queryByRole('progressbar')).toBeNull();
+  });
+
   it('открытый раздел отмечен в списке; «назад» ведёт к списку разделов', async () => {
     const { router } = open('/downloads/searching');
     const link = await screen.findByTestId('acq-tab-link-searching');

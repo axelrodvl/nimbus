@@ -111,6 +111,19 @@ describe('раздел «На этом устройстве»', () => {
     expect(screen.getByTestId('acq-section')).toHaveTextContent('На этом устройстве');
   });
 
+  it('в списке разделов у группы «Это устройство» — занято и свободно; без лимита шкалы нет', () => {
+    open('/downloads/attention');
+    expect(screen.queryByTestId('acq-space-device')).toBeNull();
+    ui.set({}, usage(9.5 * GB));
+    const meter = screen.getByTestId('acq-space-device');
+    expect(meter).toHaveTextContent('Занято 9.5 ГБ из 10 ГБ');
+    expect(meter).toHaveTextContent('свободно 512 МБ');
+    expect(within(meter).getByRole('progressbar', { name: 'Место под офлайн-музыку на устройстве' })).toHaveAttribute(
+      'aria-valuenow',
+      String(9.5 * GB),
+    );
+  });
+
   it('сводка: занято / лимит / квота, число треков', () => {
     open();
     ui.set({ 1: fileStatus('done', 5 * MB, 5 * MB), 2: fileStatus('done', 5 * MB, 5 * MB) }, usage(2 * GB));

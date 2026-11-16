@@ -19,6 +19,7 @@ import { TorrentsTab } from '@/components/downloads/torrents-tab';
 import { OfflineNotice } from '@/components/offline-notice';
 import { PageLayout } from '@/components/page-layout';
 import { Badge } from '@/components/ui/badge';
+import { ProgressBar } from '@/components/ui/progress-bar';
 import { useAcquisitionSummary, useEngineTorrents } from '@/lib/acquisition/hooks';
 import {
   defaultTab,
@@ -30,7 +31,9 @@ import {
 } from '@/lib/acquisition/model';
 import { useT } from '@/lib/i18n/provider';
 import { useOnline } from '@/lib/live/hooks';
-import { useOfflineSupported, usePendingCount } from '@/lib/offline/hooks';
+import { useOfflineStatus, useOfflineSupported, usePendingCount } from '@/lib/offline/hooks';
+import { useStorage } from '@/lib/settings/hooks';
+import { formatSize } from '@/lib/sources/format';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '../settings/section-frame';
 import { NotFound } from '../not-found';
@@ -44,6 +47,51 @@ const ICONS: Record<DownloadTab, LucideIcon> = {
   searching: Search,
   torrents: Magnet,
 };
+
+/** Заполненность хранилища: полоса и «занято X из Y · свободно Z». Цвет — предупреждение от 90 %, ошибка при переполнении. */
+function SpaceMeter({ id, used, limit, label }: { id: string; used: number; limit: number; label: string }) {
+  const t = useT();
+  const ratio = used / limit;
+  const free = Math.max(0, limit - used);
+  return (
+    <div
+      className="border-divider dark:border-divider-dark flex flex-col gap-2 px-3 py-3 max-md:border-b"
+      data-testid={`acq-space-${id}`}
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-xs">
+        <span className="text-muted whitespace-nowrap">
+          {t('acq.space.used', { limit: formatSize(limit, t), used: formatSize(used, t) })}
+        </span>
+        <span className={cn('font-medium whitespace-nowrap tabular-nums', ratio >= 1 && 'text-danger-fg')}>
+          {t('acq.space.free', { free: formatSize(free, t) })}
+        </span>
+      </div>
+      <ProgressBar
+        aria-label={label}
+        className="h-1.5"
+        max={limit}
+        tone={ratio >= 1 ? 'danger' : ratio >= 0.9 ? 'warning' : 'accent'}
+        value={used}
+      />
+    </div>
+  );
+}
+
+/** Место на диске сервера (настройки хранилища); пока не загрузилось или без связи — ничего. */
+function ServerSpace() {
+  const t = useT();
+  const { data } = useStorage();
+  if (!data || data.limit_bytes <= 0) return null;
+  return <SpaceMeter id="server" label={t('acq.space.serverLabel')} limit={data.limit_bytes} used={data.used_bytes} />;
+}
+
+/** Место под офлайн-музыку на этом устройстве (лимит с учётом квоты браузера). */
+function DeviceSpace() {
+  const t = useT();
+  const { bytes, limit } = useOfflineStatus(s => s.usage);
+  if (limit <= 0) return null;
+  return <SpaceMeter id="device" label={t('acq.space.deviceLabel')} limit={limit} used={bytes} />;
+}
 
 /** Действия, относящиеся к разделу целиком: показываются над его списком. */
 function SectionActions({ tab }: { tab: DownloadTab }) {
@@ -119,46 +167,52 @@ export function DownloadsScreen() {
               >
                 {t(`acq.group.${group.id}`)}
               </h2>
-              <ul className="max-md:bg-card max-md:dark:bg-card-dark max-md:divide-divider max-md:dark:divide-divider-dark flex flex-col max-md:divide-y max-md:rounded-2xl md:gap-1">
-                {group.tabs.map(id => {
-                  const Icon = ICONS[id];
-                  const n = count(id);
-                  const selected = id === active;
-                  return (
-                    <li key={id}>
-                      <Link
-                        aria-current={selected && param ? 'page' : undefined}
-                        className={cn(
-                          'focus-visible:ring-accent/40 flex min-h-12 items-center gap-3 rounded-xl px-3 py-2.5 text-sm outline-none focus-visible:ring-2 md:py-0',
-                          selected
-                            ? 'md:bg-card md:dark:bg-card-dark md:font-semibold'
-                            : 'md:text-muted md:hover:text-black md:dark:hover:text-white',
-                        )}
-                        data-testid={`acq-tab-link-${id}`}
-                        to={`/downloads/${id}`}
-                      >
-                        <Icon
-                          aria-hidden
-                          className={cn('size-5 shrink-0', id === 'attention' && n ? 'text-warning-fg' : 'text-muted')}
-                        />
-                        <span className="flex min-w-0 flex-1 flex-col">
-                          <span className="max-md:font-medium">{t(`acq.tab.${id}`)}</span>
-                          <span className="text-muted text-xs md:hidden">{t(`acq.desc.${id}`)}</span>
-                        </span>
-                        {id === 'downloading' && paused ? <Badge tone="warning">{t('acq.paused')}</Badge> : null}
-                        {n === undefined ? null : id === 'attention' && n > 0 ? (
-                          <Badge tone="warning">
-                            <span className="tabular-nums">{n}</span>
-                          </Badge>
-                        ) : (
-                          <span className="text-muted text-sm tabular-nums">{n}</span>
-                        )}
-                        <ChevronRight aria-hidden className="text-muted size-4 shrink-0 md:hidden" />
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
+              <div className="max-md:bg-card max-md:dark:bg-card-dark max-md:rounded-2xl">
+                {group.id === 'server' ? <ServerSpace /> : group.id === 'device' ? <DeviceSpace /> : null}
+                <ul className="max-md:divide-divider max-md:dark:divide-divider-dark flex flex-col max-md:divide-y md:gap-1">
+                  {group.tabs.map(id => {
+                    const Icon = ICONS[id];
+                    const n = count(id);
+                    const selected = id === active;
+                    return (
+                      <li key={id}>
+                        <Link
+                          aria-current={selected && param ? 'page' : undefined}
+                          className={cn(
+                            'focus-visible:ring-accent/40 flex min-h-12 items-center gap-3 rounded-xl px-3 py-2.5 text-sm outline-none focus-visible:ring-2 md:py-0',
+                            selected
+                              ? 'md:bg-card md:dark:bg-card-dark md:font-semibold'
+                              : 'md:text-muted md:hover:text-black md:dark:hover:text-white',
+                          )}
+                          data-testid={`acq-tab-link-${id}`}
+                          to={`/downloads/${id}`}
+                        >
+                          <Icon
+                            aria-hidden
+                            className={cn(
+                              'size-5 shrink-0',
+                              id === 'attention' && n ? 'text-warning-fg' : 'text-muted',
+                            )}
+                          />
+                          <span className="flex min-w-0 flex-1 flex-col">
+                            <span className="max-md:font-medium">{t(`acq.tab.${id}`)}</span>
+                            <span className="text-muted text-xs md:hidden">{t(`acq.desc.${id}`)}</span>
+                          </span>
+                          {id === 'downloading' && paused ? <Badge tone="warning">{t('acq.paused')}</Badge> : null}
+                          {n === undefined ? null : id === 'attention' && n > 0 ? (
+                            <Badge tone="warning">
+                              <span className="tabular-nums">{n}</span>
+                            </Badge>
+                          ) : (
+                            <span className="text-muted text-sm tabular-nums">{n}</span>
+                          )}
+                          <ChevronRight aria-hidden className="text-muted size-4 shrink-0 md:hidden" />
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
             </section>
           ))}
         </nav>
