@@ -55,7 +55,7 @@ function SpaceMeter({ id, used, limit, label }: { id: string; used: number; limi
   const free = Math.max(0, limit - used);
   return (
     <div
-      className="border-divider dark:border-divider-dark flex flex-col gap-2 px-3 py-3 max-md:border-b"
+      className="border-divider dark:border-divider-dark flex flex-col gap-2 px-3 py-3 max-md:border-b max-md:px-5"
       data-testid={`acq-space-${id}`}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-xs">
@@ -162,7 +162,7 @@ export function DownloadsScreen() {
           {groups.map(group => (
             <section aria-labelledby={`acq-group-${group.id}`} data-testid={`acq-group-${group.id}`} key={group.id}>
               <h2
-                className="text-muted mb-1.5 px-3 text-xs font-semibold tracking-wide uppercase"
+                className="text-muted mb-1.5 px-3 text-xs font-semibold max-md:px-5 tracking-wide uppercase"
                 id={`acq-group-${group.id}`}
               >
                 {t(`acq.group.${group.id}`)}
@@ -179,7 +179,7 @@ export function DownloadsScreen() {
                         <Link
                           aria-current={selected && param ? 'page' : undefined}
                           className={cn(
-                            'focus-visible:ring-accent/40 flex min-h-12 items-center gap-3 rounded-xl px-3 py-3 text-sm outline-none focus-visible:ring-2 max-md:items-start md:py-0',
+                            'focus-visible:ring-accent/40 flex min-h-12 items-center gap-4 rounded-xl px-3 py-2.5 text-sm outline-none focus-visible:ring-2 max-md:px-5 md:gap-3 md:py-0',
                             selected
                               ? 'md:bg-card md:dark:bg-card-dark md:font-semibold'
                               : 'md:text-muted md:hover:text-black md:dark:hover:text-white',
@@ -190,7 +190,7 @@ export function DownloadsScreen() {
                           <Icon
                             aria-hidden
                             className={cn(
-                              'size-5 shrink-0 max-md:mt-px',
+                              'size-5 shrink-0',
                               id === 'attention' && n ? 'text-warning-fg' : 'text-muted',
                             )}
                           />
