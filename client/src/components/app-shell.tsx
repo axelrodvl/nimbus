@@ -49,7 +49,7 @@ function useStorageWarning() {
 
 function ContentSkeleton() {
   return (
-    <div aria-busy className="flex flex-col gap-4 px-4 py-6" data-testid="content-skeleton">
+    <div aria-busy className="flex flex-col gap-4 px-5 pt-1 pb-6" data-testid="content-skeleton">
       <Skeleton className="h-8 w-48" />
       <Skeleton className="h-32 w-full" />
       <Skeleton className="h-32 w-full" />
