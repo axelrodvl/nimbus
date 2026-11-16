@@ -21,7 +21,7 @@ export function MiniPlayer({ onOpenFull, onToggleQueue }: { onOpenFull: () => vo
   if (!track) return null;
   return (
     <div
-      className="border-divider dark:border-divider-dark shrink-0 border-t bg-white px-4 py-2 sm:hidden dark:bg-[#181818]"
+      className="border-divider dark:border-divider-dark shrink-0 border-t bg-white px-4 pt-2 pb-1.5 sm:hidden dark:bg-[#181818]"
       data-testid="mini-player"
       style={{ viewTransitionName: 'player-bar' }}
     >
@@ -53,8 +53,8 @@ export function MiniPlayer({ onOpenFull, onToggleQueue }: { onOpenFull: () => vo
           </button>
         </div>
       </div>
-      <ProgressRow className="mt-2" />
-      <DownloadInfo className="mt-1" />
+      <ProgressRow className="mt-1" />
+      <DownloadInfo className="mt-0.5" />
     </div>
   );
 }

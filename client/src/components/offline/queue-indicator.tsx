@@ -34,7 +34,7 @@ export function OfflineQueueIndicator({
       <Link
         aria-label={label}
         className={cn(
-          'border-divider/70 dark:border-divider-dark/70 text-muted flex items-center justify-center gap-2 border-t bg-white py-1.5 text-xs sm:hidden dark:bg-[#181818]',
+          'border-divider/70 dark:border-divider-dark/70 text-muted flex items-center justify-center gap-2 border-t bg-white py-1 text-xs sm:hidden dark:bg-[#181818]',
           className,
         )}
         data-testid="offline-queue-strip"

@@ -5,7 +5,7 @@ import type { NavItem } from '@/lib/nav/items';
 import { scrollRoot, scrollToTop } from '@/lib/nav/scroll-top';
 
 const mobileTab =
-  'flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[10px] font-medium text-gray hover:text-black dark:hover:text-white aria-[current=page]:text-accent-fg aria-[current=page]:font-bold aria-[current=page]:[&_svg]:stroke-[2.5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40';
+  'flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] font-medium text-gray hover:text-black dark:hover:text-white aria-[current=page]:text-accent-fg aria-[current=page]:font-bold aria-[current=page]:[&_svg]:stroke-[2.5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40';
 
 /** Нижняя панель вкладок (мобильная, до `sm`). */
 export function MobileTabBar({ items }: { items: readonly NavItem[] }) {

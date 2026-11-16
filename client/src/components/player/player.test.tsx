@@ -154,7 +154,9 @@ describe('статус под полосой', () => {
     // Трек 11 в статусе found (не скачан на сервер)
     act(() => env.ctl.playIndex(1));
     const status = () => within(screen.getByTestId('player-bar')).queryByTestId('player-status');
-    expect(status()).toHaveTextContent('Подключаемся к раздаче');
+    // Короткое подключение не моргает подписью: она появляется после задержки.
+    expect(status()).toBeNull();
+    await waitFor(() => expect(status()).toHaveTextContent('Подключаемся к раздаче'));
     act(() =>
       appData().live.getState().setStreamProgress(11, { bytes_done: 0, bytes_total: 100, down_speed_bps: 0, peers: 3 }),
     );
@@ -176,6 +178,14 @@ describe('статус под полосой', () => {
     await userEvent.click(within(screen.getByTestId('player-bar')).getByRole('button', { name: 'Отменить' }));
     expect(env.ctl.state.status).toBe('idle');
     expect(status()).toBeNull();
+  });
+
+  it('ready: подпись «Подключаемся к раздаче» не показывается даже при долгой загрузке', async () => {
+    const env = mount();
+    playFirst(env); // трек 10 — ready
+    await new Promise(r => setTimeout(r, 1000));
+    expect(within(screen.getByTestId('player-bar')).queryByText(/Подключаемся/)).toBeNull();
+    expect(env.ctl.state.index).toBe(0);
   });
 
   it('ready: прогресса загрузки нет; ошибка показывает текст', () => {
