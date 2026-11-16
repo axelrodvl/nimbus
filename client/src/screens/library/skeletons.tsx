@@ -59,7 +59,7 @@ export function LibrarySkeleton() {
 
 export function ArtistSkeleton() {
   return (
-    <div className="px-5 pt-7 pb-6 sm:pt-6" data-testid="screen-skeleton">
+    <div className="px-5 pt-[34px] pb-6 sm:pt-6" data-testid="screen-skeleton">
       <div className="mb-8 flex flex-col items-center gap-6 sm:flex-row">
         <Skeleton className="size-40 rounded-full" />
         <div className="flex flex-col gap-3">
@@ -74,7 +74,7 @@ export function ArtistSkeleton() {
 
 export function AlbumSkeleton() {
   return (
-    <div className="px-5 pt-7 pb-6 sm:pt-6" data-testid="screen-skeleton">
+    <div className="px-5 pt-[34px] pb-6 sm:pt-6" data-testid="screen-skeleton">
       <div className="mb-8 flex flex-col gap-6 sm:flex-row sm:items-end">
         <Skeleton className="size-48 self-center rounded-md sm:self-auto" />
         <div className="flex flex-col justify-end gap-3">
