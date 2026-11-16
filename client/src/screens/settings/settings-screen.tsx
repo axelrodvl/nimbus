@@ -136,6 +136,16 @@ export const SETTINGS_SECTIONS: readonly Section[] = [
   { icon: Info, id: 'about', label: 'settings.about', render: () => <AboutSection />, server: false },
 ];
 
+/** Группы пунктов списка — те же заголовки, что у «Загрузок»: где живут эти настройки. */
+const NAV_GROUPS: readonly { id: string; label: MessageKey; ids: readonly string[] }[] = [
+  {
+    id: 'server',
+    ids: ['sources', 'search', 'musicbrainz', 'playback', 'storage', 'performance', 'jobs'],
+    label: 'acq.group.server',
+  },
+  { id: 'device', ids: ['offline', 'appearance', 'about'], label: 'acq.group.device' },
+];
+
 function SectionSkeleton() {
   return (
     <div aria-hidden className="flex flex-col gap-3" data-testid="settings-skeleton">
@@ -182,36 +192,54 @@ export function SettingsScreen() {
       <div className="flex flex-col gap-6 md:flex-row md:items-start">
         <nav
           aria-label={t('settings.nav')}
-          className={cn('md:block md:w-60 md:shrink-0', param ? 'hidden' : 'block')}
+          className={cn('md:block md:w-64 md:shrink-0', param ? 'hidden' : 'block')}
           data-testid="settings-nav"
         >
-          <ul className="flex flex-col gap-1">
-            {sections.map(s => {
-              const Icon = s.icon;
-              const NavBadge = s.NavBadge;
-              const selected = s.id === active.id;
+          <div className="flex flex-col gap-5">
+            {NAV_GROUPS.map(group => {
+              const items = sections.filter(s => group.ids.includes(s.id));
+              if (items.length === 0) return null;
               return (
-                <li key={s.id}>
-                  <Link
-                    aria-current={selected && param ? 'page' : undefined}
-                    className={cn(
-                      'focus-visible:ring-accent/40 flex h-12 items-center gap-3 rounded-xl px-0 text-sm md:px-3 outline-none focus-visible:ring-2',
-                      selected
-                        ? 'md:bg-card md:dark:bg-card-dark font-semibold'
-                        : 'text-muted hover:text-black dark:hover:text-white',
-                    )}
-                    data-testid={`settings-link-${s.id}`}
-                    to={s.href ?? `/settings/${s.id}`}
+                <section aria-labelledby={`settings-group-${group.id}`} key={group.id}>
+                  <h2
+                    className="text-muted mb-1.5 px-3 text-xs font-semibold tracking-wide uppercase"
+                    id={`settings-group-${group.id}`}
                   >
-                    <Icon aria-hidden className="size-5" />
-                    <span className="flex-1">{t(s.label)}</span>
-                    {NavBadge ? <NavBadge /> : null}
-                    <ChevronRight aria-hidden className="text-muted size-4 md:hidden" />
-                  </Link>
-                </li>
+                    {t(group.label)}
+                  </h2>
+                  <div className="max-md:bg-card max-md:dark:bg-card-dark max-md:rounded-2xl">
+                    <ul className="max-md:divide-divider max-md:dark:divide-divider-dark flex flex-col max-md:divide-y md:gap-1">
+                      {items.map(s => {
+                        const Icon = s.icon;
+                        const NavBadge = s.NavBadge;
+                        const selected = s.id === active.id;
+                        return (
+                          <li key={s.id}>
+                            <Link
+                              aria-current={selected && param ? 'page' : undefined}
+                              className={cn(
+                                'focus-visible:ring-accent/40 flex min-h-12 items-center gap-4 rounded-xl px-3 py-2.5 text-sm outline-none focus-visible:ring-2 max-md:px-5 md:gap-3 md:py-0',
+                                selected
+                                  ? 'md:bg-card md:dark:bg-card-dark md:font-semibold'
+                                  : 'md:text-muted md:hover:text-black md:dark:hover:text-white',
+                              )}
+                              data-testid={`settings-link-${s.id}`}
+                              to={s.href ?? `/settings/${s.id}`}
+                            >
+                              <Icon aria-hidden className="text-muted size-5 shrink-0" />
+                              <span className="flex-1 max-md:font-medium">{t(s.label)}</span>
+                              {NavBadge ? <NavBadge /> : null}
+                              <ChevronRight aria-hidden className="text-muted size-4 shrink-0 md:hidden" />
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                </section>
               );
             })}
-          </ul>
+          </div>
         </nav>
         <div className={cn('min-w-0 md:block md:max-w-3xl md:flex-1', param ? 'block' : 'hidden')}>
           <Link
