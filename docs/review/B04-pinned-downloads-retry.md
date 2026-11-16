@@ -51,7 +51,8 @@ UPDATE pinned_tracks SET retries = 0, next_retry_at = now() WHERE state = 'faile
 |---|---|
 | ошибка БД, `EngineError::Io`, `Storage`, `Internal`, «timed out starting the torrent» | `Transient` |
 | `MetadataTimeout`, зависание (`is_stalled`) | `NoPeers` |
-| `InvalidMagnet`, `InvalidFileIndex`, раздачи нет в БД, путь файла неизвестен | `Permanent` |
+| «file path is unknown» (движок ещё не знает файл) | `Transient` |
+| `InvalidMagnet`, `InvalidFileIndex`, раздачи нет в БД | `Permanent` |
 
 `start_group` возвращает `Result<(), (Failure, String)>` вместо `Result<(), String>`.
 
@@ -99,7 +100,18 @@ UPDATE pinned_tracks SET retries = 0, next_retry_at = now() WHERE state = 'faile
   `insert_many`) и разбудить менеджер событием (менеджер уже просыпается по `TrackStatus::Found`; добавить
   пробуждение по `Event::AcquisitionChanged` либо публиковать его здесь).
 
-### 6. Уборка
+### 6. Зависание: сначала перезапуск, и `downloading` без строки загрузки
+
+- Перед тем как считать файл зависшим и менять источник, один раз повторить запуск того же источника
+  (`start_group` для этого файла): `ensure_files` перезапускает торрент, который движок перевёл в состояние ошибки
+  (сбой диска, потерянная сессия), и заново добавляет отсутствующий. Отметку «перезапуск уже был» хранить рядом
+  с `stalls`; отсчёт `stall_timeout` после перезапуска начинается заново. Ошибка перезапуска классифицируется по п. 2
+  (например, `Storage` — это `Transient`, а не «нет сидов»).
+- Закрепление в `downloading`, у primary-файла которого нет строки `downloads` (`existing.get(&key)` пуст),
+  обрабатывать как `queued`: переход `found → ready` делает `Watcher` только по строкам `downloads`, без неё
+  закрепление не завершится никогда.
+
+### 7. Уборка
 
 В начале `tick` удалять из `stalls` и `tried` ключи, которых нет среди открытых закреплений.
 
@@ -118,6 +130,10 @@ UPDATE pinned_tracks SET retries = 0, next_retry_at = now() WHERE state = 'faile
   повторно в течение 6 часов — не появляется.
 - `new_source_revives_dead_pin`: закрепление `dead`, `verify_torrent` добавил источник → закрепление `queued`.
 - `permanent_failure_is_not_retried`: `InvalidFileIndex` → `failed`, `next_retry_at IS NULL`.
+- `stall_restarts_same_source_first`: файл не двигается → сначала повторный `ensure_files` того же источника
+  (счётчик вызовов фейка), и только после второго `stall_timeout` — смена источника.
+- `downloading_pin_without_download_row_is_restarted`: строка `downloads` удалена у закрепления `downloading` →
+  следующий тик создаёт её заново, после завершения файла трек `ready`, закрепление `done`.
 
 `worker/tests/discover.rs`: `discover_album_searches_for_stalled_pin` (треки `found`, закрепление `failed("stalled")`
 → провайдеры опрошены, новая раздача привязана).
