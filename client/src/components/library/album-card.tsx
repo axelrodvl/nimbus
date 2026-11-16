@@ -40,7 +40,7 @@ export function AlbumCard({ album, priority, actions }: Props) {
         to={`/album/${album.id}`}
       >
         <Cover alt={album.title} className="w-full shadow-lg" priority={priority} src={album.cover_url} />
-        <div className="flex h-24 min-w-0 flex-col gap-0.5 overflow-hidden">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden">
           <span className="line-clamp-2 text-sm font-semibold">{album.title}</span>
           <span className="text-muted line-clamp-2 text-xs">{albumMeta(album)}</span>
           {!album.in_library ? <span className="text-muted text-xs italic">{t('album.onlySingles')}</span> : null}
@@ -52,8 +52,10 @@ export function AlbumCard({ album, priority, actions }: Props) {
       <AlbumOfflineBadge albumId={album.id} />
       <AlbumMenu albumId={album.id} artistId={album.artist_id} store={menu} />
       {actions ? (
-        <div className="absolute right-2 bottom-[7.5rem] opacity-0 transition-opacity group-focus-within/card:opacity-100 group-hover/card:opacity-100 [@media(hover:none)]:opacity-100">
-          {actions}
+        <div className="pointer-events-none absolute inset-x-0 top-3 aspect-square">
+          <div className="pointer-events-auto absolute right-2 bottom-2 opacity-0 transition-opacity group-focus-within/card:opacity-100 group-hover/card:opacity-100 [@media(hover:none)]:opacity-100">
+            {actions}
+          </div>
         </div>
       ) : null}
     </div>
