@@ -4,12 +4,13 @@ import { AlbumProgress } from '@/components/library/album-progress';
 import { AlbumHeaderMenu } from '@/components/library/album-menu';
 import { StatusMiniBar } from '@/components/library/status-mini-bar';
 import { ServerDownloadButton } from '@/components/downloads/server-download-button';
-import { OfflineControl } from '@/components/offline/subject-control';
+import { OfflineControl, offlineSummaryLabel } from '@/components/offline/subject-control';
 import { PageLayout } from '@/components/page-layout';
 import { PlayAlbumButton, PlayableTrackRow } from '@/components/player/play-buttons';
 import { useT } from '@/lib/i18n/provider';
+import { formatSize } from '@/lib/sources/format';
 import { useAlbumOffline } from '@/lib/offline/hooks';
-import { albumMeta, statusSummary } from '@/lib/library/status';
+import { albumMeta, albumTypeLabel, statusSummary } from '@/lib/library/status';
 import { useAlbumProgress, useAlbumTracks, useAlbumView } from '@/lib/store/hooks';
 import { AlbumSkeleton } from './skeletons';
 import { ItemNotFound, parseId, useEntityState } from './entity-gate';
@@ -28,6 +29,17 @@ export function AlbumScreen() {
   if (state === 'loading') return <AlbumSkeleton />;
   if (state === 'missing' || !album) return <ItemNotFound />;
 
+  // Одна строка: статусы на сервере и состояние на устройстве. Если на устройстве скачано всё, число треков уже
+  // названо («18 скачано»), поэтому добавляем только размер; при частичной загрузке — «Скачано N из M · X».
+  const deviceLabel =
+    offlineSummary.total > 0 && offlineSummary.done === offlineSummary.total
+      ? offlineSummary.bytes > 0
+        ? formatSize(offlineSummary.bytes, t)
+        : null
+      : offlineSummaryLabel(offlineSummary, t);
+  const statusLine = [statusSummary(album.statusCounts, t) || albumMeta(album, t), deviceLabel]
+    .filter(Boolean)
+    .join(' · ');
   const queueIds = tracks.map(tr => tr.id);
   const inLibraryCount = tracks.filter(tr => tr.in_library).length;
   const multiDisc = new Set(tracks.map(tr => tr.disc_no)).size > 1;
@@ -43,7 +55,7 @@ export function AlbumScreen() {
         />
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <span className="text-muted text-xs font-medium tracking-wide uppercase">
-            {album.primary_type ?? t('album.primaryDefault')}
+            {albumTypeLabel(album.primary_type, t) ?? t('album.primaryDefault')}
           </span>
           <h1 className="text-4xl font-bold tracking-tight">{album.title}</h1>
           <p className="text-muted text-sm">
@@ -55,16 +67,17 @@ export function AlbumScreen() {
           <div className="flex flex-col gap-2">
             <StatusMiniBar className="max-w-sm" counts={album.statusCounts} total={album.trackCount} />
             <p className="text-muted text-xs" data-testid="album-status-summary">
-              {statusSummary(album.statusCounts, t) || albumMeta(album)}
+              {statusLine}
             </p>
             {/* Фоновая проверка запасных раздач не должна мигать у альбома, где все треки уже найдены. */}
             <AlbumProgress progress={album.statusCounts.adding > 0 ? progress : undefined} />
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <PlayAlbumButton albumId={album.id} />
-            <ServerDownloadButton albumId={album.id} title={album.title} />
+            <ServerDownloadButton albumId={album.id} />
             <OfflineControl
               subject={{ id: album.id, kind: 'album', title: album.title, trackIds: queueIds }}
+              hideSummary
               summary={offlineSummary}
             />
             <AlbumHeaderMenu albumId={album.id} inLibrary={album.in_library} title={album.title} />

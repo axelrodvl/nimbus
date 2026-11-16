@@ -5,6 +5,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ServerDownloadButton } from '@/components/downloads/server-download-button';
+import { AlbumHeaderMenu } from '@/components/library/album-menu';
 import { MobileTabBar } from '@/components/mobile-tab-bar';
 import * as api from '@/lib/api/acquisition';
 import { ApiError } from '@/lib/api/errors';
@@ -557,7 +558,17 @@ describe('кнопка «Скачать на сервер» на экране а
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(online);
     m.list.mockResolvedValue(page(row ? [row] : []));
     const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } });
-    const router = createMemoryRouter([{ element: <ServerDownloadButton albumId={1} title="Album 1" />, path: '*' }]);
+    const router = createMemoryRouter([
+      {
+        element: (
+          <>
+            <ServerDownloadButton albumId={1} />
+            <AlbumHeaderMenu albumId={1} inLibrary={false} title="Album 1" />
+          </>
+        ),
+        path: '*',
+      },
+    ]);
     return render(
       <I18nProvider store={createI18nStore({ locale: 'ru', messages: ru })}>
         <QueryClientProvider client={qc}>
@@ -611,7 +622,7 @@ describe('кнопка «Скачать на сервер» на экране а
     m.unpin.mockResolvedValue(undefined);
     mount(item(1, { download: pinned('done', { bytes_done: 5, bytes_total: 5 }), state: 'downloaded' }));
     expect(await screen.findByTestId('server-download-done')).toHaveTextContent(L('acq.server.done'));
-    await userEvent.click(screen.getByTestId('server-download-menu'));
+    await userEvent.click(screen.getByTestId('album-menu'));
     await userEvent.click(await screen.findByTestId('menu-remove'));
     expect(m.unpin).not.toHaveBeenCalled();
     await userEvent.click(

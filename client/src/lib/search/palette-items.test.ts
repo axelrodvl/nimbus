@@ -7,6 +7,9 @@ import { translate } from '@/lib/i18n/translate';
 import { type MbidIndex, type SearchResult } from '@/lib/store/selectors';
 import { searchFixture } from '@/test/search';
 import { buildPaletteItems, PALETTE_ALBUMS, type PaletteAction } from './palette-items';
+import { enMessages, type TFn } from '@/lib/i18n/messages';
+
+const tEn: TFn = key => String(enMessages[key]);
 
 const t = (key: string, params?: Record<string, string | number>) => translate(en as never, 'en', key, params);
 const empty: SearchResult = { albums: [], artists: [], tracks: [] };
@@ -67,8 +70,8 @@ describe('buildPaletteItems', () => {
 describe('helpers', () => {
   it('albumSubtitle: пропускает пустые части', () => {
     const [album] = searchFixture().albums;
-    expect(albumSubtitle(album!)).toBe('Radiohead · 1997 · Album');
-    expect(albumSubtitle({ ...album!, primary_type: null, year: null })).toBe('Radiohead');
+    expect(albumSubtitle(album!, tEn)).toBe('Radiohead · 1997 · Album');
+    expect(albumSubtitle({ ...album!, primary_type: null, year: null }, tEn)).toBe('Radiohead');
   });
 
   it('pickBestArtist: точное имя → исполнитель топового трека с названием-запросом → первый артист', () => {

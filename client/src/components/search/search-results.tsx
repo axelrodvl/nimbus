@@ -109,6 +109,7 @@ function ArtistCard({ artist, index, query }: { artist: ArtistResult; index: Mbi
 }
 
 function AlbumCard({ album, index, query }: { album: AlbumResult; index: MbidIndex; query: string }) {
+  const t = useT();
   const id = index.albums.get(album.mbid);
   return (
     <div
@@ -119,7 +120,7 @@ function AlbumCard({ album, index, query }: { album: AlbumResult; index: MbidInd
         <Cover alt={album.title} className="w-full shadow-lg" src={album.cover_url} />
         <div className="mt-3 min-w-0">
           <p className="line-clamp-2 text-sm font-semibold">{album.title}</p>
-          <p className="text-muted line-clamp-2 text-xs">{albumSubtitle(album)}</p>
+          <p className="text-muted line-clamp-2 text-xs">{albumSubtitle(album, t)}</p>
         </div>
       </div>
       <div className="mt-3 flex justify-end">

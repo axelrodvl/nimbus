@@ -36,6 +36,9 @@ const base =
   'focus-visible:ring-accent/40 inline-flex shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:ring-2 focus-visible:outline-none';
 const idle =
   'border-divider dark:border-divider-dark text-gray hover:bg-card dark:hover:bg-card-dark hover:text-black dark:hover:text-white';
+// Кнопка с подписью (шапка альбома) стоит рядом с «Слушать» и «На сервере»: те же размер и нейтральный вид.
+const neutral =
+  'border-divider dark:border-divider-dark text-black dark:text-white hover:bg-card dark:hover:bg-card-dark';
 const active = 'border-accent text-accent-fg hover:bg-card dark:hover:bg-card-dark';
 
 type MenuItem = { label: string; onClick: () => void; testId: string };
@@ -79,7 +82,10 @@ export function OfflineButton({
     case 'done':
       view = {
         aria: aria('offline.state.done'),
-        cls: 'border-accent bg-accent/10 text-accent-fg hover:bg-accent/20',
+        // В шапке (с подписью) «готово» выглядит как соседние кнопки; акцентом остаётся только галочка.
+        cls: withLabel
+          ? `${neutral} [&_svg]:text-accent-fg`
+          : 'border-accent bg-accent/10 text-accent-fg hover:bg-accent/20',
         icon: <Check aria-hidden className={icon} strokeWidth={3} />,
         menu: [remove],
         text: t('offline.short.done'),
@@ -149,7 +155,11 @@ export function OfflineButton({
       };
   }
 
-  const cls = cn(base, withLabel ? 'h-9 gap-2 px-4 text-sm font-medium pointer-coarse:h-11' : ROUND[size], view.cls);
+  const cls = cn(
+    base,
+    withLabel ? 'h-9 gap-2 px-4 text-sm font-medium pointer-coarse:h-11' : ROUND[size],
+    withLabel && view.cls === idle ? neutral : view.cls,
+  );
   const content = (
     <>
       {view.icon}

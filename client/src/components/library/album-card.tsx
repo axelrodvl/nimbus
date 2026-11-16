@@ -42,7 +42,7 @@ export function AlbumCard({ album, priority, actions }: Props) {
         <Cover alt={album.title} className="w-full shadow-lg" priority={priority} src={album.cover_url} />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden">
           <span className="line-clamp-2 text-sm font-semibold">{album.title}</span>
-          <span className="text-muted line-clamp-2 text-xs">{albumMeta(album)}</span>
+          <span className="text-muted line-clamp-2 text-xs">{albumMeta(album, t)}</span>
           {!album.in_library ? <span className="text-muted text-xs italic">{t('album.onlySingles')}</span> : null}
         </div>
         <div className="h-1">

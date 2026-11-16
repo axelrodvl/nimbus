@@ -129,7 +129,7 @@ export function PlayTracksButton({
   }
   return (
     <button
-      className="bg-accent hover:bg-accent-hover focus-visible:ring-accent/40 inline-flex h-9 items-center gap-2 rounded-full px-4 text-sm font-medium text-white transition-transform focus-visible:ring-2 focus-visible:outline-none enabled:hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40"
+      className="bg-accent hover:bg-accent-hover focus-visible:ring-accent/40 inline-flex h-9 items-center gap-2 rounded-full px-4 text-sm font-medium text-white transition-transform focus-visible:ring-2 focus-visible:outline-none enabled:hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:h-11"
       data-playing={isThisPlaying || undefined}
       data-testid={testId ?? 'play-album'}
       disabled={playable.length === 0}

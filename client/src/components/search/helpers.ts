@@ -1,10 +1,12 @@
 import type { AlbumResult, ArtistResult, SearchResponse } from '@/lib/api/search-types';
+import type { TFn } from '@/lib/i18n/messages';
+import { albumTypeLabel } from '@/lib/library/status';
 
 export const artistHref = (id: number) => `/artist/${id}`;
 export const albumHref = (id: number) => `/album/${id}`;
 
-export function albumSubtitle(a: AlbumResult): string {
-  return [a.artist_name, a.year ? String(a.year) : null, a.primary_type].filter(Boolean).join(' · ');
+export function albumSubtitle(a: AlbumResult, t: TFn): string {
+  return [a.artist_name, a.year ? String(a.year) : null, albumTypeLabel(a.primary_type, t)].filter(Boolean).join(' · ');
 }
 
 const norm = (s: string) => s.trim().toLowerCase();

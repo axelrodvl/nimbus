@@ -73,7 +73,7 @@ describe('карточки', () => {
     const link = screen.getByRole('link');
     expect(link).toHaveAttribute('href', '/album/5');
     expect(link).toHaveTextContent('OK Computer');
-    expect(link).toHaveTextContent('Radiohead · 1997 · Album');
+    expect(link).toHaveTextContent('Radiohead · 1997 · Альбом');
     expect(screen.getByRole('button', { name: 'play' })).toBeInTheDocument();
   });
 

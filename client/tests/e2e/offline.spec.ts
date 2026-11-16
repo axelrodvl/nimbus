@@ -97,7 +97,7 @@ test('альбом: «На устройство» → прогресс → «С�
   await button.click();
   await expect(button).toHaveAttribute('data-state', /^(queued|downloading|done)$/);
   await expect(button).toHaveAttribute('data-state', 'done', { timeout: 30_000 });
-  await expect(page.getByTestId('offline-summary')).toContainText('Скачано 3 из 3');
+  await expect(page.getByTestId('album-status-summary')).toContainText(/(КБ|МБ)/);
   const seconds = (Date.now() - started) / 1000;
   info.annotations.push({
     description: `${((3 * 80_044) / 2 ** 20 / seconds).toFixed(2)} МБ/с (3 файла по 80 КБ, ${seconds.toFixed(2)} с)`,
@@ -113,7 +113,7 @@ test('альбом: «На устройство» → прогресс → «С�
     if (/\/api\/tracks\/\d+\/stream/.test(r.url())) streamRequests.push(r.url());
   });
   await expect(page.getByRole('heading', { name: 'Offline Test' })).toBeVisible();
-  await expect(page.getByTestId('offline-summary')).toContainText('Скачано 3 из 3');
+  await expect(page.getByTestId('album-status-summary')).toContainText(/(КБ|МБ)/);
   await page.getByTestId('play-album').first().click();
   await expect.poll(async () => (await audio(page)).paused).toBe(false);
   await expect.poll(async () => (await audio(page)).currentTime).toBeGreaterThan(0.2);

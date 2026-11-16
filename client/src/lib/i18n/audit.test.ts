@@ -45,6 +45,7 @@ const SAME_AS_ENGLISH = new Set(
     'Single',
     'Singles',
     'EPs',
+    'EP',
     'Playlist',
     'Playlists',
     'Actions',

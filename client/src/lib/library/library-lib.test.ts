@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createStore } from 'zustand/vanilla';
 import { vi } from 'vitest';
-import { enMessages } from '@/lib/i18n/messages';
+import { enMessages, type TFn } from '@/lib/i18n/messages';
 import { translate } from '@/lib/i18n/translate';
 import { formatAudioInfo } from './audio-info';
 import { coverSrc } from './cover';
@@ -11,6 +11,7 @@ import { RECENT_ARTIST_MS, shouldCheckImport } from './use-artist-import';
 import { createThrottledSource } from '@/lib/store/throttled';
 import { filterByName } from '@/lib/store/selectors';
 
+const tEn: TFn = key => String(enMessages[key]);
 const t = (key: string, params?: Record<string, string | number>) =>
   translate(enMessages as never, 'en', key, params);
 
@@ -55,8 +56,8 @@ describe('статусы', () => {
   });
   it('isPlayable и albumMeta', () => {
     expect(['adding', 'found', 'not_found', 'ready'].map(s => isPlayable(s as 'found'))).toEqual([false, true, false, true]);
-    expect(albumMeta({ artistName: 'A', primary_type: 'EP', year: 2001 })).toBe('A · 2001 · EP');
-    expect(albumMeta({ artistName: 'A', primary_type: null, year: null })).toBe('A');
+    expect(albumMeta({ artistName: 'A', primary_type: 'EP', year: 2001 }, tEn)).toBe('A · 2001 · EP');
+    expect(albumMeta({ artistName: 'A', primary_type: null, year: null }, tEn)).toBe('A');
   });
 });
 

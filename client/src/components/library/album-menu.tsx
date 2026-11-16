@@ -1,6 +1,7 @@
 import * as Ariakit from '@ariakit/react';
 import { MoreHorizontal } from 'lucide-react';
 import { useNavigate } from 'react-router';
+import { useServerMenu } from '@/components/downloads/server-download-button';
 import { MenuSheet } from '@/components/ui/menu-sheet';
 import { useT } from '@/lib/i18n/provider';
 import { useRemoveFromLibrary } from './remove-from-library-button';
@@ -31,11 +32,12 @@ export function AlbumHeaderMenu({ albumId, title, inLibrary }: { albumId: number
   const t = useT();
   const navigate = useNavigate();
   const remove = useRemoveFromLibrary({ id: albumId, redirectTo: '/library/albums', title, type: 'album' });
+  const server = useServerMenu(albumId, title);
   return (
     <Ariakit.MenuProvider>
       <Ariakit.MenuButton
         aria-label={t('menu.actions', { title })}
-        className="border-divider hover:bg-card dark:border-divider-dark dark:hover:bg-card-dark focus-visible:ring-accent/40 flex size-10 shrink-0 items-center justify-center rounded-full border focus-visible:ring-2 focus-visible:outline-none"
+        className="border-divider hover:bg-card dark:border-divider-dark dark:hover:bg-card-dark focus-visible:ring-accent/40 flex size-9 shrink-0 items-center justify-center rounded-full border focus-visible:ring-2 focus-visible:outline-none pointer-coarse:size-11"
         data-testid="album-menu"
       >
         <MoreHorizontal aria-hidden className="size-5" />
@@ -48,6 +50,16 @@ export function AlbumHeaderMenu({ albumId, title, inLibrary }: { albumId: number
         >
           {t('album.sources')}
         </Ariakit.MenuItem>
+        {server.actions.map(a => (
+          <Ariakit.MenuItem
+            className={`${menuItemClass} ${a.danger ? 'text-danger-fg' : ''}`}
+            data-testid={`menu-${a.id}`}
+            key={a.id}
+            onClick={a.onClick}
+          >
+            {a.label}
+          </Ariakit.MenuItem>
+        ))}
         {inLibrary ? (
           <Ariakit.MenuItem className={menuItemClass} data-testid="album-remove" onClick={remove.open}>
             {t('remove.button')}
@@ -55,6 +67,7 @@ export function AlbumHeaderMenu({ albumId, title, inLibrary }: { albumId: number
         ) : null}
       </MenuSheet>
       {remove.dialog}
+      {server.dialog}
     </Ariakit.MenuProvider>
   );
 }

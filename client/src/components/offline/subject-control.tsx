@@ -1,3 +1,4 @@
+import type { TFn } from '@/lib/i18n/messages';
 import { useT } from '@/lib/i18n/provider';
 import { formatSize } from '@/lib/sources/format';
 import { pinSubject, removeSubject, retryTracks, type OfflineSubject } from '@/lib/offline/actions';
@@ -6,19 +7,32 @@ import { usePinned, useOfflineSupported } from '@/lib/offline/hooks';
 import { OfflineButton } from './offline-button';
 
 /** «Скачано N из M · X МБ»; размер — по факту (до скачивания он неизвестен). */
-export function OfflineSummaryText({ summary, className }: { summary: OfflineSummary; className?: string }) {
-  const t = useT();
+export function offlineSummaryLabel(summary: OfflineSummary, t: TFn): string | null {
   if (summary.state.kind === 'none' || summary.total === 0) return null;
   const text = t('offline.summary', { done: summary.done, total: summary.total });
-  return (
+  return summary.bytes > 0 ? `${text} · ${formatSize(summary.bytes, t)}` : text;
+}
+
+export function OfflineSummaryText({ summary, className }: { summary: OfflineSummary; className?: string }) {
+  const label = offlineSummaryLabel(summary, useT());
+  return label ? (
     <span className={className} data-testid="offline-summary">
-      {summary.bytes > 0 ? `${text} · ${formatSize(summary.bytes, t)}` : text}
+      {label}
     </span>
-  );
+  ) : null;
 }
 
 /** Кнопка «на устройство» и сводка для альбома или плейлиста (шапка экрана). Не рисуется, если хранилища нет. */
-export function OfflineControl({ subject, summary }: { subject: OfflineSubject; summary: OfflineSummary }) {
+export function OfflineControl({
+  subject,
+  summary,
+  hideSummary = false,
+}: {
+  subject: OfflineSubject;
+  summary: OfflineSummary;
+  /** Сводку выводит сам экран (шапка альбома сливает её со строкой статусов). */
+  hideSummary?: boolean;
+}) {
   const supported = useOfflineSupported();
   const pinned = usePinned(subject.kind, subject.id, subject.trackIds);
   if (!supported) return null;
@@ -35,7 +49,7 @@ export function OfflineControl({ subject, summary }: { subject: OfflineSubject; 
         title={subject.title}
         withLabel
       />
-      <OfflineSummaryText className="text-muted text-xs" summary={summary} />
+      {hideSummary ? null : <OfflineSummaryText className="text-muted text-xs" summary={summary} />}
     </div>
   );
 }

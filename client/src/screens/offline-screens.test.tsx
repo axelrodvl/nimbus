@@ -187,7 +187,7 @@ describe('шапки альбома и плейлиста', () => {
     const control = await screen.findByTestId('offline-control');
     expect(control).toHaveTextContent('На устройство');
     ui.set({ 1: DONE, 2: fileStatus('downloading', 512, 1024) });
-    expect(screen.getByTestId('offline-summary')).toHaveTextContent('Скачано 1 из 2 · 1.5 КБ');
+    expect(screen.getByTestId('album-status-summary')).toHaveTextContent('Скачано 1 из 2 · 1.5 КБ');
     await userEvent.click(within(control).getByRole('button'));
     expect(ui.manager.unpin).toHaveBeenCalledWith('album', 1);
   });
