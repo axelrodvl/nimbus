@@ -98,7 +98,7 @@ export function AlbumScreen() {
         {tracks.map((tr, i) => (
           <li key={tr.id}>
             {multiDisc && tr.disc_no !== tracks[i - 1]?.disc_no ? (
-              <p className="text-muted px-3 pt-4 pb-1 text-xs font-medium tracking-wide uppercase">
+              <p className="text-muted pt-4 pb-1 text-xs font-medium tracking-wide uppercase">
                 {t('album.disc', { n: tr.disc_no })}
               </p>
             ) : null}
