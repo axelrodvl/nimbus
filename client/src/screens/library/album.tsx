@@ -42,6 +42,9 @@ export function AlbumScreen() {
     .join(' · ');
   const queueIds = tracks.map(tr => tr.id);
   const inLibraryCount = tracks.filter(tr => tr.in_library).length;
+  // Альбом «не найден»: ни один трек не найден и не ищется — остаются только «Источники» и «Удалить» в меню «…».
+  const c = album.statusCounts;
+  const notFound = c.ready + c.found + c.adding === 0;
   const multiDisc = new Set(tracks.map(tr => tr.disc_no)).size > 1;
   return (
     <PageLayout documentTitle={album.title}>
@@ -73,13 +76,17 @@ export function AlbumScreen() {
             <AlbumProgress progress={album.statusCounts.adding > 0 ? progress : undefined} />
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <PlayAlbumButton albumId={album.id} />
-            <ServerDownloadButton albumId={album.id} />
-            <OfflineControl
-              subject={{ id: album.id, kind: 'album', title: album.title, trackIds: queueIds }}
-              hideSummary
-              summary={offlineSummary}
-            />
+            {notFound ? null : (
+              <>
+                <PlayAlbumButton albumId={album.id} />
+                <ServerDownloadButton albumId={album.id} />
+                <OfflineControl
+                  subject={{ id: album.id, kind: 'album', title: album.title, trackIds: queueIds }}
+                  hideSummary
+                  summary={offlineSummary}
+                />
+              </>
+            )}
             <AlbumHeaderMenu albumId={album.id} inLibrary={album.in_library} title={album.title} />
             {!album.in_library && inLibraryCount > 0 ? (
               <span className="text-muted text-xs">

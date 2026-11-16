@@ -163,6 +163,16 @@ describe('альбом', () => {
     expect(screen.queryByRole('button', { name: 'Удалить из библиотеки' })).not.toBeInTheDocument();
   });
 
+  it('альбом не найден: нет «Слушать», скачивания на устройство и сервер; меню «…» на месте', () => {
+    const d = discs();
+    seed({ ...d, tracks: d.tracks.map(tr => ({ ...tr, status: 'not_found' as const })) });
+    renderRoutes(routes, '/album/1');
+    expect(screen.queryByRole('button', { name: /слушать|play/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('offline-control')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('server-download')).not.toBeInTheDocument();
+    expect(screen.getByTestId('album-menu')).toBeInTheDocument();
+  });
+
   it('нет такого альбома — «не найдено»; до гидратации — skeleton', () => {
     seedNothing();
     const first = renderRoutes(routes, '/album/1');
