@@ -904,6 +904,52 @@ async fn revive_skips_when_active_duplicate_exists(pool: PgPool) {
     assert_eq!(job_row(&pool, newer).await.state, "queued");
 }
 
+/// Упавший импорт заменён новой успешной задачей (ручной повтор). Когда уборка удаляет её `done`,
+/// старая `failed` не должна снова стать «последней» и ожить неделю спустя.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn purged_done_does_not_resurrect_superseded_failure(pool: PgPool) {
+    let old = failed_import(&pool, 1, false).await;
+    let other = failed_import(&pool, 2, false).await;
+    let newer = jobs::enqueue(
+        &pool,
+        &Job::ImportArtist { artist_id: 1 },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    jobs::claim(&pool, "w", REVIVE_KINDS)
+        .await
+        .unwrap()
+        .unwrap();
+    jobs::complete(&pool, newer, "w").await.unwrap();
+    // Свежая `done` ещё хранится — старую `failed` уборка не трогает.
+    assert_eq!(
+        jobs::purge_done(&pool, Duration::from_secs(7 * 86400))
+            .await
+            .unwrap(),
+        0
+    );
+    for id in [old, other, newer] {
+        age(&pool, id, "8 days").await;
+    }
+    assert_eq!(
+        jobs::purge_done(&pool, Duration::from_secs(7 * 86400))
+            .await
+            .unwrap(),
+        2,
+        "done и вытесненная ею failed"
+    );
+    let rows = jobs::revive_failed(&pool, REVIVE_KINDS, REVIVE_DELAYS)
+        .await
+        .unwrap();
+    assert_eq!(
+        rows.iter().map(|r| r.id).collect::<Vec<_>>(),
+        [other],
+        "оживает только задача без успешной замены"
+    );
+}
+
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn revive_takes_only_latest_of_same_key(pool: PgPool) {
     let old = failed_import(&pool, 1, false).await;

@@ -352,6 +352,8 @@ async fn timeouts_retry_then_dead_then_not_found_dead_torrents(pool: PgPool) {
             (t.meta_status, t.meta_attempts),
             (MetaStatus::Timeout, attempt)
         );
+        // Имитация прошедшей паузы расписания (раннер вернул бы задачу через `after`).
+        ctx.meta_cooldowns.clear(tid);
         // Пока не проверена — треки ждут.
         for (st, _) in statuses(&pool, s.album_id).await {
             assert_eq!(st, TrackStatus::Adding);
@@ -1531,6 +1533,42 @@ async fn discography_timeout_counts_one_attempt(pool: PgPool) {
     let t = torrents::get(&pool, tid).await.unwrap().unwrap();
     assert_eq!((t.meta_status, t.meta_attempts), (MetaStatus::Timeout, 1));
     assert!(ctx.meta_locks.is_empty());
+}
+
+/// Альбомов у дискографии больше, чем воркеров проверки: задачи, взятые уже после первого таймаута,
+/// не должны сразу тратить следующие попытки раздачи — пауза расписания общая для всех задач.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn discography_job_started_after_timeout_waits_out_the_pause(pool: PgPool) {
+    let (tid, albums) = discography(&pool, 4).await;
+    let fetcher = FakeFetcher::new(vec![(hash(1), Reply::Timeout)]);
+    let (ctx, _) = ctx(&pool, fetcher.clone());
+    match verify_torrent(&ctx, tid, albums[0]).await {
+        Err(JobError::Retry { after, .. }) => assert_eq!(after.as_secs(), 60),
+        other => panic!("expected Retry, got {other:?}"),
+    }
+    for a in &albums[1..] {
+        match verify_torrent(&ctx, tid, *a).await {
+            Err(JobError::Retry { after, .. }) => {
+                assert!(after.as_secs() >= 58 && after.as_secs() <= 60, "{after:?}")
+            }
+            other => panic!("expected Retry, got {other:?}"),
+        }
+    }
+    assert_eq!(
+        fetcher.calls.load(Ordering::SeqCst),
+        1,
+        "пока пауза не прошла, сеть не трогаем"
+    );
+    let t = torrents::get(&pool, tid).await.unwrap().unwrap();
+    assert_eq!((t.meta_status, t.meta_attempts), (MetaStatus::Timeout, 1));
+
+    // Пауза прошла — следующая задача делает вторую попытку.
+    ctx.meta_cooldowns.clear(tid);
+    match verify_torrent(&ctx, tid, albums[1]).await {
+        Err(JobError::Retry { after, .. }) => assert_eq!(after.as_secs(), 300),
+        other => panic!("expected Retry, got {other:?}"),
+    }
+    assert_eq!(fetcher.calls.load(Ordering::SeqCst), 2);
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]

@@ -160,11 +160,25 @@ async fn load_files(ctx: &JobCtx, torrent: &Torrent) -> Result<FileList, JobErro
                 reason: format!("metadata timeout (attempt {})", fresh.meta_attempts),
             });
         }
+        // Попытку потратили ещё до нашего чтения раздачи (задача взята позже: альбомов больше, чем
+        // воркеров), а пауза расписания не прошла — ждём её остаток, а не сжигаем следующую попытку.
+        MetaStatus::Timeout => {
+            if let Some(wait) = ctx.meta_cooldowns.remaining(torrent.id) {
+                return Err(JobError::Retry {
+                    after: wait,
+                    reason: format!(
+                        "metadata timeout (attempt {}), waiting out the pause",
+                        fresh.meta_attempts
+                    ),
+                });
+            }
+        }
         _ => {}
     }
     let t = torrents::set_meta_status(&ctx.db, torrent.id, MetaStatus::Fetching, None).await?;
     match ctx.run(fetcher.fetch_metadata(&t.magnet)).await? {
         Ok(meta) => {
+            ctx.meta_cooldowns.clear(t.id);
             store_files(ctx, t.id, &meta).await?;
             if let Some(bytes) = &meta.torrent_file {
                 torrents::set_torrent_file(&ctx.db, t.id, bytes).await?;
@@ -174,6 +188,8 @@ async fn load_files(ctx: &JobCtx, torrent: &Torrent) -> Result<FileList, JobErro
         Err(EngineError::MetadataTimeout) => {
             if t.meta_attempts < MAX_META_ATTEMPTS {
                 torrents::set_meta_status(&ctx.db, t.id, MetaStatus::Timeout, None).await?;
+                // Пауза до следующей попытки — общая для всех задач этой раздачи.
+                ctx.meta_cooldowns.start(t.id, retry_delay(t.meta_attempts));
                 Err(JobError::Retry {
                     after: retry_delay(t.meta_attempts),
                     reason: format!("metadata timeout (attempt {})", t.meta_attempts),

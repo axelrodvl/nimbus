@@ -365,10 +365,19 @@ pub async fn release(db: impl PgExecutor<'_>, id: i64, worker_id: &str) -> sqlx:
         > 0)
 }
 
-/// Удаляет завершённые (`done`) задачи старше `older_than`.
+/// Удаляет завершённые (`done`) задачи старше `older_than` — вместе с более ранними `failed`
+/// того же `dedup_key`: иначе после удаления успешной замены старая неудача снова стала бы
+/// «последней задачей ключа» и [`revive_failed`] оживил бы её.
 pub async fn purge_done(db: impl PgExecutor<'_>, older_than: Duration) -> sqlx::Result<u64> {
     Ok(sqlx::query(
-        "DELETE FROM jobs WHERE state = 'done' AND updated_at < now() - make_interval(secs => $1)",
+        "WITH old AS (
+            SELECT id, dedup_key FROM jobs
+            WHERE state = 'done' AND updated_at < now() - make_interval(secs => $1)
+         )
+         DELETE FROM jobs j
+         WHERE j.id IN (SELECT id FROM old)
+            OR (j.state = 'failed'
+                AND EXISTS (SELECT 1 FROM old WHERE old.dedup_key = j.dedup_key AND old.id > j.id))",
     )
     .bind(older_than.as_secs_f64())
     .execute(db)

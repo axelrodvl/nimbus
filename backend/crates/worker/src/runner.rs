@@ -49,6 +49,9 @@ pub struct JobCtx {
     pub priority: i16,
     /// Блокировки по раздаче: метаданные одной раздачи запрашивает одна задача за раз (`verify_torrent`).
     pub meta_locks: Arc<crate::keyed_locks::KeyedLocks>,
+    /// Паузы по раздаче после таймаута метаданных: пока пауза расписания не прошла, ни одна задача
+    /// не делает новый запрос (у дискографии задач больше, чем воркеров проверки).
+    pub meta_cooldowns: Arc<crate::keyed_locks::Cooldowns>,
 }
 
 impl JobCtx {
@@ -76,6 +79,7 @@ impl JobCtx {
             cancel: CancellationToken::new(),
             priority: nimbus_core::jobs::PRIORITY_NORMAL,
             meta_locks: Arc::default(),
+            meta_cooldowns: Arc::default(),
         }
     }
 

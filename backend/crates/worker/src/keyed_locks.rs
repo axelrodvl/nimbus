@@ -1,7 +1,9 @@
 //! Блокировки по ключу: не больше одного владельца на ключ, пока остальные ждут.
+//! И паузы по ключу ([`Cooldowns`]): «до такого-то момента ключ не трогать».
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 /// Карта «ключ → асинхронный мьютекс». Глобальный мьютекс карты берётся только на доступ к ней
 /// и никогда не держится через `.await`; запись удаляется, когда на неё больше никто не ссылается.
@@ -68,11 +70,63 @@ impl Drop for KeyGuard {
     }
 }
 
+/// Паузы по ключу в памяти процесса. После рестарта пусто — это безопасно: пауза лишь бережёт
+/// попытки, а отложенные задачи и так вернутся не раньше своего `run_after`.
+#[derive(Default)]
+pub struct Cooldowns {
+    map: Mutex<HashMap<i64, Instant>>,
+}
+
+impl Cooldowns {
+    /// Начинает паузу ключа `key` длиной `pause` (истёкшие записи других ключей убираются).
+    pub fn start(&self, key: i64, pause: Duration) {
+        let now = Instant::now();
+        let mut map = self.map.lock().unwrap_or_else(PoisonError::into_inner);
+        map.retain(|_, until| *until > now);
+        map.insert(key, now + pause);
+    }
+
+    /// Сколько осталось до конца паузы; `None` — паузы нет или она прошла.
+    pub fn remaining(&self, key: i64) -> Option<Duration> {
+        let until = *self
+            .map
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&key)?;
+        until
+            .checked_duration_since(Instant::now())
+            .filter(|d| !d.is_zero())
+    }
+
+    /// Снимает паузу ключа.
+    pub fn clear(&self, key: i64) {
+        self.map
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&key);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
-    use std::time::Duration;
+
+    #[test]
+    fn cooldown_counts_down_expires_and_clears() {
+        let c = Cooldowns::default();
+        assert_eq!(c.remaining(1), None);
+        c.start(1, Duration::from_secs(60));
+        c.start(2, Duration::ZERO);
+        let left = c.remaining(1).unwrap();
+        assert!(left <= Duration::from_secs(60) && left > Duration::from_secs(58));
+        assert_eq!(c.remaining(2), None, "истёкшая пауза не действует");
+        // Новая пауза убирает истёкшие записи.
+        c.start(3, Duration::from_secs(1));
+        assert!(!c.map.lock().unwrap().contains_key(&2));
+        c.clear(1);
+        assert_eq!(c.remaining(1), None);
+    }
 
     #[tokio::test]
     async fn serializes_same_key_and_cleans_up() {
