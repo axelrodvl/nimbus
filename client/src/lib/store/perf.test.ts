@@ -6,6 +6,7 @@ import { makeAlbum, makeArtist, makeTrack } from '@/test/factories';
 import { createLibraryStore } from './library';
 import { createLiveStore } from './live';
 import { createSelectors } from './selectors';
+import { createThrottledSource } from './throttled';
 
 // Пороги — на store и селекторы (не на IndexedDB). Библиотека: 60 000 треков, 5 000 альбомов, 500 артистов.
 function bigLibrary(): LibraryRows {
@@ -116,5 +117,37 @@ describe('производительность store', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('100 patchTrack при 60 000 треках и смонтированной главной (recent + favorites): до / после', () => {
+    const run = (throttled: boolean) => {
+      const store = createLibraryStore();
+      store.getState().hydrate(rows);
+      const selectors = createSelectors();
+      const home = (s: ReturnType<typeof store.getState>) => [
+        selectors.recentlyPlayedAlbums(s, 12),
+        selectors.favorites(s),
+      ];
+      home(store.getState());
+      let off: () => void;
+      if (throttled) {
+        const source = createThrottledSource(store, home, 250);
+        off = source.subscribe(() => undefined);
+      } else {
+        off = store.subscribe(s => void home(s));
+      }
+      const [, ms] = timed(() => {
+        for (let i = 1; i <= 100; i++)
+          store.getState().patchTrack(i, { last_played_at: '2026-06-01T00:00:00Z', play_count: i });
+      });
+      off();
+      return ms;
+    };
+    const before = run(false);
+    const after = run(true);
+    process.stdout.write(
+      `perf: 100 patchTrack @60k with home mounted: before ${before.toFixed(0)} ms, after ${after.toFixed(0)} ms\n`,
+    );
+    expect(after).toBeLessThan(before);
   });
 });

@@ -49,19 +49,42 @@ function sortDesc<T>(items: T[], key: (item: T) => number, id: (item: T) => numb
 
 const statusKey = (statuses?: readonly TrackStatus[]) => (statuses?.length ? [...statuses].sort().join(',') : '');
 
+const sameRow = (a: ArtistView, b: ArtistView) => (Object.keys(b) as (keyof ArtistView)[]).every(k => a[k] === b[k]);
+
 type Deps = readonly unknown[];
 const same = (a: Deps, b: Deps) => a.length === b.length && a.every((x, i) => x === b[i]);
 
-/** Кэш на ключ: результат переиспользуется (та же ссылка), пока зависимости не изменились. */
-function memoByKey<K, R>() {
+/** Предел кэша списков (LRU): заметно больше числа одновременно смонтированных подписчиков. */
+export const LISTS_CACHE_LIMIT = 300;
+
+/**
+ * Кэш на ключ: результат переиспользуется (та же ссылка), пока зависимости не изменились. `limit` — LRU
+ * (давно не читанный ключ вытесняется). `reuse(prev, next)` — вернуть прежний объект, если новый равен ему по значению.
+ */
+function memoByKey<K, R>(limit = Number.POSITIVE_INFINITY) {
   const cache = new Map<K, { deps: Deps; value: R }>();
-  return (key: K, deps: Deps, compute: () => R): R => {
+  const memo = (key: K, deps: Deps, compute: () => R, reuse?: (prev: R, next: R) => boolean): R => {
     const hit = cache.get(key);
-    if (hit && same(hit.deps, deps)) return hit.value;
-    const value = compute();
+    if (hit && same(hit.deps, deps)) {
+      // LRU: прочитанный ключ становится самым свежим.
+      if (limit !== Number.POSITIVE_INFINITY) {
+        cache.delete(key);
+        cache.set(key, hit);
+      }
+      return hit.value;
+    }
+    let value = compute();
+    if (hit && reuse?.(hit.value, value)) value = hit.value;
+    cache.delete(key);
     cache.set(key, { deps, value });
+    if (cache.size > limit) cache.delete(cache.keys().next().value as K);
     return value;
   };
+  memo.size = () => cache.size;
+  memo.prune = (alive: (key: K) => boolean) => {
+    for (const key of [...cache.keys()]) if (!alive(key)) cache.delete(key);
+  };
+  return memo;
 }
 
 /**
@@ -73,7 +96,7 @@ export function createSelectors() {
   const trackViews = memoByKey<number, TrackView>();
   const albumViews = memoByKey<number, AlbumView>();
   const artistViews = memoByKey<number, ArtistView>();
-  const lists = memoByKey<string, unknown>();
+  const lists = memoByKey<string, unknown>(LISTS_CACHE_LIMIT);
 
   function trackView(s: LibraryState, id: number): TrackView | undefined {
     const t = s.tracks.get(id);
@@ -114,21 +137,26 @@ export function createSelectors() {
     const a = s.artists.get(id);
     if (!a) return undefined;
     const albumIds = s.albumsByArtist.get(id) ?? [];
-    const deps: unknown[] = [a, s.albums, s.tracks, s.albumsByArtist.get(id), s.tracksByArtist.get(id)];
-    for (const albumId of albumIds) deps.push(s.tracksByAlbum.get(albumId));
-    return artistViews(id, deps, () => {
-      let albumCount = 0;
-      const tracks = new Set<number>();
-      for (const albumId of albumIds) {
-        const album = s.albums.get(albumId);
-        if (!album) continue;
-        const own = inLibraryTracks(s, s.tracksByAlbum.get(albumId));
-        if (album.in_library || own.length > 0) albumCount += 1;
-        for (const t of own) tracks.add(t.id);
-      }
-      for (const t of inLibraryTracks(s, s.tracksByArtist.get(id))) tracks.add(t.id);
-      return { ...a, albumCount, trackCount: tracks.size };
-    });
+    // Результат считается всегда (треки одного артиста — это дёшево) и сравнивается по значению: смена
+    // несвязанного трека не создаёт новый объект.
+    return artistViews(
+      id,
+      [{}], // новый объект: всегда пересчитывать, результат сравнивается по значению
+      () => {
+        let albumCount = 0;
+        const tracks = new Set<number>();
+        for (const albumId of albumIds) {
+          const album = s.albums.get(albumId);
+          if (!album) continue;
+          const own = inLibraryTracks(s, s.tracksByAlbum.get(albumId));
+          if (album.in_library || own.length > 0) albumCount += 1;
+          for (const t of own) tracks.add(t.id);
+        }
+        for (const t of inLibraryTracks(s, s.tracksByArtist.get(id))) tracks.add(t.id);
+        return { ...a, albumCount, trackCount: tracks.size };
+      },
+      (prev, next) => prev.albumCount === next.albumCount && prev.trackCount === next.trackCount && sameRow(prev, next),
+    );
   }
 
   const hasStatus = (s: LibraryState, ids: number[] | undefined, statuses: readonly TrackStatus[]) =>
@@ -379,6 +407,13 @@ export function createSelectors() {
     }) as MbidIndex;
   }
 
+  /** Убрать представления сущностей, которых больше нет в таблицах (после снимка и удалений). */
+  function prune(s: LibraryState) {
+    trackViews.prune(id => s.tracks.has(id));
+    albumViews.prune(id => s.albums.has(id));
+    artistViews.prune(id => s.artists.has(id));
+  }
+
   return {
     albumTracks,
     albumView,
@@ -394,9 +429,12 @@ export function createSelectors() {
     playlistCards,
     playlistTracks,
     playlistsOfTrack,
+    prune,
     recentlyPlayedAlbums,
     searchLocal,
     trackView,
+    /** Только для тестов. */
+    cacheSize: () => ({ artistViews: artistViews.size(), lists: lists.size(), trackViews: trackViews.size() }),
   };
 }
 

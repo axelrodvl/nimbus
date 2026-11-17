@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { makeAlbum, makeArtist, makePlaylist, makePlaylistTrack, makeTrack, resetFactories } from '@/test/factories';
 import type { LibraryRows } from '@/lib/db/types';
 import { createLibraryStore } from './library';
-import { createSelectors, normalize } from './selectors';
+import { createSelectors, LISTS_CACHE_LIMIT, normalize } from './selectors';
 
 beforeEach(resetFactories);
 
@@ -296,5 +296,79 @@ describe('мемоизация', () => {
     const a = createSelectors();
     const b = createSelectors();
     expect(a.libraryTracks(s())).not.toBe(b.libraryTracks(s()));
+  });
+});
+
+describe('кэши и точные зависимости', () => {
+  const base = () => ({
+    albums: [makeAlbum({ artist_id: 1, id: 1 }), makeAlbum({ artist_id: 2, id: 2 })],
+    artists: [makeArtist({ id: 1 }), makeArtist({ id: 2 })],
+    tracks: [makeTrack({ album_id: 1, artist_id: 1, id: 1 }), makeTrack({ album_id: 2, artist_id: 2, id: 2 })],
+  });
+
+  it('artistView keeps identity when an unrelated track changes', () => {
+    const { s, selectors, store } = setup(base());
+    const before = selectors.artistView(s(), 1);
+    store.getState().patchTrack(2, { play_count: 5 });
+    store.getState().patchTrack(1, { play_count: 3 });
+    expect(selectors.artistView(s(), 1)).toBe(before);
+  });
+
+  it("artistView updates when a track's in_library flips", () => {
+    const { s, selectors, store } = setup({
+      ...base(),
+      albums: [makeAlbum({ artist_id: 1, id: 1, in_library: false })],
+    });
+    expect(selectors.artistView(s(), 1)).toMatchObject({ albumCount: 1, trackCount: 1 });
+    store.getState().patchTrack(1, { in_library: false });
+    expect(selectors.artistView(s(), 1)).toMatchObject({ albumCount: 0, trackCount: 0 });
+  });
+
+  it('artistView updates when an album is added to the artist', () => {
+    const { s, selectors, store } = setup(base());
+    const before = selectors.artistView(s(), 1);
+    store.getState().applyBatch({
+      albums: [makeAlbum({ artist_id: 1, id: 9 })],
+      tracks: [makeTrack({ album_id: 9, artist_id: 1, id: 9 })],
+    });
+    const after = selectors.artistView(s(), 1);
+    expect(after).not.toBe(before);
+    expect(after).toMatchObject({ albumCount: 2, trackCount: 2 });
+  });
+
+  it('lists cache is bounded', () => {
+    const { s, selectors } = setup(base());
+    for (let i = 0; i < 1000; i++) selectors.searchLocal(s(), `q${i}`, 5);
+    expect(selectors.cacheSize().lists).toBeLessThanOrEqual(LISTS_CACHE_LIMIT);
+  });
+
+  it('evicted key recomputes to an equal value', () => {
+    const { s, selectors } = setup(base());
+    const first = selectors.searchLocal(s(), 'a', 5);
+    for (let i = 0; i < LISTS_CACHE_LIMIT + 5; i++) selectors.searchLocal(s(), `x${i}`, 5);
+    expect(selectors.searchLocal(s(), 'a', 5)).toEqual(first);
+  });
+
+  it('a key read on every update is never evicted while 299 others rotate', () => {
+    const { s, selectors } = setup(base());
+    const hot = selectors.searchLocal(s(), 'hot', 5);
+    for (let i = 0; i < 2000; i++) {
+      selectors.searchLocal(s(), `cold${i}`, 5);
+      expect(selectors.searchLocal(s(), 'hot', 5)).toBe(hot);
+    }
+  });
+
+  it('prune drops views of deleted rows', () => {
+    const { s, selectors, store } = setup(base());
+    selectors.trackView(s(), 1);
+    selectors.trackView(s(), 2);
+    selectors.albumView(s(), 1);
+    selectors.artistView(s(), 2);
+    store.getState().applyBatch({ deleted: [{ entity: 'track', id: 2 }] });
+    selectors.prune(s());
+    expect(selectors.cacheSize().trackViews).toBe(1);
+    store.getState().replaceAll({ albums: [], artists: [], playlistTracks: [], playlists: [], tracks: [] });
+    selectors.prune(s());
+    expect(selectors.cacheSize()).toMatchObject({ artistViews: 0, trackViews: 0 });
   });
 });

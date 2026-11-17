@@ -30,6 +30,7 @@ export function createAppData(deps: AppDataDeps = {}) {
     api: deps.syncApi ?? createSyncApi(client),
     db,
     live,
+    onPrune: () => selectors.prune(library.getState()),
     onUnauthorized: () => (deps.onUnauthorized ?? (() => undefined))(),
     store: library,
     tabs: deps.tabs ?? createTabs(),

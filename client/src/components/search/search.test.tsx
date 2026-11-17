@@ -249,7 +249,7 @@ describe('кнопка «Добавить в библиотеку»', () => {
         .library.getState()
         .applyBatch({ albums: [makeAlbum({ artist_id: 1, id: 7, mbid: OK_COMPUTER })] }),
     );
-    expect(within(card).getByRole('link', { name: 'Открыть' })).toHaveAttribute('href', '/album/7');
+    expect(await within(card).findByRole('link', { name: 'Открыть' })).toHaveAttribute('href', '/album/7');
     expect(addingStore.getState().adding.has(OK_COMPUTER)).toBe(false);
   });
 

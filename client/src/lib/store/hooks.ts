@@ -1,4 +1,4 @@
-import { useMemo, useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore, type DependencyList } from 'react';
 import { useStore } from 'zustand';
 import { appData } from '@/lib/app-data';
 import type { LibraryState } from './library';
@@ -48,20 +48,9 @@ export const useAlbumTracks = (albumId: number): TrackView[] =>
   useLibrary(s => appData().selectors.albumTracks(s, albumId));
 export const usePlaylistTracks = (playlistId: number): PlaylistEntry[] =>
   useLibrary(s => appData().selectors.playlistTracks(s, playlistId));
-export const usePlaylistCards = (): PlaylistCard[] => useLibrary(s => appData().selectors.playlistCards(s));
-export const usePlaylistCard = (id: number | 'favorites'): PlaylistCard | undefined =>
-  useLibrary(s => appData().selectors.playlistCard(s, id));
 /** В каких плейлистах уже есть трек. */
 export const usePlaylistsOfTrack = (trackId: number): ReadonlySet<number> =>
   useLibrary(s => appData().selectors.playlistsOfTrack(s, trackId));
-export const useRecentlyPlayedAlbums = (limit: number): AlbumView[] =>
-  useLibrary(s => appData().selectors.recentlyPlayedAlbums(s, limit));
-export const useFavorites = (): TrackView[] => useLibrary(s => appData().selectors.favorites(s));
-export const useSearchLocal = (query: string, limit: number): SearchResult =>
-  useLibrary(s => appData().selectors.searchLocal(s, query, limit));
-
-/** Индекс `mbid → id` объектов библиотеки (для пометки результатов поиска). */
-export const useMbidIndex = (): MbidIndex => useLibrary(s => appData().selectors.mbidIndex(s));
 
 /** Эфемерные live-данные (прогресс поиска и буферизации). */
 export const useLive = <T>(select: (s: LiveState) => T): T => useStore(appData().live, select);
@@ -75,53 +64,68 @@ type ListKind = 'albums' | 'artists' | 'tracks';
 type ListOf = { albums: AlbumView[]; artists: ArtistView[]; tracks: TrackView[] };
 
 /**
- * Список библиотеки для длинных экранов: пересчитывается не чаще раза в 250 мс (серия событий статуса
- * не пересчитывает 25 000 строк на каждое). Строки подписываются на свои треки сами (`useTrackView`).
+ * Значение по всей библиотеке, пересчитываемое не чаще раза в 250 мс (серия событий статуса не пересчитывает
+ * десятки тысяч строк на каждое). `deps` — аргументы `select`: при их смене источник создаётся заново и первое
+ * значение вычисляется сразу. Точечные хуки (`useTrackView` и др.) остаются мгновенными.
+ */
+export function useThrottledLibrary<T>(
+  select: (s: LibraryState) => T,
+  deps: DependencyList,
+  isEqual?: (a: T, b: T) => boolean,
+): T {
+  // Аргументы — примитивы: ключ из них заменяет список зависимостей (его `useMemo` требует литералом).
+  const argsKey = JSON.stringify(deps);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const source = useMemo(() => createThrottledSource(appData().library, select, LIST_THROTTLE_MS, isEqual), [argsKey]);
+  return useSyncExternalStore(source.subscribe, source.getSnapshot);
+}
+
+export const usePlaylistCards = (): PlaylistCard[] =>
+  useThrottledLibrary(s => appData().selectors.playlistCards(s), []);
+export const usePlaylistCard = (id: number | 'favorites'): PlaylistCard | undefined =>
+  useThrottledLibrary(s => appData().selectors.playlistCard(s, id), [id]);
+export const useRecentlyPlayedAlbums = (limit: number): AlbumView[] =>
+  useThrottledLibrary(s => appData().selectors.recentlyPlayedAlbums(s, limit), [limit]);
+export const useFavorites = (): TrackView[] => useThrottledLibrary(s => appData().selectors.favorites(s), []);
+export const useSearchLocal = (query: string, limit: number): SearchResult =>
+  useThrottledLibrary(s => appData().selectors.searchLocal(s, query, limit), [query, limit]);
+/** Индекс `mbid → id` объектов библиотеки (для пометки результатов поиска). */
+export const useMbidIndex = (): MbidIndex => useThrottledLibrary(s => appData().selectors.mbidIndex(s), []);
+
+/**
+ * Список библиотеки для длинных экранов. Строки подписываются на свои треки сами (`useTrackView`).
  */
 export function useLibraryList<K extends ListKind>(kind: K, statuses?: readonly TrackStatus[]): ListOf[K] {
   const key = statusKeyOf(statuses);
-  const source = useMemo(
-    () =>
-      createThrottledSource(
-        appData().library,
-        s => {
-          const { selectors } = appData();
-          const st = statusesOf(key);
-          if (kind === 'albums') return selectors.libraryAlbums(s, st);
-          if (kind === 'artists') return selectors.libraryArtists(s, st);
-          return selectors.libraryTracks(s, st);
-        },
-        LIST_THROTTLE_MS,
-      ),
+  return useThrottledLibrary(
+    s => {
+      const { selectors } = appData();
+      const st = statusesOf(key);
+      if (kind === 'albums') return selectors.libraryAlbums(s, st);
+      if (kind === 'artists') return selectors.libraryArtists(s, st);
+      return selectors.libraryTracks(s, st);
+    },
     [kind, key],
-  );
-  return useSyncExternalStore(source.subscribe, source.getSnapshot) as ListOf[K];
+  ) as ListOf[K];
 }
 
 export type LibraryCounts = { albums: number; artists: number; playlists: number; tracks: number };
 
 /** Размеры списков библиотеки (счётчики во вкладках). */
 export function useLibraryCounts(): LibraryCounts {
-  const source = useMemo(
-    () =>
-      createThrottledSource(
-        appData().library,
-        (s): LibraryCounts => {
-          const { selectors } = appData();
-          return {
-            albums: selectors.libraryAlbums(s).length,
-            artists: selectors.libraryArtists(s).length,
-            playlists: selectors.playlistCards(s).length,
-            tracks: selectors.libraryTracks(s).length,
-          };
-        },
-        LIST_THROTTLE_MS,
-        (a, b) =>
-          a.albums === b.albums && a.artists === b.artists && a.playlists === b.playlists && a.tracks === b.tracks,
-      ),
+  return useThrottledLibrary(
+    (s): LibraryCounts => {
+      const { selectors } = appData();
+      return {
+        albums: selectors.libraryAlbums(s).length,
+        artists: selectors.libraryArtists(s).length,
+        playlists: selectors.playlistCards(s).length,
+        tracks: selectors.libraryTracks(s).length,
+      };
+    },
     [],
+    (a, b) => a.albums === b.albums && a.artists === b.artists && a.playlists === b.playlists && a.tracks === b.tracks,
   );
-  return useSyncExternalStore(source.subscribe, source.getSnapshot);
 }
 
 /** Прогресс поиска раздач по альбому (`job.progress`). */

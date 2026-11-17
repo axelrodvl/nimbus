@@ -9,14 +9,7 @@ import { ApiError } from '@/lib/api/errors';
 import * as playlistsApi from '@/lib/api/playlists';
 import { appData } from '@/lib/app-data';
 import { resetPlayer, toPlayerTrack } from '@/lib/player';
-import {
-  makeAlbum,
-  makeArtist,
-  makePlaylist,
-  makePlaylistTrack,
-  makeTrack,
-  resetFactories,
-} from '@/test/factories';
+import { makeAlbum, makeArtist, makePlaylist, makePlaylistTrack, makeTrack, resetFactories } from '@/test/factories';
 import { mockLayout, ScrollHost } from '@/test/layout';
 import { installTestPlayer } from '@/test/player-ui';
 import { renderRoutes, renderWithProviders } from '@/test/render';
@@ -51,7 +44,9 @@ beforeEach(() => {
   api.remove.mockResolvedValue(undefined);
   api.create.mockImplementation(async name => ({ created_at: '2026-06-01T00:00:00Z', id: 77, name }));
   seed({
-    albums: [makeAlbum({ artist_id: 1, cover_url: 'https://coverartarchive.org/release-group/a/front', id: 2, title: 'Alb' })],
+    albums: [
+      makeAlbum({ artist_id: 1, cover_url: 'https://coverartarchive.org/release-group/a/front', id: 2, title: 'Alb' }),
+    ],
     artists: [makeArtist({ id: 1, name: 'Art' })],
     playlistTracks: [
       makePlaylistTrack({ id: 1, playlist_id: 5, track_id: 11 }),
@@ -62,8 +57,24 @@ beforeEach(() => {
       makePlaylist({ id: 6, last_used_at: '2026-04-01T00:00:00Z', name: 'Фокус' }),
     ],
     tracks: [
-      makeTrack({ album_id: 2, artist_id: 1, duration_ms: 60_000, id: 11, position: 1, status: 'ready', title: 'Song One' }),
-      makeTrack({ album_id: 2, artist_id: 1, duration_ms: 90_000, id: 12, position: 2, status: 'found', title: 'Song Two' }),
+      makeTrack({
+        album_id: 2,
+        artist_id: 1,
+        duration_ms: 60_000,
+        id: 11,
+        position: 1,
+        status: 'ready',
+        title: 'Song One',
+      }),
+      makeTrack({
+        album_id: 2,
+        artist_id: 1,
+        duration_ms: 90_000,
+        id: 12,
+        position: 2,
+        status: 'found',
+        title: 'Song Two',
+      }),
       makeTrack({ album_id: 2, artist_id: 1, id: 13, position: 3, status: 'not_found', title: 'Missing' }),
       makeTrack({ album_id: 2, artist_id: 1, id: 14, position: 4, needs_confirmation: true, title: 'Doubtful' }),
     ],
@@ -103,9 +114,13 @@ describe('вкладка «Плейлисты»', () => {
     expect(within(cards[1]!).getByText('2 трека')).toBeInTheDocument();
   });
 
-  it('«Любимое» первым и обновляется после прослушивания', () => {
+  it('«Любимое» первым и обновляется после прослушивания', async () => {
     renderRoutes(routes, '/library/playlists');
     act(() => appData().library.getState().patchTrack(12, { play_count: 4 }));
+    // Карточки пересчитываются не чаще раза в 250 мс.
+    await waitFor(() =>
+      expect(screen.getAllByTestId('playlist-card')[0]).toHaveAttribute('data-playlist-id', 'favorites'),
+    );
     const cards = screen.getAllByTestId('playlist-card');
     expect(cards[0]).toHaveAttribute('data-playlist-id', 'favorites');
     expect(within(cards[0]!).getByText('Любимое')).toBeInTheDocument();
@@ -177,7 +192,10 @@ describe('диалог «Добавить в плейлист»', () => {
   it('плейлисты по недавности; у уже содержащего трек — отметка', async () => {
     renderWithProviders(<Picker trackId={11} />);
     const items = within(await screen.findByTestId('playlist-picker')).getAllByRole('button');
-    expect(items.map(b => b.textContent)).toEqual([expect.stringContaining('Фокус'), expect.stringContaining('Дорога')]);
+    expect(items.map(b => b.textContent)).toEqual([
+      expect.stringContaining('Фокус'),
+      expect.stringContaining('Дорога'),
+    ]);
     expect(within(items[0]!).queryByTestId('already-added')).not.toBeInTheDocument();
     expect(within(items[1]!).getByTestId('already-added')).toBeInTheDocument();
   });
@@ -301,7 +319,9 @@ describe('страница плейлиста', () => {
 
   it('500 при удалении плейлиста: он возвращается в список, toast; «не найдено» не мелькает', async () => {
     let fail!: () => void;
-    api.del.mockImplementation(() => new Promise((_, reject) => (fail = () => reject(new ApiError(500, 'internal', 'boom')))));
+    api.del.mockImplementation(
+      () => new Promise((_, reject) => (fail = () => reject(new ApiError(500, 'internal', 'boom')))),
+    );
     const { router } = renderRoutes(routes, '/playlist/5');
     await userEvent.click(screen.getByTestId('delete-playlist'));
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Удалить плейлист' }));
@@ -312,7 +332,7 @@ describe('страница плейлиста', () => {
     act(() => fail());
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('boom'));
     expect(appData().library.getState().playlists.get(5)?.name).toBe('Дорога');
-    expect(screen.getAllByTestId('playlist-card')).toHaveLength(2);
+    await waitFor(() => expect(screen.getAllByTestId('playlist-card')).toHaveLength(2));
   });
 
   it('без сети удаление плейлиста: остаёмся на странице, понятное сообщение', async () => {
@@ -335,7 +355,9 @@ describe('страница плейлиста', () => {
     expect(screen.getByTestId('playlist-title')).toHaveTextContent('Любимое');
     expect(rowIds()).toEqual(['12', '11']);
     expect(screen.queryByTestId('delete-playlist')).not.toBeInTheDocument();
-    await userEvent.click(within(document.querySelector('[data-track-id="12"]') as HTMLElement).getByTestId('track-menu'));
+    await userEvent.click(
+      within(document.querySelector('[data-track-id="12"]') as HTMLElement).getByTestId('track-menu'),
+    );
     expect(screen.queryByRole('menuitem', { name: 'Убрать из плейлиста' })).not.toBeInTheDocument();
     expect(await screen.findByRole('menuitem', { name: 'Добавить в плейлист' })).toBeInTheDocument();
   });
@@ -345,24 +367,30 @@ describe('страница плейлиста', () => {
     expect(screen.getByText(/Послушайте несколько треков/)).toBeInTheDocument();
   });
 
-  it('новое прослушивание обновляет открытое «Любимое»', () => {
+  it('новое прослушивание обновляет открытое «Любимое»', async () => {
     renderRoutes(routes, '/playlist/favorites');
     act(() => appData().library.getState().patchTrack(11, { play_count: 1 }));
-    expect(rowIds()).toEqual(['11']);
+    await waitFor(() => expect(rowIds()).toEqual(['11']));
   });
 
   it('дельта (трек добавлен на другом устройстве) появляется без перезагрузки', () => {
     renderRoutes(routes, '/playlist/5');
     act(() =>
-      appData().library.getState().applyBatch({ playlistTracks: [makePlaylistTrack({ id: 9, playlist_id: 5, track_id: 13 })] }),
+      appData()
+        .library.getState()
+        .applyBatch({ playlistTracks: [makePlaylistTrack({ id: 9, playlist_id: 5, track_id: 13 })] }),
     );
     expect(rowIds()).toEqual(['11', '12', '13']);
   });
 
-  it('плейлист удалён на другом устройстве: «не найдено»', () => {
+  it('плейлист удалён на другом устройстве: «не найдено»', async () => {
     renderRoutes(routes, '/playlist/5');
-    act(() => appData().library.getState().applyBatch({ deleted: [{ entity: 'playlist', id: 5 }] }));
-    expect(screen.getByText('Не найдено', { selector: 'h1' })).toBeInTheDocument();
+    act(() =>
+      appData()
+        .library.getState()
+        .applyBatch({ deleted: [{ entity: 'playlist', id: 5 }] }),
+    );
+    expect(await screen.findByText('Не найдено', { selector: 'h1' })).toBeInTheDocument();
   });
 
   it('неверный id — «не найдено»', () => {
@@ -384,7 +412,9 @@ describe('страница плейлиста', () => {
 
 describe('меню трека', () => {
   const menuItems = async (trackId: number) => {
-    await userEvent.click(within(document.querySelector(`[data-track-id="${trackId}"]`) as HTMLElement).getByTestId('track-menu'));
+    await userEvent.click(
+      within(document.querySelector(`[data-track-id="${trackId}"]`) as HTMLElement).getByTestId('track-menu'),
+    );
     return (await screen.findAllByRole('menuitem')).map(i => i.textContent);
   };
 

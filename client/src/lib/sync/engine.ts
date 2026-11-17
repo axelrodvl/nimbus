@@ -55,6 +55,8 @@ export type EngineDeps = {
   status?: SyncStatusStore;
   /** 401: вход потерян — движок остановлен, оболочка показывает экран входа. */
   onUnauthorized?: () => void;
+  /** Строки удалены или всё заменено снимком: можно убрать кэши представлений удалённых сущностей. */
+  onPrune?: () => void;
   random?: () => number;
   now?: () => number;
 };
@@ -197,6 +199,7 @@ export function createSyncEngine(deps: EngineDeps) {
     // Сначала диск, потом память: при сбое записи store не уходит вперёд базы.
     await db.applyBatch(batch);
     store.getState().applyBatch(batch);
+    if (batch.deleted?.length) deps.onPrune?.();
     tabs.post({ batch, type: 'batch' });
     cursor = res.cursor;
   }
@@ -275,6 +278,7 @@ export function createSyncEngine(deps: EngineDeps) {
     await flush();
     await db.replaceAll({ ...rows, meta });
     store.getState().replaceAll(rows);
+    deps.onPrune?.();
     tabs.post({ type: 'reload' });
     cursor = start.cursor;
   }
@@ -316,6 +320,7 @@ export function createSyncEngine(deps: EngineDeps) {
     if (leader || stopped) return;
     if (message.type === 'batch') {
       store.getState().applyBatch(message.batch);
+      if (message.batch.deleted?.length) deps.onPrune?.();
       const at = message.batch.meta?.syncedAt;
       setState('live', { error: null, lastSyncedAt: at ?? now() });
     } else {
@@ -323,6 +328,7 @@ export function createSyncEngine(deps: EngineDeps) {
       void db.loadAll().then(data => {
         if (stopped) return;
         store.getState().replaceAll(data);
+        deps.onPrune?.();
         setState('live', { error: null, lastSyncedAt: data.meta.syncedAt ?? now() });
       });
     }
