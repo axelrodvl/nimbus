@@ -11,6 +11,8 @@ use crate::client::Priority;
 const MIN_ADAPTIVE_RATE: f64 = 0.2;
 /// Сколько успешных запросов нужно для одного шага восстановления темпа.
 const RECOVERY_EVERY: u32 = 30;
+/// Сколько тишины (без 503/429) нужно для удвоения сниженного темпа — независимо от числа запросов.
+const RECOVERY_QUIET: Duration = Duration::from_secs(60);
 /// Темп, с которого начинается снижение, если лимит не задан (`rate = 0`).
 const UNLIMITED_FALLBACK_RATE: f64 = 4.0;
 /// Темп выше этого значения считается «без ограничения» при восстановлении.
@@ -78,6 +80,9 @@ struct State {
     /// До этого момента запросы не выдаются (`Retry-After`).
     blocked_until: Option<Instant>,
     successes: u32,
+    /// Начало текущего «тихого» периода: последний 503/429 или последнее восстановление по времени.
+    /// `None` — темп не снижен.
+    quiet_since: Option<Instant>,
     /// Следующий номер в очереди.
     next_ticket: u64,
     /// Очереди ожидающих токен: строго по порядку прихода внутри класса; фоновые идут, только когда
@@ -92,6 +97,32 @@ impl State {
         match priority {
             Priority::Interactive => &mut self.queue_interactive,
             Priority::Background => &mut self.queue_background,
+        }
+    }
+
+    /// Восстановление по времени: за каждые `RECOVERY_QUIET` без отказов темп ×2 до потолка
+    /// (без лимита — возврат к «без ограничения» после превышения `UNLIMITED_FALLBACK_RATE`).
+    fn recover_by_time(&mut self, now: Instant) {
+        while let Some(since) = self.quiet_since {
+            if now.saturating_duration_since(since) < RECOVERY_QUIET || !self.rate.is_finite() {
+                if !self.rate.is_finite() {
+                    self.quiet_since = None;
+                }
+                return;
+            }
+            // Токены, накопленные до смены темпа, считаем по старому темпу.
+            self.refill(since + RECOVERY_QUIET);
+            let next = self.rate * 2.0;
+            if self.ceiling > 0.0 {
+                self.rate = next.min(self.ceiling);
+                self.quiet_since = (self.rate < self.ceiling).then_some(since + RECOVERY_QUIET);
+            } else if next > UNLIMITED_FALLBACK_RATE {
+                self.rate = f64::INFINITY;
+                self.quiet_since = None;
+            } else {
+                self.rate = next;
+                self.quiet_since = Some(since + RECOVERY_QUIET);
+            }
         }
     }
 
@@ -168,6 +199,7 @@ impl Limiter {
                 last_refill: Instant::now(),
                 blocked_until: None,
                 successes: 0,
+                quiet_since: None,
                 next_ticket: 0,
                 queue_interactive: std::collections::VecDeque::new(),
                 queue_background: std::collections::VecDeque::new(),
@@ -268,6 +300,7 @@ impl Limiter {
             }
             st.blocked_until = None;
         }
+        st.recover_by_time(now);
         st.refill(now);
         if !st.rate.is_finite() {
             st.queue(priority).pop_front();
@@ -311,6 +344,7 @@ impl Limiter {
             st.tokens = 0.0;
             st.last_refill = now;
             st.successes = 0;
+            st.quiet_since = Some(now);
             if let Some(d) = retry_after.filter(|d| !d.is_zero()) {
                 let until = now + d;
                 st.blocked_until = Some(st.blocked_until.map_or(until, |b| b.max(until)));
@@ -544,6 +578,54 @@ mod tests {
         for _ in 0..RECOVERY_EVERY * 30 {
             l.on_success();
         }
+        assert_eq!(l.current_rate(), None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn rate_recovers_by_time_without_requests() {
+        let l = limiter(1.0, 3, 8);
+        for _ in 0..5 {
+            l.on_throttled(None);
+        }
+        assert_eq!(l.current_rate(), Some(MIN_ADAPTIVE_RATE));
+        tokio::time::advance(RECOVERY_QUIET).await;
+        drop(l.acquire(Priority::Interactive).await);
+        assert_eq!(l.current_rate(), Some(0.4));
+        tokio::time::advance(RECOVERY_QUIET).await;
+        drop(l.acquire(Priority::Interactive).await);
+        assert_eq!(l.current_rate(), Some(0.8));
+        tokio::time::advance(RECOVERY_QUIET).await;
+        drop(l.acquire(Priority::Interactive).await);
+        assert_eq!(l.current_rate(), Some(1.0));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_new_throttle_restarts_the_quiet_period() {
+        let l = limiter(1.0, 3, 8);
+        l.on_throttled(None);
+        l.on_throttled(None);
+        l.on_throttled(None);
+        l.on_throttled(None);
+        tokio::time::advance(Duration::from_secs(50)).await;
+        l.on_throttled(None);
+        tokio::time::advance(Duration::from_secs(10)).await; // 60 с после первого, 10 после последнего
+        drop(l.acquire(Priority::Interactive).await);
+        assert_eq!(l.current_rate(), Some(MIN_ADAPTIVE_RATE));
+        tokio::time::advance(Duration::from_secs(50)).await;
+        drop(l.acquire(Priority::Interactive).await);
+        assert_eq!(l.current_rate(), Some(0.4));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn unlimited_rate_returns_to_unlimited_by_time() {
+        let l = limiter(0.0, 1, 8);
+        for _ in 0..6 {
+            l.on_throttled(None);
+        }
+        assert_eq!(l.current_rate(), Some(MIN_ADAPTIVE_RATE));
+        // 0,2 → 0,4 → … → 3,2 → «без ограничения»: пять минут тишины.
+        tokio::time::advance(RECOVERY_QUIET * 5).await;
+        drop(l.acquire(Priority::Interactive).await);
         assert_eq!(l.current_rate(), None);
     }
 
