@@ -8,7 +8,13 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: {
-          args: ['--autoplay-policy=no-user-gesture-required'],
+          // GPU выключен: см. playwright.config.ts.
+          args: [
+            '--autoplay-policy=no-user-gesture-required',
+            '--disable-gpu',
+            '--disable-gpu-compositing',
+            '--disable-software-rasterizer',
+          ],
           executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined,
         },
         // Сценарий написан под русский интерфейс.

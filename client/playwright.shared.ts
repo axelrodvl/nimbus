@@ -6,10 +6,18 @@ import { devices } from '@playwright/test';
 export const mockPort = Number(process.env.MOCK_BACKEND_PORT ?? 4011);
 export const previewPort = 4173;
 
+// GPU выключен: в WSL/контейнерах инициализация GPU-процесса Chromium задерживает кадры на 10–100 с (см. playwright.config.ts).
+const noGpuArgs = ['--disable-gpu', '--disable-gpu-compositing', '--disable-software-rasterizer'];
+
 export const chromiumUse = {
   ...devices['Desktop Chrome'],
   launchOptions: {
-    args: ['--autoplay-policy=no-user-gesture-required', '--enable-precise-memory-info', '--js-flags=--expose-gc'],
+    args: [
+      '--autoplay-policy=no-user-gesture-required',
+      '--enable-precise-memory-info',
+      '--js-flags=--expose-gc',
+      ...noGpuArgs,
+    ],
     executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined,
   },
   locale: 'en-US',
