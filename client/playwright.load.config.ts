@@ -9,7 +9,14 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: {
-          args: ['--autoplay-policy=no-user-gesture-required'],
+          // GPU выключен: в WSL/контейнерах инициализация GPU-процесса Chromium задерживает первый кадр на 10–100 с, а
+          // Playwright ждёт кадра (rAF) в проверке «элемент стабилен» — клик по «Войти» падал по таймауту 20 с (C13).
+          args: [
+            '--autoplay-policy=no-user-gesture-required',
+            '--disable-gpu',
+            '--disable-gpu-compositing',
+            '--disable-software-rasterizer',
+          ],
           executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined,
         },
         locale: 'ru-RU',
