@@ -47,7 +47,9 @@ function sortDesc<T>(items: T[], key: (item: T) => number, id: (item: T) => numb
     .map(x => x.item);
 }
 
-const statusKey = (statuses?: readonly TrackStatus[]) => (statuses?.length ? [...statuses].sort().join(',') : '');
+/** Ключ набора статусов (порядок не важен); пустой набор — пустая строка. */
+export const statusKey = (statuses?: readonly TrackStatus[]) =>
+  statuses?.length ? [...statuses].sort().join(',') : '';
 
 const sameRow = (a: ArtistView, b: ArtistView) => (Object.keys(b) as (keyof ArtistView)[]).every(k => a[k] === b[k]);
 

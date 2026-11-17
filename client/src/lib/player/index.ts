@@ -4,7 +4,7 @@ import { appData } from '@/lib/app-data';
 import { offline } from '@/lib/offline';
 import { createAudioEngine } from './audio';
 import { PlayerController, type PlayerDeps } from './controller';
-import { probeStreamError } from './engine';
+import { probeStreamError, STORAGE_KEY } from './engine';
 import { notifyPlayerError } from './notify';
 import { resolveStreamUrl } from './stream';
 import { toPlayerTrack } from './track';
@@ -76,7 +76,7 @@ export function resetPlayer(clear = false): void {
   instance = null;
   if (clear) {
     try {
-      localStorage.removeItem('nimbus:player');
+      localStorage.removeItem(STORAGE_KEY);
     } catch {
       // Хранилище недоступно.
     }

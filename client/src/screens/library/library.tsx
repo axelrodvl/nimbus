@@ -1,5 +1,4 @@
 import { Search } from 'lucide-react';
-import { useDeferredValue } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { AlbumCard, ALBUM_CARD_EXTRA } from '@/components/library/album-card';
 import { ARTIST_CARD_HEIGHT, ArtistCard } from '@/components/library/artist-card';
@@ -24,9 +23,9 @@ import {
   type LibraryTabId,
   type StatusFilterId,
 } from '@/lib/library/tabs';
+import { useFilteredLibraryList } from '@/lib/library/use-filtered-list';
 import { SEARCH_ENTRY } from '@/lib/nav/items';
-import { useHydrated, useLibraryCounts, useLibraryList } from '@/lib/store/hooks';
-import { filterByName } from '@/lib/store/selectors';
+import { useHydrated, useLibraryCounts } from '@/lib/store/hooks';
 import { cn } from '@/lib/utils';
 import { LibrarySkeleton } from './skeletons';
 
@@ -49,13 +48,7 @@ function EmptyLibrary() {
 type ListProps = { q: string; status: StatusFilterId; downloaded: DownloadedSets | null };
 
 function AlbumsList({ q, status, downloaded }: ListProps) {
-  const statuses = STATUS_FILTERS.find(s => s.id === status)?.statuses;
-  const all = useLibraryList('albums', statuses);
-  const items = filterByName(
-    downloaded ? all.filter(a => downloaded.albums.has(a.id)) : all,
-    useDeferredValue(q),
-    a => a.title,
-  );
+  const { all, items } = useFilteredLibraryList('albums', { downloaded, q, status });
   const columns = useGridColumns(5);
   if (items.length === 0) return <Empty downloaded={downloaded !== null} hasData={all.length > 0} status={status} />;
   return (
@@ -79,13 +72,7 @@ function AlbumsList({ q, status, downloaded }: ListProps) {
 }
 
 function ArtistsList({ q, status, downloaded }: ListProps) {
-  const statuses = STATUS_FILTERS.find(s => s.id === status)?.statuses;
-  const all = useLibraryList('artists', statuses);
-  const items = filterByName(
-    downloaded ? all.filter(a => downloaded.artists.has(a.id)) : all,
-    useDeferredValue(q),
-    a => a.name,
-  );
+  const { all, items } = useFilteredLibraryList('artists', { downloaded, q, status });
   const columns = useGridColumns(5);
   if (items.length === 0) return <Empty downloaded={downloaded !== null} hasData={all.length > 0} status={status} />;
   return (
@@ -101,13 +88,7 @@ function ArtistsList({ q, status, downloaded }: ListProps) {
 }
 
 function TracksList({ q, status, downloaded }: ListProps) {
-  const statuses = STATUS_FILTERS.find(s => s.id === status)?.statuses;
-  const all = useLibraryList('tracks', statuses);
-  const items = filterByName(
-    downloaded ? all.filter(tr => downloaded.tracks.has(tr.id)) : all,
-    useDeferredValue(q),
-    tr => tr.title,
-  );
+  const { all, items } = useFilteredLibraryList('tracks', { downloaded, q, status });
   const queueIds = items.map(tr => tr.id);
   if (items.length === 0) return <Empty downloaded={downloaded !== null} hasData={all.length > 0} status={status} />;
   return (

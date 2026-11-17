@@ -32,14 +32,12 @@ import { cn } from '@/lib/utils';
 import { JobsSection } from './jobs-section';
 import { AboutSection, AppearanceSection } from './local-sections';
 import { OfflineSection } from './offline-section';
-import {
-  MusicbrainzSection,
-  PerformanceSection,
-  PlaybackSection,
-  SearchSection,
-  SourcesSection,
-  StorageSection,
-} from './server-sections';
+import { MusicbrainzSection } from './server/musicbrainz';
+import { PerformanceSection } from './server/performance';
+import { PlaybackSection } from './server/playback';
+import { SearchSection } from './server/search';
+import { SourcesSection } from './server/sources';
+import { StorageSection } from './server/storage';
 import { NotFound } from '../not-found';
 
 type Section = {

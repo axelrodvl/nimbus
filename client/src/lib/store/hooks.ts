@@ -4,15 +4,16 @@ import { appData } from '@/lib/app-data';
 import type { LibraryState } from './library';
 import { createThrottledSource } from './throttled';
 import type { LiveState } from './live';
-import type {
-  AlbumView,
-  ArtistView,
-  MbidIndex,
-  PlaylistCard,
-  PlaylistEntry,
-  SearchResult,
-  TrackStatus,
-  TrackView,
+import {
+  statusKey,
+  type AlbumView,
+  type ArtistView,
+  type MbidIndex,
+  type PlaylistCard,
+  type PlaylistEntry,
+  type SearchResult,
+  type TrackStatus,
+  type TrackView,
 } from './selectors';
 
 // Тонкие React-хуки поверх store. Селекторы возвращают мемоизированные ссылки, поэтому лишних перерисовок нет.
@@ -57,11 +58,10 @@ export const useLive = <T>(select: (s: LiveState) => T): T => useStore(appData()
 
 const LIST_THROTTLE_MS = 250;
 
-const statusKeyOf = (statuses?: readonly TrackStatus[]) => (statuses?.length ? [...statuses].sort().join(',') : '');
 const statusesOf = (key: string) => (key ? (key.split(',') as TrackStatus[]) : undefined);
 
-type ListKind = 'albums' | 'artists' | 'tracks';
-type ListOf = { albums: AlbumView[]; artists: ArtistView[]; tracks: TrackView[] };
+export type ListKind = 'albums' | 'artists' | 'tracks';
+export type ListOf = { albums: AlbumView[]; artists: ArtistView[]; tracks: TrackView[] };
 
 /**
  * Значение по всей библиотеке, пересчитываемое не чаще раза в 250 мс (серия событий статуса не пересчитывает
@@ -96,7 +96,7 @@ export const useMbidIndex = (): MbidIndex => useThrottledLibrary(s => appData().
  * Список библиотеки для длинных экранов. Строки подписываются на свои треки сами (`useTrackView`).
  */
 export function useLibraryList<K extends ListKind>(kind: K, statuses?: readonly TrackStatus[]): ListOf[K] {
-  const key = statusKeyOf(statuses);
+  const key = statusKey(statuses);
   return useThrottledLibrary(
     s => {
       const { selectors } = appData();
