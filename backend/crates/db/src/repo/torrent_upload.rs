@@ -37,3 +37,12 @@ pub async fn record(
         .map(|(h, b)| (h, u64::try_from(b).unwrap_or(0)))
         .collect())
 }
+
+/// Стирает накопленную отдачу удалённых торрентов.
+pub async fn forget(db: impl PgExecutor<'_>, hashes: &[String]) -> sqlx::Result<()> {
+    sqlx::query("DELETE FROM torrent_upload WHERE info_hash = ANY($1)")
+        .bind(hashes)
+        .execute(db)
+        .await?;
+    Ok(())
+}

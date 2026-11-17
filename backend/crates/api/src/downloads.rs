@@ -144,8 +144,20 @@ pub async fn list_downloads(
 
 /// Сохраняет отдачу сессии и подставляет накопленную; при сбое БД остаётся значение сессии.
 async fn record_uploads(state: &AppState, torrents: &mut [DownloadDto]) {
+    // Удалённые торренты забываются до записи: список мог быть снят до удаления.
+    let removed: Vec<String> = state
+        .engine
+        .as_deref()
+        .map(|e| e.take_removed().iter().map(ToString::to_string).collect())
+        .unwrap_or_default();
+    if !removed.is_empty() {
+        if let Err(e) = torrent_upload::forget(&state.db, &removed).await {
+            tracing::warn!(error = %e, "cannot forget uploads of removed torrents");
+        }
+    }
     let sessions: Vec<(String, u64)> = torrents
         .iter()
+        .filter(|t| !removed.contains(&t.info_hash))
         .map(|t| (t.info_hash.clone(), t.uploaded_bytes))
         .collect();
     match torrent_upload::record(&state.db, &sessions).await {

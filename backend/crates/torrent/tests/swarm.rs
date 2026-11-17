@@ -497,6 +497,7 @@ async fn release_file_shrinks_selection_and_removes_last_torrent() {
     e.release_file(&id, 0, false).await.unwrap();
     assert_eq!(e.selected_files(&id).await, [1]);
     assert!(p0.exists(), "без delete_data файл остаётся на диске");
+    assert!(e.take_removed().is_empty(), "торрент ещё в сессии");
 
     e.release_file(&id, 1, true).await.unwrap();
     assert!(e.selected_files(&id).await.is_empty());
@@ -505,6 +506,12 @@ async fn release_file_shrinks_selection_and_removes_last_torrent() {
         "последний файл — торрент удалён"
     );
     assert_eq!(e.tracked_torrents(), 0);
+    assert_eq!(
+        e.take_removed(),
+        std::slice::from_ref(&id.0),
+        "удаление запомнено один раз"
+    );
+    assert!(e.take_removed().is_empty());
     assert!(!p1.exists(), "delete_data удаляет файл с диска");
     assert!(matches!(
         e.open_stream(&id, 1).await,

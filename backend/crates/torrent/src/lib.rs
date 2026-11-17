@@ -490,6 +490,8 @@ pub struct TorrentEngine {
     tasks: TaskTracker,
     cancel: CancellationToken,
     stopped: std::sync::atomic::AtomicBool,
+    /// Торренты, удалённые из сессии по просьбе пользователя (последний файл снят); читает `take_removed`.
+    removed: std::sync::Mutex<Vec<InfoHash>>,
 }
 
 /// Объединение множеств выбранных файлов (чистая функция для тестов).
@@ -611,6 +613,7 @@ impl TorrentEngine {
             tasks: TaskTracker::new(),
             cancel: CancellationToken::new(),
             stopped: std::sync::atomic::AtomicBool::new(false),
+            removed: std::sync::Mutex::new(Vec::new()),
         };
         engine.restore_selection();
         engine.spawn_ratio_watcher();
@@ -813,6 +816,11 @@ impl TorrentEngine {
 
     pub fn listen_addr(&self) -> Option<SocketAddr> {
         self.session.listen_addr()
+    }
+
+    /// Торренты, удалённые из сессии с прошлого вызова (для чистки связанных данных, например учёта отдачи).
+    pub fn take_removed(&self) -> Vec<InfoHash> {
+        std::mem::take(&mut *lock_std(&self.removed))
     }
 
     fn handle(&self, id: &TorrentHandleId) -> Option<ManagedTorrentHandle> {
@@ -1227,6 +1235,7 @@ impl TorrentEngine {
                 .await
                 .map_err(internal)?;
             remove_slot(&self.state, &id.0);
+            lock_std(&self.removed).push(id.0.clone());
         } else {
             self.wait_initialized(&h).await?;
             self.session
