@@ -2370,7 +2370,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nimbus-api"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2409,7 +2409,7 @@ dependencies = [
 
 [[package]]
 name = "nimbus-core"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "chrono",
  "dotenvy",
@@ -2424,7 +2424,7 @@ dependencies = [
 
 [[package]]
 name = "nimbus-db"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "chrono",
  "futures",
@@ -2441,7 +2441,7 @@ dependencies = [
 
 [[package]]
 name = "nimbus-library"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "nimbus-core",
  "nimbus-db",
@@ -2455,7 +2455,7 @@ dependencies = [
 
 [[package]]
 name = "nimbus-matcher"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "deunicode",
  "encoding_rs",
@@ -2469,7 +2469,7 @@ dependencies = [
 
 [[package]]
 name = "nimbus-musicbrainz"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "futures",
  "nimbus-core",
@@ -2488,7 +2488,7 @@ dependencies = [
 
 [[package]]
 name = "nimbus-testkit"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "tempfile",
  "tokio",
@@ -2496,7 +2496,7 @@ dependencies = [
 
 [[package]]
 name = "nimbus-torrent"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2515,7 +2515,7 @@ dependencies = [
 
 [[package]]
 name = "nimbus-trackers"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2540,7 +2540,7 @@ dependencies = [
 
 [[package]]
 name = "nimbus-worker"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "async-trait",

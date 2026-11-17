@@ -1302,7 +1302,9 @@ async fn torrent_upload_accumulates_across_sessions(pool: PgPool) {
     );
     assert!(torrent_upload::record(&pool, &[]).await.unwrap().is_empty());
     // Удаление торрента стирает историю: новый торрент с тем же хешем начинает с нуля.
-    torrent_upload::forget(&pool, &[h.clone()]).await.unwrap();
+    torrent_upload::forget(&pool, std::slice::from_ref(&h))
+        .await
+        .unwrap();
     assert_eq!(
         total(
             torrent_upload::record(&pool, &[(h.clone(), 7)])
