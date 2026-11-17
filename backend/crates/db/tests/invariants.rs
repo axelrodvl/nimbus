@@ -570,30 +570,30 @@ async fn i8_failed_pin_without_schedule_is_a_violation(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
-async fn i8_scheduled_and_final_failures_are_fine(pool: PgPool) {
-    let t = pinned(&pool, &[TrackStatus::Found; 6]).await;
+async fn i8_scheduled_failures_are_fine(pool: PgPool) {
+    let t = pinned(&pool, &[TrackStatus::Found; 3]).await;
     let later = chrono::Utc::now() + chrono::Duration::hours(1);
-    pins::fail(&pool, t[0], "stalled", Some(later), true)
-        .await
-        .unwrap();
-    for (i, final_error) in [
-        "dead",
-        "torrent not found",
-        "invalid magnet: no hash",
-        "file index 7 is out of range",
-    ]
-    .iter()
-    .enumerate()
-    {
-        pins::fail(&pool, t[i + 1], final_error, None, false)
+    for (i, error) in ["stalled", "dead"].iter().enumerate() {
+        pins::fail(&pool, t[i], error, Some(later), false)
             .await
             .unwrap();
     }
-    // t[5] остаётся `queued`.
+    // t[2] остаётся `queued`.
     assert!(invariants::i8_failed_pin_without_schedule(&pool)
         .await
         .unwrap()
         .is_none());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn i8_dead_pin_without_schedule_is_a_violation(pool: PgPool) {
+    let t = pinned(&pool, &[TrackStatus::Found]).await;
+    pins::fail(&pool, t[0], "dead", None, false).await.unwrap();
+    let s = invariants::i8_failed_pin_without_schedule(&pool)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(s.violations[0].detail, "dead");
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]

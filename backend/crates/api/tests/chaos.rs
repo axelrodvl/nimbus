@@ -231,6 +231,7 @@ async fn all_peers_vanishing_stalls_the_pin_and_the_stream_times_out(pool: PgPoo
         ManagerConfig {
             tick: Duration::from_millis(50),
             stall_timeout: Duration::from_millis(500),
+            stall_timeout_no_peers: Duration::from_millis(500),
             ..ManagerConfig::default()
         },
     );

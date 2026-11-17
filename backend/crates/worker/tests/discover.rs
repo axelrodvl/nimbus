@@ -1217,6 +1217,69 @@ async fn repeat_search_skips_verified_torrents_unless_reset_dead(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn search_for_a_dead_pin_reverifies_reset_torrents_even_when_nothing_is_new(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, true).await;
+    tracks::set_in_library_for_album(&pool, album_id, true)
+        .await
+        .unwrap();
+    // Раздача альбома не проверилась (раздающий был офлайн); трек найден, его закрепление `dead`.
+    let provider = Fake::new(|_| Ok(vec![]));
+    let (c, _events) = ctx(&pool, Some(provider), 1, 5);
+    let torrent = torrents::upsert_by_info_hash(
+        &pool,
+        &NewTorrent {
+            info_hash: InfoHash::parse(&"ab".repeat(20)).unwrap(),
+            magnet: format!("magnet:?xt=urn:btih:{}", "ab".repeat(20)),
+            source: TorrentSource::Tpb,
+            source_topic_id: None,
+            title: "Radiohead - OK Computer".into(),
+            size_bytes: None,
+            seeders: None,
+            leechers: None,
+            kind: TorrentKind::Album,
+        },
+    )
+    .await
+    .unwrap();
+    album_torrents::link(&pool, album_id, torrent.id, "q", 0.5)
+        .await
+        .unwrap();
+    album_torrents::mark_verified(&pool, album_id, torrent.id)
+        .await
+        .unwrap();
+    torrents::set_meta_status(&pool, torrent.id, MetaStatus::Dead, Some("timeout"))
+        .await
+        .unwrap();
+    let track_ids: Vec<i64> = tracks::list_by_album(&pool, album_id)
+        .await
+        .unwrap()
+        .iter()
+        .map(|t| t.id)
+        .collect();
+    tracks::set_status_for_album(
+        &pool,
+        album_id,
+        &[TrackStatus::Adding],
+        TrackStatus::Found,
+        None,
+    )
+    .await
+    .unwrap();
+    nimbus_db::repo::pins::pin_tracks(&pool, &track_ids[..1], false)
+        .await
+        .unwrap();
+    nimbus_db::repo::pins::fail(&pool, track_ids[0], "dead", None, false)
+        .await
+        .unwrap();
+
+    // Менеджер загрузок сбросил мёртвые раздачи и поставил поиск; поиск ничего нового не нашёл.
+    album_torrents::reset_dead(&pool, album_id).await.unwrap();
+    discover_album(&c, album_id).await.unwrap();
+    assert_eq!(queued(&pool, "verify_torrent").await.len(), 1);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn manual_retry_resets_auto_retries_and_raises_priority(pool: PgPool) {
     let artist_id = artist(&pool, "Radiohead").await;
     let album_id = album(&pool, artist_id, "OK Computer", 1997, 2, false).await;

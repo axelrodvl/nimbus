@@ -555,16 +555,22 @@ pub(crate) fn map_engine_error(e: EngineError) -> ApiError {
     }
 }
 
-/// Следующий по качеству источник трека, кроме `current_id` и `exclude` (не CUE-доля, лучшее
-/// совпадение). Общая логика failover стриминга и менеджера загрузок.
+/// Следующий по качеству источник трека, кроме `current_id` и `exclude` (лучшее совпадение).
+/// CUE-доли выбираются только при `allow_cue`: стримингу они не подходят (переключение внутри
+/// ответа), загрузке на сервер — подходят. Общая логика failover стриминга и менеджера загрузок.
 pub(crate) fn next_source<'a>(
     sources: &'a [TrackSource],
     current_id: i64,
     exclude: &[i64],
+    allow_cue: bool,
 ) -> Option<&'a TrackSource> {
     sources
         .iter()
-        .filter(|s| s.id != current_id && !exclude.contains(&s.id) && s.cue_start_ms.is_none())
+        .filter(|s| {
+            s.id != current_id
+                && !exclude.contains(&s.id)
+                && (allow_cue || s.cue_start_ms.is_none())
+        })
         .min_by(|a, b| {
             a.needs_confirmation
                 .cmp(&b.needs_confirmation)
@@ -574,16 +580,17 @@ pub(crate) fn next_source<'a>(
 }
 
 /// Переключает primary трека на следующий источник (минуя `exclude`); `true`, если было куда
-/// переключаться. Закрепление трека (если есть) возвращается в очередь самим `set_primary`.
+/// переключаться (`allow_cue` — см. [`next_source`]). Закрепление трека (если есть) возвращается в очередь самим `set_primary`.
 pub(crate) async fn switch_to_next_source(
     state: &AppState,
     current: &TrackSource,
     exclude: &[i64],
+    allow_cue: bool,
 ) -> bool {
     let Ok(sources) = track_sources::list_for_track(&state.db, current.track_id).await else {
         return false;
     };
-    let Some(next) = next_source(&sources, current.id, exclude) else {
+    let Some(next) = next_source(&sources, current.id, exclude, allow_cue) else {
         return false;
     };
     tracing::warn!(
@@ -600,7 +607,7 @@ pub(crate) async fn switch_to_next_source(
 /// Нет пиров / источник не отвечает: следующий запрос пойдёт через другой источник
 /// (внутри одного HTTP-ответа не переключаемся).
 async fn failover(state: &AppState, current: &TrackSource) {
-    switch_to_next_source(state, current, &[]).await;
+    switch_to_next_source(state, current, &[], false).await;
 }
 
 /// Позиционирует поток, ждёт первые байты (с таймаутом) и строит тело ответа.

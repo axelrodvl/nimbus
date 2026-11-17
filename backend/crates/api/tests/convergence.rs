@@ -677,9 +677,12 @@ async fn everything_converges_under_failures(pool: PgPool) {
             tick: Duration::from_millis(50),
             progress_every: Duration::from_millis(50),
             stall_timeout: Duration::from_millis(300),
+            stall_timeout_no_peers: Duration::from_millis(300),
             transient_pauses: vec![Duration::from_millis(100)],
-            // Раздающий образа возвращается не сразу: цикл «нет сидов» не должен дойти до `dead`.
-            stalled_pauses: vec![Duration::from_millis(150); 100_000],
+            // Раздающий образа возвращается не сразу: цикл «нет сидов» доходит до `dead`,
+            // который повторяется по расписанию и в конце концов скачивает файл.
+            stalled_pauses: vec![Duration::from_millis(150); 2],
+            dead_pause: Duration::from_millis(200),
             discover_interval: Duration::from_secs(1),
             restart_pause: Duration::from_millis(50),
         },

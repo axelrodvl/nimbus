@@ -15,7 +15,7 @@ use nimbus_core::model::{InfoHash, NewDownload, PinState, TrackSource, TrackStat
 use nimbus_db::helpers::set_track_status_and_publish;
 use nimbus_db::repo::jobs::{self, EnqueueOpts};
 use nimbus_db::repo::pins::{self, PinWork};
-use nimbus_db::repo::{acquisition, downloads, torrents, track_sources};
+use nimbus_db::repo::{acquisition, album_torrents, downloads, torrents, track_sources};
 use nimbus_torrent::{EngineError, FileProvider, TorrentHandleId};
 use nimbus_worker::torrent_file;
 use tokio::sync::Notify;
@@ -65,14 +65,18 @@ pub struct ManagerConfig {
     pub tick: Duration,
     /// Не чаще, чем раз в это время, публикуется `download.progress`.
     pub progress_every: Duration,
-    /// Сколько файл может не двигаться, прежде чем источник будет заменён.
+    /// Сколько файл может не двигаться при живых пирах, прежде чем источник будет заменён.
     pub stall_timeout: Duration,
+    /// То же, когда пиров нет вовсе (или движок не знает файла): ждать нечего, меняем источник раньше.
+    pub stall_timeout_no_peers: Duration,
     /// Паузы перед повтором после временных сбоев (хранилище, движок): ступени по порядку,
     /// последняя повторяется без ограничения числа попыток.
     pub transient_pauses: Vec<Duration>,
     /// Паузы между циклами «источники не отдают данные» (`stalled`); когда они исчерпаны,
-    /// закрепление становится `dead` и ждёт нового источника.
+    /// закрепление становится `dead` и повторяется раз в `dead_pause`.
     pub stalled_pauses: Vec<Duration>,
+    /// Пауза между повторами `dead` и отказа без запасных источников (счётчик `retries` не растёт).
+    pub dead_pause: Duration,
     /// Как часто можно запрашивать новый поиск раздач для альбома с зависшими закреплениями.
     pub discover_interval: Duration,
     /// Пауза перед перезапуском менеджера после паники в тике.
@@ -85,10 +89,12 @@ impl Default for ManagerConfig {
             tick: Duration::from_secs(1),
             progress_every: Duration::from_secs(1),
             stall_timeout: Duration::from_secs(600),
+            stall_timeout_no_peers: Duration::from_secs(180),
             transient_pauses: [60, 300, 900, 3600].map(Duration::from_secs).to_vec(),
             stalled_pauses: [1, 3, 6, 12, 24, 24]
                 .map(|h| Duration::from_secs(h * 3600))
                 .to_vec(),
+            dead_pause: Duration::from_secs(24 * 3600),
             discover_interval: Duration::from_secs(6 * 3600),
             restart_pause: Duration::from_secs(1),
         }
@@ -265,16 +271,16 @@ impl DownloadManager {
         // Зависание.
         let mut still: Vec<&PinWork> = Vec::new();
         for p in downloading {
-            if !self.is_stalled(&files, p).await {
+            let Some(torrent_lost) = self.is_stalled(&files, p).await else {
                 still.push(p);
                 continue;
-            }
+            };
             let (Some(torrent_id), Some(file_index)) = (p.torrent_id, p.file_index) else {
                 continue;
             };
-            if self.restarted.insert((torrent_id, file_index)) {
-                // Сначала один перезапуск того же источника (движок мог потерять торрент или
-                // перевести его в ошибку); отсчёт зависания начнётся заново.
+            if torrent_lost && self.restarted.insert((torrent_id, file_index)) {
+                // Движок потерял торрент: один перезапуск того же источника; отсчёт зависания
+                // начнётся заново. Живой торрент без данных — сразу другой источник.
                 self.stalls.remove(&(torrent_id, file_index));
                 match self.start_group(&files, torrent_id, &[p]).await {
                     Ok(()) => still.push(p),
@@ -352,14 +358,16 @@ impl DownloadManager {
         self.publish_progress(&files).await
     }
 
-    /// Файл не двигается дольше `stall_timeout` (нет `file_progress` — тоже «не двигается»).
+    /// Файл не двигается дольше таймаута: `stall_timeout`, если есть пиры, иначе (пиров нет или движок
+    /// не знает файла) `stall_timeout_no_peers`. `Some(true)` — зависание, и движок потерял торрент
+    /// (нет `file_progress`); `Some(false)` — торрент жив, данных нет; `None` — всё в порядке.
     /// Любое движение байтов обнуляет счётчик повторов закрепления: медленная, но живая раздача
     /// не исчерпывает бюджет.
-    async fn is_stalled(&mut self, files: &Arc<dyn FileProvider>, p: &PinWork) -> bool {
+    async fn is_stalled(&mut self, files: &Arc<dyn FileProvider>, p: &PinWork) -> Option<bool> {
         let (Some(torrent_id), Some(file_index), Some(hash)) =
             (p.torrent_id, p.file_index, p.info_hash.as_deref())
         else {
-            return false;
+            return None;
         };
         let key = (torrent_id, file_index);
         let progress = InfoHash::parse(hash).ok().and_then(|h| {
@@ -375,9 +383,14 @@ impl DownloadManager {
         if progress.is_some_and(|p| p.finished) {
             // Дозавершит Watcher.
             self.stalls.remove(&key);
-            return false;
+            return None;
         }
-        match (self.stalls.get(&key).copied(), bytes) {
+        let timeout = if progress.is_some_and(|p| p.peers > 0) {
+            self.cfg.stall_timeout
+        } else {
+            self.cfg.stall_timeout_no_peers
+        };
+        let stalled = match (self.stalls.get(&key).copied(), bytes) {
             (Some((last, _)), Some(b)) if b != last => {
                 self.stalls.insert(key, (b, now));
                 self.restarted.remove(&key);
@@ -386,12 +399,13 @@ impl DownloadManager {
                 }
                 false
             }
-            (Some((_, since)), _) => since.elapsed() >= self.cfg.stall_timeout,
+            (Some((_, since)), _) => since.elapsed() >= timeout,
             (None, b) => {
                 self.stalls.insert(key, (b.unwrap_or(0), now));
-                self.cfg.stall_timeout.is_zero() && b.is_none()
+                timeout.is_zero() && b.is_none()
             }
-        }
+        };
+        stalled.then_some(progress.is_none())
     }
 
     async fn reset_retries(&self, track_id: i64) {
@@ -417,14 +431,23 @@ impl DownloadManager {
                     *step += 1;
                     self.fail(p, message, Some(pause), false).await?;
                 }
-                Failure::Permanent => self.fail(p, message, None, false).await?,
+                Failure::Permanent => {
+                    // Плохая раздача (ссылка, индекс файла): сначала другой источник трека.
+                    if !self.switch_source(p).await? {
+                        self.tried.remove(&p.track_id);
+                        self.fail(p, message, Some(self.cfg.dead_pause), false)
+                            .await?;
+                        self.request_new_sources(p.album_id).await;
+                    }
+                }
                 Failure::NoPeers => self.give_up_source(p).await?,
             }
         }
         Ok(())
     }
 
-    /// `failed` с расписанием: `pause = None` — без автоматического повтора.
+    /// `failed` с расписанием: `pause = None` — без автоматического повтора (в боевом коде не используется:
+    /// закрепление без расписания — нарушение инварианта I8).
     async fn fail(
         &self,
         p: &PinWork,
@@ -440,9 +463,9 @@ impl DownloadManager {
         Ok(())
     }
 
-    /// Источник не отдаёт данные: следующий источник трека, а если его нет — `failed("stalled")`
-    /// с растущей паузой, после исчерпания пауз — `dead`; параллельно просим поиск новых раздач.
-    async fn give_up_source(&mut self, p: &PinWork) -> sqlx::Result<()> {
+    /// Помечает текущий источник опробованным и переключает primary трека на следующий (в том числе
+    /// CUE-долю — для загрузки на сервер это допустимо). `false` — переключаться некуда.
+    async fn switch_source(&mut self, p: &PinWork) -> sqlx::Result<bool> {
         if let Some(key) = p.torrent_id.zip(p.file_index) {
             self.stalls.remove(&key);
             self.restarted.remove(&key);
@@ -451,19 +474,30 @@ impl DownloadManager {
             Some(id) => track_sources::get(&self.state.db, id).await?,
             None => None,
         };
-        if let Some(source) = &source {
-            let tried = self.tried.entry(p.track_id).or_default();
-            tried.push(source.id);
-            if crate::stream::switch_to_next_source(&self.state, source, tried).await {
-                // `set_primary` вернул закрепление в `queued` и обнулил `retries`, а цикл «нет сидов»
-                // должен копиться между сменами источника.
-                if p.retries > 0 {
-                    pins::set_retries(&self.state.db, p.track_id, p.retries).await?;
-                }
-                self.state.events.publish_acquisition_changed(p.album_id);
-                crate::sources::release_unneeded(&self.state, source).await;
-                return Ok(());
-            }
+        let Some(source) = source else {
+            return Ok(false);
+        };
+        let tried = self.tried.entry(p.track_id).or_default();
+        tried.push(source.id);
+        if !crate::stream::switch_to_next_source(&self.state, &source, tried, true).await {
+            return Ok(false);
+        }
+        // `set_primary` вернул закрепление в `queued` и обнулил `retries`, а цикл «нет сидов»
+        // должен копиться между сменами источника.
+        if p.retries > 0 {
+            pins::set_retries(&self.state.db, p.track_id, p.retries).await?;
+        }
+        self.state.events.publish_acquisition_changed(p.album_id);
+        crate::sources::release_unneeded(&self.state, &source).await;
+        Ok(true)
+    }
+
+    /// Источник не отдаёт данные: следующий источник трека, а если его нет — `failed("stalled")`
+    /// с растущей паузой, после исчерпания пауз — `dead` с повтором раз в `dead_pause`; параллельно
+    /// просим поиск новых раздач.
+    async fn give_up_source(&mut self, p: &PinWork) -> sqlx::Result<()> {
+        if self.switch_source(p).await? {
+            return Ok(());
         }
         tracing::warn!(
             track_id = p.track_id,
@@ -473,7 +507,9 @@ impl DownloadManager {
         self.tried.remove(&p.track_id);
         let cycle = usize::try_from(p.retries).unwrap_or_default();
         if cycle >= self.cfg.stalled_pauses.len() {
-            self.fail(p, "dead", None, true).await?;
+            // Счётчик не растёт: повторов может быть сколько угодно.
+            self.fail(p, "dead", Some(self.cfg.dead_pause), false)
+                .await?;
         } else {
             let pause = pause_at(&self.cfg.stalled_pauses, cycle);
             self.fail(p, "stalled", Some(pause), true).await?;
@@ -483,23 +519,31 @@ impl DownloadManager {
     }
 
     /// Ставит поиск раздач для альбома, если последний поиск был давно (дубликаты задач схлопывает очередь).
+    /// Раздачи альбома, которые не удалось проверить (`dead`/`timeout`/`error`: раздающий был офлайн),
+    /// возвращаются на проверку в той же транзакции, что и поиск.
     async fn request_new_sources(&self, album_id: i64) {
         let db = &self.state.db;
         match acquisition::searched_within(db, album_id, self.cfg.discover_interval).await {
             Ok(true) => {}
             Ok(false) => {
-                if let Err(e) = jobs::enqueue(
-                    db,
-                    &Job::DiscoverAlbum { album_id },
-                    EnqueueOpts::priority(PRIORITY_BACKGROUND),
-                )
-                .await
-                {
+                if let Err(e) = self.queue_discover(album_id).await {
                     tracing::warn!(album_id, error = %e, "cannot queue the search for new sources");
                 }
             }
             Err(e) => tracing::warn!(album_id, error = %e, "cannot check the last album search"),
         }
+    }
+
+    async fn queue_discover(&self, album_id: i64) -> sqlx::Result<()> {
+        let mut tx = self.state.db.begin().await?;
+        album_torrents::reset_dead(&mut *tx, album_id).await?;
+        jobs::enqueue(
+            &mut *tx,
+            &Job::DiscoverAlbum { album_id },
+            EnqueueOpts::priority(PRIORITY_BACKGROUND),
+        )
+        .await?;
+        tx.commit().await
     }
 
     /// Запрашивает у движка все файлы группы одним `ensure_files` и создаёт строки `downloads`.

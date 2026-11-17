@@ -5,7 +5,7 @@ mod common;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -47,6 +47,10 @@ struct FakeFiles {
     /// 0 — пауза/возобновление работают, 1 — торрента нет в движке, 2 — прочая ошибка.
     pause_mode: AtomicU8,
     fail_release: AtomicBool,
+    /// Сколько пиров сообщает `file_progress`.
+    peers: AtomicU32,
+    /// Торренты, которых «нет в движке»: `file_progress` отдаёт `None`.
+    lost: Mutex<HashSet<String>>,
 }
 
 impl FakeFiles {
@@ -63,6 +67,8 @@ impl FakeFiles {
             panics_left: AtomicUsize::new(0),
             pause_mode: AtomicU8::new(0),
             fail_release: AtomicBool::new(false),
+            peers: AtomicU32::new(2),
+            lost: Mutex::default(),
         })
     }
 
@@ -145,6 +151,9 @@ impl FileProvider for FakeFiles {
         Err(EngineError::Internal("not used".into()))
     }
     fn file_progress(&self, id: &TorrentHandleId, file_index: usize) -> Option<FileProgress> {
+        if self.lost.lock().unwrap().contains(&hash_of(id)) {
+            return None;
+        }
         let done = self
             .done
             .lock()
@@ -155,7 +164,7 @@ impl FileProvider for FakeFiles {
         Some(FileProgress {
             bytes_done: done,
             bytes_total: SIZE,
-            peers: 2,
+            peers: self.peers.load(Ordering::SeqCst),
             down_speed_bps: 500,
             finished: done >= SIZE,
         })
@@ -382,8 +391,10 @@ fn cfg() -> ManagerConfig {
         tick: Duration::from_millis(20),
         progress_every: Duration::ZERO,
         stall_timeout: Duration::from_secs(3600),
+        stall_timeout_no_peers: Duration::from_secs(3600),
         transient_pauses: vec![Duration::from_secs(3600)],
         stalled_pauses: vec![Duration::from_secs(3600); 6],
+        dead_pause: Duration::from_secs(3600),
         discover_interval: Duration::from_secs(6 * 3600),
         restart_pause: Duration::from_millis(10),
     }
@@ -578,11 +589,8 @@ async fn stalled_file_switches_to_the_next_source_then_fails(pool: PgPool) {
     assert_eq!(pin_state(&pool, a.tracks[0]).await, PinState::Downloading);
     m.tick().await.unwrap(); // менеджер впервые замечает файл: отсчёт зависания начался
     assert_eq!(pin_state(&pool, a.tracks[0]).await, PinState::Downloading);
-    m.tick().await.unwrap(); // нет прогресса → сначала перезапуск того же источника
-    assert_eq!(pin_state(&pool, a.tracks[0]).await, PinState::Downloading);
-    assert_eq!(files.ensure_calls().len(), 2);
-    m.tick().await.unwrap(); // отсчёт после перезапуска начался заново
-    m.tick().await.unwrap(); // снова нет прогресса → источник B
+    m.tick().await.unwrap(); // торрент жив, данных нет → сразу источник B (без перезапуска A)
+    assert_eq!(files.ensure_calls().len(), 1);
     let primary = track_sources::primary_for_track(&pool, a.tracks[0])
         .await
         .unwrap()
@@ -595,8 +603,6 @@ async fn stalled_file_switches_to_the_next_source_then_fails(pool: PgPool) {
     m.tick().await.unwrap(); // старт с источника B
     assert_eq!(pin_state(&pool, a.tracks[0]).await, PinState::Downloading);
     assert_eq!(files.ensure_calls().last().unwrap().0, hash(2).to_string());
-    m.tick().await.unwrap();
-    m.tick().await.unwrap(); // перезапуск B
     m.tick().await.unwrap();
     m.tick().await.unwrap(); // B тоже стоит, вернуться на A нельзя → failed
     let pin = pins::get(&pool, a.tracks[0]).await.unwrap().unwrap();
@@ -634,6 +640,7 @@ async fn pin(pool: &PgPool, track_id: i64) -> pins::Pin {
 fn stalling(pauses: Vec<Duration>) -> ManagerConfig {
     ManagerConfig {
         stall_timeout: Duration::ZERO,
+        stall_timeout_no_peers: Duration::ZERO,
         stalled_pauses: pauses,
         ..cfg()
     }
@@ -653,11 +660,10 @@ async fn stalled_schedule_then_dead(pool: PgPool) {
     })
     .await;
     let p = pin(&pool, t).await;
-    assert_eq!(
-        (p.state, p.retries, p.next_retry_at),
-        (PinState::Failed, 4, None)
-    );
-    // Дальше менеджер закрепление не трогает.
+    // `dead` повторяется по расписанию, а счётчик циклов больше не растёт.
+    assert_eq!((p.state, p.retries), (PinState::Failed, 3));
+    assert!(p.next_retry_at.unwrap() > chrono::Utc::now());
+    // До наступления срока менеджер закрепление не трогает.
     let calls = files.ensure_calls().len();
     for _ in 0..8 {
         m.tick().await.unwrap();
@@ -809,28 +815,7 @@ async fn metadata_timeout_switches_source(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
-async fn permanent_failure_is_not_retried(pool: PgPool) {
-    let files = FakeFiles::new();
-    files
-        .ensure_script
-        .lock()
-        .unwrap()
-        .push_back(Some(EngineError::InvalidFileIndex(9)));
-    let st = app_state(&pool, &files);
-    let a = seed(&pool, 1, 1).await;
-    pin_album(&pool, a.album_id).await;
-    let mut m = DownloadManager::new(st, cfg());
-    for _ in 0..4 {
-        m.tick().await.unwrap();
-    }
-    let p = pin(&pool, a.tracks[0]).await;
-    assert_eq!((p.state, p.next_retry_at), (PinState::Failed, None));
-    assert!(files.ensure_calls().is_empty(), "no second attempt");
-    assert!(pins::retry_failed(&pool).await.unwrap().is_empty());
-}
-
-#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
-async fn stall_restarts_same_source_first(pool: PgPool) {
+async fn lost_torrent_is_restarted_before_switching_the_source(pool: PgPool) {
     let files = FakeFiles::new();
     let st = app_state(&pool, &files);
     let a = seed(&pool, 1, 1).await;
@@ -846,22 +831,245 @@ async fn stall_restarts_same_source_first(pool: PgPool) {
             .count()
     };
     m.tick().await.unwrap(); // старт
-    m.tick().await.unwrap(); // заметили файл
-    assert_eq!(on_primary(&files), 1);
-    m.tick().await.unwrap(); // зависание → перезапуск того же источника
-    assert_eq!(on_primary(&files), 2);
+    files.lost.lock().unwrap().insert(a.hash.clone());
+    m.tick().await.unwrap(); // движок не знает торрента — отсчёт начат, зависание признано сразу
+    assert_eq!(on_primary(&files), 2, "the same source is restarted once");
     let primary = track_sources::primary_for_track(&pool, a.tracks[0])
         .await
         .unwrap()
         .unwrap();
     assert_eq!(primary.torrent_id, a.torrent_id);
     m.tick().await.unwrap();
-    m.tick().await.unwrap(); // второе зависание → другой источник
+    m.tick().await.unwrap(); // торрент всё ещё потерян → другой источник
     let primary = track_sources::primary_for_track(&pool, a.tracks[0])
         .await
         .unwrap()
         .unwrap();
     assert_eq!(primary.torrent_id, alt);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn live_torrent_without_data_skips_the_restart(pool: PgPool) {
+    let files = FakeFiles::new();
+    let st = app_state(&pool, &files);
+    let a = seed(&pool, 1, 1).await;
+    let alt = add_torrent(&pool, 2, 1).await;
+    add_source(&pool, a.tracks[0], alt, 0, 0.5, false).await;
+    pin_album(&pool, a.album_id).await;
+    let mut m = DownloadManager::new(st, stalling(vec![Duration::ZERO]));
+    m.tick().await.unwrap(); // старт
+    m.tick().await.unwrap(); // заметили файл
+    m.tick().await.unwrap(); // торрент жив, байтов нет → сразу другой источник
+    assert_eq!(
+        files.ensure_calls().len(),
+        1,
+        "no restart of the same source"
+    );
+    let primary = track_sources::primary_for_track(&pool, a.tracks[0])
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(primary.torrent_id, alt);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn no_peers_stall_is_detected_by_the_short_timeout(pool: PgPool) {
+    let files = FakeFiles::new();
+    let st = app_state(&pool, &files);
+    let a = seed(&pool, 1, 1).await;
+    pin_album(&pool, a.album_id).await;
+    let t = a.tracks[0];
+    // Длинный таймаут для живых пиров, нулевой — когда пиров нет.
+    let mut m = DownloadManager::new(
+        st,
+        ManagerConfig {
+            stall_timeout: Duration::from_secs(3600),
+            stall_timeout_no_peers: Duration::ZERO,
+            ..cfg()
+        },
+    );
+    m.tick().await.unwrap(); // старт
+    for _ in 0..3 {
+        m.tick().await.unwrap();
+    }
+    assert_eq!(
+        pin_state(&pool, t).await,
+        PinState::Downloading,
+        "peers are alive"
+    );
+    files.peers.store(0, Ordering::SeqCst);
+    m.tick().await.unwrap();
+    m.tick().await.unwrap();
+    assert_eq!(pin(&pool, t).await.error.as_deref(), Some("stalled"));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn cue_source_is_used_as_a_fallback_for_a_pin(pool: PgPool) {
+    let files = FakeFiles::new();
+    let st = app_state(&pool, &files);
+    let a = seed(&pool, 1, 1).await;
+    let alt = add_torrent(&pool, 2, 1).await;
+    let cue = track_sources::insert(
+        &pool,
+        &NewTrackSource {
+            track_id: a.tracks[0],
+            torrent_id: alt,
+            file_index: 0,
+            match_score: 0.5,
+            needs_confirmation: false,
+            cue_start_ms: Some(0),
+            cue_end_ms: Some(60_000),
+        },
+    )
+    .await
+    .unwrap();
+    files.no_metadata.lock().unwrap().insert(a.hash.clone());
+    pin_album(&pool, a.album_id).await;
+    DownloadManager::new(st, cfg()).tick().await.unwrap();
+    let primary = track_sources::primary_for_track(&pool, a.tracks[0])
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(primary.id, cue.id);
+    assert_eq!(pin_state(&pool, a.tracks[0]).await, PinState::Queued);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn dead_pin_is_retried_after_dead_pause(pool: PgPool) {
+    let files = FakeFiles::new();
+    let st = app_state(&pool, &files);
+    let a = seed(&pool, 1, 1).await;
+    pin_album(&pool, a.album_id).await;
+    let t = a.tracks[0];
+    let mut m = DownloadManager::new(
+        st.clone(),
+        ManagerConfig {
+            dead_pause: Duration::from_secs(7200),
+            ..stalling(vec![])
+        },
+    );
+    tick_until(&mut m, 20, || async {
+        pin(&pool, t).await.error.as_deref() == Some("dead")
+    })
+    .await;
+    let p = pin(&pool, t).await;
+    assert_eq!(p.state, PinState::Failed);
+    assert!(p.next_retry_at.unwrap() > chrono::Utc::now() + chrono::Duration::hours(1));
+    for _ in 0..4 {
+        m.tick().await.unwrap();
+    }
+    assert_eq!(
+        pin(&pool, t).await.state,
+        PinState::Failed,
+        "not before the time"
+    );
+
+    // Срок наступил: закрепление снова в очереди, и теперь данные идут.
+    sqlx::query("UPDATE pinned_tracks SET next_retry_at = now() WHERE track_id = $1")
+        .bind(t)
+        .execute(&pool)
+        .await
+        .unwrap();
+    m.tick().await.unwrap();
+    assert_eq!(pin_state(&pool, t).await, PinState::Downloading);
+    files.set_done(&a.hash, 0, 10);
+    m.tick().await.unwrap();
+    files.complete(&a.hash, 0);
+    touch_downloads(&pool).await;
+    Watcher::new().tick(&st).await.unwrap();
+    m.tick().await.unwrap();
+    assert_eq!(pin_state(&pool, t).await, PinState::Done);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn permanent_failure_switches_to_another_source(pool: PgPool) {
+    let files = FakeFiles::new();
+    files
+        .ensure_script
+        .lock()
+        .unwrap()
+        .push_back(Some(EngineError::InvalidFileIndex(9)));
+    let st = app_state(&pool, &files);
+    let a = seed(&pool, 1, 1).await;
+    let alt = add_torrent(&pool, 2, 1).await;
+    add_source(&pool, a.tracks[0], alt, 0, 0.5, false).await;
+    pin_album(&pool, a.album_id).await;
+    let mut m = DownloadManager::new(st, cfg());
+    m.tick().await.unwrap();
+    let primary = track_sources::primary_for_track(&pool, a.tracks[0])
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(primary.torrent_id, alt);
+    assert_eq!(pin_state(&pool, a.tracks[0]).await, PinState::Queued);
+    m.tick().await.unwrap();
+    assert_eq!(pin_state(&pool, a.tracks[0]).await, PinState::Downloading);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn permanent_failure_without_alternatives_is_scheduled_and_requests_sources(pool: PgPool) {
+    let files = FakeFiles::new();
+    files
+        .ensure_script
+        .lock()
+        .unwrap()
+        .push_back(Some(EngineError::InvalidFileIndex(9)));
+    let st = app_state(&pool, &files);
+    let a = seed(&pool, 1, 1).await;
+    pin_album(&pool, a.album_id).await;
+    let mut m = DownloadManager::new(st, cfg());
+    for _ in 0..4 {
+        m.tick().await.unwrap();
+    }
+    let p = pin(&pool, a.tracks[0]).await;
+    assert_eq!(p.state, PinState::Failed);
+    assert!(p.next_retry_at.is_some(), "never left without a schedule");
+    assert!(
+        files.ensure_calls().is_empty(),
+        "no second attempt before the time"
+    );
+    assert!(pins::retry_failed(&pool).await.unwrap().is_empty());
+    assert!(
+        nimbus_db::repo::jobs::has_queued_discover(&pool, a.album_id, None)
+            .await
+            .unwrap(),
+        "a search for new sources is queued"
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn stalled_pin_resets_dead_torrents_of_the_album(pool: PgPool) {
+    let files = FakeFiles::new();
+    let st = app_state(&pool, &files);
+    let a = seed(&pool, 1, 1).await;
+    // Вторая раздача альбома не проверилась (раздающий был офлайн), связь помечена проверенной.
+    let dead = add_torrent(&pool, 2, 1).await;
+    nimbus_db::repo::album_torrents::link(&pool, a.album_id, dead, "q", 0.5)
+        .await
+        .unwrap();
+    nimbus_db::repo::album_torrents::mark_verified(&pool, a.album_id, dead)
+        .await
+        .unwrap();
+    torrents::set_meta_status(&pool, dead, MetaStatus::Dead, Some("timeout"))
+        .await
+        .unwrap();
+    pin_album(&pool, a.album_id).await;
+    let mut m = DownloadManager::new(st, stalling(vec![Duration::ZERO]));
+    tick_until(&mut m, 20, || async {
+        pin(&pool, a.tracks[0]).await.error.as_deref() == Some("stalled")
+    })
+    .await;
+    let t = torrents::get(&pool, dead).await.unwrap().unwrap();
+    assert_eq!((t.meta_status, t.meta_attempts), (MetaStatus::Pending, 0));
+    let linked = nimbus_db::repo::album_torrents::list_for_album(&pool, a.album_id)
+        .await
+        .unwrap();
+    assert!(linked.iter().any(|l| l.torrent.id == dead && !l.verified));
+    assert!(
+        nimbus_db::repo::jobs::has_queued_discover(&pool, a.album_id, None)
+            .await
+            .unwrap()
+    );
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
@@ -1534,12 +1742,10 @@ async fn progress_resets_the_stall_timer(pool: PgPool) {
         m.tick().await.unwrap();
         assert_eq!(pin_state(&pool, a.tracks[0]).await, PinState::Downloading);
     }
-    // Прогресс остановился — зависание: перезапуск, новый отсчёт, затем отказ от источника.
-    m.tick().await.unwrap();
-    assert_eq!(pin_state(&pool, a.tracks[0]).await, PinState::Downloading);
-    m.tick().await.unwrap();
+    // Прогресс остановился — зависание живого торрента: отказ от источника без перезапуска.
     m.tick().await.unwrap();
     assert_eq!(pin_state(&pool, a.tracks[0]).await, PinState::Failed);
+    assert_eq!(files.ensure_calls().len(), 1);
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]

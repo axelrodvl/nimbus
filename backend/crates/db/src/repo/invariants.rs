@@ -295,20 +295,15 @@ pub async fn i7_queued_without_handler(
     Ok(section("I7", "job", rows))
 }
 
-/// Ошибки закрепления, после которых авто-повтора нет намеренно: `dead` (все источники без сидов,
-/// ждёт нового источника) и постоянные отказы движка (`Failure::Permanent` менеджера загрузок).
-const FINAL_PIN_ERRORS: &str = "(p.error = 'dead' OR p.error = 'torrent not found'
-      OR p.error LIKE 'invalid magnet:%' OR p.error LIKE 'file index % is out of range')";
-
-/// I8. Закрепление `failed` без расписания повтора и без окончательной причины: оно не повторится никогда.
+/// I8. Закрепление `failed` без расписания повтора: оно не повторится никогда (даже `dead` ждёт
+/// следующей попытки по расписанию).
 pub async fn i8_failed_pin_without_schedule(db: &PgPool) -> sqlx::Result<Option<Section>> {
-    let rows: Vec<Row> = sqlx::query_as(&format!(
+    let rows: Vec<Row> = sqlx::query_as(
         "SELECT p.track_id, COALESCE(p.error, 'no error'), count(*) OVER ()
          FROM pinned_tracks p
          WHERE p.state = 'failed' AND p.next_retry_at IS NULL
-           AND (p.error IS NULL OR NOT {FINAL_PIN_ERRORS})
-         ORDER BY p.track_id LIMIT $1"
-    ))
+         ORDER BY p.track_id LIMIT $1",
+    )
     .bind(MAX_VIOLATIONS)
     .fetch_all(db)
     .await?;
