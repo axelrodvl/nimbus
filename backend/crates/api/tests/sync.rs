@@ -104,7 +104,12 @@ fn is_empty_delta(v: &Value) -> bool {
 /// присылает лишнее (повторы допустимы). Поэтому идём по цепочке курсоров, пока `xmin` не
 /// продвинется за наши записи и дельта не станет пустой.
 async fn settled_cursor(app: &axum::Router) -> String {
-    let mut cursor = snapshot(app).await.cursor;
+    let cursor = snapshot(app).await.cursor;
+    settle_from(app, cursor).await
+}
+
+/// То же, но от заданного курсора: идём по цепочке, пока дельта не станет пустой.
+async fn settle_from(app: &axum::Router, mut cursor: String) -> String {
     for _ in 0..500 {
         let v = changes(app, &cursor).await;
         cursor = v["cursor"].as_str().unwrap().to_string();
@@ -346,9 +351,9 @@ async fn twelve_thousand_changes_come_in_three_pages_without_gaps(pool: PgPool) 
     }
     assert_eq!(more_flags, [true, true, false]);
     assert_eq!(seen, expected);
-    // и после полной выгрузки ничего нового нет
-    let v = changes(&app, &cursor).await;
-    assert!(ids(&v, "tracks").len() < 12000 && v["more"] == false);
+    // и после полной выгрузки ничего нового нет: пока соседний тест держит xmin, допустимы повторы,
+    // поэтому ждём, пока дельта опустеет, а не требуем этого с первого запроса
+    settle_from(&app, cursor).await;
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
