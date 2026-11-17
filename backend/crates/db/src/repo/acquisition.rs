@@ -82,6 +82,13 @@ macro_rules! state_cte {
             WHERE t.in_library
             GROUP BY t.album_id
             HAVING bool_or(d.completed_at IS NULL)
+         ), sz AS (
+            SELECT t.album_id, sum(d.bytes_total)::bigint AS bytes_total
+            FROM tracks t
+              JOIN track_sources ts ON ts.track_id = t.id AND ts.is_primary
+              JOIN downloads d ON d.torrent_id = ts.torrent_id AND d.file_index = ts.file_index
+            WHERE t.in_library AND d.completed_at IS NOT NULL
+            GROUP BY t.album_id
          ), pn AS (
             SELECT t.album_id,
                    CASE WHEN bool_or(p.state = 'downloading') THEN 'downloading'
@@ -93,7 +100,9 @@ macro_rules! state_cte {
             FROM pinned_tracks p JOIN tracks t ON t.id = p.track_id
             WHERE t.in_library GROUP BY t.album_id
          ), st AS (
-            SELECT tr.*, dl.bytes_done, dl.bytes_total,
+            SELECT tr.*,
+                   COALESCE(dl.bytes_done, sz.bytes_total) AS bytes_done,
+                   COALESCE(dl.bytes_total, sz.bytes_total) AS bytes_total,
                    (pn.album_id IS NOT NULL) AS pinned, pn.pin_state, pn.pin_error,
                    CASE WHEN tr.adding > 0 THEN 'searching'
                         WHEN dl.album_id IS NOT NULL THEN 'downloading'
@@ -101,7 +110,8 @@ macro_rules! state_cte {
                         WHEN tr.not_found > 0 THEN 'missing'
                         WHEN tr.ready = tr.total THEN 'downloaded'
                         ELSE 'available' END AS state
-            FROM tr LEFT JOIN dl USING (album_id) LEFT JOIN pn USING (album_id)
+            FROM tr LEFT JOIN dl USING (album_id) LEFT JOIN sz USING (album_id)
+                    LEFT JOIN pn USING (album_id)
          )"
     };
 }

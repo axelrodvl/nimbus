@@ -193,7 +193,11 @@ async fn active_download_beats_everything_but_searching(pool: PgPool) {
     let row = acquisition::list(&pool, Some(&[AcquisitionState::Available]), None, 10)
         .await
         .unwrap();
-    assert_eq!(row.items[0].bytes_total, None, "нет активной загрузки");
+    assert_eq!(
+        (row.items[0].bytes_done, row.items[0].bytes_total),
+        (Some(1000), Some(1000)),
+        "завершённая загрузка: размер файлов есть, а не пусто"
+    );
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
