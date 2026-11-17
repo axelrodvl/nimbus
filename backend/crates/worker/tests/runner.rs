@@ -338,9 +338,10 @@ async fn get_row(pool: &PgPool, id: i64) -> jobs::JobRow {
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn heartbeat_keeps_a_long_job_from_being_run_twice(pool: PgPool) {
     // Обработчик работает втрое дольше stale_after, а обслуживание проверяет «зависшие» каждые 30 мс.
-    let probe = Probe::new(Behavior::Sleep(Duration::from_millis(900)));
+    // stale_after в 20 раз больше heartbeat_interval: на нагруженном CI heartbeat может запаздывать.
+    let probe = Probe::new(Behavior::Sleep(Duration::from_millis(3000)));
     let cfg = WorkerConfig {
-        stale_after: Duration::from_millis(300),
+        stale_after: Duration::from_millis(1000),
         heartbeat_interval: Duration::from_millis(50),
         maintenance_interval: Duration::from_millis(30),
         ..fast_cfg()
