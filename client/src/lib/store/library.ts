@@ -75,6 +75,8 @@ export type LibraryActions = {
   replaceAll(data: Omit<LibraryData, 'meta'>): void;
   /** Мгновенное обновление трека (событие `track.status`), не дожидаясь дельты. */
   patchTrack(id: number, partial: TrackPatch): void;
+  /** Пачка патчей треков — одно обновление состояния; отсутствующие id пропускаются. */
+  patchTracks(patches: ReadonlyMap<number, TrackPatch>): void;
   reset(): void;
 };
 
@@ -287,11 +289,18 @@ export function createLibraryStore(): LibraryStore {
       set(s => ({ ...build(data), hydrated: true, version: s.version + 1 }));
     },
     patchTrack(id, partial) {
+      get().patchTracks(new Map([[id, partial]]));
+    },
+    patchTracks(patches) {
       const { tracks } = get();
-      const old = tracks.get(id);
-      if (!old) return;
-      tracks.raw.set(id, { ...old, ...partial });
-      set(s => ({ tracks: new Table(s.tracks.raw), version: s.version + 1 }));
+      let changed = false;
+      for (const [id, partial] of patches) {
+        const old = tracks.get(id);
+        if (!old) continue;
+        tracks.raw.set(id, { ...old, ...partial });
+        changed = true;
+      }
+      if (changed) set(s => ({ tracks: new Table(s.tracks.raw), version: s.version + 1 }));
     },
     replaceAll(data) {
       set(s => ({ ...build(data), hydrated: true, version: s.version + 1 }));

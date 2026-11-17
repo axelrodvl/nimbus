@@ -198,3 +198,29 @@ describe('patchTrack', () => {
     expect(store.getState()).toBe(before);
   });
 });
+
+describe('patchTracks', () => {
+  it('пачка — одно обновление; отсутствующие id пропускаются', () => {
+    const { store } = withLibrary();
+    let notified = 0;
+    store.subscribe(() => (notified += 1));
+    store.getState().patchTracks(
+      new Map([
+        [1, { status: 'ready' as const }],
+        [2, { status: 'adding' as const }],
+        [9999, { status: 'ready' as const }],
+      ]),
+    );
+    expect(notified).toBe(1);
+    expect(store.getState().tracks.get(1)?.status).toBe('ready');
+    expect(store.getState().tracks.get(2)?.status).toBe('adding');
+    expect(store.getState().tracks.has(9999)).toBe(false);
+  });
+
+  it('пачка из одних отсутствующих id не обновляет состояние', () => {
+    const { store } = withLibrary();
+    const before = store.getState();
+    store.getState().patchTracks(new Map([[9999, { status: 'ready' as const }]]));
+    expect(store.getState()).toBe(before);
+  });
+});

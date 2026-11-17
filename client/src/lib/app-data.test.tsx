@@ -150,6 +150,7 @@ describe('live-соединение в данных приложения', () =>
     FakeSocket.last.onmessage?.({
       data: JSON.stringify({ album_id: 1, done: 3, stage: 'searching', total: 9, type: 'job.progress' }),
     });
+    await app.engine.settled();
     expect(app.live.getState().albumProgress.get(1)?.done).toBe(3);
     FakeSocket.last.onmessage?.({ data: JSON.stringify({ type: 'custom' }) });
     expect(seen).toHaveBeenCalledTimes(1);

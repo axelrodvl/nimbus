@@ -91,63 +91,69 @@ describe('альбом', () => {
     expect(screen.getByTestId('album-status-summary')).toHaveTextContent('1 скачано');
   });
 
-  it('track.status меняет бейдж и сводку без перезагрузки', () => {
+  it('track.status меняет бейдж и сводку без перезагрузки', async () => {
     seed(discs());
     renderRoutes(routes, '/album/1');
     const row = () => screen.getAllByTestId('track-row').find(r => r.getAttribute('data-track-id') === '11')!;
     expect(within(row()).getByRole('img', { name: 'Ищем раздачи…' })).toBeInTheDocument();
-    act(() =>
-      appData().engine.handleEvent({ album_id: 1, reason: null, status: 'ready', track_id: 11, type: 'track.status' }),
-    );
+    await act(async () => {
+      appData().engine.handleEvent({ album_id: 1, reason: null, status: 'ready', track_id: 11, type: 'track.status' });
+      await appData().engine.settled();
+    });
     expect(within(row()).getByRole('img', { name: 'Скачано' })).toBeInTheDocument();
     expect(screen.getByTestId('album-status-summary')).toHaveTextContent('2 скачано');
-    act(() =>
+    await act(async () => {
       appData().engine.handleEvent({
         album_id: 1,
         reason: 'dead_torrents',
         status: 'not_found',
         track_id: 12,
         type: 'track.status',
-      }),
-    );
+      });
+      await appData().engine.settled();
+    });
     expect(within(screen.getAllByTestId('track-row')[1]!).getByRole('img', { name: 'Нет сидов' })).toBeInTheDocument();
   });
 
-  it('job.progress показывает прогресс и скрывается по завершении', () => {
+  it('job.progress показывает прогресс и скрывается по завершении', async () => {
     seed(discs());
     renderRoutes(routes, '/album/1');
     expect(screen.queryByTestId('album-progress')).not.toBeInTheDocument();
-    act(() =>
-      appData().engine.handleEvent({ album_id: 1, done: 2, stage: 'verifying', total: 5, type: 'job.progress' }),
-    );
+    await act(async () => {
+      appData().engine.handleEvent({ album_id: 1, done: 2, stage: 'verifying', total: 5, type: 'job.progress' });
+      await appData().engine.settled();
+    });
     expect(screen.getByTestId('album-progress')).toHaveTextContent('Проверяем раздачи 2/5');
     // Бейдж трека в поиске показывает тот же прогресс.
     expect(screen.getByRole('img', { name: 'Проверяем раздачи 2/5' })).toBeInTheDocument();
-    act(() =>
-      appData().engine.handleEvent({ album_id: 1, done: 5, stage: 'verifying', total: 5, type: 'job.progress' }),
-    );
+    await act(async () => {
+      appData().engine.handleEvent({ album_id: 1, done: 5, stage: 'verifying', total: 5, type: 'job.progress' });
+      await appData().engine.settled();
+    });
     expect(screen.queryByTestId('album-progress')).not.toBeInTheDocument();
   });
 
-  it('job.progress не показывается у альбома, где все треки уже найдены', () => {
+  it('job.progress не показывается у альбома, где все треки уже найдены', async () => {
     const d = discs();
     seed({
       ...d,
       tracks: d.tracks.map(tr => makeTrack({ ...tr, status: 'ready' })),
     });
     renderRoutes(routes, '/album/1');
-    act(() =>
-      appData().engine.handleEvent({ album_id: 1, done: 7, stage: 'verifying', total: 10, type: 'job.progress' }),
-    );
+    await act(async () => {
+      appData().engine.handleEvent({ album_id: 1, done: 7, stage: 'verifying', total: 10, type: 'job.progress' });
+      await appData().engine.settled();
+    });
     expect(screen.queryByTestId('album-progress')).not.toBeInTheDocument();
   });
 
-  it('этап поиска без числа — «Ищем раздачи…»', () => {
+  it('этап поиска без числа — «Ищем раздачи…»', async () => {
     seed(discs());
     renderRoutes(routes, '/album/1');
-    act(() =>
-      appData().engine.handleEvent({ album_id: 1, done: 0, stage: 'searching', total: 0, type: 'job.progress' }),
-    );
+    await act(async () => {
+      appData().engine.handleEvent({ album_id: 1, done: 0, stage: 'searching', total: 0, type: 'job.progress' });
+      await appData().engine.settled();
+    });
     expect(screen.getByTestId('album-progress')).toHaveTextContent('Ищем раздачи…');
   });
 

@@ -5,7 +5,7 @@ import { createDb, type Db } from '@/lib/db';
 import { createLibraryStore } from '@/lib/store/library';
 import { createLiveStore } from '@/lib/store/live';
 import { FakeSyncServer, makeAlbum, makeArtist, makeLibrary, makeTrack, resetFactories } from '@/test/factories';
-import { createSyncEngine, SAFETY_POLL_MS, type EngineDeps } from './engine';
+import { createSyncEngine, LIVE_FLUSH_MS, SAFETY_POLL_MS, type EngineDeps } from './engine';
 import { createTabs, type ChannelLike, type LockManagerLike, type Tabs } from './tabs';
 
 let n = 0;
@@ -482,16 +482,96 @@ describe('триггеры', () => {
   });
 });
 
+const status = (track_id: number, album_id: number, st: 'adding' | 'found' | 'not_found' | 'ready') =>
+  ({ album_id, reason: null, status: st, track_id, type: 'track.status' }) as const;
+
+describe('объединение live-событий', () => {
+  async function bigEnv(tracks = 500, fake = true) {
+    const server = new FakeSyncServer().load(makeLibrary({ albumsPerArtist: 1, artists: 1, tracksPerAlbum: tracks }));
+    const env = makeEnv(server);
+    await sync(env);
+    if (fake) vi.useFakeTimers();
+    return { env, server };
+  }
+
+  it('coalesces track.status into one store update', async () => {
+    const { env } = await bigEnv();
+    const spy = vi.spyOn(env.db, 'patchTracks');
+    let notified = 0;
+    env.store.subscribe(() => (notified += 1));
+    for (let id = 1; id <= 500; id++) env.engine.handleEvent(status(id, 1, 'not_found'));
+    vi.advanceTimersByTime(LIVE_FLUSH_MS - 1);
+    expect(notified).toBe(0);
+    expect(env.store.getState().tracks.get(1)?.status).not.toBe('not_found');
+    vi.advanceTimersByTime(1);
+    expect(notified).toBe(1);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]?.[0].size).toBe(500);
+  });
+
+  it('last status per track wins', async () => {
+    const { env } = await bigEnv(2);
+    env.engine.handleEvent(status(1, 1, 'adding'));
+    env.engine.handleEvent(status(1, 1, 'not_found'));
+    vi.advanceTimersByTime(LIVE_FLUSH_MS);
+    expect(env.store.getState().tracks.get(1)?.status).toBe('not_found');
+  });
+
+  it('flushes pending patches before applying a delta', async () => {
+    const { env, server } = await bigEnv(2, false);
+    env.engine.handleEvent(status(1, 1, 'adding'));
+    const track = env.store.getState().tracks.get(1);
+    if (!track) throw new Error('no track');
+    server.upsert('track', { ...track, status: 'found' });
+    env.engine.handleEvent({ type: 'sync.poke' });
+    await env.engine.settled();
+    expect(env.store.getState().tracks.get(1)?.status).toBe('found');
+    expect((await env.db.loadAll()).tracks.find(t => t.id === 1)?.status).toBe('found');
+  });
+
+  it('stop drops pending events', async () => {
+    const { env } = await bigEnv(2);
+    const before = env.store.getState().tracks.get(1)?.status;
+    env.engine.handleEvent(status(1, 1, 'not_found'));
+    env.engine.handleEvent({ album_id: 1, done: 1, stage: 'searching', total: 2, type: 'job.progress' });
+    env.engine.stop();
+    vi.advanceTimersByTime(LIVE_FLUSH_MS * 2);
+    expect(env.store.getState().tracks.get(1)?.status).toBe(before);
+    expect(env.live.getState().albumProgress.size).toBe(0);
+  });
+
+  it('clears album progress when the album has no adding tracks', async () => {
+    const { env } = await bigEnv(2);
+    env.engine.handleEvent(status(1, 1, 'adding'));
+    env.engine.handleEvent({ album_id: 1, done: 1, stage: 'searching', total: 2, type: 'job.progress' });
+    vi.advanceTimersByTime(LIVE_FLUSH_MS);
+    expect(env.live.getState().albumProgress.has(1)).toBe(true);
+    env.engine.handleEvent(status(1, 1, 'not_found'));
+    vi.advanceTimersByTime(LIVE_FLUSH_MS);
+    expect(env.live.getState().albumProgress.has(1)).toBe(false);
+  });
+
+  it('clears finished download progress', async () => {
+    const { env } = await bigEnv(1);
+    const ev = { album_id: 1, bytes_total: 10, down_bps: 1, peers: 1, type: 'download.progress' } as const;
+    env.engine.handleEvent({ ...ev, bytes_done: 5 });
+    vi.advanceTimersByTime(LIVE_FLUSH_MS);
+    expect(env.live.getState().downloadProgress.has(1)).toBe(true);
+    env.engine.handleEvent({ ...ev, bytes_done: 10 });
+    vi.advanceTimersByTime(LIVE_FLUSH_MS);
+    expect(env.live.getState().downloadProgress.has(1)).toBe(false);
+  });
+});
+
 describe('мгновенные события', () => {
-  it('track.status обновляет store и IndexedDB сразу, не дожидаясь дельты', async () => {
+  it('track.status обновляет store и IndexedDB без дельты после окна объединения', async () => {
     const server = new FakeSyncServer().load(makeLibrary({ albumsPerArtist: 1, artists: 1, tracksPerAlbum: 1 }));
     const env = makeEnv(server);
     await sync(env);
     env.engine.handleEvent({ album_id: 1, reason: 'no seeds', status: 'not_found', track_id: 1, type: 'track.status' });
+    await env.engine.settled();
     expect(env.store.getState().tracks.get(1)).toMatchObject({ status: 'not_found', status_reason: 'no seeds' });
-    await vi.waitFor(async () => {
-      expect((await env.db.loadAll()).tracks[0]?.status).toBe('not_found');
-    });
+    expect((await env.db.loadAll()).tracks[0]?.status).toBe('not_found');
     expect(server.changesRequests).toBe(0);
   });
 
@@ -508,6 +588,7 @@ describe('мгновенные события', () => {
       track_id: 9,
       type: 'stream.progress',
     });
+    await env.engine.settled();
     expect(env.live.getState().albumProgress.get(3)).toEqual({ done: 1, stage: 'searching', total: 5 });
     expect(env.live.getState().streamProgress.get(9)).toMatchObject({ peers: 2 });
     env.engine.handleEvent({
@@ -518,6 +599,7 @@ describe('мгновенные события', () => {
       peers: 1,
       type: 'download.progress',
     });
+    await env.engine.settled();
     expect(env.live.getState().downloadProgress.get(4)).toEqual({
       bytes_done: 7,
       bytes_total: 70,

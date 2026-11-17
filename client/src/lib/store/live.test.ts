@@ -32,4 +32,25 @@ describe('live store', () => {
     expect(live.getState().downloadProgress.get(2)).toEqual({ bytes_done: 4, bytes_total: 10, down_bps: 6, peers: 2 });
     expect(live.getState().downloadProgress.has(3)).toBe(false);
   });
+
+  it('applyProgress: одно уведомление на пачку; завершённое и dropAlbums убираются; пустая пачка не будит', () => {
+    const live = createLiveStore();
+    live.getState().setAlbumProgress(7, { done: 1, stage: 'searching', total: 2 });
+    live.getState().setDownloadProgress(2, { bytes_done: 1, bytes_total: 10, down_bps: 1, peers: 1 });
+    let notified = 0;
+    live.subscribe(() => (notified += 1));
+    live.getState().applyProgress({
+      album: new Map([[1, { done: 1, stage: 'searching' as const, total: 3 }]]),
+      download: new Map([[2, { bytes_done: 10, bytes_total: 10, down_bps: 0, peers: 0 }]]),
+      dropAlbums: [7],
+      stream: new Map([[5, { bytes_done: 1, bytes_total: 9, down_speed_bps: 1, peers: 1 }]]),
+    });
+    expect(notified).toBe(1);
+    expect(live.getState().albumProgress.has(1)).toBe(true);
+    expect(live.getState().albumProgress.has(7)).toBe(false);
+    expect(live.getState().downloadProgress.has(2)).toBe(false);
+    expect(live.getState().streamProgress.get(5)?.peers).toBe(1);
+    live.getState().applyProgress({});
+    expect(notified).toBe(1);
+  });
 });

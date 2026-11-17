@@ -18,6 +18,16 @@ export type LiveState = {
   albumProgress: ReadonlyMap<number, AlbumProgress>;
   /** Прогресс буферизации потока по трекам (`stream.progress`). */
   streamProgress: ReadonlyMap<number, StreamProgress>;
+  /**
+   * Пачка прогресса одним `set`: каждая затронутая карта копируется один раз.
+   * Завершённые записи (проверка, загрузка, буфер) убираются; `dropAlbums` — убрать прогресс альбомов.
+   */
+  applyProgress(batch: {
+    album?: ReadonlyMap<number, AlbumProgress>;
+    download?: ReadonlyMap<number, DownloadProgress>;
+    stream?: ReadonlyMap<number, StreamProgress>;
+    dropAlbums?: Iterable<number>;
+  }): void;
   setAlbumProgress(albumId: number, p: AlbumProgress): void;
   setDownloadProgress(albumId: number, p: DownloadProgress): void;
   setStreamProgress(trackId: number, p: StreamProgress): void;
@@ -30,6 +40,39 @@ export type LiveStore = StoreApi<LiveState>;
 export function createLiveStore(): LiveStore {
   return createStore<LiveState>()(set => ({
     albumProgress: new Map(),
+    applyProgress({ album, download, dropAlbums, stream }) {
+      const drop = dropAlbums ? [...dropAlbums] : [];
+      set(s => {
+        const next: Partial<LiveState> = {};
+        if (album?.size || drop.length) {
+          const m = new Map(s.albumProgress);
+          for (const [id, p] of album ?? []) {
+            // Завершённый этап проверки больше не показываем.
+            if (p.stage === 'verifying' && p.total > 0 && p.done >= p.total) m.delete(id);
+            else m.set(id, p);
+          }
+          drop.forEach(id => m.delete(id));
+          next.albumProgress = m;
+        }
+        if (download?.size) {
+          const m = new Map(s.downloadProgress);
+          for (const [id, p] of download) {
+            if (p.bytes_total > 0 && p.bytes_done >= p.bytes_total) m.delete(id);
+            else m.set(id, p);
+          }
+          next.downloadProgress = m;
+        }
+        if (stream?.size) {
+          const m = new Map(s.streamProgress);
+          for (const [id, p] of stream) {
+            if (p.bytes_total > 0 && p.bytes_done >= p.bytes_total) m.delete(id);
+            else m.set(id, p);
+          }
+          next.streamProgress = m;
+        }
+        return Object.keys(next).length ? next : s; // ничего не изменилось — подписчиков не будить
+      });
+    },
     clear: () => set({ albumProgress: new Map(), downloadProgress: new Map(), streamProgress: new Map() }),
     downloadProgress: new Map(),
     setDownloadProgress(albumId, p) {

@@ -101,6 +101,20 @@ describe('IndexedDB', () => {
     expect(loaded.tracks[0]?.status).toBe('ready');
   });
 
+  it('patchTracks применяет пачку одной транзакцией и пропускает отсутствующие', async () => {
+    const db = createDb({ name: name() });
+    await db.applyBatch({ tracks: [makeTrack({ id: 1, status: 'adding' }), makeTrack({ id: 2, status: 'adding' })] });
+    await db.patchTracks(
+      new Map([
+        [1, { status: 'ready' as const }],
+        [2, { status: 'found' as const }],
+        [404, { status: 'ready' as const }],
+      ]),
+    );
+    const loaded = (await db.loadAll()).tracks.sort((a, b) => a.id - b.id);
+    expect(loaded.map(t => t.status)).toEqual(['ready', 'found']);
+  });
+
   it('clear очищает библиотеку и курсор, но не outbox', async () => {
     const db = createDb({ name: name() });
     await db.applyBatch({ ...makeLibrary(), meta: { cursor: 'x' } });

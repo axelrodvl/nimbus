@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { Db } from '@/lib/db';
+import { createSyncEngine, LIVE_FLUSH_MS, type EngineDeps } from '@/lib/sync/engine';
 import type { LibraryRows } from '@/lib/db/types';
 import { makeAlbum, makeArtist, makeTrack } from '@/test/factories';
 import { createLibraryStore } from './library';
+import { createLiveStore } from './live';
 import { createSelectors } from './selectors';
 
 // Пороги — на store и селекторы (не на IndexedDB). Библиотека: 60 000 треков, 5 000 альбомов, 500 артистов.
@@ -67,5 +70,51 @@ describe('производительность store', () => {
     expect(second).toBe(first);
     expect(first).toHaveLength(60_000);
     expect(warm).toBeLessThan(1);
+  });
+
+  it('1000 событий track.status при 60 000 треках: уведомлений не больше числа окон сброса', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }); // performance.now остаётся настоящим
+    try {
+      const events = Array.from({ length: 1000 }, (_, i) => ({
+        album_id: 1 + ((i + 1) % 5000),
+        reason: null,
+        status: 'not_found' as const,
+        track_id: i + 1,
+        type: 'track.status',
+      }));
+      // «До»: каждое событие — отдельный patchTrack (одно уведомление на событие).
+      const old = createLibraryStore();
+      old.getState().hydrate(rows);
+      let oldNotified = 0;
+      old.subscribe(() => (oldNotified += 1));
+      const [, oldMs] = timed(() => events.forEach(e => old.getState().patchTrack(e.track_id, { status: e.status })));
+
+      const store = createLibraryStore();
+      store.getState().hydrate(rows);
+      let notified = 0;
+      store.subscribe(() => (notified += 1));
+      const db = { patchTracks: vi.fn(() => Promise.resolve()) } as unknown as Db;
+      const engine = createSyncEngine({
+        api: {} as EngineDeps['api'],
+        db,
+        live: createLiveStore(),
+        store,
+        tabs: {} as EngineDeps['tabs'],
+      });
+      const [, ms] = timed(() => {
+        events.forEach(e => engine.handleEvent(e));
+        vi.advanceTimersByTime(LIVE_FLUSH_MS);
+      });
+      process.stdout.write(
+        `perf: 1000 track.status @60k: before ${oldMs.toFixed(1)} ms / ${oldNotified} notifications, ` +
+          `after ${ms.toFixed(1)} ms / ${notified} notification\n`,
+      );
+      expect(notified).toBeLessThanOrEqual(1);
+      expect(oldNotified).toBe(1000);
+      expect(db.patchTracks).toHaveBeenCalledTimes(1);
+      expect(ms).toBeLessThan(100);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

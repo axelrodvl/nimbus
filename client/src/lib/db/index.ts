@@ -53,6 +53,8 @@ export interface Db {
   replaceAll(data: LibraryData): Promise<void>;
   /** Частичное обновление трека (мгновенные события); нет трека — ничего не делает. */
   patchTrack(id: number, partial: Partial<Track>): Promise<void>;
+  /** Пачка патчей треков одной транзакцией; отсутствующие id пропускаются. */
+  patchTracks(patches: ReadonlyMap<number, Partial<Track>>): Promise<void>;
   clear(): Promise<void>;
   outboxAdd(item: Omit<OutboxItem, 'id'>): Promise<void>;
   outboxAll(): Promise<OutboxItem[]>;
@@ -255,12 +257,18 @@ export function createDb(options: DbOptions = {}): Db {
       await db.put('offline_pins', pin);
     },
 
-    async patchTrack(id, partial) {
+    patchTrack(id, partial) {
+      return this.patchTracks(new Map([[id, partial]]));
+    },
+
+    async patchTracks(patches) {
       const db = await handle();
-      if (!db) return memory.patchTrack(id, partial);
+      if (!db) return memory.patchTracks(patches);
       const tx = db.transaction('tracks', 'readwrite');
-      const current = (await tx.store.get(id)) as Track | undefined;
-      if (current) await tx.store.put({ ...current, ...partial, id });
+      for (const [id, partial] of patches) {
+        const current = (await tx.store.get(id)) as Track | undefined;
+        if (current) await tx.store.put({ ...current, ...partial, id });
+      }
       await tx.done;
     },
 
@@ -365,9 +373,11 @@ function createMemory() {
     outboxRemove(id: number) {
       outbox = outbox.filter(o => o.id !== id);
     },
-    patchTrack(id: number, partial: Partial<Track>) {
-      const current = rows.tracks.get(id) as Track | undefined;
-      if (current) rows.tracks.set(id, { ...current, ...partial, id });
+    patchTracks(patches: ReadonlyMap<number, Partial<Track>>) {
+      for (const [id, partial] of patches) {
+        const current = rows.tracks.get(id) as Track | undefined;
+        if (current) rows.tracks.set(id, { ...current, ...partial, id });
+      }
     },
     replaceAll(data: LibraryData) {
       wipe();

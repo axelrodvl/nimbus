@@ -111,6 +111,7 @@ describe('живые обновления', () => {
     expect(m.summary).toHaveBeenCalledTimes(1);
     expect(m.list).not.toHaveBeenCalled();
     // …и попал в live-store для кнопки на экране альбома.
+    await appData().engine.settled();
     expect(appData().live.getState().downloadProgress.get(5)).toEqual({
       bytes_done: 7,
       bytes_total: 10,

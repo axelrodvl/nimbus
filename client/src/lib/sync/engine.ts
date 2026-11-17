@@ -2,8 +2,8 @@ import { ApiError } from '@/lib/api/errors';
 import { lifecycle } from '@/lib/platform/lifecycle';
 import type { Db } from '@/lib/db';
 import type { Batch, LibraryRows } from '@/lib/db/types';
-import type { LibraryStore } from '@/lib/store/library';
-import type { LiveStore } from '@/lib/store/live';
+import type { LibraryStore, TrackPatch } from '@/lib/store/library';
+import type { AlbumProgress, DownloadProgress, LiveStore, StreamProgress } from '@/lib/store/live';
 import type { ChangesResponse, SyncApi } from '@/lib/api/sync';
 import { createSyncStatusStore, type SyncState, type SyncStatusStore } from './status';
 import type { Tabs, TabMessage } from './tabs';
@@ -13,6 +13,8 @@ export const SYNC_SCHEMA = 1;
 export const BACKOFF_MIN_MS = 1000;
 export const BACKOFF_MAX_MS = 30_000;
 export const SAFETY_POLL_MS = 5 * 60_000;
+/** Окно объединения live-событий (`track.status`, прогресс): одна пачка на окно. */
+export const LIVE_FLUSH_MS = 50;
 
 /** События WebSocket (`/api/ws`), которые понимает движок; остальные игнорируются. */
 export type EngineEvent =
@@ -99,6 +101,54 @@ export function createSyncEngine(deps: EngineDeps) {
   let abort: AbortController | null = null;
   const detach: (() => void)[] = [];
 
+  // Буфер live-событий: последнее событие по ключу побеждает, применяется пачкой раз в LIVE_FLUSH_MS.
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  let patches = new Map<number, TrackPatch>();
+  let patchedAlbums = new Set<number>();
+  let albumProgress = new Map<number, AlbumProgress>();
+  let downloadProgress = new Map<number, DownloadProgress>();
+  let streamProgress = new Map<number, StreamProgress>();
+  let dbWrite: Promise<void> = Promise.resolve();
+
+  function dropBuffer() {
+    if (flushTimer) clearTimeout(flushTimer);
+    flushTimer = null;
+    patches = new Map();
+    patchedAlbums = new Set();
+    albumProgress = new Map();
+    downloadProgress = new Map();
+    streamProgress = new Map();
+  }
+
+  /** Применяет накопленные события одним обновлением store, одной транзакцией и одним `set` в live. */
+  function flush(): Promise<void> {
+    if (flushTimer) clearTimeout(flushTimer);
+    flushTimer = null;
+    const toPatch = patches;
+    const albums = patchedAlbums;
+    const batch = { album: albumProgress, download: downloadProgress, stream: streamProgress };
+    patches = new Map();
+    patchedAlbums = new Set();
+    albumProgress = new Map();
+    downloadProgress = new Map();
+    streamProgress = new Map();
+    if (toPatch.size) {
+      store.getState().patchTracks(toPatch);
+      dbWrite = db.patchTracks(toPatch).catch(() => undefined); // Дельта всё равно догонит.
+    }
+    // Альбом без треков `adding` больше не «ищется».
+    const { tracks, tracksByAlbum } = store.getState();
+    const dropAlbums = [...albums].filter(
+      id => ![...(tracksByAlbum.get(id) ?? [])].some(t => tracks.get(t)?.status === 'adding'),
+    );
+    live.getState().applyProgress({ ...batch, dropAlbums });
+    return dbWrite;
+  }
+
+  const schedule = () => {
+    flushTimer ??= setTimeout(() => void flush(), LIVE_FLUSH_MS);
+  };
+
   const setState = (state: SyncState, extra: Partial<ReturnType<typeof status.getState>> = {}) =>
     status.setState({ state, ...extra });
 
@@ -142,6 +192,8 @@ export function createSyncEngine(deps: EngineDeps) {
       playlists: res.playlists,
       tracks: res.tracks,
     };
+    // Отложенные патчи не должны перезаписать более свежую строку из дельты.
+    await flush();
     // Сначала диск, потом память: при сбое записи store не уходит вперёд базы.
     await db.applyBatch(batch);
     store.getState().applyBatch(batch);
@@ -220,6 +272,7 @@ export function createSyncEngine(deps: EngineDeps) {
       if (final.counts[COUNT_KEY[key]] !== rows[key].length) throw new Error(`snapshot: count mismatch for ${key}`);
     }
     const meta = { cursor: start.cursor, schema: SYNC_SCHEMA, syncedAt: now() };
+    await flush();
     await db.replaceAll({ ...rows, meta });
     store.getState().replaceAll(rows);
     tabs.post({ type: 'reload' });
@@ -330,6 +383,7 @@ export function createSyncEngine(deps: EngineDeps) {
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = null;
     abort?.abort();
+    dropBuffer();
     detach.splice(0).forEach(d => d());
     tabs.close();
   }
@@ -348,39 +402,45 @@ export function createSyncEngine(deps: EngineDeps) {
         requestSync('poke');
         break;
       case 'resync':
+        albumProgress = new Map();
+        downloadProgress = new Map();
+        streamProgress = new Map();
         live.getState().clear();
         requestSync('resync');
         break;
       case 'track.status': {
         const ev = e as Extract<EngineEvent, { type: 'track.status' }>;
-        const patch = { status: ev.status, status_reason: ev.reason };
-        store.getState().patchTrack(ev.track_id, patch);
-        void db.patchTrack(ev.track_id, patch).catch(() => undefined); // Дельта всё равно догонит.
+        patches.set(ev.track_id, { status: ev.status, status_reason: ev.reason });
+        patchedAlbums.add(ev.album_id);
+        schedule();
         break;
       }
       case 'job.progress': {
         const ev = e as Extract<EngineEvent, { type: 'job.progress' }>;
-        live.getState().setAlbumProgress(ev.album_id, { done: ev.done, stage: ev.stage, total: ev.total });
+        albumProgress.set(ev.album_id, { done: ev.done, stage: ev.stage, total: ev.total });
+        schedule();
         break;
       }
       case 'download.progress': {
         const ev = e as Extract<EngineEvent, { type: 'download.progress' }>;
-        live.getState().setDownloadProgress(ev.album_id, {
+        downloadProgress.set(ev.album_id, {
           bytes_done: ev.bytes_done,
           bytes_total: ev.bytes_total,
           down_bps: ev.down_bps,
           peers: ev.peers,
         });
+        schedule();
         break;
       }
       case 'stream.progress': {
         const ev = e as Extract<EngineEvent, { type: 'stream.progress' }>;
-        live.getState().setStreamProgress(ev.track_id, {
+        streamProgress.set(ev.track_id, {
           bytes_done: ev.bytes_done,
           bytes_total: ev.bytes_total,
           down_speed_bps: ev.down_speed_bps,
           peers: ev.peers,
         });
+        schedule();
         break;
       }
       default:
@@ -394,6 +454,7 @@ export function createSyncEngine(deps: EngineDeps) {
     settled: async () => {
       await starting;
       while (running) await running;
+      await flush();
     },
     requestSync,
     resetAndResync,
