@@ -1226,6 +1226,11 @@ export interface components {
              * @description Отдано пирам за сессию.
              */
             uploaded_bytes: number;
+            /**
+             * Format: int64
+             * @description Отдано пирам за всё время (с учётом прошлых запусков сервера).
+             */
+            uploaded_total_bytes: number;
         };
         /** @description Закрепления по состояниям (`done` не считается: их история — в `/api/acquisition`). */
         DownloadQueue: {

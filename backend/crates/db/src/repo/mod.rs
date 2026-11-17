@@ -14,6 +14,7 @@ pub mod pins;
 pub mod playlists;
 pub mod recovery;
 pub mod sync;
+pub mod torrent_upload;
 pub mod torrents;
 pub mod track_sources;
 pub mod tracks;

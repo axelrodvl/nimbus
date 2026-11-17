@@ -504,12 +504,12 @@ describe('«Торренты» и фоновые задачи (в настрой
     await waitFor(() => expect(m.pauseOne).toHaveBeenCalledWith('bbb', false));
   });
 
-  it('торренты: Ratio = отдано / скачано, без скачанного — 0.00', async () => {
+  it('торренты: Ratio = отдано за всё время / скачано, без скачанного — 0.00', async () => {
     m.downloads.mockResolvedValue(
       overview({
         torrents: [
-          torrent('aaa', { progress_bytes: 200, uploaded_bytes: 300 }),
-          torrent('bbb', { progress_bytes: 0, uploaded_bytes: 5 }),
+          torrent('aaa', { progress_bytes: 200, uploaded_bytes: 10, uploaded_total_bytes: 300 }),
+          torrent('bbb', { progress_bytes: 0, uploaded_total_bytes: 5 }),
         ],
       }),
     );

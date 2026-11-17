@@ -1262,3 +1262,43 @@ async fn searched_within_looks_at_the_last_search_start(pool: PgPool) {
             .unwrap()
     );
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn torrent_upload_accumulates_across_sessions(pool: PgPool) {
+    let h = "a".repeat(40);
+    let total = |m: std::collections::HashMap<String, u64>| m[&h];
+    assert_eq!(
+        total(
+            torrent_upload::record(&pool, &[(h.clone(), 100)])
+                .await
+                .unwrap()
+        ),
+        100
+    );
+    assert_eq!(
+        total(
+            torrent_upload::record(&pool, &[(h.clone(), 250)])
+                .await
+                .unwrap()
+        ),
+        250
+    );
+    // Перезапуск: счётчик сессии сбросился.
+    assert_eq!(
+        total(
+            torrent_upload::record(&pool, &[(h.clone(), 30)])
+                .await
+                .unwrap()
+        ),
+        280
+    );
+    assert_eq!(
+        total(
+            torrent_upload::record(&pool, &[(h.clone(), 30)])
+                .await
+                .unwrap()
+        ),
+        280
+    );
+    assert!(torrent_upload::record(&pool, &[]).await.unwrap().is_empty());
+}

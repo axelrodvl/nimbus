@@ -5,7 +5,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use nimbus_core::events::{Entity, Event};
 use nimbus_core::model::InfoHash;
-use nimbus_db::repo::{albums, pins, tracks};
+use nimbus_db::repo::{albums, pins, torrent_upload, tracks};
 use nimbus_torrent::{EngineError, TorrentEngine, TorrentHandleId, TorrentInfo, TorrentState};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -49,6 +49,8 @@ pub struct DownloadDto {
     pub total_bytes: u64,
     /// Отдано пирам за сессию.
     pub uploaded_bytes: u64,
+    /// Отдано пирам за всё время (с учётом прошлых запусков сервера).
+    pub uploaded_total_bytes: u64,
     pub down_bps: u64,
     pub up_bps: u64,
     /// Подключённые пиры (включая сидов).
@@ -67,6 +69,7 @@ impl From<TorrentInfo> for DownloadDto {
             progress_bytes: t.progress_bytes,
             total_bytes: t.total_bytes,
             uploaded_bytes: t.uploaded_bytes,
+            uploaded_total_bytes: t.uploaded_bytes,
             down_bps: t.down_bps,
             up_bps: t.up_bps,
             peers: t.peers,
@@ -118,11 +121,12 @@ pub async fn list_downloads(
     headers: HeaderMap,
 ) -> Result<Json<DownloadsResponse>, ApiError> {
     authorize(&state, &headers)?;
-    let torrents: Vec<DownloadDto> = engine(&state)?
+    let mut torrents: Vec<DownloadDto> = engine(&state)?
         .list_torrents()
         .into_iter()
         .map(Into::into)
         .collect();
+    record_uploads(&state, &mut torrents).await;
     let q = pins::counts(&state.db).await?;
     Ok(Json(DownloadsResponse {
         down_bps: torrents.iter().map(|t| t.down_bps).sum(),
@@ -136,6 +140,45 @@ pub async fn list_downloads(
             failed: q.failed,
         },
     }))
+}
+
+/// Сохраняет отдачу сессии и подставляет накопленную; при сбое БД остаётся значение сессии.
+async fn record_uploads(state: &AppState, torrents: &mut [DownloadDto]) {
+    let sessions: Vec<(String, u64)> = torrents
+        .iter()
+        .map(|t| (t.info_hash.clone(), t.uploaded_bytes))
+        .collect();
+    match torrent_upload::record(&state.db, &sessions).await {
+        Ok(totals) => {
+            for t in torrents {
+                if let Some(total) = totals.get(&t.info_hash) {
+                    t.uploaded_total_bytes = *total;
+                }
+            }
+        }
+        Err(e) => tracing::warn!(error = %e, "cannot record torrent uploads"),
+    }
+}
+
+/// Раз в минуту сохраняет отдачу всех торрентов (иначе она копилась бы только при открытом экране «Загрузки»).
+pub fn spawn_upload_recorder(
+    state: AppState,
+    cancel: tokio_util::sync::CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            tokio::select! {
+                () = cancel.cancelled() => break,
+                _ = tick.tick() => {}
+            }
+            if let Some(engine) = state.engine.as_deref() {
+                let mut all: Vec<DownloadDto> =
+                    engine.list_torrents().into_iter().map(Into::into).collect();
+                record_uploads(&state, &mut all).await;
+            }
+        }
+    })
 }
 
 fn parse_id(raw: &str) -> Result<TorrentHandleId, ApiError> {

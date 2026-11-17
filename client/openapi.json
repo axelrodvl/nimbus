@@ -3549,6 +3549,7 @@
           "progress_bytes",
           "total_bytes",
           "uploaded_bytes",
+          "uploaded_total_bytes",
           "down_bps",
           "up_bps",
           "peers",
@@ -3610,6 +3611,12 @@
             "type": "integer",
             "format": "int64",
             "description": "Отдано пирам за сессию.",
+            "minimum": 0
+          },
+          "uploaded_total_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Отдано пирам за всё время (с учётом прошлых запусков сервера).",
             "minimum": 0
           }
         }

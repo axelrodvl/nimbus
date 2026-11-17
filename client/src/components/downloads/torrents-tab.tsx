@@ -24,7 +24,7 @@ const TONES = {
   seeding: 'success',
 } as const;
 
-/** Ratio за сессию: отдано / скачано (у полностью розданного без докачки — по размеру торрента). */
+/** Ratio: отдано за всё время / скачано. */
 function ratio(uploaded: number, downloaded: number): string {
   return downloaded > 0 ? (uploaded / downloaded).toFixed(2) : '0.00';
 }
@@ -74,7 +74,7 @@ function TorrentRow({ torrent }: { torrent: EngineTorrent }) {
           ) : null}
           <span>{t('count.peers', { count: torrent.peers })}</span>
           <span data-testid="torrent-ratio">
-            {t('acq.torrent.ratio', { value: ratio(torrent.uploaded_bytes, torrent.progress_bytes) })}
+            {t('acq.torrent.ratio', { value: ratio(torrent.uploaded_total_bytes, torrent.progress_bytes) })}
           </span>
         </p>
         {torrent.error ? <p className="text-danger-fg truncate text-xs">{torrent.error}</p> : null}

@@ -55,5 +55,6 @@ export const torrent = (hash: string, over: Partial<EngineTorrent> = {}): Engine
   total_bytes: 100,
   up_bps: 0,
   uploaded_bytes: 0,
+  uploaded_total_bytes: 0,
   ...over,
 });
