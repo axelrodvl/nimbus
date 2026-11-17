@@ -3,6 +3,7 @@ import { Outlet } from 'react-router';
 import { toast } from 'sonner';
 import { registeredPaths } from '@/app-routes';
 import { EdgeSwipeBack } from '@/components/edge-swipe-back';
+import { TrackDialogsProvider } from '@/components/library/track-dialogs';
 import { CommandPaletteProvider } from '@/components/search/command-palette';
 import { MobileTabBar } from '@/components/mobile-tab-bar';
 import { OfflineIndicator } from '@/components/offline-indicator';
@@ -94,32 +95,34 @@ export function AppShell() {
   useScrollRestoration(scroller);
   useStorageWarning();
   return (
-    <CommandPaletteProvider>
-      <div className="bg-surface dark:bg-surface-dark flex h-[min(100dvh,var(--vvh,100dvh))] overflow-hidden pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
-        <Sidebar items={items} />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <main
-            {...{ [SCROLL_ROOT_ATTR]: '' }}
-            className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain [overflow-anchor:none]"
-            ref={node => {
-              scroller.current = node;
-              setScrollElement(node);
-            }}
-          >
-            <ScrollContainerProvider value={scrollElement}>
-              <Content />
-            </ScrollContainerProvider>
-          </main>
-          <div data-slot="player">
-            <Player />
+    <TrackDialogsProvider>
+      <CommandPaletteProvider>
+        <div className="bg-surface dark:bg-surface-dark flex h-[min(100dvh,var(--vvh,100dvh))] overflow-hidden pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
+          <Sidebar items={items} />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <main
+              {...{ [SCROLL_ROOT_ATTR]: '' }}
+              className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain [overflow-anchor:none]"
+              ref={node => {
+                scroller.current = node;
+                setScrollElement(node);
+              }}
+            >
+              <ScrollContainerProvider value={scrollElement}>
+                <Content />
+              </ScrollContainerProvider>
+            </main>
+            <div data-slot="player">
+              <Player />
+            </div>
+            <OfflineQueueIndicator variant="strip" />
+            <MobileTabBar items={items} />
           </div>
-          <OfflineQueueIndicator variant="strip" />
-          <MobileTabBar items={items} />
+          <OfflineIndicator />
+          <OfflineNotifier />
+          <EdgeSwipeBack />
         </div>
-        <OfflineIndicator />
-        <OfflineNotifier />
-        <EdgeSwipeBack />
-      </div>
-    </CommandPaletteProvider>
+      </CommandPaletteProvider>
+    </TrackDialogsProvider>
   );
 }

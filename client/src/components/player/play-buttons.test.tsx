@@ -2,6 +2,7 @@ import { act, fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AlbumCard } from '@/components/library/album-card';
+import type * as sourcesApi from '@/lib/api/sources';
 import { appData } from '@/lib/app-data';
 import { resetPlayer } from '@/lib/player';
 import { installTestPlayer, seedPlayerLibrary } from '@/test/player-ui';
@@ -10,6 +11,11 @@ import { PlayAlbumButton, PlayableTrackRow, PlayTracksButton } from './play-butt
 import { useAlbumTracks, useAlbumView } from '@/lib/store/hooks';
 
 vi.mock('@/lib/api/settings', () => ({ loadPrefetchEnabled: async () => true }));
+vi.mock('@/lib/api/sources', async importOriginal => ({
+  ...(await importOriginal<typeof sourcesApi>()),
+  getAlbumTorrents: vi.fn(async () => []),
+  getTrackSources: vi.fn(async () => []),
+}));
 
 const IDS = [10, 11, 12, 13];
 
@@ -88,6 +94,34 @@ describe('PlayableTrackRow', () => {
     await userEvent.click(within(row(10)).getByTestId('track-menu'));
     await userEvent.click(await screen.findByRole('menuitem', { name: /плейлист/i }));
     expect(env.engine.loads.length).toBe(0);
+  });
+
+  it('row does not mount dialogs', () => {
+    installTestPlayer();
+    renderWithProviders(<Rows />);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    for (const id of IDS) expect(row(id).querySelector('[role="dialog"], [data-dialog]')).toBeNull();
+    // Меню — тоже только по открытию: пунктов в DOM нет.
+    expect(screen.queryAllByRole('menuitem')).toHaveLength(0);
+  });
+
+  it('opening "add to playlist" from the row menu shows the shared dialog', async () => {
+    installTestPlayer();
+    renderWithProviders(<Rows />);
+    await userEvent.click(within(row(11)).getByTestId('track-menu'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: /плейлист/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Song Two');
+    expect(row(11).contains(dialog)).toBe(false);
+  });
+
+  it("choose source opens the shared dialog with the row's track", async () => {
+    installTestPlayer();
+    renderWithProviders(<Rows />);
+    await userEvent.click(within(row(13)).getByTestId('track-menu'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: /источник/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Song Four');
   });
 
   it('статус трека обновляется вживую: стал доступным — можно запускать', () => {

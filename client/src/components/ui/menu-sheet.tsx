@@ -33,6 +33,7 @@ export function MenuSheet({ children, className }: { children: ReactNode; classN
       // Прокрутка у приложения внутри своих контейнеров; блокировка body (на iOS — position: fixed) сдвигала весь экран.
       preventBodyScroll={false}
       style={drag.style}
+      unmountOnHide
       wrapperProps={sheet ? { className: sheetWrapper } : undefined}
     >
       {sheet ? <SheetHandle {...drag.handleProps} className="-mx-3" /> : null}

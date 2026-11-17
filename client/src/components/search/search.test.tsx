@@ -221,7 +221,11 @@ describe('экран поиска', () => {
   });
 
   it('автофокус только на устройствах с точным указателем', () => {
-    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    vi.stubGlobal('matchMedia', () => ({
+      addEventListener: () => undefined,
+      matches: true,
+      removeEventListener: () => undefined,
+    }));
     open('');
     expect(screen.getByRole('searchbox')).toHaveFocus();
   });

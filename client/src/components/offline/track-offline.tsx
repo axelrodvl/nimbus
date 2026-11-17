@@ -1,23 +1,22 @@
 import * as Ariakit from '@ariakit/react';
 import { ArrowDownToLine, CircleArrowDown, Clock, TriangleAlert } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { menuItemClass } from '@/components/library/row-menu';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useTrackDialogs, type Cover, type Opener } from '@/components/library/track-dialogs';
 import { appData } from '@/lib/app-data';
 import { useT } from '@/lib/i18n/provider';
 import { offline } from '@/lib/offline';
 import { pinSubject, removeSubject } from '@/lib/offline/actions';
 import { useOfflineSupported, useTrackOffline } from '@/lib/offline/hooks';
+import type { OfflineItemState } from '@/lib/offline/status';
 import { albumTrackIds, FAVORITES_PIN_ID, playlistTrackIds } from '@/lib/offline/status';
 import { cn } from '@/lib/utils';
 import { ProgressRing } from './ring';
 
-/** Маленький индикатор состояния трека в строке: виден, только если трек закреплён или скачан в составе альбома/плейлиста. */
-export function TrackOfflineIndicator({ trackId, className }: { trackId: number; className?: string }) {
+/** Иконка состояния трека на устройстве (без подписки): `none` и `partial` не рисуются. */
+export function TrackOfflineIcon({ state, className }: { state: OfflineItemState; className?: string }) {
   const t = useT();
-  const supported = useOfflineSupported();
-  const state = useTrackOffline(trackId);
-  if (!supported || state.kind === 'none' || state.kind === 'partial') return null;
+  if (state.kind === 'none' || state.kind === 'partial') return null;
   const cls = cn('inline-flex size-5 shrink-0 items-center justify-center', className);
   const common = { 'data-state': state.kind, 'data-testid': 'track-offline', role: 'img' } as const;
   if (state.kind === 'done') {
@@ -59,6 +58,13 @@ export function TrackOfflineIndicator({ trackId, className }: { trackId: number;
   );
 }
 
+/** Индикатор состояния трека: виден, только если трек закреплён или скачан в составе альбома/плейлиста. */
+export function TrackOfflineIndicator({ trackId, className }: { trackId: number; className?: string }) {
+  const supported = useOfflineSupported();
+  const state = useTrackOffline(trackId);
+  return supported ? <TrackOfflineIcon className={className} state={state} /> : null;
+}
+
 /**
  * Одна иконка доступности трека в строке: если трек есть на устройстве (скачан, качается, в очереди, ошибка) —
  * его состояние на устройстве (скачанное на устройство заведомо есть и на сервере); иначе — `fallback`
@@ -68,10 +74,8 @@ export function TrackAvailability({ trackId, fallback }: { trackId: number; fall
   const supported = useOfflineSupported();
   const state = useTrackOffline(trackId);
   if (!supported || state.kind === 'none' || state.kind === 'partial') return <>{fallback}</>;
-  return <TrackOfflineIndicator trackId={trackId} />;
+  return <TrackOfflineIcon state={state} />;
 }
-
-type Cover = { kind: 'album' | 'playlist'; id: number; name: string };
 
 /** Какое закрепление держит этот трек на устройстве (альбом, затем плейлист); `null` — только сам трек. */
 function findCover(trackId: number, albumId: number | undefined, favoritesName: string): Cover | null {
@@ -98,49 +102,28 @@ function findCover(trackId: number, albumId: number | undefined, favoritesName: 
 }
 
 /**
- * Пункт меню трека «Скачать на устройство / Удалить с устройства» и диалог к нему. Трек, скачанный в составе
- * закреплённого альбома или плейлиста, одним закреплением не удалить (сверка вернёт файл) — тогда диалог
- * предлагает снять закрепление альбома/плейлиста. `item` кладётся внутрь меню, `dialog` — рядом с ним.
+ * Пункт меню трека «Скачать на устройство / Удалить с устройства». Трек, скачанный в составе закреплённого альбома
+ * или плейлиста, одним закреплением не удалить (сверка вернёт файл) — тогда общий хост диалогов предлагает снять
+ * закрепление альбома/плейлиста. `item` кладётся внутрь меню; `opener` — кнопка «…», на которую вернётся фокус.
  */
-export function useTrackOfflineMenu(track: { id: number; albumId?: number; title: string }): {
-  item: ReactNode;
-  dialog: ReactNode;
-} {
+export function useTrackOfflineMenu(
+  track: { id: number; albumId?: number; title: string },
+  opener?: Opener,
+): { item: ReactNode } {
   const t = useT();
   const supported = useOfflineSupported();
   const state = useTrackOffline(track.id);
-  const store = Ariakit.useDialogStore();
-  const [cover, setCover] = useState<Cover | null>(null);
-  if (!supported) return { dialog: null, item: null };
+  const dialogs = useTrackDialogs();
+  if (!supported) return { item: null };
 
   const subject = { id: track.id, kind: 'track', title: track.title, trackIds: [track.id] } as const;
   const onClick = () => {
     if (state.kind === 'none') return void pinSubject(subject);
     const found = findCover(track.id, track.albumId, t('playlist.favorites'));
     if (!found) return void removeSubject(subject);
-    setCover(found);
-    store.show();
+    dialogs.confirmOfflineCover({ cover: found, title: track.title, trackId: track.id }, opener);
   };
   return {
-    dialog: (
-      <ConfirmDialog
-        confirmAction={async () => {
-          if (cover) {
-            await offline().manager?.unpin(cover.kind, cover.id);
-            await removeSubject(subject);
-          }
-          return true;
-        }}
-        confirmLabel={t(cover?.kind === 'playlist' ? 'offline.cover.confirmPlaylist' : 'offline.cover.confirmAlbum')}
-        description={t(cover?.kind === 'playlist' ? 'offline.cover.playlist' : 'offline.cover.album', {
-          name: cover?.name ?? '',
-          title: track.title,
-        })}
-        store={store}
-        title={t(cover?.kind === 'playlist' ? 'offline.cover.titlePlaylist' : 'offline.cover.titleAlbum')}
-        variant="primary"
-      />
-    ),
     item: (
       <Ariakit.MenuItem className={menuItemClass} data-testid="track-offline-item" onClick={onClick}>
         {state.kind === 'none' ? t('offline.menu.download') : t('offline.remove')}

@@ -3,7 +3,8 @@ import { MoreHorizontal } from 'lucide-react';
 import { menuItemClass as itemClass } from '@/components/library/row-menu';
 import { MenuSheet } from '@/components/ui/menu-sheet';
 import { useTrackOfflineMenu } from '@/components/offline/track-offline';
-import { AddToPlaylistDialog } from '@/components/playlists/add-to-playlist-dialog';
+import { useTrackDialogs } from '@/components/library/track-dialogs';
+import { useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useT } from '@/lib/i18n/provider';
 import { usePlayerActions } from '@/lib/player/hooks';
@@ -33,8 +34,9 @@ export function TrackMenu({
   const t = useT();
   const navigate = useNavigate();
   const player = usePlayerActions();
-  const playlistDialog = Ariakit.useDialogStore();
-  const offlineMenu = useTrackOfflineMenu({ albumId: track.albumId, id: track.id, title: track.title });
+  const dialogs = useTrackDialogs();
+  const opener = useRef<HTMLButtonElement>(null);
+  const offlineMenu = useTrackOfflineMenu({ albumId: track.albumId, id: track.id, title: track.title }, opener);
   const go = (to: string) => {
     onNavigate?.();
     void navigate(to);
@@ -47,11 +49,12 @@ export function TrackMenu({
           className={cn('text-muted rounded-full p-1 hover:text-black dark:hover:text-white', className)}
           data-menu-trigger
           data-testid={testId}
+          ref={opener}
         >
           <MoreHorizontal aria-hidden className={iconClassName} />
         </Ariakit.MenuButton>
         <MenuSheet>
-          <Ariakit.MenuItem className={itemClass} onClick={() => playlistDialog.show()}>
+          <Ariakit.MenuItem className={itemClass} onClick={() => dialogs.addToPlaylist(track.id, opener)}>
             {t('playlist.addTo')}
           </Ariakit.MenuItem>
           {offlineMenu.item}
@@ -72,8 +75,6 @@ export function TrackMenu({
           ) : null}
         </MenuSheet>
       </Ariakit.MenuProvider>
-      {offlineMenu.dialog}
-      <AddToPlaylistDialog store={playlistDialog} title={track.title} trackId={track.id} />
     </>
   );
 }

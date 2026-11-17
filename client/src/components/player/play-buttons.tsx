@@ -1,11 +1,8 @@
-import * as Ariakit from '@ariakit/react';
 import { Pause, Play } from 'lucide-react';
 import { Equalizer } from '@/components/ui/equalizer';
-import { TrackRowById } from '@/components/library/connected';
 import { RowMenu } from '@/components/library/row-menu';
-import type { TrackRow } from '@/components/library/track-row';
-import { AddToPlaylistDialog } from '@/components/playlists/add-to-playlist-dialog';
-import { TrackSourceDialog } from '@/components/sources/track-source-dialog';
+import { useTrackDialogs } from '@/components/library/track-dialogs';
+import { TrackRow } from '@/components/library/track-row';
 import { toast } from 'sonner';
 import { useOnline } from '@/lib/live/hooks';
 import { useT } from '@/lib/i18n/provider';
@@ -13,14 +10,13 @@ import { toPlayerTrack } from '@/lib/player';
 import { useCanPlay, useIsCurrentTrack, useIsTrackPlaying, usePlayerActions, usePlayerState } from '@/lib/player/hooks';
 import { playableQueue, queueFromIds } from '@/lib/player/queues';
 import { currentTrack } from '@/lib/player/engine';
-import { useAlbumTracks, useTrackView } from '@/lib/store/hooks';
+import { useAlbumProgress, useAlbumTracks, useTrackView } from '@/lib/store/hooks';
 import type { TrackView } from '@/lib/store/selectors';
 import { cn } from '@/lib/utils';
 
 /** Запуск трека: играет — пауза, на паузе — продолжить, иначе — начать с него (очередь — переданный список). */
-function useToggleTrack(id: number, queue: () => ReturnType<typeof queueFromIds>) {
+function useToggleTrack(id: number, view: TrackView | undefined, queue: () => ReturnType<typeof queueFromIds>) {
   const player = usePlayerActions();
-  const view = useTrackView(id);
   const isCurrent = useIsCurrentTrack(id);
   const isPlaying = useIsTrackPlaying(id);
   const canPlay = useCanPlay();
@@ -166,41 +162,35 @@ type RowProps = Omit<
  * трека («В плейлист», «Источник…»), если слот не передан; бейдж «требует подтверждения» открывает выбор источника.
  */
 export function PlayableTrackRow({ id, queueIds, playlistId, actions, ...rest }: RowProps) {
-  const { hint, isCurrent, isPlaying, playable, title, toggle } = useToggleTrack(id, () => queueFromIds(queueIds));
+  // Одна подписка на трек и одна на прогресс альбома; диалоги — общие (`TrackDialogsProvider`), не в строке.
   const view = useTrackView(id);
-  const playlistDialog = Ariakit.useDialogStore();
-  const sourceDialog = Ariakit.useDialogStore();
+  const progress = useAlbumProgress(view?.album_id ?? -1);
+  const dialogs = useTrackDialogs();
+  const { hint, isCurrent, isPlaying, playable, title, toggle } = useToggleTrack(id, view, () =>
+    queueFromIds(queueIds),
+  );
+  if (!view) return null;
   return (
-    <>
-      <TrackRowById
-        {...rest}
-        actions={
-          actions ??
-          (view ? (
-            <RowMenu
-              albumId={view.album_id}
-              onAddToPlaylist={() => playlistDialog.show()}
-              onSource={() => sourceDialog.show()}
-              playlistId={playlistId}
-              status={view.status}
-              title={view.title}
-              trackId={id}
-            />
-          ) : null)
-        }
-        current={isCurrent}
-        id={id}
-        leading={<PlayButton hint={hint} isPlaying={isPlaying} onToggle={toggle} playable={playable} title={title} />}
-        onActivate={playable || hint ? toggle : undefined}
-        onCheckSource={() => sourceDialog.show()}
-        unavailable={!playable}
-      />
-      {view ? (
-        <>
-          <AddToPlaylistDialog store={playlistDialog} title={view.title} trackId={id} />
-          <TrackSourceDialog albumId={view.album_id} store={sourceDialog} title={view.title} trackId={id} />
-        </>
-      ) : null}
-    </>
+    <TrackRow
+      {...rest}
+      actions={
+        actions ?? (
+          <RowMenu
+            albumId={view.album_id}
+            playlistId={playlistId}
+            status={view.status}
+            title={view.title}
+            trackId={id}
+          />
+        )
+      }
+      current={isCurrent}
+      leading={<PlayButton hint={hint} isPlaying={isPlaying} onToggle={toggle} playable={playable} title={title} />}
+      onActivate={playable || hint ? toggle : undefined}
+      onCheckSource={() => dialogs.chooseSource(id)}
+      progress={progress}
+      track={view}
+      unavailable={!playable}
+    />
   );
 }

@@ -228,9 +228,7 @@ describe('индикаторы', () => {
 });
 
 describe('меню трека', () => {
-  const menu = () => (
-    <RowMenu albumId={1} onAddToPlaylist={vi.fn()} onSource={vi.fn()} status="ready" title="Song" trackId={1} />
-  );
+  const menu = () => <RowMenu albumId={1} status="ready" title="Song" trackId={1} />;
   const openMenu = async () => {
     await userEvent.click(screen.getByTestId('track-menu'));
     return screen.findByTestId('track-offline-item');

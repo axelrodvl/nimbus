@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, type RenderResult } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { createMemoryRouter, RouterProvider, type RouteObject } from 'react-router';
+import { TrackDialogsProvider } from '@/components/library/track-dialogs';
 import { I18nProvider } from '@/lib/i18n/provider';
 import { createI18nStore } from '@/lib/i18n/store';
 import ru from '@/lib/i18n/messages/ru';
@@ -14,7 +15,9 @@ const providers = (router: ReturnType<typeof createMemoryRouter>) => {
   return (
     <I18nProvider store={store}>
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
+        <TrackDialogsProvider>
+          <RouterProvider router={router} />
+        </TrackDialogsProvider>
       </QueryClientProvider>
     </I18nProvider>
   );

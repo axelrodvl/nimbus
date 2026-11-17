@@ -1,6 +1,8 @@
 import * as Ariakit from '@ariakit/react';
+import { useRef } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTrackDialogs } from '@/components/library/track-dialogs';
 import { MenuSheet } from '@/components/ui/menu-sheet';
 import { useTrackOfflineMenu } from '@/components/offline/track-offline';
 import { apiErrorMessage } from '@/lib/api/error-message';
@@ -20,15 +22,15 @@ type Props = {
   status: TrackStatus;
   /** Список — пользовательский плейлист: в меню есть «Убрать из плейлиста». */
   playlistId?: number;
-  onAddToPlaylist: () => void;
-  onSource: () => void;
 };
 
 /** Меню «…» строки трека в списках: плейлист, источник, повтор поиска (для ненайденных). */
-export function RowMenu({ trackId, albumId, title, status, playlistId, onAddToPlaylist, onSource }: Props) {
+export function RowMenu({ trackId, albumId, title, status, playlistId }: Props) {
   const t = useT();
   const queryClient = useQueryClient();
-  const offlineMenu = useTrackOfflineMenu({ albumId, id: trackId, title });
+  const dialogs = useTrackDialogs();
+  const opener = useRef<HTMLButtonElement>(null);
+  const offlineMenu = useTrackOfflineMenu({ albumId, id: trackId, title }, opener);
 
   async function removeFromPlaylist() {
     if (playlistId === undefined) return;
@@ -55,11 +57,12 @@ export function RowMenu({ trackId, albumId, title, status, playlistId, onAddToPl
         className="text-gray hover:bg-card dark:hover:bg-card-dark focus-visible:ring-accent/40 flex size-8 shrink-0 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:outline-none"
         data-menu-trigger
         data-testid="track-menu"
+        ref={opener}
       >
         <MoreHorizontal aria-hidden className="size-4" />
       </Ariakit.MenuButton>
       <MenuSheet>
-        <Ariakit.MenuItem className={menuItemClass} onClick={onAddToPlaylist}>
+        <Ariakit.MenuItem className={menuItemClass} onClick={() => dialogs.addToPlaylist(trackId, opener)}>
           {t('playlist.addTo')}
         </Ariakit.MenuItem>
         {playlistId !== undefined ? (
@@ -67,7 +70,7 @@ export function RowMenu({ trackId, albumId, title, status, playlistId, onAddToPl
             {t('playlist.removeTrack')}
           </Ariakit.MenuItem>
         ) : null}
-        <Ariakit.MenuItem className={menuItemClass} onClick={onSource}>
+        <Ariakit.MenuItem className={menuItemClass} onClick={() => dialogs.chooseSource(trackId, opener)}>
           {t('menu.chooseSource')}
         </Ariakit.MenuItem>
         {offlineMenu.item}
@@ -77,7 +80,6 @@ export function RowMenu({ trackId, albumId, title, status, playlistId, onAddToPl
           </Ariakit.MenuItem>
         ) : null}
       </MenuSheet>
-      {offlineMenu.dialog}
     </Ariakit.MenuProvider>
   );
 }
