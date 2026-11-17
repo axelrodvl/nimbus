@@ -38,6 +38,21 @@ const dialogOpen = () => document.querySelector('[role="dialog"]') !== null;
 
 const THEMES: Theme[] = ['light', 'dark', 'system'];
 
+/**
+ * iOS/Android открывают экранную клавиатуру только при `focus()`, вызванном синхронно в обработчике жеста.
+ * Поле палитры монтируется после открытия диалога (уже вне жеста), поэтому заранее фокусируем временное
+ * поле — клавиатура остаётся открытой, пока `autoFocus` реального поля не заберёт фокус.
+ */
+function primeKeyboard() {
+  const proxy = document.createElement('input');
+  proxy.setAttribute('aria-hidden', 'true');
+  proxy.tabIndex = -1;
+  proxy.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;padding:0';
+  document.body.append(proxy);
+  proxy.focus({ preventScroll: true });
+  setTimeout(() => proxy.remove(), 1000);
+}
+
 /** Глобальные горячие клавиши (⌘K / Ctrl+K всегда, `/` — вне полей ввода и диалогов) и сама палитра. */
 export function CommandPaletteProvider({ children }: { children: React.ReactNode }) {
   const t = useT();
@@ -69,6 +84,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
     () => ({
       open: () => {
         returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        primeKeyboard();
         store.show();
       },
     }),
