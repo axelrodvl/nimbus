@@ -45,6 +45,9 @@ pub struct AppState {
     pub sync_tasks: Arc<AtomicUsize>,
     /// Счётчики перезапусков циклов фоновых воркеров (`GET /api/health`).
     pub worker_stats: nimbus_worker::WorkerStats,
+    /// Токен остановки процесса: долгие ответы (стрим, WebSocket) закрываются по нему,
+    /// чтобы дренаж HTTP не ждал клиентов.
+    pub shutdown: tokio_util::sync::CancellationToken,
 }
 
 /// Включена ли автозагрузка в текущих настройках.
@@ -76,6 +79,7 @@ impl AppState {
             downloads: crate::download_manager::DownloadHub::default(),
             sync_tasks: Arc::new(AtomicUsize::new(0)),
             worker_stats: nimbus_worker::WorkerStats::default(),
+            shutdown: tokio_util::sync::CancellationToken::new(),
             settings,
             providers: Arc::new(nimbus_trackers::ProviderRegistry::new(vec![])),
             activity: nimbus_core::activity::Activity::default(),
@@ -125,6 +129,11 @@ impl AppState {
 
     pub fn with_providers(mut self, providers: Arc<nimbus_trackers::ProviderRegistry>) -> Self {
         self.providers = providers;
+        self
+    }
+
+    pub fn with_shutdown(mut self, shutdown: tokio_util::sync::CancellationToken) -> Self {
+        self.shutdown = shutdown;
         self
     }
 

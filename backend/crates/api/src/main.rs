@@ -180,6 +180,7 @@ async fn main() -> anyhow::Result<()> {
     )
     .await
     .context("cannot start workers")?;
+    let shutdown = tokio_util::sync::CancellationToken::new();
     let ffmpeg = std::env::var("NIMBUS_FFMPEG").unwrap_or_else(|_| "ffmpeg".into());
     let transcoder = nimbus_api::transcode::Transcoder::new(ffmpeg)
         .with_raw_base(format!("http://127.0.0.1:{}", bind.port()))
@@ -192,6 +193,7 @@ async fn main() -> anyhow::Result<()> {
         transcoder.ffmpeg
     );
     let state = AppState::new(db, Arc::new(config), events, mb)
+        .with_shutdown(shutdown.clone())
         .with_worker_stats(workers.stats())
         .with_engine(engine.clone())
         .with_settings(settings)
@@ -203,7 +205,6 @@ async fn main() -> anyhow::Result<()> {
         Ok(n) => tracing::warn!(count = n, "reset downloads whose files are missing"),
         Err(e) => tracing::warn!(error = %e, "downloads reconcile failed"),
     }
-    let shutdown = tokio_util::sync::CancellationToken::new();
     let watcher = nimbus_api::stream::spawn_watcher(state.clone(), shutdown.clone());
     let manager =
         nimbus_api::download_manager::spawn_download_manager(state.clone(), shutdown.clone());
@@ -218,24 +219,45 @@ async fn main() -> anyhow::Result<()> {
         .await
         .with_context(|| format!("cannot bind {bind}"))?;
     tracing::info!(%bind, "nimbus listening");
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown_signal())
-    .await?;
-    shutdown.cancel();
-    if let Err(e) = watcher.await {
-        tracing::warn!(error = %e, "download watcher did not stop cleanly");
+    // Сигнал сразу отменяет общий токен: воркеры перестают брать задачи, долгие ответы закрываются,
+    // а дренаж HTTP ограничен `HTTP_DRAIN_TIMEOUT` и идёт параллельно остановке воркеров.
+    {
+        let shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            shutdown_signal().await;
+            shutdown.cancel();
+        });
     }
-    if let Err(e) = poker.await {
-        tracing::warn!(error = %e, "sync poker did not stop cleanly");
-    }
-    if let Err(e) = manager.await {
-        tracing::warn!(error = %e, "download manager did not stop cleanly");
-    }
-    backfill.abort();
-    workers.shutdown().await;
+    let server = async {
+        let r = nimbus_api::shutdown::serve_until_shutdown(
+            listener,
+            app,
+            shutdown.clone(),
+            nimbus_api::shutdown::HTTP_DRAIN_TIMEOUT,
+        )
+        .await;
+        shutdown.cancel(); // сервер мог упасть сам
+        r
+    };
+    let background = async {
+        shutdown.cancelled().await;
+        if let Err(e) = watcher.await {
+            tracing::warn!(error = %e, "download watcher did not stop cleanly");
+        }
+        if let Err(e) = poker.await {
+            tracing::warn!(error = %e, "sync poker did not stop cleanly");
+        }
+        if let Err(e) = manager.await {
+            tracing::warn!(error = %e, "download manager did not stop cleanly");
+        }
+        backfill.abort();
+    };
+    let workers_stop = async {
+        shutdown.cancelled().await; // воркеры работают до сигнала остановки
+        workers.shutdown().await;
+    };
+    let (served, (), ()) = tokio::join!(server, background, workers_stop);
+    served?;
     engine.shutdown().await;
     tracing::info!("shutdown complete");
     Ok(())

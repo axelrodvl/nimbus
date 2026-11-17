@@ -1836,3 +1836,25 @@ async fn internal_raw_rejects_non_loopback_peers(pool: PgPool) {
     }
     let _ = std::fs::remove_file(&f.path);
 }
+
+// ------------------------------------------------------------ B10
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn stream_body_ends_on_shutdown(pool: PgPool) {
+    let f = fixture(pool, "flac", TrackStatus::Found).await;
+    let fake = Fake::new(f.path.clone(), Mode::StallAfterFirst);
+    let st = app(&f, &fake); // idle-таймаут по умолчанию 45 с: без остановки тест бы завис
+    let res = get_raw(&st, &format!("/api/tracks/{}/stream", f.track_id), &[]).await;
+    assert_eq!(res.status(), 200);
+    let shutdown = st.shutdown.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        shutdown.cancel();
+    });
+    let (n, _) = tokio::time::timeout(Duration::from_secs(5), drain(res))
+        .await
+        .expect("тело потока должно завершиться по остановке, не дожидаясь клиента");
+    assert!(n > 0 && n < SIZE, "первый кусок пришёл, остальное нет: {n}");
+    assert!(!st.activity.is_protected(f.torrent_id, 0), "защита снята");
+    let _ = std::fs::remove_file(&f.path);
+}

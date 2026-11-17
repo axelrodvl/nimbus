@@ -367,10 +367,14 @@ async fn serve_file(
     let reader = open_reader(state, torrent, source, size, local).await?;
     downloads::touch_played(&state.db, source.torrent_id, source.file_index).await?;
     let body = body_from(state, track_id, source, reader, start, len, delivery.idle).await?;
-    let body = Body::from_stream(Guarded {
-        inner: body.into_data_stream(),
-        _guard: guard,
-    });
+    // При остановке процесса тело обрывается: дренаж HTTP не ждёт медленного клиента.
+    let body = Body::from_stream(futures::StreamExt::take_until(
+        Guarded {
+            inner: body.into_data_stream(),
+            _guard: guard,
+        },
+        state.shutdown.clone().cancelled_owned(),
+    ));
     builder.body(body).map_err(|_| ApiError::internal())
 }
 

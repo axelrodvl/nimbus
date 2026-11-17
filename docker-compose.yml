@@ -30,6 +30,8 @@ services:
       context: .
       args:
         CARGO_FEATURES: ${CARGO_FEATURES:-}
+    # Штатная остановка занимает до ≈ 15 с (дренаж HTTP 5 с, воркеры до 10 с, движок); см. docs/operations.md.
+    stop_grace_period: 30s
     env_file:
       - path: .env
         required: false

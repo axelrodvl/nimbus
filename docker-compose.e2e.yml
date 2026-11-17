@@ -4,6 +4,7 @@ services:
     ports: !reset []
   nimbus:
     image: nimbus:e2e
+    stop_grace_period: 30s
     build:
       args:
         CARGO_FEATURES: test-fakes

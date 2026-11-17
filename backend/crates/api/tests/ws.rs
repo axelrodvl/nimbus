@@ -147,3 +147,25 @@ async fn reqwest_get(url: &str) -> serde_json::Value {
     let (a, b) = (body.find('{').unwrap(), body.rfind('}').unwrap());
     serde_json::from_str(&body[a..=b]).unwrap()
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn websocket_closes_on_shutdown(pool: PgPool) {
+    let st = state(pool, EventBus::new());
+    let shutdown = st.shutdown.clone();
+    let addr = serve(st).await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/api/ws"))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    shutdown.cancel();
+    loop {
+        let msg = tokio::time::timeout(Duration::from_secs(5), ws.next())
+            .await
+            .expect("timeout")
+            .expect("stream ended without Close")
+            .expect("ws error");
+        if matches!(msg, Message::Close(_)) {
+            break;
+        }
+    }
+}

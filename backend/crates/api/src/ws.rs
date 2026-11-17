@@ -49,6 +49,8 @@ pub(crate) async fn serve_with(
 
     loop {
         tokio::select! {
+            // Остановка процесса: кадр Close (клиент переподключится сам) — в `serve` после возврата.
+            _ = state.shutdown.cancelled() => return,
             ev = rx.recv() => {
                 let text = match ev {
                     Ok(e) => match serde_json::to_string(&e) {
