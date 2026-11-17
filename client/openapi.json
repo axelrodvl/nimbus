@@ -3,7 +3,7 @@
   "info": {
     "title": "Nimbus API",
     "description": "Бэкенд веб-плеера Nimbus: метаданные MusicBrainz, музыка из торрентов.",
-    "version": "0.7.0"
+    "version": "0.7.1"
   },
   "paths": {
     "/api/acquisition": {
