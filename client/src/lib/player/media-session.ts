@@ -10,9 +10,10 @@ const ACTIONS: [MediaSessionAction, RemoteAction][] = [
   ['previoustrack', 'previous'],
   ['nexttrack', 'next'],
   ['seekto', 'seekto'],
-  ['seekbackward', 'seekbackward'],
-  ['seekforward', 'seekforward'],
 ];
+
+/** Обработчики перемотки не ставим: iOS/Android при их наличии заменяют «предыдущий/следующий» кнопками ±10 с. */
+const SEEK_STEP_ACTIONS: MediaSessionAction[] = ['seekbackward', 'seekforward'];
 
 /** Размеры обложки для экрана блокировки и уведомлений (96…512). */
 export const ARTWORK_SIZES = [96, 128, 192, 256, 384, 512] as const;
@@ -57,6 +58,13 @@ export function createMediaSession(
 ): MediaSessionHandle {
   if (!session) return noop;
   const install = () => {
+    for (const name of SEEK_STEP_ACTIONS) {
+      try {
+        session.setActionHandler(name, null);
+      } catch {
+        // Действие не поддерживается этим браузером.
+      }
+    }
     for (const [name, action] of ACTIONS) {
       try {
         session.setActionHandler(name, d => onCommand({ action, offset: d.seekOffset, seekTo: d.seekTime }));

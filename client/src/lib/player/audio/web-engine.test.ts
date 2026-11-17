@@ -306,17 +306,20 @@ describe('Media Session', () => {
     session.trigger('previoustrack');
     session.trigger('nexttrack');
     session.trigger('seekto', { seekTime: 33 });
-    session.trigger('seekbackward', { seekOffset: 10 });
-    session.trigger('seekforward');
     expect(events).toEqual([
       { action: 'play', offset: undefined, seekTo: undefined, type: 'remote' },
       { action: 'pause', offset: undefined, seekTo: undefined, type: 'remote' },
       { action: 'previous', offset: undefined, seekTo: undefined, type: 'remote' },
       { action: 'next', offset: undefined, seekTo: undefined, type: 'remote' },
       { action: 'seekto', offset: undefined, seekTo: 33, type: 'remote' },
-      { action: 'seekbackward', offset: 10, seekTo: undefined, type: 'remote' },
-      { action: 'seekforward', offset: undefined, seekTo: undefined, type: 'remote' },
     ]);
+  });
+
+  it('обработчики seekbackward/seekforward не ставятся: на iOS остаются кнопки трека', () => {
+    const { session } = setup();
+    expect(session.handlers.get('seekbackward')).toBeNull();
+    expect(session.handlers.get('seekforward')).toBeNull();
+    expect(session.handlers.get('nexttrack')).toBeTypeOf('function');
   });
 
   it('неподдерживаемое действие не ломает подключение, dispose снимает обработчики', () => {
