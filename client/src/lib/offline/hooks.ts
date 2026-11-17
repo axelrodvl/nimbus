@@ -1,4 +1,4 @@
-import { useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useStore } from 'zustand';
 import { appData } from '@/lib/app-data';
 import { useOnline } from '@/lib/live/hooks';
@@ -18,6 +18,7 @@ import {
   type OfflineSummary,
   type PinSummary,
 } from './derive';
+import type { LibraryState } from '@/lib/store/library';
 import { offline } from './index';
 import {
   albumTrackIds,
@@ -61,11 +62,43 @@ export function useOfflineSummary(getIds: () => readonly number[]): OfflineSumma
   return useMemo(() => decodeSummary(key), [key]);
 }
 
-export const useAlbumOffline = (albumId: number): OfflineSummary =>
-  useOfflineSummary(() => albumTrackIds(appData().library.getState(), albumId));
+/**
+ * Список id по библиотеке, пересобираемый только при смене исходных ссылок (`refs`): `getIds` зовётся на каждую
+ * публикацию состояния файлов, а состав набора меняется редко.
+ */
+function useCachedIds(
+  refs: (lib: LibraryState) => readonly unknown[],
+  compute: (lib: LibraryState) => number[],
+): () => readonly number[] {
+  const memo = useRef<{ ids: number[]; refs: readonly unknown[] } | null>(null);
+  return useCallback(() => {
+    const lib = appData().library.getState();
+    const cur = refs(lib);
+    const m = memo.current;
+    if (m && m.refs.length === cur.length && m.refs.every((r, i) => r === cur[i])) return m.ids;
+    const ids = compute(lib);
+    memo.current = { ids, refs: cur };
+    return ids;
+    // `refs`/`compute` — новые замыкания на каждый рендер; значимы только их аргументы (id и ссылки библиотеки).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
 
-export const usePlaylistOffline = (playlistId: number): OfflineSummary =>
-  useOfflineSummary(() => playlistTrackIds(appData().library.getState(), playlistId));
+export function useAlbumOffline(albumId: number): OfflineSummary {
+  const ids = useCachedIds(
+    lib => [albumId, lib.tracksByAlbum.get(albumId), lib.tracks],
+    lib => albumTrackIds(lib, albumId),
+  );
+  return useOfflineSummary(ids);
+}
+
+export function usePlaylistOffline(playlistId: number): OfflineSummary {
+  const ids = useCachedIds(
+    lib => [playlistId, lib.tracksByPlaylist.get(playlistId), lib.playlistTracks, lib.tracks],
+    lib => playlistTrackIds(lib, playlistId),
+  );
+  return useOfflineSummary(ids);
+}
 
 /** Сводка по готовому списку id (например, «Избранное»). */
 export function useTracksOffline(ids: readonly number[]): OfflineSummary {
@@ -133,7 +166,12 @@ export function useAlbumDimmed(albumId: number): boolean {
 
 /** Что скачано на устройство (для фильтра «Только скачанные»); без `enabled` — `null`, пересчёта нет. */
 export function useDownloadedSets(enabled: boolean): DownloadedSets | null {
-  const files = useOfflineStatus(s => (enabled ? s.files : null));
+  // Набор скачанного меняет `doneRevision`; `files` обновляется на каждый тик прогресса, и пересчёт по нему не нужен.
+  const revision = useOfflineStatus(s => (enabled ? s.doneRevision : -1));
   const lib = useStore(appData().library, s => (enabled ? s : null));
-  return useMemo(() => (files && lib ? downloadedSets(files, lib) : null), [files, lib]);
+  return useMemo(
+    () => (revision >= 0 && lib ? downloadedSets(offline().status.getState().files, lib) : null),
+    // `revision` — единственный сигнал смены файлов (прогресс его не меняет).
+    [revision, lib],
+  );
 }

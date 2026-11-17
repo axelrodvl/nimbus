@@ -17,6 +17,8 @@ export type OfflineStatus = {
   /** Есть ли в этом окружении офлайн-хранилище; интерфейс (шаг 47) скрывается, если `false`. */
   supported: boolean;
   files: Map<number, OfflineFileStatus>;
+  /** Растёт, когда какой-либо файл вошёл в состояние `done` или вышел из него: по нему подписчики узнают об изменении набора скачанного (прогресс его не меняет). */
+  doneRevision: number;
   /** Ключи закреплений `"<kind>:<id>"`. */
   pins: Set<string>;
   /** Когда закреплено (мс, по ключу): сортировка списка «На устройстве». */
@@ -33,6 +35,7 @@ export type OfflineStatusStore = StoreApi<OfflineStatus>;
 export const initialOfflineStatus = (supported = false): OfflineStatus => ({
   activeCount: 0,
   blocked: 'none',
+  doneRevision: 0,
   files: new Map(),
   paused: false,
   pins: new Set(),
@@ -46,7 +49,9 @@ export const createOfflineStatusStore = (supported = false): OfflineStatusStore 
   createStore<OfflineStatus>(() => initialOfflineStatus(supported));
 
 /** Сериализуемый снимок для передачи между вкладками (`BroadcastChannel` не передаёт `Map`/`Set` между версиями кода). */
-export type OfflineSnapshot = Omit<OfflineStatus, 'files' | 'pins' | 'supported'> & {
+export type OfflineSnapshot = Omit<OfflineStatus, 'doneRevision' | 'files' | 'pins' | 'supported'> & {
+  /** Нет у снимка от старой версии кода. */
+  doneRevision?: number;
   files: [number, OfflineFileStatus][];
   pins: string[];
 };
@@ -54,6 +59,7 @@ export type OfflineSnapshot = Omit<OfflineStatus, 'files' | 'pins' | 'supported'
 export const toSnapshot = (s: OfflineStatus): OfflineSnapshot => ({
   activeCount: s.activeCount,
   blocked: s.blocked,
+  doneRevision: s.doneRevision,
   files: [...s.files],
   paused: s.paused,
   pins: [...s.pins],
@@ -62,8 +68,10 @@ export const toSnapshot = (s: OfflineStatus): OfflineSnapshot => ({
   usage: s.usage,
 });
 
-export const fromSnapshot = (s: OfflineSnapshot): Partial<OfflineStatus> => ({
+/** `prevRevision` — значение ведомой вкладки: снимок без `doneRevision` (старый лидер) считается изменившим набор скачанного. */
+export const fromSnapshot = (s: OfflineSnapshot, prevRevision = 0): Partial<OfflineStatus> => ({
   ...s,
+  doneRevision: s.doneRevision ?? prevRevision + 1,
   files: new Map(s.files),
   pins: new Set(s.pins),
 });

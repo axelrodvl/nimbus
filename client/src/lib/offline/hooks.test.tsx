@@ -154,3 +154,18 @@ describe('библиотека', () => {
     expect(renderHook(() => useAlbumDimmed(2)).result.current).toBe(true);
   });
 });
+
+describe('перерисовки', () => {
+  it('useAlbumOffline не перерисовывает компонент при прогрессе трека другого альбома', () => {
+    let renders = 0;
+    renderHook(() => {
+      renders++;
+      return useAlbumOffline(1);
+    });
+    ui.set({ 1: fileStatus('downloading', 1, 10), 3: fileStatus('downloading', 1, 10) });
+    const before = renders;
+    for (let i = 2; i <= 9; i++) ui.set({ 1: fileStatus('downloading', 1, 10), 3: fileStatus('downloading', i, 10) });
+    expect(renders).toBe(before);
+  });
+});
+

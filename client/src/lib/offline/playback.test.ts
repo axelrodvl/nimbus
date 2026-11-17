@@ -15,7 +15,10 @@ function setup(ids: Record<number, OfflineFileStatus['state']> = { 1: 'done', 2:
   const storage = new MemoryStorage();
   const status = createOfflineStatusStore(true);
   const setFiles = (m: Record<number, OfflineFileStatus['state']>) =>
-    status.setState({ files: new Map(Object.entries(m).map(([k, v]) => [Number(k), file(v)])) });
+    status.setState({
+      doneRevision: status.getState().doneRevision + 1,
+      files: new Map(Object.entries(m).map(([k, v]) => [Number(k), file(v)])),
+    });
   setFiles(ids);
   const markBroken = vi.fn();
   const playback = createOfflinePlayback({ markBroken, status, storage });
@@ -118,5 +121,14 @@ describe('воспроизведение скачанных треков', () =>
     off();
     setFiles({});
     expect(seen).toHaveBeenCalledTimes(3);
+  });
+
+  it('version() не меняется от прогресса чужой загрузки', () => {
+    const { playback, status } = setup({ 1: 'done', 2: 'downloading' });
+    const v = playback.version();
+    const files = new Map(status.getState().files);
+    files.set(2, { ...file('downloading'), bytesDone: 5 });
+    status.setState({ files }); // `doneRevision` прежний
+    expect(playback.version()).toBe(v);
   });
 });

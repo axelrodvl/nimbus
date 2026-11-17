@@ -42,15 +42,13 @@ export function appPlayerDeps(over: Partial<PlayerDeps> = {}): PlayerDeps {
     storage: globalThis.localStorage,
     // Статусы треков, скачанные файлы и связь влияют на то, что можно играть и что считать «следующим».
     subscribeLibrary: listener => {
-      let done = -1;
+      let revision = offline().status.getState().doneRevision;
       const offs = [
         appData().library.subscribe(listener),
-        // Прогресс скачивания не интересен — только то, сколько треков стало доступно без сети.
+        // Прогресс скачивания не интересен — только смена набора треков, доступных без сети.
         offline().status.subscribe(s => {
-          let n = 0;
-          for (const f of s.files.values()) if (f.state === 'done') n++;
-          if (n !== done) {
-            done = n;
+          if (s.doneRevision !== revision) {
+            revision = s.doneRevision;
             listener();
           }
         }),

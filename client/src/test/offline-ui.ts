@@ -68,6 +68,10 @@ export function installOfflineUi(over: { supported?: boolean } = {}): OfflineUi 
 /** Состояние файлов и закреплений; изменение оборачивается в `act`. */
 function setFiles(rt: OfflineRuntime, files: Record<number, OfflineFileStatus>, extra: Extra = {}) {
   act(() => {
-    rt.status.setState({ files: new Map(Object.entries(files).map(([id, f]) => [Number(id), f])), ...extra });
+    rt.status.setState({
+      doneRevision: rt.status.getState().doneRevision + 1,
+      files: new Map(Object.entries(files).map(([id, f]) => [Number(id), f])),
+      ...extra,
+    });
   });
 }

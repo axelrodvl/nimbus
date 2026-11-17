@@ -10,7 +10,9 @@ import {
   playlistTrackIds,
   toSnapshot,
   type OfflineBlock,
+  type OfflineFileStatus,
   type OfflineSnapshot,
+  type OfflineStatus,
   type OfflineStatusStore,
 } from './status';
 import type { Downloader, DownloadMessage, OfflineStorage } from './types';
@@ -24,6 +26,8 @@ export const ESTIMATED_TRACK_BYTES = 15 * 2 ** 20;
 /** Как часто прогресс скачивания пишется в IndexedDB (iOS может выгрузить вкладку в любой момент). */
 export const PERSIST_PROGRESS_MS = 2000;
 export const STATUS_BROADCAST_MS = 500;
+/** Не чаще раза в это время прогресс скачивания попадает в store (один общий таймер на все загрузки). */
+export const PROGRESS_PUBLISH_MS = 250;
 
 export type PinKind = OfflinePin['kind'];
 
@@ -102,6 +106,16 @@ export function createOfflineManager(deps: ManagerDeps) {
   let wake: ReturnType<typeof setTimeout> | undefined;
   let reconcileTimer: ReturnType<typeof setTimeout> | undefined;
   let broadcastTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Окно троттлинга прогресса: пока таймер жив, новые `progress` только помечают `progressDirty`. */
+  let progressTimer: ReturnType<typeof setTimeout> | undefined;
+  let progressDirty = false;
+  /** Последние опубликованные статусы файлов: запись заменяется новым объектом, только если изменилось поле. */
+  let published = new Map<number, OfflineFileStatus>();
+  let doneRevision = 0;
+  /** Закрепления менялись с прошлой публикации: `pins`/`pinTimes` нужно пересоздать. */
+  let pinsDirty = true;
+  let pinsSet = new Set<string>();
+  let pinTimesObj: Record<string, number> = {};
   let lastVersion = -1;
   let leading: Promise<void> | null = null;
   const unsubscribers: (() => void)[] = [];
@@ -151,40 +165,100 @@ export function createOfflineManager(deps: ManagerDeps) {
     return 'none';
   }
 
-  /** Лидер публикует всё состояние; остальные вкладки — только закрепления (файлы им присылает лидер). */
+  /** Закрепления в публикуемом виде: пересоздаются только после изменения (иначе ссылки остаются прежними). */
+  function refreshPins(): Partial<OfflineStatus> {
+    if (!pinsDirty) return {};
+    pinsDirty = false;
+    pinsSet = new Set(pins.keys());
+    pinTimesObj = Object.fromEntries([...pins].map(([k, p]) => [k, p.created_at]));
+    return { pinTimes: pinTimesObj, pins: pinsSet };
+  }
+
+  /**
+   * Лидер публикует всё состояние; остальные вкладки — только закрепления (файлы им присылает лидер).
+   * В store попадает только изменившееся: статус файла без изменений остаётся тем же объектом, а если не изменилось
+   * ничего — `setState` не вызывается.
+   */
   function publish(full = leader) {
     if (!full) {
-      status.setState({ pinTimes: pinTimes(), pins: new Set(pins.keys()) });
+      const patch = refreshPins();
+      if (Object.keys(patch).length > 0) status.setState(patch);
       return;
     }
-    const map = new Map<number, ReturnType<typeof statusOf>>();
+    progressDirty = false;
+    const cur = status.getState();
+    const patch: Partial<OfflineStatus> = refreshPins();
+    const next = new Map<number, OfflineFileStatus>();
+    let filesChanged = published.size !== files.size;
+    let doneChanged = false;
     let queueLength = 0;
     for (const f of files.values()) {
-      map.set(f.track_id, statusOf(f));
+      const prev = published.get(f.track_id);
+      const entry = prev && sameStatus(prev, f) ? prev : statusOf(f);
+      if (entry !== prev) filesChanged = true;
+      if ((prev?.state === 'done') !== (f.state === 'done')) doneChanged = true;
+      next.set(f.track_id, entry);
       if (f.state === 'queued') queueLength++;
     }
-    status.setState({
-      activeCount: inflight.size,
-      blocked: block(),
-      files: map,
-      paused,
-      pinTimes: pinTimes(),
-      pins: new Set(pins.keys()),
-      queueLength,
-      usage: { ...usage, limit: effectiveLimit(settings.getState(), usage.quota) },
-    });
+    if (published.size !== files.size) {
+      for (const [id, prev] of published) if (prev.state === 'done' && !files.has(id)) doneChanged = true;
+    }
+    if (filesChanged) {
+      published = next;
+      patch.files = next;
+    }
+    if (doneChanged) patch.doneRevision = ++doneRevision;
+    const usageNow = { ...usage, limit: effectiveLimit(settings.getState(), usage.quota) };
+    if (
+      cur.usage.bytes !== usageNow.bytes ||
+      cur.usage.quota !== usageNow.quota ||
+      cur.usage.limit !== usageNow.limit
+    ) {
+      patch.usage = usageNow;
+    }
+    const blocked = block();
+    if (cur.activeCount !== inflight.size) patch.activeCount = inflight.size;
+    if (cur.blocked !== blocked) patch.blocked = blocked;
+    if (cur.paused !== paused) patch.paused = paused;
+    if (cur.queueLength !== queueLength) patch.queueLength = queueLength;
+    if (Object.keys(patch).length === 0) return;
+    status.setState(patch);
     if (leader && !stopped) scheduleBroadcast();
   }
 
-  const pinTimes = () => Object.fromEntries([...pins].map(([k, p]) => [k, p.created_at]));
+  const sameStatus = (a: OfflineFileStatus, f: OfflineFile) =>
+    a.state === f.state &&
+    a.bytesDone === f.bytes_done &&
+    a.bytesTotal === f.bytes_total &&
+    a.mime === f.mime &&
+    a.error === f.error;
 
-  const statusOf = (f: OfflineFile) => ({
+  const statusOf = (f: OfflineFile): OfflineFileStatus => ({
     bytesDone: f.bytes_done,
     bytesTotal: f.bytes_total,
     error: f.error,
     mime: f.mime,
     state: f.state,
   });
+
+  /** Прогресс скачивания: первое сообщение публикуется сразу, дальнейшие — не чаще `PROGRESS_PUBLISH_MS` (с хвостовым вызовом). */
+  function publishProgress() {
+    if (progressTimer !== undefined) {
+      progressDirty = true;
+      return;
+    }
+    publish();
+    startProgressWindow();
+  }
+
+  function startProgressWindow() {
+    progressTimer = setTimeout(() => {
+      progressTimer = undefined;
+      if (stopped || !progressDirty) return;
+      publish(); // сбрасывает `progressDirty`
+      startProgressWindow();
+    }, PROGRESS_PUBLISH_MS);
+  }
 
   function scheduleBroadcast() {
     if (broadcastTimer !== undefined) return;
@@ -209,6 +283,7 @@ export function createOfflineManager(deps: ManagerDeps) {
   async function reloadFromDb() {
     const loaded = await db.offlineLoad();
     pins = new Map(loaded.pins.map(p => [p.key, p]));
+    pinsDirty = true;
     return loaded;
   }
 
@@ -217,6 +292,7 @@ export function createOfflineManager(deps: ManagerDeps) {
     if (pins.has(k)) return;
     const p: OfflinePin = { created_at: now(), id, key: k, kind };
     pins.set(k, p);
+    pinsDirty = true;
     publish();
     await db.offlinePinPut(p);
     afterPinChange();
@@ -225,6 +301,7 @@ export function createOfflineManager(deps: ManagerDeps) {
   async function unpin(kind: PinKind, id: number) {
     const k = key(kind, id);
     if (!pins.delete(k)) return;
+    pinsDirty = true;
     publish();
     await db.offlinePinDelete(k);
     afterPinChange();
@@ -268,6 +345,7 @@ export function createOfflineManager(deps: ManagerDeps) {
     } else {
       for (const p of stale) {
         pins.delete(p.key);
+        pinsDirty = true;
         await db.offlinePinDelete(p.key).catch(() => undefined);
       }
     }
@@ -380,7 +458,7 @@ export function createOfflineManager(deps: ManagerDeps) {
       f.etag = m.etag;
       f.resumable = m.resumable;
       if (now() - (lastPersist.get(id) ?? 0) >= PERSIST_PROGRESS_MS) track(persist(f));
-      publish();
+      publishProgress();
       return;
     }
     inflight.delete(id);
@@ -471,7 +549,7 @@ export function createOfflineManager(deps: ManagerDeps) {
 
   function onTabMessage(m: OfflineTabMessage) {
     if (m.type === 'status') {
-      if (!leader) status.setState(fromSnapshot(m.snapshot));
+      if (!leader) status.setState(fromSnapshot(m.snapshot, status.getState().doneRevision));
       return;
     }
     if (!leader) return;
@@ -568,6 +646,7 @@ export function createOfflineManager(deps: ManagerDeps) {
     for (const id of [...inflight]) abortDownload(id);
     inflight.clear();
     pins.clear();
+    pinsDirty = true;
     files.clear();
     order = new Map();
     await filesReleased();
@@ -604,6 +683,8 @@ export function createOfflineManager(deps: ManagerDeps) {
       clearTimeout(wake);
       clearTimeout(reconcileTimer);
       clearTimeout(broadcastTimer);
+      clearTimeout(progressTimer);
+      progressTimer = undefined;
       for (const id of inflight) abortDownload(id);
       inflight.clear();
       for (const off of unsubscribers.splice(0)) off();

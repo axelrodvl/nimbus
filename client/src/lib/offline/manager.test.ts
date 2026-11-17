@@ -5,6 +5,7 @@ import {
   ESTIMATED_TRACK_BYTES,
   MAX_ATTEMPTS,
   PERSIST_PROGRESS_MS,
+  PROGRESS_PUBLISH_MS,
   RECONCILE_DEBOUNCE_MS,
   RETRY_DELAYS_MS,
   STATUS_BROADCAST_MS,
@@ -916,5 +917,105 @@ describe('состояние для интерфейса', () => {
     const s = h.status.getState();
     expect(playlistOfflineState(s, h.library.getState(), 1)).toEqual({ kind: 'done' });
     expect(playlistOfflineState(s, h.library.getState(), 404)).toEqual({ kind: 'none' });
+  });
+});
+
+describe('публикация состояния без лишних изменений', () => {
+  async function twoDownloading() {
+    const h = offlineHarness();
+    await h.start();
+    await h.manager.pin('track', 1);
+    await h.manager.pin('track', 2);
+    await h.settle();
+    return h;
+  }
+  const updates = (h: Awaited<ReturnType<typeof twoDownloading>>) => {
+    const n = { count: 0 };
+    h.status.subscribe(() => n.count++);
+    return n;
+  };
+
+  it('progress keeps unrelated file statuses referentially equal', async () => {
+    const h = await twoDownloading();
+    const before = h.status.getState();
+    const other = before.files.get(2);
+    await h.emit(progress(1, 10));
+    const after = h.status.getState();
+    expect(after.files.get(1)?.bytesDone).toBe(10);
+    expect(after.files.get(2)).toBe(other);
+    expect(after.pins).toBe(before.pins);
+    expect(after.pinTimes).toBe(before.pinTimes);
+  });
+
+  it('progress publishes are throttled', async () => {
+    const h = await twoDownloading();
+    await vi.advanceTimersByTimeAsync(PROGRESS_PUBLISH_MS); // окно прошлых публикаций закрыто
+    const n = updates(h);
+    for (let i = 1; i <= 20; i++) {
+      await h.emit(progress(1, i));
+      await vi.advanceTimersByTimeAsync(5);
+    }
+    expect(n.count).toBeLessThanOrEqual(2);
+    await vi.advanceTimersByTimeAsync(PROGRESS_PUBLISH_MS);
+    expect(h.file(1)?.bytesDone).toBe(20);
+    expect(n.count).toBeLessThanOrEqual(3);
+  });
+
+  it('state changes publish immediately', async () => {
+    const h = await twoDownloading();
+    await h.emit(progress(1, 10));
+    await h.emit(progress(1, 20)); // внутри окна: ждёт таймера
+    expect(h.file(1)?.bytesDone).toBe(10);
+    await h.emit(done(1));
+    expect(h.state(1)).toBe('done');
+    expect(h.file(1)?.bytesDone).toBe(100);
+  });
+
+  it('doneRevision changes only when the done set changes', async () => {
+    const h = await twoDownloading();
+    const rev = () => h.status.getState().doneRevision;
+    const r0 = rev();
+    await h.emit(progress(1, 10));
+    await vi.advanceTimersByTimeAsync(PROGRESS_PUBLISH_MS);
+    expect(rev()).toBe(r0);
+    await h.emit(done(1));
+    const r1 = rev();
+    expect(r1).toBeGreaterThan(r0);
+    await h.emit(progress(2, 10));
+    await vi.advanceTimersByTimeAsync(PROGRESS_PUBLISH_MS);
+    expect(rev()).toBe(r1);
+    await h.manager.markBroken(1); // скачанный файл вернулся в очередь
+    expect(rev()).toBeGreaterThan(r1);
+    const r2 = rev();
+    await h.emit(done(1));
+    const r3 = rev();
+    expect(r3).toBeGreaterThan(r2);
+    await h.manager.unpin('track', 1); // скачанный файл удалён
+    await h.settle();
+    expect(rev()).toBeGreaterThan(r3);
+  });
+
+  it('no setState when nothing changed', async () => {
+    const h = await twoDownloading();
+    const n = updates(h);
+    h.manager.setPaused(false); // пересчёт очереди без изменений
+    await h.settle();
+    expect(n.count).toBe(0);
+  });
+
+  it('снимок без doneRevision (старая вкладка) считается сменой набора скачанного', async () => {
+    const { fromSnapshot, toSnapshot, initialOfflineStatus } = await import('./status');
+    const snap = toSnapshot(initialOfflineStatus());
+    const old = { ...snap, doneRevision: undefined };
+    expect(fromSnapshot(old, 4).doneRevision).toBe(5);
+    expect(fromSnapshot({ ...snap, doneRevision: 9 }, 4).doneRevision).toBe(9);
+  });
+
+  it('stop снимает таймер публикации прогресса', async () => {
+    const h = await twoDownloading();
+    await h.emit(progress(1, 10));
+    await h.emit(progress(1, 20));
+    h.manager.stop();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

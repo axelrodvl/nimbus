@@ -91,7 +91,7 @@ export function createOfflinePlayback({ storage, status, markBroken }: PlaybackD
 
   // Файл исчез из состояния (удалён, возвращён в очередь) — источник больше не нужен.
   status.subscribe((s, prev) => {
-    if (s.files === prev.files) return;
+    if (s.doneRevision === prev.doneRevision) return;
     for (const id of [...cache.keys()]) {
       if (s.files.get(id)?.state !== 'done') {
         cache.delete(id);
