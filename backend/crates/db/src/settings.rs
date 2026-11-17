@@ -109,3 +109,30 @@ pub async fn set_downloads_paused(pool: &PgPool, paused: bool) -> sqlx::Result<(
     .await?;
     Ok(())
 }
+
+/// Версия, на которой процесс запускался в прошлый раз (`settings.runtime.last_version`).
+pub async fn last_version(pool: &PgPool) -> sqlx::Result<Option<String>> {
+    let v: Option<Value> = sqlx::query_scalar("SELECT value FROM settings WHERE key = $1")
+        .bind(RUNTIME_KEY)
+        .fetch_optional(pool)
+        .await?;
+    Ok(v.and_then(|v| {
+        v.get("last_version")
+            .and_then(Value::as_str)
+            .map(String::from)
+    }))
+}
+
+pub async fn set_last_version(pool: &PgPool, version: &str) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO settings (key, value) VALUES ($1, jsonb_build_object('last_version', $2::text))
+         ON CONFLICT (key) DO UPDATE SET
+            value = settings.value || jsonb_build_object('last_version', $2::text),
+            updated_at = now()",
+    )
+    .bind(RUNTIME_KEY)
+    .bind(version)
+    .execute(pool)
+    .await?;
+    Ok(())
+}

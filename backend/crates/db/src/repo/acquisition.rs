@@ -190,8 +190,8 @@ pub async fn record_search_results(
 /// `last_outcome` от ошибок провайдеров не меняется).
 ///
 /// Срабатывает ровно один раз на поиск: только если `last_started_at` позже `last_finished_at`.
-/// Если поиск не был начат (`last_started_at IS NULL` или строки нет — например, задача исчерпала
-/// попытки до `mark_search_started`), а у альбома есть `not_found`-треки и нет расписания, строка
+/// Если поиск не был начат (строки нет или задача исчерпала попытки до `mark_search_started`, даже
+/// когда раньше поиск уже случался), а у альбома есть `not_found`-треки и нет расписания, строка
 /// создаётся/дополняется тем же итогом, чтобы альбом не выпал из авто-повтора.
 /// Вызывать в транзакции с блокировкой строки альбома. `None` — писать было нечего.
 pub async fn finish_search(
@@ -245,8 +245,7 @@ pub async fn finish_search(
             auto_retries = CASE WHEN EXCLUDED.last_outcome = 'found' THEN 0 ELSE s.auto_retries END
          WHERE (s.last_started_at IS NOT NULL
                 AND s.last_started_at > COALESCE(s.last_finished_at, '-infinity'::timestamptz))
-            OR (s.last_started_at IS NULL AND s.next_retry_at IS NULL
-                AND EXCLUDED.last_outcome <> 'found')
+            OR (s.next_retry_at IS NULL AND EXCLUDED.last_outcome <> 'found')
          RETURNING s.last_outcome"
     ))
     .bind(album_id)
@@ -272,14 +271,26 @@ pub async fn reset_auto_retries(db: impl PgExecutor<'_>, album_id: i64) -> sqlx:
 /// `downloading`), назначает авто-повтор «сейчас» (сменились провайдеры).
 /// Возвращает число затронутых альбомов.
 pub async fn schedule_missing_now(db: impl PgExecutor<'_>) -> sqlx::Result<u64> {
+    schedule_missing(db, false).await
+}
+
+/// То же, что [`schedule_missing_now`], но лестница пауз начинается заново (`auto_retries = 0`):
+/// рывок восстановления при первом запуске новой версии.
+pub async fn restart_missing_now(db: impl PgExecutor<'_>) -> sqlx::Result<u64> {
+    schedule_missing(db, true).await
+}
+
+async fn schedule_missing(db: impl PgExecutor<'_>, reset_ladder: bool) -> sqlx::Result<u64> {
     Ok(sqlx::query(concat!(
         state_cte!(),
         " INSERT INTO album_search_state (album_id, next_retry_at)
           SELECT album_id, now() FROM st WHERE ",
         needs_retry!("st"),
         "
-          ON CONFLICT (album_id) DO UPDATE SET next_retry_at = now()"
+          ON CONFLICT (album_id) DO UPDATE SET next_retry_at = now(),
+              auto_retries = CASE WHEN $1 THEN 0 ELSE album_search_state.auto_retries END"
     ))
+    .bind(reset_ladder)
     .execute(db)
     .await?
     .rows_affected())
@@ -346,8 +357,8 @@ pub async fn take_due(tx: &mut PgConnection, limit: i64) -> sqlx::Result<Vec<i64
 }
 
 /// Страховка: альбомам, которым нужен повтор, но у которых нет расписания (`next_retry_at IS NULL`
-/// или нет строки состояния), нет активной задачи поиска (`discover_album:{id}` / `discover_artist:{artist}`)
-/// и последний поиск закончился больше 6 часов назад, ставит `next_retry_at = now()`. Закрывает дыры,
+/// или нет строки состояния) и нет активной задачи поиска (`discover_album:{id}` / `discover_artist:{artist}`),
+/// ставит `next_retry_at = now()`. Закрывает дыры,
 /// через которые расписание могло потеряться. Возвращает число усыновлённых альбомов (это признак дыры).
 /// Вызывать в той же транзакции, что и [`take_due`], перед ним.
 pub async fn adopt_orphans(tx: &mut PgConnection, limit: i64) -> sqlx::Result<u64> {
@@ -361,7 +372,6 @@ pub async fn adopt_orphans(tx: &mut PgConnection, limit: i64) -> sqlx::Result<u6
         needs_retry!("st"),
         "
               AND s.next_retry_at IS NULL
-              AND COALESCE(s.last_finished_at, '-infinity'::timestamptz) < now() - interval '6 hours'
               AND NOT EXISTS (SELECT 1 FROM jobs j
                               WHERE j.state IN ('queued','running')
                                 AND j.dedup_key IN ('discover_album:' || st.album_id,

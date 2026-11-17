@@ -1462,11 +1462,11 @@ async fn track_added_during_running_discover_is_searched(pool: PgPool) {
     })
     .await;
     assert!(
-        jobs::list(&pool, Some("queued"), 10)
+        jobs::list_filtered(&pool, Some("queued"), Some("discover_album"), 10)
             .await
             .unwrap()
             .is_empty(),
-        "новых задач не осталось"
+        "новых задач поиска не осталось"
     );
     w.shutdown().await;
 }

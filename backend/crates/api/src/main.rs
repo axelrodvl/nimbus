@@ -170,13 +170,18 @@ async fn main() -> anyhow::Result<()> {
         .reload(&initial.providers)
         .context("cannot create torrent providers")?;
     let activity = nimbus_core::activity::Activity::default();
+    let worker_cfg = WorkerConfig::default();
+    // Первый запуск новой версии: отложенное по старым расписаниям пробуется сразу (до воркеров).
+    nimbus_api::startup::recover_on_upgrade(&db, env!("CARGO_PKG_VERSION"), worker_cfg.max_crashes)
+        .await
+        .context("upgrade recovery failed")?;
     let workers = WorkerPool::start(
         JobCtx::new(db.clone(), events.clone(), mb.clone(), providers.clone())
             .with_engine(engine.clone())
             .with_settings(settings.clone())
             .with_activity(activity.clone()),
         handlers(&initial.performance),
-        WorkerConfig::default(),
+        worker_cfg,
     )
     .await
     .context("cannot start workers")?;

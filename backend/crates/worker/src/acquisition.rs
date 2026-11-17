@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use nimbus_core::jobs::{Job, PRIORITY_BACKGROUND};
-use nimbus_db::repo::acquisition;
+use nimbus_db::repo::{acquisition, jobs};
 use nimbus_library::retry::{publish_tracks, retry_album_in, RetryOptions};
 use sqlx::Acquire;
 
@@ -64,6 +64,15 @@ impl JobHandler for RetryMissingHandler {
             return Err(JobError::Unexpected(format!(
                 "auto-retry failed for all {failed} albums"
             )));
+        }
+        if ids.len() as i64 == BATCH {
+            // Полная порция: очередь не разобрана, продолжаем сразу (у выполняющейся задачи это `rerun`).
+            jobs::enqueue(
+                &mut *tx,
+                &Job::RetryMissing,
+                jobs::EnqueueOpts::priority(PRIORITY_BACKGROUND),
+            )
+            .await?;
         }
         tx.commit().await?;
         publish_tracks(&ctx.events, &changed);

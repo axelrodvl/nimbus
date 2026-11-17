@@ -637,7 +637,10 @@ async fn maintenance_loop(
         sync_purge: std::time::Instant::now() - SYNC_PURGE_EVERY,
         evict: std::time::Instant::now(),
         invariants: std::time::Instant::now(),
-        retry_missing: std::time::Instant::now(),
+        // Первый `RetryMissing` — на первом тике: просроченное после запуска не ждёт интервала.
+        retry_missing: std::time::Instant::now()
+            .checked_sub(cfg.retry_missing_interval.unwrap_or_default())
+            .unwrap_or_else(std::time::Instant::now),
     };
     loop {
         guarded("requeue_stale", requeue_stale_step(&ctx, &handlers, &cfg)).await;
@@ -718,7 +721,7 @@ async fn purge_step(ctx: &JobCtx, cfg: &WorkerConfig, clock: &mut MaintClock) {
     if let Err(e) = jobs::purge_done(&ctx.db, cfg.done_retention).await {
         tracing::error!(error = %e, "purge_done failed");
     }
-    if let Err(e) = jobs::purge_failed(&ctx.db, cfg.failed_retention).await {
+    if let Err(e) = jobs::purge_failed(&ctx.db, cfg.failed_retention, &REVIVABLE_KINDS).await {
         tracing::error!(error = %e, "purge_failed failed");
     }
     // Просроченные ответы MusicBrainz живут ещё `STALE_GRACE` как запасной вариант при отказах.

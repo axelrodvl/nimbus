@@ -419,15 +419,22 @@ pub async fn purge_done(db: impl PgExecutor<'_>, older_than: Duration) -> sqlx::
 }
 
 /// Удаляет `failed`-задачи старше `older_than`, которые больше не нужны: окончательные (`fatal`)
-/// и вытесненные более новой строкой с тем же `dedup_key`. Последние нефатальные остаются —
-/// их видно в «Фоновых задачах», а оживление ещё может их поднять.
-pub async fn purge_failed(db: impl PgExecutor<'_>, older_than: Duration) -> sqlx::Result<u64> {
+/// и вытесненные более новой строкой с тем же `dedup_key`, а также нефатальные виды, которые
+/// обслуживание не оживляет (всё, кроме `revivable_kinds`). Последние нефатальные оживляемых видов
+/// остаются — их видно в «Фоновых задачах», а оживление ещё может их поднять.
+pub async fn purge_failed(
+    db: impl PgExecutor<'_>,
+    older_than: Duration,
+    revivable_kinds: &[&str],
+) -> sqlx::Result<u64> {
     Ok(sqlx::query(
         "DELETE FROM jobs j
          WHERE j.state = 'failed' AND j.updated_at < now() - make_interval(secs => $1)
-           AND (j.fatal OR EXISTS (SELECT 1 FROM jobs n WHERE n.dedup_key = j.dedup_key AND n.id > j.id))",
+           AND (j.fatal OR NOT (j.kind = ANY($2))
+                OR EXISTS (SELECT 1 FROM jobs n WHERE n.dedup_key = j.dedup_key AND n.id > j.id))",
     )
     .bind(older_than.as_secs_f64())
+    .bind(revivable_kinds)
     .execute(db)
     .await?
     .rows_affected())

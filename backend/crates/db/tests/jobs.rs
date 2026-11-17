@@ -1164,9 +1164,13 @@ async fn purge_removes_old_fatal_and_superseded_failed(pool: PgPool) {
     for id in [fatal_old, superseded, latest, lone] {
         age(&pool, id, "31 days").await;
     }
-    let n = jobs::purge_failed(&pool, Duration::from_secs(30 * 86400))
-        .await
-        .unwrap();
+    let n = jobs::purge_failed(
+        &pool,
+        Duration::from_secs(30 * 86400),
+        &["import_artist", "discover_artist"],
+    )
+    .await
+    .unwrap();
     assert_eq!(n, 2);
     let left: Vec<i64> = jobs::list(&pool, None, 50)
         .await
@@ -1314,4 +1318,59 @@ async fn count_jobs(pool: &PgPool) -> i64 {
         .fetch_one(pool)
         .await
         .unwrap()
+}
+
+async fn failed_of_kind(pool: &PgPool, job: Job, days: i32) -> i64 {
+    let id = jobs::enqueue(pool, &job, EnqueueOpts::default())
+        .await
+        .unwrap()
+        .unwrap();
+    sqlx::query(
+        "UPDATE jobs SET state = 'failed', updated_at = now() - make_interval(days => $2) WHERE id = $1",
+    )
+    .bind(id)
+    .bind(days)
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+async fn left_ids(pool: &PgPool) -> Vec<i64> {
+    jobs::list(pool, None, 50)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| r.id)
+        .collect()
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn purge_failed_removes_old_non_revivable_failures(pool: PgPool) {
+    let old = failed_of_kind(&pool, Job::DiscoverAlbum { album_id: 1 }, 31).await;
+    let fresh = failed_of_kind(&pool, Job::DiscoverAlbum { album_id: 2 }, 1).await;
+    let n = jobs::purge_failed(
+        &pool,
+        Duration::from_secs(30 * 86400),
+        &["import_artist", "discover_artist"],
+    )
+    .await
+    .unwrap();
+    assert_eq!(n, 1);
+    let left = left_ids(&pool).await;
+    assert!(!left.contains(&old) && left.contains(&fresh));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn purge_failed_keeps_revivable_ones(pool: PgPool) {
+    let old = failed_of_kind(&pool, Job::DiscoverArtist { artist_id: 1 }, 31).await;
+    let n = jobs::purge_failed(
+        &pool,
+        Duration::from_secs(30 * 86400),
+        &["import_artist", "discover_artist"],
+    )
+    .await
+    .unwrap();
+    assert_eq!(n, 0);
+    assert!(left_ids(&pool).await.contains(&old));
 }

@@ -20,6 +20,7 @@ pub mod search;
 pub mod settings;
 pub mod shutdown;
 pub mod sources;
+pub mod startup;
 pub mod state;
 pub mod stream;
 pub mod sync;

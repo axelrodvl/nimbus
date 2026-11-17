@@ -210,6 +210,13 @@ async fn one_run_takes_at_most_a_batch_and_the_rest_wait(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(discover_jobs(&pool).await.len() as i64, BATCH);
+    assert!(
+        kinds_in_queue(&pool)
+            .await
+            .iter()
+            .any(|k| k == "retry_missing"),
+        "полная порция ставит следующий запуск"
+    );
     // Следующий запуск добирает остаток; уже ищущиеся альбомы не берутся повторно.
     RetryMissingHandler
         .handle(Job::RetryMissing, &c)
@@ -360,4 +367,46 @@ async fn failure_of_every_album_fails_the_job_and_keeps_schedule(pool: PgPool) {
     assert_eq!(s.auto_retries, 1);
     assert!(s.next_retry_at.unwrap() <= chrono::Utc::now());
     assert!(discover_jobs(&pool).await.is_empty());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn full_batch_requeues_itself_until_drained(pool: PgPool) {
+    let ar = artist(&pool).await;
+    for _ in 0..(2 * BATCH + 1) {
+        album(&pool, ar, &[NotFound], true).await;
+    }
+    jobs::enqueue(&pool, &Job::RetryMissing, jobs::EnqueueOpts::default())
+        .await
+        .unwrap();
+    // Большой интервал: повторные запуски идут только за счёт самоперепостановки.
+    let cfg = WorkerConfig {
+        retry_missing_interval: Some(Duration::from_secs(3600)),
+        evict_interval: None,
+        ..fast_cfg()
+    };
+    let c = ctx(&pool, EventBus::new());
+    let w = WorkerPool::spawn(c, vec![(Arc::new(RetryMissingHandler), 1)], cfg);
+    nimbus_testkit::eventually(Duration::from_secs(20), || async {
+        discover_jobs(&pool).await.len() as i64 == 2 * BATCH + 1
+    })
+    .await;
+    w.shutdown().await;
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn first_retry_missing_runs_on_startup(pool: PgPool) {
+    let cfg = WorkerConfig {
+        retry_missing_interval: Some(Duration::from_secs(3600)),
+        ..fast_cfg()
+    };
+    let c = ctx(&pool, EventBus::new());
+    let w = WorkerPool::spawn(c, vec![], cfg);
+    nimbus_testkit::eventually(Duration::from_secs(10), || async {
+        kinds_in_queue(&pool)
+            .await
+            .iter()
+            .any(|k| k == "retry_missing")
+    })
+    .await;
+    w.shutdown().await;
 }
