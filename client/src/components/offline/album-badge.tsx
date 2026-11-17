@@ -11,7 +11,7 @@ export function AlbumOfflineBadge({ albumId }: { albumId: number }) {
   return (
     <span
       aria-label={t('offline.indicator.done')}
-      className="bg-accent absolute top-5 left-5 flex size-6 items-center justify-center rounded-full text-white shadow-md"
+      className="bg-accent absolute top-5 left-2 flex size-6 items-center justify-center rounded-full text-white shadow-md"
       data-testid="album-offline-badge"
       role="img"
       title={t('offline.indicator.done')}
