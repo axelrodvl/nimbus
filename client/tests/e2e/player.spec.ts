@@ -305,7 +305,7 @@ test('stream.progress показывает загрузку из торрент�
   await expect(status(page)).toContainText('34%');
   // Трек стал ready — строка загрузки исчезает
   await mutate(request, { entity: 'track', id: 9031, patch: { status: 'ready' } });
-  await expect(status(page)).not.toContainText('Загрузка из торрента');
+  await expect(status(page)).toBeHidden();
 });
 
 test('live-статус: трек, ставший недоступным, пропускается', async ({ page, request }) => {

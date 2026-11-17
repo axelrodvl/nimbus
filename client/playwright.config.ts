@@ -3,6 +3,10 @@ import { defineConfig, devices } from '@playwright/test';
 const mockPort = Number(process.env.MOCK_BACKEND_PORT ?? 4011);
 const previewPort = 4173;
 
+// GPU выключен: в WSL/контейнерах инициализация GPU-процесса Chromium задерживает первый кадр на 10–100 с, а Playwright
+// ждёт кадра (rAF) в проверке «элемент стабилен» — клики падали по таймауту (см. playwright.load.config.ts, C13).
+const noGpuArgs = ['--disable-gpu', '--disable-gpu-compositing', '--disable-software-rasterizer'];
+
 export default defineConfig({
   forbidOnly: !!process.env.CI,
   // Мок бэкенда общий и хранит состояние: тесты идут по одному и сбрасывают его через /__test/reset.
@@ -15,7 +19,7 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         // Автозапуск звука без жеста пользователя — как в старом конфиге.
         launchOptions: {
-          args: ['--autoplay-policy=no-user-gesture-required'],
+          args: ['--autoplay-policy=no-user-gesture-required', ...noGpuArgs],
           executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined,
         },
         // Тесты написаны под русский интерфейс.
@@ -27,12 +31,12 @@ export default defineConfig({
     {
       name: 'mobile-android',
       testMatch: /mobile\.spec\.ts/,
-      use: { ...devices['Pixel 7'], locale: 'ru-RU' },
+      use: { ...devices['Pixel 7'], launchOptions: { args: noGpuArgs }, locale: 'ru-RU' },
     },
     {
       name: 'mobile-ios',
       testMatch: /mobile\.spec\.ts/,
-      use: { ...devices['iPhone 15'], browserName: 'chromium', locale: 'ru-RU' },
+      use: { ...devices['iPhone 15'], browserName: 'chromium', launchOptions: { args: noGpuArgs }, locale: 'ru-RU' },
     },
   ],
   reporter: process.env.CI ? 'github' : 'list',
