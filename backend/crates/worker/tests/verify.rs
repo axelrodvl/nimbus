@@ -1521,7 +1521,10 @@ async fn discography_timeout_counts_one_attempt(pool: PgPool) {
         futures::future::join_all(albums.iter().map(|a| verify_torrent(&ctx, tid, *a))).await;
     for r in &results {
         match r {
-            Err(JobError::Retry { after, .. }) => assert_eq!(after.as_secs(), 60),
+            // Задачи, дождавшиеся лидера, получают остаток общей паузы (≤ 60 с), а не ровно 60.
+            Err(JobError::Retry { after, .. }) => {
+                assert!(after.as_secs() >= 58 && after.as_secs() <= 60, "{after:?}")
+            }
             other => panic!("expected Retry, got {other:?}"),
         }
     }
