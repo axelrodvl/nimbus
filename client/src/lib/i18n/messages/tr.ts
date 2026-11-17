@@ -102,6 +102,7 @@ const messages: Messages = {
   'acq.tab.torrents': 'Torrent’ler',
   'acq.tabs': 'İndirme bölümleri',
   'acq.torrent.pause': 'Duraklat',
+  'acq.torrent.ratio': 'Oran {value}',
   'acq.torrent.resume': 'Sürdür',
   'acq.torrent.state.downloading': 'İndiriliyor',
   'acq.torrent.state.error': 'Hata',

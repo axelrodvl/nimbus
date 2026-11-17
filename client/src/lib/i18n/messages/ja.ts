@@ -102,6 +102,7 @@ const messages: Messages = {
   'acq.tab.torrents': 'トレント',
   'acq.tabs': 'ダウンロードのセクション',
   'acq.torrent.pause': '一時停止',
+  'acq.torrent.ratio': '共有率 {value}',
   'acq.torrent.resume': '再開',
   'acq.torrent.state.downloading': 'ダウンロード中',
   'acq.torrent.state.error': 'エラー',

@@ -504,6 +504,20 @@ describe('«Торренты» и фоновые задачи (в настрой
     await waitFor(() => expect(m.pauseOne).toHaveBeenCalledWith('bbb', false));
   });
 
+  it('торренты: Ratio = отдано / скачано, без скачанного — 0.00', async () => {
+    m.downloads.mockResolvedValue(
+      overview({
+        torrents: [
+          torrent('aaa', { progress_bytes: 200, uploaded_bytes: 300 }),
+          torrent('bbb', { progress_bytes: 0, uploaded_bytes: 5 }),
+        ],
+      }),
+    );
+    open('/downloads/torrents');
+    expect(await screen.findByTestId('torrent-aaa')).toHaveTextContent(L('acq.torrent.ratio', { value: '1.50' }));
+    expect(screen.getByTestId('torrent-bbb')).toHaveTextContent(L('acq.torrent.ratio', { value: '0.00' }));
+  });
+
   it('пустые торренты и пустые задачи — подсказки', async () => {
     const { unmount } = open('/downloads/torrents');
     expect(await screen.findByText(L('acq.empty.torrents'))).toBeInTheDocument();

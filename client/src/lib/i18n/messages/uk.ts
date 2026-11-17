@@ -100,6 +100,7 @@ const messages: Messages = {
   'acq.tab.torrents': 'Торенти',
   'acq.tabs': 'Розділи завантажень',
   'acq.torrent.pause': 'Пауза',
+  'acq.torrent.ratio': 'Коефіцієнт {value}',
   'acq.torrent.resume': 'Відновити',
   'acq.torrent.state.downloading': 'Завантаження',
   'acq.torrent.state.error': 'Помилка',

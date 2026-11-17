@@ -99,6 +99,7 @@ export const en = {
   'acq.tab.torrents': 'Torrents',
   'acq.tabs': 'Downloads sections',
   'acq.torrent.pause': 'Pause',
+  'acq.torrent.ratio': 'Ratio {value}',
   'acq.torrent.resume': 'Resume',
   'acq.torrent.state.downloading': 'Downloading',
   'acq.torrent.state.error': 'Error',

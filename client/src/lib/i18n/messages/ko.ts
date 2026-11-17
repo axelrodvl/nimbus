@@ -100,6 +100,7 @@ const messages: Messages = {
   'acq.tab.torrents': '토렌트',
   'acq.tabs': '다운로드 섹션',
   'acq.torrent.pause': '일시정지',
+  'acq.torrent.ratio': '공유율 {value}',
   'acq.torrent.resume': '재개',
   'acq.torrent.state.downloading': '다운로드 중',
   'acq.torrent.state.error': '오류',

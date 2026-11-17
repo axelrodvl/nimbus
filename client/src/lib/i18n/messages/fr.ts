@@ -104,6 +104,7 @@ const messages: Messages = {
   'acq.tab.torrents': 'Torrents',
   'acq.tabs': 'Sections des téléchargements',
   'acq.torrent.pause': 'Pause',
+  'acq.torrent.ratio': 'Ratio de partage {value}',
   'acq.torrent.resume': 'Reprendre',
   'acq.torrent.state.downloading': 'Téléchargement',
   'acq.torrent.state.error': 'Erreur',

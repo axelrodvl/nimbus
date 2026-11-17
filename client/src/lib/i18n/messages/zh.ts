@@ -99,6 +99,7 @@ const messages: Messages = {
   'acq.tab.torrents': '种子',
   'acq.tabs': '下载分区',
   'acq.torrent.pause': '暂停',
+  'acq.torrent.ratio': '分享率 {value}',
   'acq.torrent.resume': '恢复',
   'acq.torrent.state.downloading': '下载中',
   'acq.torrent.state.error': '出错',

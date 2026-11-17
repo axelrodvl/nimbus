@@ -99,6 +99,7 @@ const messages: Messages = {
   'acq.tab.torrents': 'टोरेंट',
   'acq.tabs': 'डाउनलोड अनुभाग',
   'acq.torrent.pause': 'रोकें',
+  'acq.torrent.ratio': 'अनुपात {value}',
   'acq.torrent.resume': 'फिर शुरू',
   'acq.torrent.state.downloading': 'डाउनलोड',
   'acq.torrent.state.error': 'त्रुटि',

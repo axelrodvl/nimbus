@@ -100,6 +100,7 @@ const messages: Messages = {
   'acq.tab.torrents': 'Torrenty',
   'acq.tabs': 'Sekcje pobierań',
   'acq.torrent.pause': 'Wstrzymaj',
+  'acq.torrent.ratio': 'Współczynnik {value}',
   'acq.torrent.resume': 'Wznów',
   'acq.torrent.state.downloading': 'Pobieranie',
   'acq.torrent.state.error': 'Błąd',
