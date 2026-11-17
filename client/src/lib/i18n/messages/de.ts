@@ -481,6 +481,9 @@ const messages: Messages = {
   'settings.jobsFailed': { one: '{count} fehlgeschlagene Aufgabe', other: '{count} fehlgeschlagene Aufgaben' },
   'settings.jobsHint':
     'Serveraufgaben, die mehrmals fehlgeschlagen sind: Albumsuche, Künstlerimport, Torrent-Prüfung. „Wiederholen“ stellt eine Aufgabe erneut in die Warteschlange.',
+  'settings.jobsStuck': 'Hängende Zustände: {count}',
+  'settings.jobsStuckHint':
+    'Der Server wartet auf Hintergrundarbeit, die niemand ausführen wird. Normalerweise löst sich das innerhalb einer halben Stunde; bleibt ein Eintrag bestehen, ist das ein Fehler – fügen Sie diese Liste dem Bericht bei.',
   'settings.languageHint': 'Sprache der Oberfläche; die Musikmetadaten werden nicht übersetzt.',
   'settings.login': 'Benutzername',
   'settings.matchingGroup': 'Zuordnung von Dateien zu Titeln',

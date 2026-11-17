@@ -1021,11 +1021,12 @@ async fn purged_done_does_not_resurrect_superseded_failure(pool: PgPool) {
     .await
     .unwrap()
     .unwrap();
-    jobs::claim(&pool, "w", REVIVE_KINDS)
+    // Задачу завершила прежняя версия (нынешний `complete` убрал бы старую неудачу сразу).
+    sqlx::query("UPDATE jobs SET state = 'done' WHERE id = $1")
+        .bind(newer)
+        .execute(&pool)
         .await
-        .unwrap()
         .unwrap();
-    jobs::complete(&pool, newer, "w").await.unwrap();
     // Свежая `done` ещё хранится — старую `failed` уборка не трогает.
     assert_eq!(
         jobs::purge_done(&pool, Duration::from_secs(7 * 86400))
@@ -1051,6 +1052,45 @@ async fn purged_done_does_not_resurrect_superseded_failure(pool: PgPool) {
         [other],
         "оживает только задача без успешной замены"
     );
+}
+
+/// Успех убирает прежние неудачи того же ключа: в «Фоновых задачах» остаётся только нерешённое.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn complete_removes_earlier_failures_of_the_same_key(pool: PgPool) {
+    let old = failed_import(&pool, 1, false).await;
+    let fatal = failed_import(&pool, 1, true).await;
+    let other = failed_import(&pool, 2, false).await;
+    let newer = jobs::enqueue(
+        &pool,
+        &Job::ImportArtist { artist_id: 1 },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    jobs::claim(&pool, "w", REVIVE_KINDS)
+        .await
+        .unwrap()
+        .unwrap();
+    // Повтор попытки (не успех) ничего не удаляет.
+    jobs::fail(&pool, newer, "w", "again", Some(chrono::Utc::now()), false)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(count_jobs(&pool).await, 4);
+    jobs::claim(&pool, "w", REVIVE_KINDS)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        jobs::complete(&pool, newer, "w").await.unwrap(),
+        jobs::Completion::Done
+    );
+    let left: Vec<i64> = sqlx::query_scalar("SELECT id FROM jobs ORDER BY id")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(left, vec![other, newer], "удалены {old} и {fatal}");
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
@@ -1267,4 +1307,11 @@ async fn revive_resets_crashes(pool: PgPool) {
         .unwrap();
     assert_eq!(n.len(), 1);
     assert_eq!(job_row(&pool, id).await.crashes, 0);
+}
+
+async fn count_jobs(pool: &PgPool) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM jobs")
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }

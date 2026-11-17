@@ -9,6 +9,7 @@ export const albumKey = (albumId: number) => [...ACQ_ROOT, 'album', albumId] as 
 export const ALBUM_ROOT = [...ACQ_ROOT, 'album'] as const;
 export const downloadsKey = [...ACQ_ROOT, 'downloads'] as const;
 export const jobsKey = [...ACQ_ROOT, 'jobs'] as const;
+export const invariantsKey = [...ACQ_ROOT, 'invariants'] as const;
 
 /** Серия событий — один перезапрос. */
 export const ACQ_REFRESH_DEBOUNCE_MS = 1000;

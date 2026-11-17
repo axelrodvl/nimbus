@@ -987,6 +987,49 @@
         }
       }
     },
+    "/api/jobs/invariants": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "operationId": "job_invariants",
+        "parameters": [
+          {
+            "name": "grace_secs",
+            "in": "query",
+            "description": "Отсрочка в секундах (0–86400, по умолчанию 1800): состояния моложе не считаются застрявшими.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Застрявшие состояния: сущности, которые ждут фоновой работы, а выполнить её некому. Пустой отчёт — норма",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvariantsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Отсрочка вне диапазона (`invalid_grace`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/jobs/{id}/retry": {
       "post": {
         "tags": [
@@ -3711,7 +3754,8 @@
           "version",
           "jobs",
           "providers",
-          "workers"
+          "workers",
+          "stuck"
         ],
         "properties": {
           "db": {
@@ -3740,6 +3784,12 @@
           },
           "status": {
             "type": "string"
+          },
+          "stuck": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Сколько застрявших состояний нашла последняя проверка инвариантов (`GET /api/jobs/invariants`).\nНенулевое значение дольше получаса — дефект: фоновые страховки не справились.",
+            "minimum": 0
           },
           "version": {
             "type": "string"
@@ -3879,6 +3929,65 @@
           },
           "state": {
             "$ref": "#/components/schemas/ImportState"
+          }
+        }
+      },
+      "InvariantSectionDto": {
+        "type": "object",
+        "description": "Нарушения одного инварианта.",
+        "required": [
+          "invariant",
+          "count",
+          "violations"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Сколько нарушителей всего (в `violations` — не больше 50)."
+          },
+          "invariant": {
+            "type": "string"
+          },
+          "violations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViolationDto"
+            }
+          }
+        }
+      },
+      "InvariantsResponse": {
+        "type": "object",
+        "description": "Отчёт проверки «ничего не застряло».",
+        "required": [
+          "checked_at",
+          "grace_secs",
+          "total",
+          "sections"
+        ],
+        "properties": {
+          "checked_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "grace_secs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Сколько секунд состояние может длиться без исполнителя, прежде чем считается застрявшим.",
+            "minimum": 0
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvariantSectionDto"
+            },
+            "description": "Только нарушенные инварианты."
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Общее число нарушений."
           }
         }
       },
@@ -5130,6 +5239,33 @@
           "not_found",
           "ready"
         ]
+      },
+      "ViolationDto": {
+        "type": "object",
+        "description": "Одно застрявшее состояние.",
+        "required": [
+          "invariant",
+          "entity",
+          "id",
+          "detail"
+        ],
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "entity": {
+            "type": "string",
+            "description": "Вид сущности: `album`, `album_torrent`, `cue_candidate`, `job`, `pin`, `track`, `artist`."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "invariant": {
+            "type": "string",
+            "description": "Код инварианта: `I1` … `I12` (расшифровка — `docs/operations.md`, «Застрявшие состояния»)."
+          }
+        }
       },
       "WorkersHealth": {
         "type": "object",

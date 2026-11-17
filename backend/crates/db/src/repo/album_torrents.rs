@@ -250,3 +250,25 @@ pub async fn reset_dead(db: impl PgExecutor<'_>, album_id: i64) -> sqlx::Result<
     .await?
     .rows_affected())
 }
+
+/// Все непроверенные связи `(album_id, torrent_id)`, которые некому проверить: нет активной
+/// `verify_torrent` этой пары и нет активного поиска альбома или его артиста (поиск ставит проверки
+/// сам). Связь и её задача создаются вместе, поэтому непустой результат — потерянная задача
+/// (сорвавшийся хук исчерпания, сбой между `link` и постановкой).
+pub async fn lost_verifies(db: impl PgExecutor<'_>, limit: i64) -> sqlx::Result<Vec<(i64, i64)>> {
+    sqlx::query_as(
+        "SELECT at.album_id, at.torrent_id
+         FROM album_torrents at JOIN albums a ON a.id = at.album_id
+         WHERE NOT at.verified
+           AND NOT EXISTS (SELECT 1 FROM jobs j
+                           WHERE j.state IN ('queued','running')
+                             AND j.dedup_key IN ('verify_torrent:' || at.torrent_id || ':' || at.album_id,
+                                                 'discover_album:' || at.album_id,
+                                                 'discover_artist:' || a.artist_id))
+         ORDER BY at.album_id, at.torrent_id
+         LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(db)
+    .await
+}

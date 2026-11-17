@@ -5,6 +5,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use chrono::{DateTime, Utc};
 use nimbus_core::jobs::PRIORITY_INTERACTIVE;
+use nimbus_db::repo::invariants;
 use nimbus_db::repo::jobs::{self, JobRow, RetryOutcome};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -149,4 +150,110 @@ pub async fn retry_job(
             "an identical job is already active",
         )),
     }
+}
+
+/// Одно застрявшее состояние.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ViolationDto {
+    /// Код инварианта: `I1` … `I12` (расшифровка — `docs/operations.md`, «Застрявшие состояния»).
+    pub invariant: String,
+    /// Вид сущности: `album`, `album_torrent`, `cue_candidate`, `job`, `pin`, `track`, `artist`.
+    pub entity: String,
+    pub id: i64,
+    pub detail: String,
+}
+
+/// Нарушения одного инварианта.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct InvariantSectionDto {
+    pub invariant: String,
+    /// Сколько нарушителей всего (в `violations` — не больше 50).
+    pub count: i64,
+    pub violations: Vec<ViolationDto>,
+}
+
+/// Отчёт проверки «ничего не застряло».
+#[derive(Debug, Serialize, ToSchema)]
+pub struct InvariantsResponse {
+    pub checked_at: DateTime<Utc>,
+    /// Сколько секунд состояние может длиться без исполнителя, прежде чем считается застрявшим.
+    pub grace_secs: u64,
+    /// Общее число нарушений.
+    pub total: i64,
+    /// Только нарушенные инварианты.
+    pub sections: Vec<InvariantSectionDto>,
+}
+
+impl From<invariants::Report> for InvariantsResponse {
+    fn from(r: invariants::Report) -> Self {
+        Self {
+            checked_at: r.checked_at,
+            grace_secs: r.grace_secs,
+            total: r.total,
+            sections: r
+                .sections
+                .into_iter()
+                .map(|s| InvariantSectionDto {
+                    invariant: s.invariant.to_string(),
+                    count: s.count,
+                    violations: s
+                        .violations
+                        .into_iter()
+                        .map(|v| ViolationDto {
+                            invariant: v.invariant.to_string(),
+                            entity: v.entity.to_string(),
+                            id: v.id,
+                            detail: v.detail,
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Отсрочка по умолчанию: столько же, сколько у периодической проверки обслуживания.
+const DEFAULT_GRACE_SECS: u64 = 30 * 60;
+const MAX_GRACE_SECS: u64 = 24 * 3600;
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct InvariantsQuery {
+    /// Отсрочка в секундах (0–86400, по умолчанию 1800): состояния моложе не считаются застрявшими.
+    grace_secs: Option<u64>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/jobs/invariants",
+    tag = "jobs",
+    params(InvariantsQuery),
+    responses(
+        (status = 200, description = "Застрявшие состояния: сущности, которые ждут фоновой работы, а выполнить её некому. Пустой отчёт — норма", body = InvariantsResponse),
+        (status = 400, description = "Отсрочка вне диапазона (`invalid_grace`)", body = ErrorResponse),
+    )
+)]
+pub async fn job_invariants(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<InvariantsQuery>,
+) -> Result<Json<InvariantsResponse>, ApiError> {
+    authorize(&state, &headers)?;
+    let grace = q.grace_secs.unwrap_or(DEFAULT_GRACE_SECS);
+    if grace > MAX_GRACE_SECS {
+        return Err(ApiError::bad_request(
+            "invalid_grace",
+            format!("grace_secs must be between 0 and {MAX_GRACE_SECS}"),
+        ));
+    }
+    let mut params = invariants::Params::new(std::time::Duration::from_secs(grace));
+    params.auto_retry = state.settings.get().search.auto_retry;
+    let report = invariants::check_all(&state.db, &params).await?;
+    // Проверка с обычной отсрочкой заодно обновляет счётчик `GET /api/health` → `stuck`.
+    if grace == DEFAULT_GRACE_SECS {
+        state
+            .worker_stats
+            .set_stuck(u64::try_from(report.total).unwrap_or_default());
+    }
+    Ok(Json(report.into()))
 }

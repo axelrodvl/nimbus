@@ -473,6 +473,9 @@ export const en = {
   'settings.jobsFailed': { one: '{count} failed task', other: '{count} failed tasks' },
   'settings.jobsHint':
     'Server tasks that failed several times: album search, artist import, torrent checks. “Retry” sends a task back to the queue.',
+  'settings.jobsStuck': 'Stuck states: {count}',
+  'settings.jobsStuckHint':
+    'The server is waiting for background work that nothing is going to do. It normally clears up within half an hour; an entry that stays is a bug — attach this list to the report.',
   'settings.languageHint': 'Language of the interface; the music metadata is not translated.',
   'settings.login': 'Username',
   'settings.matchingGroup': 'Matching files to tracks',

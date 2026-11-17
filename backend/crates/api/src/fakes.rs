@@ -136,6 +136,8 @@ pub async fn start(work_dir: &Path) -> anyhow::Result<Fakes> {
             seeder: seeder.clone(),
             made: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         };
+        // Одноразовая фоновая задача тестового режима: завершается сама, отслеживать её незачем.
+        tokio::spawn(seed_catalog(state.clone()));
         let router = Router::new()
             .route("/ws/2/{*path}", get(mb_catalog))
             .route("/torznab/api", get(torznab_catalog))
@@ -379,6 +381,40 @@ async fn mb_catalog(
     }
 }
 
+/// Раздача альбома `(a, b)` в локальном сидере (создаётся один раз); возвращает magnet.
+async fn seed_album(st: &Catalog, a: u32, b: u32) -> anyhow::Result<String> {
+    let mut made = st.made.lock().await;
+    if let Some(m) = made.get(&(a, b)) {
+        return Ok(m.clone());
+    }
+    let name = format!(
+        "{} - {} ({}) [FLAC]",
+        artist_name(a),
+        album_title(b),
+        album_year(b)
+    );
+    let files: Vec<(String, Vec<u8>)> = (1..=st.cfg.tracks_per_album)
+        .map(|t| (format!("{t:02} - Track {t:02}.wav"), sine_wav(1)))
+        .collect();
+    let album = st.seeder.add_album(&name, &files).await?;
+    made.insert((a, b), album.magnet.clone());
+    Ok(album.magnet)
+}
+
+/// Раздаёт все альбомы каталога, у которых есть раздача, не дожидаясь поиска. Настоящие раздающие
+/// не исчезают от перезапуска Nimbus: без этого после рестарта процесса (сидер живёт в нём же)
+/// уже найденные раздачи оставались бы без пиров до следующего поискового запроса.
+async fn seed_catalog(st: Catalog) {
+    let per_artist = u64::from(st.cfg.albums_per_artist);
+    let total = u64::from(st.cfg.swarm_albums).min(u64::from(st.cfg.artists) * per_artist);
+    for ordinal in 0..total {
+        let (a, b) = ((ordinal / per_artist) as u32, (ordinal % per_artist) as u32);
+        if let Err(e) = seed_album(&st, a, b).await {
+            tracing::error!(error = %e, a, b, "fake swarm: cannot seed album torrent");
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct TorznabQuery {
     q: Option<String>,
@@ -412,30 +448,11 @@ async fn torznab_catalog(State(st): State<Catalog>, Query(q): Query<TorznabQuery
     if a >= cfg.artists || b >= cfg.albums_per_artist || ordinal >= u64::from(cfg.swarm_albums) {
         return empty();
     }
-    let magnet = {
-        let mut made = st.made.lock().await;
-        if let Some(m) = made.get(&(a, b)) {
-            m.clone()
-        } else {
-            let name = format!(
-                "{} - {} ({}) [FLAC]",
-                artist_name(a),
-                album_title(b),
-                album_year(b)
-            );
-            let files: Vec<(String, Vec<u8>)> = (1..=cfg.tracks_per_album)
-                .map(|t| (format!("{t:02} - Track {t:02}.wav"), sine_wav(1)))
-                .collect();
-            match st.seeder.add_album(&name, &files).await {
-                Ok(album) => {
-                    made.insert((a, b), album.magnet.clone());
-                    album.magnet
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, "fake swarm: cannot create album torrent");
-                    return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-                }
-            }
+    let magnet = match seed_album(&st, a, b).await {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::error!(error = %e, "fake swarm: cannot create album torrent");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
     let title = format!(

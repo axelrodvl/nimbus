@@ -1655,3 +1655,62 @@ async fn discography_metadata_fetched_once(pool: PgPool) {
         assert!(linked > 0, "у альбома {a} нет источников");
     }
 }
+
+/// Потерянная проверка резервной раздачи: у альбома всё найдено (он не «завис в adding»), связь не
+/// проверена, задачи нет. Страховка обслуживания восстанавливает задачу и у таких альбомов; активные
+/// задачи и идущий поиск она не трогает.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn lost_verify_of_a_found_album_is_reenqueued(pool: PgPool) {
+    use nimbus_worker::verify::{finalize_stuck_albums, requeue_lost_jobs};
+    let s = setup(&pool, &["One", "Two"]).await;
+    let first = add_torrent(&pool, s.album_id, 1, 0.9).await;
+    let fetcher = FakeFetcher::new(vec![(hash(1), Reply::Files(good_files()))]);
+    let (c, _) = ctx(&pool, fetcher);
+    verify_torrent(&c, first, s.album_id).await.unwrap();
+    // Вторая раздача привязана, а её задача потеряна.
+    let lost = add_torrent(&pool, s.album_id, 2, 0.5).await;
+    let active = || async {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM jobs WHERE kind = 'verify_torrent' AND state = 'queued'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    };
+    assert_eq!(active().await, 0);
+
+    // Идёт поиск альбома — он поставит проверку сам.
+    let discover = jobs::enqueue(
+        &pool,
+        &Job::DiscoverAlbum {
+            album_id: s.album_id,
+        },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(requeue_lost_jobs(&c).await.unwrap(), 0);
+    sqlx::query("DELETE FROM jobs WHERE id = $1")
+        .bind(discover)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // Обслуживание (через `finalize_stuck_albums`) возвращает задачу, повтор ничего не добавляет.
+    assert_eq!(
+        finalize_stuck_albums(&c, std::time::Duration::from_secs(3600))
+            .await
+            .unwrap(),
+        0,
+        "зависших альбомов нет"
+    );
+    assert_eq!(active().await, 1);
+    assert_eq!(requeue_lost_jobs(&c).await.unwrap(), 0);
+    let payload: serde_json::Value =
+        sqlx::query_scalar("SELECT payload FROM jobs WHERE kind = 'verify_torrent'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(payload["torrent_id"], lost);
+}

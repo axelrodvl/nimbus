@@ -476,6 +476,9 @@ const messages: Messages = {
   'settings.jobsFailed': { one: '{count} attività fallita', other: '{count} attività fallite' },
   'settings.jobsHint':
     'Attività del server fallite più volte: ricerca album, importazione artisti, verifica torrent. «Riprova» rimette l’attività in coda.',
+  'settings.jobsStuck': 'Stati bloccati: {count}',
+  'settings.jobsStuckHint':
+    'Il server attende un lavoro in background che nessuno eseguirà. Di solito si risolve da solo entro mezz’ora; una voce che rimane è un bug: allega questo elenco alla segnalazione.',
   'settings.languageHint': 'Lingua dell’interfaccia; i metadati musicali non vengono tradotti.',
   'settings.login': 'Nome utente',
   'settings.matchingGroup': 'Abbinamento dei file ai brani',

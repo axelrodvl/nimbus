@@ -49,6 +49,16 @@ impl Job {
     pub const PROCESS_CUE: &'static str = "process_cue";
     pub const EVICT_CACHE: &'static str = "evict_cache";
     pub const RETRY_MISSING: &'static str = "retry_missing";
+    /// Все виды задач (для проверок «у вида есть обработчик»).
+    pub const ALL_KINDS: [&'static str; 7] = [
+        Self::DISCOVER_ALBUM,
+        Self::DISCOVER_ARTIST,
+        Self::IMPORT_ARTIST,
+        Self::VERIFY_TORRENT,
+        Self::PROCESS_CUE,
+        Self::EVICT_CACHE,
+        Self::RETRY_MISSING,
+    ];
 
     pub fn kind(&self) -> &'static str {
         match self {

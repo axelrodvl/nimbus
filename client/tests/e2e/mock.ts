@@ -110,7 +110,7 @@ export async function mockSettings(request: APIRequestContext): Promise<Record<s
  * 925 скачан, 926 ищется; два торрента движка и одна упавшая задача. `pinFail` — закрепление отвечает 500.
  * Вызывать до открытия страницы.
  */
-export async function seedAcquisition(request: APIRequestContext, opts: { pinFail?: boolean } = {}) {
+export async function seedAcquisition(request: APIRequestContext, opts: { pinFail?: boolean; stuck?: boolean } = {}) {
   await request.post(`${MOCK}/__test/acquisition`, { data: opts });
 }
 

@@ -4,6 +4,7 @@ import {
   getAcquisitionSummary,
   getDownloads,
   getFailedJobs,
+  getJobInvariants,
   listAcquisition,
   type AcquisitionPage,
   type AcquisitionState,
@@ -16,6 +17,7 @@ import {
   albumKey,
   downloadsKey,
   ENGINE_POLL_MS,
+  invariantsKey,
   jobsKey,
   listKey,
   summaryKey,
@@ -66,6 +68,15 @@ export const useFailedJobs = (enabled = true) =>
     enabled,
     queryFn: ({ signal }) => getFailedJobs(signal),
     queryKey: jobsKey,
+    staleTime: 30_000,
+  });
+
+/** Застрявшие состояния сервера (проверка инвариантов). */
+export const useJobInvariants = (enabled = true) =>
+  useQuery({
+    enabled,
+    queryFn: ({ signal }) => getJobInvariants(signal),
+    queryKey: invariantsKey,
     staleTime: 30_000,
   });
 

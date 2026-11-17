@@ -157,6 +157,12 @@ export const SCREENS: Screen[] = [
     path: '/',
   },
   ...SETTINGS.map(id => ({ dense: true, name: `settings-${id}`, path: `/settings/${id}` }) satisfies Screen),
+  {
+    dense: true,
+    name: 'settings-jobs-stuck',
+    path: '/settings/jobs',
+    seed: ({ request }) => seedAcquisition(request, { stuck: true }),
+  },
   { dense: true, name: 'downloads-empty', path: '/downloads/attention' },
   { dense: true, name: 'downloads-list', path: '/downloads', seed: ({ request }) => seedAcquisition(request) },
   ...DOWNLOAD_TABS.map(

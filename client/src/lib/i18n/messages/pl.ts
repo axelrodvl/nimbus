@@ -484,6 +484,9 @@ const messages: Messages = {
   },
   'settings.jobsHint':
     'Zadania serwera, które kilka razy się nie powiodły: wyszukiwanie albumów, import wykonawców, sprawdzanie torrentów. „Ponów” zwraca zadanie do kolejki.',
+  'settings.jobsStuck': 'Zablokowane stany: {count}',
+  'settings.jobsStuckHint':
+    'Serwer czeka na pracę w tle, której nikt nie wykona. Zwykle mija to samo w ciągu pół godziny; wpis, który pozostaje, to błąd — dołącz tę listę do zgłoszenia.',
   'settings.languageHint': 'Język interfejsu; metadane muzyczne nie są tłumaczone.',
   'settings.login': 'Nazwa użytkownika',
   'settings.matchingGroup': 'Dopasowanie plików do utworów',

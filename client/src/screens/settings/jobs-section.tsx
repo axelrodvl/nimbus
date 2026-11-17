@@ -7,7 +7,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState } from '@/components/ui/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { retryFailedJob } from '@/lib/acquisition/actions';
-import { useFailedJobs } from '@/lib/acquisition/hooks';
+import { useFailedJobs, useJobInvariants } from '@/lib/acquisition/hooks';
 import { jobKindKey, jobTarget } from '@/lib/acquisition/model';
 import type { JobInfo } from '@/lib/api/acquisition';
 import { apiErrorMessage } from '@/lib/api/error-message';
@@ -83,6 +83,42 @@ function FailedJobs() {
 }
 
 /**
+ * «Застрявшие состояния»: сущности, которые ждут фоновой работы, а выполнить её некому (отчёт проверки
+ * инвариантов сервера). Блок виден, только когда такие есть; действий нет — это сигнал об ошибке сервера.
+ */
+function StuckStates() {
+  const t = useT();
+  const report = useJobInvariants().data;
+  if (!report || report.total === 0) return null;
+  const items = report.sections.flatMap(section => section.violations);
+  return (
+    <section
+      aria-label={t('settings.jobsStuck', { count: report.total })}
+      className="bg-card dark:bg-card-dark flex flex-col gap-2 rounded-2xl px-4 py-4 sm:px-5"
+      data-testid="jobs-stuck"
+    >
+      <h2 className="text-warning-fg text-sm font-semibold">{t('settings.jobsStuck', { count: report.total })}</h2>
+      <p className="text-muted text-xs">{t('settings.jobsStuckHint')}</p>
+      <ul className="flex flex-col">
+        {items.map(item => (
+          <li
+            className="border-divider/70 dark:border-divider-dark/70 flex flex-col gap-0.5 border-b py-2 last:border-b-0"
+            data-testid="stuck-item"
+            key={`${item.invariant}:${item.entity}:${item.id}:${item.detail}`}
+          >
+            <span className="text-sm font-semibold">
+              {/* Технический идентификатор для отчёта об ошибке — не переводится. */}
+              {`${item.invariant} · ${item.entity} #${item.id}`}
+            </span>
+            {item.detail ? <span className="text-muted text-xs break-words">{item.detail}</span> : null}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
  * Раздел настроек «Фоновые задачи»: упавшие задачи сервера — вид, к чему относятся, ошибка, число попыток;
  * «Повторить» возвращает задачу в очередь. Нужна связь с сервером.
  */
@@ -91,6 +127,7 @@ export function JobsSection() {
   return (
     <div className="flex flex-col gap-4" data-testid="settings-jobs">
       <PageHeader description={t('settings.jobsHint')} title={t('settings.jobs')} />
+      <StuckStates />
       <FailedJobs />
     </div>
   );

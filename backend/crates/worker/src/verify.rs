@@ -192,7 +192,7 @@ async fn load_files(ctx: &JobCtx, torrent: &Torrent) -> Result<FileList, JobErro
         MetaStatus::Timeout => {
             if let Some(wait) = ctx.meta_cooldowns.remaining(torrent.id) {
                 return Err(JobError::Retry {
-                    after: wait,
+                    after: ctx.unscaled(wait),
                     reason: format!(
                         "metadata timeout (attempt {}), waiting out the pause",
                         fresh.meta_attempts
@@ -216,7 +216,8 @@ async fn load_files(ctx: &JobCtx, torrent: &Torrent) -> Result<FileList, JobErro
             if t.meta_attempts < MAX_META_ATTEMPTS {
                 torrents::set_meta_status(&ctx.db, t.id, MetaStatus::Timeout, None).await?;
                 // Пауза до следующей попытки — общая для всех задач этой раздачи.
-                ctx.meta_cooldowns.start(t.id, retry_delay(t.meta_attempts));
+                ctx.meta_cooldowns
+                    .start(t.id, ctx.scaled(retry_delay(t.meta_attempts)));
                 Err(JobError::Retry {
                     after: retry_delay(t.meta_attempts),
                     reason: format!("metadata timeout (attempt {})", t.meta_attempts),
@@ -419,26 +420,24 @@ pub(crate) async fn finalize_album(ctx: &JobCtx, album_id: i64) -> Result<(), Jo
 /// Страховка от «зависших» альбомов. У альбома с треками `adding` и без активного поиска
 /// (`discover_album`/`discover_artist`) решение могло не быть принято по двум причинам:
 /// 1. две задачи поиска закончились одновременно, и каждая отложила решение другой;
-/// 2. непроверенной раздаче или неразобранному CUE-образу не хватает задачи (`link` и постановка
-///    идут разными операциями; задачу могли потерять) — тогда `finalize` выходит вечно.
+/// 2. непроверенной раздаче или неразобранному CUE-образу не хватает задачи (её потеряли) —
+///    тогда `finalize` выходит вечно.
 ///
-/// Обслуживание раз в тик для каждого такого альбома сначала восстанавливает недостающие
-/// `verify_torrent`/`process_cue` (`warn` с `album_id` — это сигнал о дыре, а не штатный путь), затем
-/// зовёт `finalize` (он сам проверяет непроверенные раздачи, CUE и активный поиск). Ошибка одного
-/// альбома логируется и не мешает остальным. Возвращает число успешно обработанных альбомов.
+/// Обслуживание раз в тик сначала восстанавливает потерянные `verify_torrent`/`process_cue`
+/// ([`requeue_lost_jobs`] — по всей библиотеке, а не только у зависших альбомов), затем для каждого
+/// зависшего альбома зовёт `finalize` (он сам проверяет непроверенные раздачи, CUE и активный поиск).
+/// Ошибка одного альбома логируется и не мешает остальным. Возвращает число успешно обработанных альбомов.
 pub async fn finalize_stuck_albums(
     ctx: &JobCtx,
     grace: std::time::Duration,
 ) -> Result<usize, JobError> {
+    if let Err(e) = requeue_lost_jobs(ctx).await {
+        tracing::error!(error = %e, "re-enqueueing lost verify/cue jobs failed");
+    }
     let ids = tracks::albums_stuck_in_adding(&ctx.db, grace).await?;
     let mut done = 0;
     for id in ids {
-        let res = async {
-            requeue_lost_jobs(ctx, id).await?;
-            finalize_album(ctx, id).await
-        }
-        .await;
-        match res {
+        match finalize_album(ctx, id).await {
             Ok(()) => done += 1,
             Err(e) => tracing::error!(album_id = id, error = %e, "stuck album handling failed"),
         }
@@ -446,41 +445,49 @@ pub async fn finalize_stuck_albums(
     Ok(done)
 }
 
-/// Ставит `verify_torrent` непроверенным раздачам и `process_cue` неразобранным CUE-образам альбома,
-/// у которых нет активной задачи. Возвращает, сколько задач поставлено.
-async fn requeue_lost_jobs(ctx: &JobCtx, album_id: i64) -> Result<usize, JobError> {
+/// Сколько потерянных задач каждого вида восстанавливается за один проход.
+const LOST_JOBS_BATCH: i64 = 500;
+
+/// Ставит `verify_torrent` непроверенным раздачам и `process_cue` неразобранным CUE-образам, у которых
+/// нет активной задачи (и нет активного поиска, который поставил бы её сам). Штатно связь и её
+/// задача создаются вместе; сюда попадает то, что потеряно: сорвавшийся хук исчерпания (БД была
+/// недоступна), сбой между привязкой раздачи и постановкой проверки. `warn` с `album_id` — сигнал
+/// о дыре, а не штатный путь. Возвращает, сколько задач поставлено.
+pub async fn requeue_lost_jobs(ctx: &JobCtx) -> Result<usize, JobError> {
     let mut n = 0;
-    for torrent_id in album_torrents::unverified_without_job(&ctx.db, album_id).await? {
+    for (album_id, torrent_id) in album_torrents::lost_verifies(&ctx.db, LOST_JOBS_BATCH).await? {
         let job = Job::VerifyTorrent {
             torrent_id,
             album_id,
         };
-        n += usize::from(
-            jobs::enqueue(&ctx.db, &job, EnqueueOpts::priority(PRIORITY_NORMAL))
-                .await?
-                .is_some(),
-        );
+        if jobs::enqueue(&ctx.db, &job, EnqueueOpts::priority(PRIORITY_NORMAL))
+            .await?
+            .is_some()
+        {
+            n += 1;
+            tracing::warn!(album_id, torrent_id, "lost verify_torrent job re-enqueued");
+        }
     }
-    for (torrent_id, cue_file_index) in
-        cue_candidates::pending_without_job(&ctx.db, album_id).await?
+    for (torrent_id, album_id, cue_file_index) in
+        cue_candidates::lost(&ctx.db, LOST_JOBS_BATCH).await?
     {
         let job = Job::ProcessCue {
             torrent_id,
             album_id,
             cue_file_index,
         };
-        n += usize::from(
-            jobs::enqueue(&ctx.db, &job, EnqueueOpts::process_cue(PRIORITY_NORMAL))
-                .await?
-                .is_some(),
-        );
-    }
-    if n > 0 {
-        tracing::warn!(
-            album_id,
-            jobs = n,
-            "lost verify/cue jobs of a stuck album re-enqueued"
-        );
+        if jobs::enqueue(&ctx.db, &job, EnqueueOpts::process_cue(PRIORITY_NORMAL))
+            .await?
+            .is_some()
+        {
+            n += 1;
+            tracing::warn!(
+                album_id,
+                torrent_id,
+                cue_file_index,
+                "lost process_cue job re-enqueued"
+            );
+        }
     }
     Ok(n)
 }

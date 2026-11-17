@@ -147,3 +147,72 @@ async fn retry_of_a_missing_job_is_404(pool: PgPool) {
     let (code, _) = request_json(app, "POST", "/api/jobs/9999/retry", None).await;
     assert_eq!(code, 404);
 }
+
+/// Артист в библиотеке без альбомов и без задачи импорта — нарушение I12.
+async fn orphan_artist(pool: &PgPool) -> i64 {
+    sqlx::query_scalar(
+        "INSERT INTO artists (mbid, name, in_library, added_at)
+         VALUES (gen_random_uuid(), 'Lost', TRUE, now() - interval '2 hours') RETURNING id",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn invariants_report_is_empty_on_a_healthy_database(pool: PgPool) {
+    seed(&pool).await;
+    let (code, v) = get_json(router(state(pool)), "/api/jobs/invariants").await;
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["total"], 0);
+    assert_eq!(v["grace_secs"], 1800);
+    assert!(v["sections"].as_array().unwrap().is_empty());
+    assert!(v["checked_at"].is_string());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn invariants_report_lists_violations_and_feeds_health(pool: PgPool) {
+    let artist_id = orphan_artist(&pool).await;
+    let st = state(pool);
+    let (_, h) = get_json(router(st.clone()), "/api/health").await;
+    assert_eq!(h["stuck"], 0, "до первой проверки");
+
+    let (code, v) = get_json(router(st.clone()), "/api/jobs/invariants").await;
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["total"], 1);
+    let section = &v["sections"][0];
+    assert_eq!(section["invariant"], "I12");
+    assert_eq!(section["count"], 1);
+    assert_eq!(
+        section["violations"][0],
+        serde_json::json!({"invariant": "I12", "entity": "artist", "id": artist_id, "detail": "Lost"})
+    );
+
+    // Проверка с обычной отсрочкой обновляет счётчик в health.
+    let (_, h) = get_json(router(st.clone()), "/api/health").await;
+    assert_eq!(h["stuck"], 1);
+
+    // Отсрочка больше возраста состояния: нарушения нет, а счётчик health не трогается.
+    let (code, v) = get_json(router(st.clone()), "/api/jobs/invariants?grace_secs=86400").await;
+    assert_eq!(code, 200);
+    assert_eq!(v["total"], 0);
+    let (_, h) = get_json(router(st), "/api/health").await;
+    assert_eq!(h["stuck"], 1);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn invariants_grace_out_of_range_is_400(pool: PgPool) {
+    let (code, v) = get_json(router(state(pool)), "/api/jobs/invariants?grace_secs=86401").await;
+    assert_eq!(code, 400, "{v}");
+    assert_eq!(v["error"]["code"], "invalid_grace");
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn invariants_require_a_token_when_auth_is_on(pool: PgPool) {
+    let mut st = state(pool);
+    let mut config = (*st.config).clone();
+    config.api_token = Some("secret".into());
+    st.config = std::sync::Arc::new(config);
+    let (code, _) = get_json(router(st), "/api/jobs/invariants").await;
+    assert_eq!(code, 401);
+}

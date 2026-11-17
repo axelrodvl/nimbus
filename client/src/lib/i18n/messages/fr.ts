@@ -484,6 +484,9 @@ const messages: Messages = {
   'settings.jobsFailed': { one: '{count} tâche en échec', other: '{count} tâches en échec' },
   'settings.jobsHint':
     'Tâches du serveur qui ont échoué plusieurs fois : recherche d’albums, import d’artistes, vérification de torrents. « Réessayer » remet la tâche en file.',
+  'settings.jobsStuck': 'États bloqués : {count}',
+  'settings.jobsStuckHint':
+    'Le serveur attend un travail en arrière-plan que personne ne fera. Cela se résout normalement en une demi-heure ; une entrée qui persiste est un bug : joignez cette liste au rapport.',
   'settings.languageHint': 'Langue de l’interface ; les métadonnées musicales ne sont pas traduites.',
   'settings.login': 'Identifiant',
   'settings.matchingGroup': 'Association des fichiers aux pistes',

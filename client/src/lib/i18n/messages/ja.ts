@@ -476,6 +476,9 @@ const messages: Messages = {
   'settings.jobsFailed': { other: '失敗したタスク {count} 件' },
   'settings.jobsHint':
     '何度か失敗したサーバーのタスク：アルバム検索、アーティストのインポート、トレントの確認。「再試行」でタスクをキューに戻します。',
+  'settings.jobsStuck': '停滞している状態: {count}',
+  'settings.jobsStuckHint':
+    'サーバーが、誰も実行しないバックグラウンド処理を待っています。通常は30分以内に自然に解消されます。残り続ける項目は不具合です。この一覧を報告に添付してください。',
   'settings.languageHint': 'インターフェースの言語です。音楽のメタデータは翻訳されません。',
   'settings.login': 'ユーザー名',
   'settings.matchingGroup': 'ファイルと曲の照合',

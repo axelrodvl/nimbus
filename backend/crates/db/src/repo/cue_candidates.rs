@@ -140,3 +140,21 @@ pub async fn pending_without_job(
     .fetch_all(db)
     .await
 }
+
+/// Все неразобранные CUE-образы `(torrent_id, album_id, cue_file_index)` без активной `process_cue`
+/// (кандидат и задача создаются одной транзакцией — значит, задачу потеряли).
+pub async fn lost(db: impl PgExecutor<'_>, limit: i64) -> sqlx::Result<Vec<(i64, i64, i32)>> {
+    sqlx::query_as(
+        "SELECT c.torrent_id, c.album_id, c.cue_file_index FROM cue_candidates c
+         WHERE NOT c.processed
+           AND NOT EXISTS (SELECT 1 FROM jobs j
+                           WHERE j.state IN ('queued','running')
+                             AND j.dedup_key = 'process_cue:' || c.torrent_id || ':' || c.album_id
+                                               || ':' || c.cue_file_index)
+         ORDER BY c.album_id, c.torrent_id, c.cue_file_index
+         LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(db)
+    .await
+}

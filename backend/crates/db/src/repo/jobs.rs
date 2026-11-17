@@ -166,6 +166,9 @@ pub enum Completion {
 /// перехватили (`requeue_stale` вернул её в очередь и взял другой воркер), строка не меняется
 /// ([`Completion::Lost`]). Если во время выполнения пришёл повторный запрос (`rerun`), задача
 /// ставится в очередь заново с нулём попыток ([`Completion::Requeued`]).
+///
+/// Успех (`done`) заодно удаляет более ранние `failed`-строки того же `dedup_key`: работа сделана,
+/// прежняя неудача больше ничего не значит — ни для списка «Фоновые задачи», ни для оживления.
 pub async fn complete(
     db: impl PgExecutor<'_>,
     id: i64,
@@ -180,7 +183,11 @@ pub async fn complete(
                 rerun = FALSE, deferred_since = NULL,
                 locked_at = NULL, locked_by = NULL, heartbeat_at = NULL, updated_at = now()
             WHERE id = $1 AND state = 'running' AND locked_by = $2
-            RETURNING id, state
+            RETURNING id, state, dedup_key
+         ), superseded AS (
+            DELETE FROM jobs f USING upd
+            WHERE upd.state = 'done' AND f.state = 'failed'
+              AND f.dedup_key = upd.dedup_key AND f.id < upd.id
          )
          SELECT upd.state FROM upd
          LEFT JOIN LATERAL (SELECT pg_notify('jobs', upd.id::text) WHERE upd.state = 'queued') n ON TRUE",

@@ -52,6 +52,9 @@ pub struct JobCtx {
     /// Паузы по раздаче после таймаута метаданных: пока пауза расписания не прошла, ни одна задача
     /// не делает новый запрос (у дискографии задач больше, чем воркеров проверки).
     pub meta_cooldowns: Arc<crate::keyed_locks::Cooldowns>,
+    /// Масштаб пауз повторов (`WorkerConfig::time_scale`; выставляет раннер). Нужен обработчикам,
+    /// которые сами отсчитывают паузу ([`JobCtx::scaled`]).
+    pub time_scale: f64,
 }
 
 impl JobCtx {
@@ -80,6 +83,7 @@ impl JobCtx {
             priority: nimbus_core::jobs::PRIORITY_NORMAL,
             meta_locks: Arc::default(),
             meta_cooldowns: Arc::default(),
+            time_scale: 1.0,
         }
     }
 
@@ -135,6 +139,17 @@ impl JobCtx {
             _ = self.cancel.cancelled() => Err(JobError::Cancelled),
             v = fut => Ok(v),
         }
+    }
+
+    /// Пауза с учётом масштаба времени: обработчик отсчитывает её сам (не через `JobError::Retry`).
+    pub fn scaled(&self, d: Duration) -> Duration {
+        d.mul_f64(self.time_scale)
+    }
+
+    /// Обратное к [`JobCtx::scaled`]: реальное время ожидания → пауза для `JobError::Retry`
+    /// (раннер масштабирует её обратно).
+    pub fn unscaled(&self, d: Duration) -> Duration {
+        d.div_f64(self.time_scale)
     }
 
     /// Последняя ли это попытка (после неё задача получит статус `failed`).
@@ -235,6 +250,13 @@ pub struct WorkerConfig {
     pub failed_retention: Duration,
     /// Сколько падений процесса задача переживает при старте, прежде чем стать `failed` (B07).
     pub max_crashes: i32,
+    /// Как часто проверять инварианты «ничего не застряло» (`None` — не проверять).
+    pub invariants_interval: Option<Duration>,
+    /// Сколько состояние «в процессе» может длиться без исполнителя, прежде чем попадёт в отчёт.
+    pub invariants_grace: Duration,
+    /// Множитель пауз, которые назначают обработчики (`JobError::Retry` / `Defer`, пауза между
+    /// запросами метаданных раздачи). В боевом процессе — 1; тесты сжимают минуты в миллисекунды.
+    pub time_scale: f64,
 }
 
 impl Default for WorkerConfig {
@@ -247,7 +269,7 @@ impl Default for WorkerConfig {
             stale_after: Duration::from_secs(90),
             maintenance_interval: Duration::from_secs(60),
             done_retention: Duration::from_secs(7 * 24 * 3600),
-            stuck_grace: Duration::from_secs(10 * 60),
+            stuck_grace: Duration::from_secs(2 * 60),
             tombstone_retention: nimbus_db::repo::sync::TOMBSTONE_RETENTION,
             shutdown_timeout: Duration::from_secs(10),
             evict_interval: Some(Duration::from_secs(10 * 60)),
@@ -261,6 +283,9 @@ impl Default for WorkerConfig {
             ],
             failed_retention: Duration::from_secs(30 * 24 * 3600),
             max_crashes: 3,
+            invariants_interval: Some(Duration::from_secs(10 * 60)),
+            invariants_grace: Duration::from_secs(30 * 60),
+            time_scale: 1.0,
         }
     }
 }
@@ -282,6 +307,8 @@ pub struct WorkerStats {
     workers: Arc<AtomicU64>,
     maintenance: Arc<AtomicU64>,
     listener: Arc<AtomicU64>,
+    /// Число нарушений инвариантов по последней проверке (`repo::invariants`).
+    stuck: Arc<AtomicU64>,
 }
 
 /// Снимок [`WorkerStats`].
@@ -306,6 +333,16 @@ impl WorkerStats {
             maintenance: self.maintenance.load(Ordering::Relaxed),
             listener: self.listener.load(Ordering::Relaxed),
         }
+    }
+
+    /// Сколько застрявших состояний нашла последняя проверка инвариантов (0 — до первой проверки).
+    pub fn stuck(&self) -> u64 {
+        self.stuck.load(Ordering::Relaxed)
+    }
+
+    /// Запоминает итог проверки инвариантов.
+    pub fn set_stuck(&self, total: u64) {
+        self.stuck.store(total, Ordering::Relaxed);
     }
 }
 
@@ -378,6 +415,7 @@ impl WorkerPool {
     ) -> Self {
         let token = CancellationToken::new();
         ctx.cancel = token.child_token();
+        ctx.time_scale = cfg.time_scale;
         let notify = Arc::new(Notify::new());
         let cfg = Arc::new(cfg);
         let mut tasks = JoinSet::new();
@@ -404,13 +442,21 @@ impl WorkerPool {
             ));
         }
         {
-            let (ctx, cfg, tk) = (ctx.clone(), cfg.clone(), token.clone());
+            let (ctx, cfg, tk, st) = (ctx.clone(), cfg.clone(), token.clone(), stats.clone());
             tasks.spawn(supervise(
                 "maintenance",
                 token.clone(),
                 pause,
                 stats.maintenance.clone(),
-                move || maintenance_loop(ctx.clone(), by_kind.clone(), cfg.clone(), tk.clone()),
+                move || {
+                    maintenance_loop(
+                        ctx.clone(),
+                        by_kind.clone(),
+                        cfg.clone(),
+                        tk.clone(),
+                        st.clone(),
+                    )
+                },
             ));
         }
 
@@ -574,8 +620,8 @@ const SYNC_PURGE_EVERY: Duration = Duration::from_secs(24 * 3600);
 struct MaintClock {
     purge: std::time::Instant,
     sync_purge: std::time::Instant,
-    imports: std::time::Instant,
     evict: std::time::Instant,
+    invariants: std::time::Instant,
     retry_missing: std::time::Instant,
 }
 
@@ -584,12 +630,13 @@ async fn maintenance_loop(
     handlers: HandlerMap,
     cfg: Arc<WorkerConfig>,
     token: CancellationToken,
+    stats: WorkerStats,
 ) {
     let mut clock = MaintClock {
         purge: std::time::Instant::now() - Duration::from_secs(24 * 3600),
         sync_purge: std::time::Instant::now() - SYNC_PURGE_EVERY,
-        imports: std::time::Instant::now() - Duration::from_secs(24 * 3600),
         evict: std::time::Instant::now(),
+        invariants: std::time::Instant::now(),
         retry_missing: std::time::Instant::now(),
     };
     loop {
@@ -598,10 +645,17 @@ async fn maintenance_loop(
         guarded("finalize_stuck_albums", finalize_stuck_step(&ctx, &cfg)).await;
         guarded("purge", purge_step(&ctx, &cfg, &mut clock)).await;
         guarded("sync_purge", sync_purge_step(&ctx, &cfg, &mut clock)).await;
-        guarded("missing_imports", missing_imports_step(&ctx, &mut clock)).await;
+        guarded("promote_completed", promote_completed_step(&ctx)).await;
+        guarded("missing_imports", missing_imports_step(&ctx)).await;
         guarded(
             "enqueue_periodic",
             enqueue_periodic_step(&ctx, &cfg, &mut clock),
+        )
+        .await;
+        // Последним: отчёт должен видеть состояние после страховок этого же тика.
+        guarded(
+            "invariants",
+            invariants_step(&ctx, &handlers, &cfg, &stats, &mut clock),
         )
         .await;
         if sleep_or_cancel(cfg.maintenance_interval, &token).await {
@@ -678,15 +732,11 @@ async fn purge_step(ctx: &JobCtx, cfg: &WorkerConfig, clock: &mut MaintClock) {
 
 /// Сколько артист может быть в библиотеке без альбомов и без задачи импорта, прежде чем
 /// страховка поставит импорт сама.
-const IMPORT_GRACE: Duration = Duration::from_secs(15 * 60);
+const IMPORT_GRACE: Duration = Duration::from_secs(2 * 60);
 
-/// Раз в час: артисты в библиотеке без альбомов и без задачи `import_artist` (потерянная
-/// постановка) получают импорт.
-async fn missing_imports_step(ctx: &JobCtx, clock: &mut MaintClock) {
-    if clock.imports.elapsed() <= Duration::from_secs(3600) {
-        return;
-    }
-    clock.imports = std::time::Instant::now();
+/// Артисты в библиотеке без альбомов и без задачи `import_artist` (потерянная постановка)
+/// получают импорт.
+async fn missing_imports_step(ctx: &JobCtx) {
     let ids = match nimbus_db::repo::artists::without_import(&ctx.db, IMPORT_GRACE).await {
         Ok(ids) => ids,
         Err(e) => {
@@ -702,6 +752,70 @@ async fn missing_imports_step(ctx: &JobCtx, clock: &mut MaintClock) {
         if let Err(e) = nimbus_library::enqueue_import_in(&ctx.db, id).await {
             tracing::error!(artist_id = id, error = %e, "cannot enqueue artist import");
         }
+    }
+}
+
+/// Треки `found`, чей primary-файл уже докачан, становятся `ready`: наблюдатель загрузок делает
+/// это только в момент завершения файла, а primary мог смениться на готовый файл позже.
+async fn promote_completed_step(ctx: &JobCtx) {
+    match nimbus_db::repo::tracks::promote_found_with_completed_file(&ctx.db).await {
+        Ok(tracks) => {
+            for t in tracks {
+                tracing::warn!(
+                    track_id = t.id,
+                    "track of a completed file was `found`; marked ready"
+                );
+                ctx.events.publish(nimbus_core::events::Event::TrackStatus {
+                    track_id: t.id,
+                    album_id: t.album_id,
+                    status: t.status,
+                    reason: t.status_reason.clone(),
+                });
+            }
+        }
+        Err(e) => tracing::error!(error = %e, "promoting tracks of completed files failed"),
+    }
+}
+
+/// Раз в `invariants_interval`: проверка инвариантов «ничего не застряло». Только отчёт (`warn` по
+/// каждому нарушенному инварианту и счётчик для `GET /api/health`): чинят страховки, а отчёт
+/// показывает, что они не справились.
+async fn invariants_step(
+    ctx: &JobCtx,
+    handlers: &HandlerMap,
+    cfg: &WorkerConfig,
+    stats: &WorkerStats,
+    clock: &mut MaintClock,
+) {
+    let Some(interval) = cfg.invariants_interval else {
+        return;
+    };
+    if clock.invariants.elapsed() < interval {
+        return;
+    }
+    clock.invariants = std::time::Instant::now();
+    let params = nimbus_db::repo::invariants::Params {
+        grace: cfg.invariants_grace,
+        stale_after: cfg.stale_after,
+        revive_max: cfg.revive_delays.iter().copied().max().unwrap_or_default(),
+        known_kinds: handlers.keys().map(ToString::to_string).collect(),
+        auto_retry: ctx.settings.get().search.auto_retry,
+    };
+    match nimbus_db::repo::invariants::check_all(&ctx.db, &params).await {
+        Ok(report) => {
+            stats.set_stuck(u64::try_from(report.total).unwrap_or_default());
+            for s in &report.sections {
+                let ids: Vec<i64> = s.violations.iter().take(10).map(|v| v.id).collect();
+                tracing::warn!(
+                    invariant = s.invariant,
+                    count = s.count,
+                    entity = s.violations.first().map(|v| v.entity).unwrap_or_default(),
+                    ?ids,
+                    "stuck state detected: a background safety net did not fix it"
+                );
+            }
+        }
+        Err(e) => tracing::error!(error = %e, "invariants check failed"),
     }
 }
 
@@ -967,6 +1081,7 @@ async fn process(
             return;
         }
         Ok(Err(JobError::Defer { after, reason })) => {
+            let after = after.mul_f64(cfg.time_scale);
             let retry_at = Utc::now() + chrono::Duration::from_std(after).unwrap_or_default();
             tracing::info!(job_id = row.id, kind = %row.kind, %reason, ?after, "job deferred");
             match jobs::defer(&ctx.db, row.id, worker_id, &reason, retry_at, DEFER_MAX_AGE).await {
@@ -979,7 +1094,7 @@ async fn process(
             }
             return;
         }
-        Ok(Err(JobError::Retry { after, reason })) => (reason, Some(after)),
+        Ok(Err(JobError::Retry { after, reason })) => (reason, Some(after.mul_f64(cfg.time_scale))),
         Ok(Err(JobError::Fatal(reason))) => (reason, None),
         Ok(Err(JobError::Unexpected(reason))) => (reason, Some(cfg.backoff(row.attempts))),
         Err(join_err) => (

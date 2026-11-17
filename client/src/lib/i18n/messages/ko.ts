@@ -473,6 +473,9 @@ const messages: Messages = {
   'settings.jobsFailed': { other: '실패한 작업 {count}개' },
   'settings.jobsHint':
     '여러 번 실패한 서버 작업: 앨범 검색, 아티스트 가져오기, 토렌트 확인. "다시 시도"하면 작업이 대기열로 돌아갑니다.',
+  'settings.jobsStuck': '멈춘 상태: {count}',
+  'settings.jobsStuckHint':
+    '서버가 아무도 수행하지 않을 백그라운드 작업을 기다리고 있습니다. 보통 30분 안에 저절로 해결됩니다. 계속 남아 있는 항목은 버그이므로 이 목록을 보고서에 첨부하세요.',
   'settings.languageHint': '인터페이스 언어이며, 음악 메타데이터는 번역되지 않습니다.',
   'settings.login': '사용자 이름',
   'settings.matchingGroup': '파일과 트랙 매칭',

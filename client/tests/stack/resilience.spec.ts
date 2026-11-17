@@ -1,3 +1,4 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { api, artistMbid, compose, health, sleep, sql, token, waitFor, waitHealthy } from './stack-util';
 
@@ -8,7 +9,8 @@ import { api, artistMbid, compose, health, sleep, sql, token, waitFor, waitHealt
 const ALBUMS = 15;
 const TRACKS = 12;
 const num = async (q: string) => Number((await sql(q))[0]?.[0] ?? 0);
-const runnable = () => num(`select count(*) from jobs where state='running' or (state='queued' and run_after <= now())`);
+const runnable = () =>
+  num(`select count(*) from jobs where state='running' or (state='queued' and run_after <= now())`);
 const addArtist = async (i: number) =>
   expect([200, 201, 202]).toContain(
     (await api('/api/library', { method: 'POST', json: { type: 'artist', mbid: await artistMbid(i) } })).status,
@@ -68,11 +70,10 @@ test('остановка БД на 20 с: бэкенд жив, API отвеча�
   await waitHealthy();
   const restartsBefore = (await compose(['ps', '-q', 'nimbus'])).trim();
   await compose(['stop', 'db']);
-  await waitFor(
-    'API 503 while db is down',
-    async () => (await api('/api/library/artists?limit=1')).status === 503,
-    { timeoutMs: 60_000, intervalMs: 500 },
-  );
+  await waitFor('API 503 while db is down', async () => (await api('/api/library/artists?limit=1')).status === 503, {
+    timeoutMs: 60_000,
+    intervalMs: 500,
+  });
   expect((await health()).status).not.toBe(0); // процесс отвечает
   await sleep(20_000);
   await compose(['start', 'db']);
@@ -92,7 +93,9 @@ test('остановка БД на 20 с: бэкенд жив, API отвеча�
   await settled(before + ALBUMS * TRACKS);
 });
 
-test('остановка бэкенда на минуту: клиент работает локально и синхронизируется дельтой, не снимком', async ({ page }) => {
+test('остановка бэкенда на минуту: клиент работает локально и синхронизируется дельтой, не снимком', async ({
+  page,
+}) => {
   await page.goto('/login');
   await page.getByLabel('Токен доступа').fill(token);
   await page.getByRole('button', { name: 'Войти' }).click();
@@ -147,4 +150,122 @@ test('NIMBUS_FAKE_FAILURE_RATE=0.3: всё, что есть в раздачах,
   expect(await num(`select count(*) from tracks where status in ('found','ready')`)).toBe(swarmAlbums * TRACKS);
   // Остальное — «нет раздач», а не «не смогли спросить».
   expect(await num(`select count(*) from tracks where status='not_found' and status_reason <> 'no_torrents'`)).toBe(0);
+});
+
+// Сценарий (е), ревью B14: «всё доводится до конца». Отказы внешних сервисов (30 %), два SIGKILL бэкенда посреди
+// импорта и закреплённых загрузок, остановка БД — после чего сервер сам приходит в состояние без застрявших
+// сущностей: отчёт инвариантов пуст, очередь разобрана, всё закреплённое скачано. Руками ничего не чинится:
+// тест только «проматывает время» (сдвигает в БД отложенные повторы, как это сделали бы часы).
+test('(е) отказы, два SIGKILL и остановка БД: инварианты выполнены, очередь разобрана, закреплённое скачано', async () => {
+  test.setTimeout(50 * 60_000);
+  const NEW = [20, 21, 22, 23, 24, 25];
+  await compose(['up', '-d', '--force-recreate', 'nimbus'], {
+    NIMBUS_FAKE_ARTISTS: '26',
+    NIMBUS_FAKE_FAILURE_RATE: '0.3',
+  });
+  await waitHealthy(180_000);
+  const started = Date.now();
+  const before = await num('select count(*) from tracks');
+  const albumsBefore = await num('select count(*) from albums');
+
+  // Загрузки: шесть альбомов, у которых есть раздача и треки уже найдены; импорт: шесть новых артистов.
+  const albums = (
+    await sql(
+      `select a.id from albums a where not exists (select 1 from tracks t where t.album_id = a.id and t.status not in ('found','ready'))
+         and exists (select 1 from tracks t where t.album_id = a.id and t.status = 'found') order by a.id limit 6`,
+    )
+  ).map(r => Number(r[0]));
+  expect(albums.length).toBeGreaterThan(0);
+  for (const id of albums) expect((await api(`/api/albums/${id}/download`, { method: 'POST' })).status).toBe(200);
+  for (const i of NEW) await addArtist(i);
+
+  const kill = async () => {
+    await compose(['kill', '-s', 'KILL', 'nimbus']);
+    await compose(['start', 'nimbus']);
+    await waitHealthy(180_000);
+  };
+  await waitFor('work in progress', async () => (await num(`select count(*) from jobs where state='running'`)) > 0, {
+    intervalMs: 50,
+  });
+  await kill();
+  await waitFor(
+    'work resumed after the first kill',
+    async () => (await num(`select count(*) from jobs where state='running'`)) > 0,
+    { timeoutMs: 5 * 60_000, intervalMs: 100 },
+  );
+  await kill();
+
+  // БД пропадает на 20 секунд посреди работы.
+  await compose(['stop', 'db']);
+  await sleep(20_000);
+  await compose(['start', 'db']);
+  await waitHealthy(180_000);
+
+  // «Часы»: отложенные повторы задач и закреплений наступают сейчас; альбомам, поиск которых сорвали отказы
+  // провайдера, — тоже (альбомы без раздач ждут своего расписания: это не застревание).
+  const fastForward = async () => {
+    await sql(`update jobs set run_after = now() where state = 'queued' and run_after > now()`);
+    await sql(`update pinned_tracks set next_retry_at = now() where state = 'failed' and next_retry_at > now()`);
+    // Упавший импорт оживает через 15 минут — 6 часов; для «часов» эти паузы уже прошли.
+    await sql(
+      `update jobs set updated_at = now() - interval '2 days'
+         where state = 'failed' and not fatal and kind in ('import_artist','discover_artist')`,
+    );
+    await sql(
+      `update album_search_state set next_retry_at = now()
+         where next_retry_at > now() and (last_outcome = 'search_failed' or provider_errors <> '[]'::jsonb)`,
+    );
+  };
+  type Report = { total: number; sections: { invariant: string; count: number }[] };
+  let last: unknown;
+  await waitFor(
+    'everything converged',
+    async () => {
+      await fastForward();
+      const report = (await api<Report>('/api/jobs/invariants?grace_secs=0')).body;
+      const busy = await num(
+        `select count(*) from jobs where state in ('queued','running') and kind not in ('retry_missing','evict_cache')`,
+      );
+      const adding = await num(`select count(*) from tracks where status = 'adding'`);
+      const pinsOpen = await num(`select count(*) from pinned_tracks where state <> 'done'`);
+      const imported = (await num('select count(*) from tracks')) - before;
+      last = { adding, busy, imported, pinsOpen, sections: report.sections?.map(s => `${s.invariant}:${s.count}`) };
+      return (
+        report.total === 0 && busy === 0 && adding === 0 && pinsOpen === 0 && imported === NEW.length * ALBUMS * TRACKS
+      );
+    },
+    { timeoutMs: 40 * 60_000, intervalMs: 5000 },
+  ).catch(e => {
+    throw new Error(`${String(e)}; last state: ${JSON.stringify(last)}`);
+  });
+
+  // Проверка с обычной отсрочкой обновляет счётчик health.
+  expect((await api<Report>('/api/jobs/invariants')).body.total).toBe(0);
+  expect(((await health()).body as { stuck?: number }).stuck).toBe(0);
+  expect(await num(`select count(*) from pinned_tracks where state = 'done'`)).toBeGreaterThan(0);
+  expect((await num(`select count(*) from albums`)) - albumsBefore).toBe(NEW.length * ALBUMS);
+  // Нерешённых неудач нет: упавшее либо оживлено, либо заменено успешной задачей.
+  expect(await num(`select count(*) from jobs where state = 'failed' and not fatal`)).toBe(0);
+
+  // Цифры для Журнала (test-results/load/convergence.json): время схождения и сколько раз понадобились страховки.
+  const logs = await compose(['logs', '--no-color', 'nimbus']);
+  const hits = (re: RegExp) => logs.split('\n').filter(l => re.test(l)).length;
+  mkdirSync('test-results/load', { recursive: true });
+  writeFileSync(
+    'test-results/load/convergence.json',
+    JSON.stringify(
+      {
+        converged_seconds: Math.round((Date.now() - started) / 1000),
+        lost_jobs_reenqueued: hits(/lost (verify_torrent|process_cue) job re-enqueued/),
+        orphans_requeued: hits(/returned orphaned running jobs/),
+        revived: hits(/failed job revived/),
+        stale_requeued: hits(/requeued stale jobs/),
+        stuck_albums_finalized: hits(/finalized albums stuck in adding/),
+        stuck_reports: hits(/stuck state detected/),
+        tracks_promoted: hits(/was .found.; marked ready/),
+      },
+      null,
+      2,
+    ),
+  );
 });

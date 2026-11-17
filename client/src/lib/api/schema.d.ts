@@ -388,6 +388,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/invariants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["job_invariants"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{id}/retry": {
         parameters: {
             query?: never;
@@ -1259,6 +1275,12 @@ export interface components {
             /** @description Провайдеры торрентов и состояние их предохранителей. */
             providers: components["schemas"]["ProviderHealthDto"][];
             status: string;
+            /**
+             * Format: int64
+             * @description Сколько застрявших состояний нашла последняя проверка инвариантов (`GET /api/jobs/invariants`).
+             *     Ненулевое значение дольше получаса — дефект: фоновые страховки не справились.
+             */
+            stuck: number;
             version: string;
             /** @description Фоновые воркеры очереди. */
             workers: components["schemas"]["WorkersHealth"];
@@ -1307,6 +1329,33 @@ export interface components {
              */
             retry_at?: string | null;
             state: components["schemas"]["ImportState"];
+        };
+        /** @description Нарушения одного инварианта. */
+        InvariantSectionDto: {
+            /**
+             * Format: int64
+             * @description Сколько нарушителей всего (в `violations` — не больше 50).
+             */
+            count: number;
+            invariant: string;
+            violations: components["schemas"]["ViolationDto"][];
+        };
+        /** @description Отчёт проверки «ничего не застряло». */
+        InvariantsResponse: {
+            /** Format: date-time */
+            checked_at: string;
+            /**
+             * Format: int64
+             * @description Сколько секунд состояние может длиться без исполнителя, прежде чем считается застрявшим.
+             */
+            grace_secs: number;
+            /** @description Только нарушенные инварианты. */
+            sections: components["schemas"]["InvariantSectionDto"][];
+            /**
+             * Format: int64
+             * @description Общее число нарушений.
+             */
+            total: number;
         };
         /** @description Сколько задач в каждом активном состоянии (`done` не считаются). */
         JobCountsDto: {
@@ -1724,6 +1773,16 @@ export interface components {
         };
         /** @enum {string} */
         TrackStatus: "adding" | "found" | "not_found" | "ready";
+        /** @description Одно застрявшее состояние. */
+        ViolationDto: {
+            detail: string;
+            /** @description Вид сущности: `album`, `album_torrent`, `cue_candidate`, `job`, `pin`, `track`, `artist`. */
+            entity: string;
+            /** Format: int64 */
+            id: number;
+            /** @description Код инварианта: `I1` … `I12` (расшифровка — `docs/operations.md`, «Застрявшие состояния»). */
+            invariant: string;
+        };
         WorkersHealth: {
             /**
              * Format: int64
@@ -2512,6 +2571,38 @@ export interface operations {
                 };
             };
             /** @description Неизвестное состояние (`invalid_state`) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    job_invariants: {
+        parameters: {
+            query?: {
+                /** @description Отсрочка в секундах (0–86400, по умолчанию 1800): состояния моложе не считаются застрявшими. */
+                grace_secs?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Застрявшие состояния: сущности, которые ждут фоновой работы, а выполнить её некому. Пустой отчёт — норма */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvariantsResponse"];
+                };
+            };
+            /** @description Отсрочка вне диапазона (`invalid_grace`) */
             400: {
                 headers: {
                     [name: string]: unknown;

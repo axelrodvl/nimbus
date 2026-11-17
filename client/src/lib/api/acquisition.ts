@@ -12,6 +12,8 @@ export type PinState = Schemas['PinState'];
 export type EngineTorrent = Schemas['DownloadDto'];
 export type DownloadsOverview = Schemas['DownloadsResponse'];
 export type JobInfo = Schemas['JobDto'];
+export type InvariantsReport = Schemas['InvariantsResponse'];
+export type StuckState = Schemas['ViolationDto'];
 export type RetryAcquisitionBody = Schemas['RetryAcquisitionRequest'];
 
 /** Размер страницы списка альбомов. */
@@ -58,6 +60,14 @@ export async function getDownloads(signal?: AbortSignal, client: Client = defaul
 /** `GET /api/jobs?state=failed`. */
 export async function getFailedJobs(signal?: AbortSignal, client: Client = defaultClient) {
   return unwrap(await client.GET('/api/jobs', { params: { query: { limit: 200, state: 'failed' } }, signal }));
+}
+
+/** `GET /api/jobs/invariants`: застрявшие состояния (пустой отчёт — норма). */
+export async function getJobInvariants(
+  signal?: AbortSignal,
+  client: Client = defaultClient,
+): Promise<InvariantsReport> {
+  return unwrap(await client.GET('/api/jobs/invariants', { signal }));
 }
 
 /** `POST /api/jobs/{id}/retry`. */

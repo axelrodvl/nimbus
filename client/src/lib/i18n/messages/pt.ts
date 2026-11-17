@@ -475,6 +475,9 @@ const messages: Messages = {
   'settings.jobsFailed': { one: '{count} tarefa com falha', other: '{count} tarefas com falha' },
   'settings.jobsHint':
     'Tarefas do servidor que falharam várias vezes: busca de álbuns, importação de artistas, verificação de torrents. “Tentar de novo” devolve a tarefa à fila.',
+  'settings.jobsStuck': 'Estados presos: {count}',
+  'settings.jobsStuckHint':
+    'O servidor aguarda um trabalho em segundo plano que ninguém vai executar. Normalmente resolve-se sozinho em meia hora; uma entrada que permanece é um erro: anexe esta lista ao relatório.',
   'settings.languageHint': 'Idioma da interface; os metadados da música não são traduzidos.',
   'settings.login': 'Usuário',
   'settings.matchingGroup': 'Correspondência de arquivos e faixas',

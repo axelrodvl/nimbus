@@ -37,6 +37,7 @@ vi.mock('@/lib/api/acquisition', async importOriginal => ({
   getAcquisitionSummary: vi.fn(),
   getDownloads: vi.fn(),
   getFailedJobs: vi.fn(),
+  getJobInvariants: vi.fn(),
   listAcquisition: vi.fn(),
   pinAlbumRequest: vi.fn(),
   retryAcquisitionRequest: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn(), warning: v
 
 const m = {
   downloads: vi.mocked(api.getDownloads),
+  invariants: vi.mocked(api.getJobInvariants),
   jobs: vi.mocked(api.getFailedJobs),
   list: vi.mocked(api.listAcquisition),
   pin: vi.mocked(api.pinAlbumRequest),
@@ -89,6 +91,7 @@ beforeEach(() => {
   m.summary.mockResolvedValue(summary({ missing: 2, available: 1 }));
   m.downloads.mockResolvedValue(overview());
   m.jobs.mockResolvedValue({ counts: { failed: 0, queued: 0, running: 0 }, jobs: [] });
+  m.invariants.mockResolvedValue({ checked_at: '2026-11-17T00:00:00Z', grace_secs: 1800, sections: [], total: 0 });
   serve({ 'missing,partial': [item(1), item(2)] });
 });
 afterEach(() => restore());
@@ -542,6 +545,43 @@ describe('«Торренты» и фоновые задачи (в настрой
     await waitFor(() => expect(m.retryJob).toHaveBeenCalledWith(1));
     await waitFor(() => expect(screen.queryByTestId('job-1')).not.toBeInTheDocument());
     expect(screen.getByTestId('job-2')).toBeInTheDocument();
+  });
+
+  it('застрявшие состояния: блок скрыт, пока отчёт пуст', async () => {
+    open('/settings/jobs');
+    expect(await screen.findByText(L('acq.empty.jobs'))).toBeInTheDocument();
+    await waitFor(() => expect(m.invariants).toHaveBeenCalled());
+    expect(screen.queryByTestId('jobs-stuck')).not.toBeInTheDocument();
+  });
+
+  it('застрявшие состояния: число и список (инвариант, сущность, id, подробность)', async () => {
+    m.invariants.mockResolvedValue({
+      checked_at: '2026-11-17T00:00:00Z',
+      grace_secs: 1800,
+      sections: [
+        {
+          count: 2,
+          invariant: 'I1',
+          violations: [
+            { detail: 'tracks in adding: 2', entity: 'album', id: 7, invariant: 'I1' },
+            { detail: 'tracks in adding: 1', entity: 'album', id: 8, invariant: 'I1' },
+          ],
+        },
+        { count: 1, invariant: 'I8', violations: [{ detail: '', entity: 'pin', id: 31, invariant: 'I8' }] },
+      ],
+      total: 3,
+    });
+    open('/settings/jobs');
+    const block = await screen.findByTestId('jobs-stuck');
+    expect(within(block).getByRole('heading')).toHaveTextContent(L('settings.jobsStuck', { count: 3 }));
+    expect(block).toHaveTextContent(L('settings.jobsStuckHint'));
+    const items = within(block).getAllByTestId('stuck-item');
+    expect(items).toHaveLength(3);
+    expect(items[0]).toHaveTextContent('I1 · album #7');
+    expect(items[0]).toHaveTextContent('tracks in adding: 2');
+    expect(items[2]).toHaveTextContent('I8 · pin #31');
+    // Упавших задач нет — их подсказка на месте: блоки независимы.
+    expect(screen.getByText(L('acq.empty.jobs'))).toBeInTheDocument();
   });
 
   it('409 от сервера — понятное сообщение, строка остаётся', async () => {

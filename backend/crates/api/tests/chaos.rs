@@ -301,7 +301,13 @@ async fn exhausted_discover_marks_tracks_not_found_and_album_leaves_adding(pool:
     .await
     .unwrap();
     let workers = rig.workers().await;
-    nimbus_testkit::eventually(LONG, || async { all_tracks(&pool, "not_found").await }).await;
+    // Шесть запросов двух задач к упавшему провайдеру размыкают предохранитель (порог 5). Если вторая
+    // задача стартует уже после этого, все её ошибки — «предохранитель разомкнут», и она законно
+    // откладывается до его закрытия (60 с + запас) без траты попытки. Поэтому дедлайн больше минуты.
+    nimbus_testkit::eventually(Duration::from_secs(180), || async {
+        all_tracks(&pool, "not_found").await
+    })
+    .await;
     let reasons = track_states(&pool).await;
     // Причина указана: при ошибках провайдеров на последней попытке discover сам ставит `no_torrents`,
     // а хук исчерпания — `search_failed` (см. «Замечено» в Журнале).

@@ -98,6 +98,7 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
             post(crate::acquisition::retry_acquisition),
         )
         .route("/jobs", get(crate::jobs::list_jobs))
+        .route("/jobs/invariants", get(crate::jobs::job_invariants))
         .route("/jobs/{id}/retry", post(crate::jobs::retry_job))
         .route(
             "/albums/{id}/download",
@@ -145,6 +146,9 @@ pub struct HealthResponse {
     pub providers: Vec<ProviderHealthDto>,
     /// Фоновые воркеры очереди.
     pub workers: WorkersHealth,
+    /// Сколько застрявших состояний нашла последняя проверка инвариантов (`GET /api/jobs/invariants`).
+    /// Ненулевое значение дольше получаса — дефект: фоновые страховки не справились.
+    pub stuck: u64,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -241,6 +245,7 @@ pub async fn health(State(state): State<AppState>) -> Result<Json<HealthResponse
                 listener_restarts: c.listener,
             }
         },
+        stuck: state.worker_stats.stuck(),
     }))
 }
 

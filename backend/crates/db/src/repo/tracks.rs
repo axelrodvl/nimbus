@@ -205,3 +205,21 @@ pub async fn set_in_library_for_artist(
     .await?
     .rows_affected())
 }
+
+/// Треки `found`, у которых primary-файл уже докачан, → `ready`; возвращает изменённые.
+/// Штатно это делает наблюдатель загрузок в момент завершения файла; сюда попадают треки, чей
+/// primary сменился на уже скачанный файл (смена источника при зависании, общий CUE-образ).
+pub async fn promote_found_with_completed_file(
+    db: impl PgExecutor<'_>,
+) -> sqlx::Result<Vec<Track>> {
+    sqlx::query_as(
+        "UPDATE tracks t SET status = 'ready', status_reason = NULL, updated_at = now()
+         WHERE t.status = 'found'
+           AND EXISTS (SELECT 1 FROM track_sources ts
+                         JOIN downloads d ON d.torrent_id = ts.torrent_id AND d.file_index = ts.file_index
+                       WHERE ts.track_id = t.id AND ts.is_primary AND d.completed_at IS NOT NULL)
+         RETURNING t.*",
+    )
+    .fetch_all(db)
+    .await
+}

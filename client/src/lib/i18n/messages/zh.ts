@@ -467,6 +467,9 @@ const messages: Messages = {
   'settings.jobs': '后台任务',
   'settings.jobsFailed': { other: '{count} 个失败任务' },
   'settings.jobsHint': '多次失败的服务器任务：专辑搜索、艺人导入、种子检查。“重试”会将任务放回队列。',
+  'settings.jobsStuck': '卡住的状态：{count}',
+  'settings.jobsStuckHint':
+    '服务器正在等待无人执行的后台工作。通常会在半小时内自行恢复；持续存在的条目属于缺陷，请将此列表附在报告中。',
   'settings.languageHint': '界面语言；音乐元数据不会被翻译。',
   'settings.login': '用户名',
   'settings.matchingGroup': '文件与曲目匹配',

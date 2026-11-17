@@ -1257,3 +1257,105 @@ async fn fatal_job_is_never_revived(pool: PgPool) {
     assert_eq!(h.calls.load(Ordering::SeqCst), 1);
     w.shutdown().await;
 }
+
+/// Обслуживание проверяет инварианты и отдаёт число застрявших состояний в статистику пула:
+/// задача вида, для которого нет обработчика, — нарушение I7; когда её не стало, счётчик обнуляется.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn maintenance_reports_stuck_states_in_pool_stats(pool: PgPool) {
+    let orphan = jobs::enqueue(&pool, &Job::EvictCache, EnqueueOpts::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let probe = Probe::new(Behavior::Ok);
+    let w = spawn_probe(
+        &pool,
+        &probe,
+        WorkerConfig {
+            maintenance_interval: Duration::from_millis(30),
+            invariants_interval: Some(Duration::ZERO),
+            invariants_grace: Duration::ZERO,
+            evict_interval: None,
+            retry_missing_interval: None,
+            ..fast_cfg()
+        },
+    );
+    let stats = w.stats();
+    assert_eq!(stats.stuck(), 0, "до первой проверки");
+    nimbus_testkit::eventually(Duration::from_secs(5), || async { stats.stuck() == 1 }).await;
+    sqlx::query("DELETE FROM jobs WHERE id = $1")
+        .bind(orphan)
+        .execute(&pool)
+        .await
+        .unwrap();
+    nimbus_testkit::eventually(Duration::from_secs(5), || async { stats.stuck() == 0 }).await;
+    w.shutdown().await;
+}
+
+/// Без `invariants_interval` проверка не выполняется.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn invariants_check_can_be_switched_off(pool: PgPool) {
+    jobs::enqueue(&pool, &Job::EvictCache, EnqueueOpts::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let probe = Probe::new(Behavior::Ok);
+    let w = spawn_probe(
+        &pool,
+        &probe,
+        WorkerConfig {
+            maintenance_interval: Duration::from_millis(20),
+            invariants_interval: None,
+            evict_interval: None,
+            retry_missing_interval: None,
+            ..fast_cfg()
+        },
+    );
+    // Задача Probe проходит через очередь — обслуживание за это время сделало несколько тиков.
+    let id = enqueue_album(&pool, None).await;
+    wait_state(&pool, id, "done").await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(w.stats().stuck(), 0);
+    w.shutdown().await;
+}
+
+/// `time_scale` сжимает паузу, которую назначил обработчик: отложенная на час задача при масштабе
+/// 0.00001 (36 мс) выполняется снова почти сразу.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn time_scale_shortens_handler_pauses(pool: PgPool) {
+    let probe = Probe::new(Behavior::Defer);
+    let w = spawn_probe(
+        &pool,
+        &probe,
+        WorkerConfig {
+            time_scale: 0.00001,
+            ..fast_cfg()
+        },
+    );
+    enqueue_album(&pool, None).await;
+    nimbus_testkit::eventually(Duration::from_secs(5), || async { probe.calls() >= 3 }).await;
+    w.shutdown().await;
+}
+
+#[test]
+fn ctx_scales_and_unscales_pauses() {
+    let server_less = nimbus_musicbrainz::MbClient::with_config(
+        nimbus_musicbrainz::MbConfig::new("NimbusTest/0.1 ( https://example.org/test )"),
+        None,
+    )
+    .unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let _guard = rt.enter();
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://unused")
+        .unwrap();
+    let mut c = JobCtx::new(
+        pool,
+        EventBus::new(),
+        server_less,
+        Arc::new(nimbus_trackers::ProviderRegistry::new(vec![])),
+    );
+    assert_eq!(c.scaled(Duration::from_secs(60)), Duration::from_secs(60));
+    c.time_scale = 0.5;
+    assert_eq!(c.scaled(Duration::from_secs(60)), Duration::from_secs(30));
+    assert_eq!(c.unscaled(Duration::from_secs(30)), Duration::from_secs(60));
+}

@@ -474,6 +474,9 @@ const messages: Messages = {
   'settings.jobsFailed': { one: '{count} başarısız görev', other: '{count} başarısız görev' },
   'settings.jobsHint':
     'Birkaç kez başarısız olan sunucu görevleri: albüm arama, sanatçı içe aktarma, torrent kontrolü. “Yeniden dene” görevi kuyruğa geri gönderir.',
+  'settings.jobsStuck': 'Takılan durumlar: {count}',
+  'settings.jobsStuckHint':
+    'Sunucu, kimsenin yapmayacağı bir arka plan işini bekliyor. Genellikle yarım saat içinde kendiliğinden düzelir; kalıcı bir kayıt hatadır: bu listeyi hata bildirimine ekleyin.',
   'settings.languageHint': 'Arayüz dili; müzik meta verileri çevrilmez.',
   'settings.login': 'Kullanıcı adı',
   'settings.matchingGroup': 'Dosyaları parçalarla eşleştirme',

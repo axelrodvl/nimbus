@@ -5,7 +5,7 @@
 - Ошибки: `{ "error": { "code": "...", "message": "...", "field": "musicbrainz.burst" } }`; `field` (путь поля запроса) есть только у ошибок валидации настроек `invalid_settings`, когда сообщение начинается с пути поля.
 - Авторизация (если задан `NIMBUS_API_TOKEN`): `Authorization: Bearer <token>` или cookie `nimbus_token`
   (`POST /api/auth/login {"token": "..."}` → `204` + cookie; `POST /api/auth/logout`). Без токена — `401 unauthorized`.
-  `GET /api/health` открыт всегда и возвращает `db`, `engine {torrents, down_bps, up_bps}`, `jobs {queued, running, failed_24h}`, `workers {restarts, worker_restarts, maintenance_restarts, listener_restarts}` (сколько раз циклы воркеров очереди перезапускались после паники; ненулевое значение — повод смотреть логи) и
+  `GET /api/health` открыт всегда и возвращает `db`, `engine {torrents, down_bps, up_bps}`, `jobs {queued, running, failed_24h}`, `workers {restarts, worker_restarts, maintenance_restarts, listener_restarts}` (сколько раз циклы воркеров очереди перезапускались после паники; ненулевое значение — повод смотреть логи), `stuck` (число застрявших состояний по последней проверке инвариантов, см. `GET /api/jobs/invariants`; `0` — норма) и
   `providers [{ source, state: "ok"|"open", last_error, open_until }]` (`open` — предохранитель провайдера разомкнут:
   запросы к нему временно не отправляются до `open_until`).
 
@@ -23,6 +23,12 @@
   счётчики не зависят от фильтров.
 - `POST /api/jobs/{id}/retry` — только для `failed`: попытки обнуляются, приоритет интерактивный. `404` — нет задачи,
   `409 not_failed` — задача не `failed`, `409 duplicate` — уже есть активная такая же.
+- `GET /api/jobs/invariants?grace_secs=` → `{ checked_at, grace_secs, total, sections: [{ invariant, count,
+  violations: [{ invariant, entity, id, detail }] }] }` — проверка «ничего не застряло»: сущности, которые ждут фоновой
+  работы, а выполнить её некому. В `sections` — только нарушенные инварианты (`I1`…`I12`, расшифровка —
+  `docs/operations.md`, «Застрявшие состояния»), в `violations` — не больше 50 на инвариант, `count` — полное число.
+  `grace_secs` (0–86400, по умолчанию 1800; иначе `400 invalid_grace`) — состояния моложе не считаются застрявшими.
+  Пустой отчёт (`total = 0`) — норма; запрос с отсрочкой по умолчанию обновляет `health.stuck`.
 - `PUT /api/settings` дополнительно возвращает `restart_required: true`, если изменился раздел `performance` (в том числе `metadata_concurrency` 1–64 и `metadata_timeout_secs` 5–300)
 - Раздел `musicbrainz` (`base_url` — `http(s)://…/`, `rate_per_sec` 0 или 0.1–100, `burst` 1–20, `max_concurrent` 1–32) применяется на лету; для чужого адреса с неизменёнными остальными полями действует профиль зеркала (без лимита, 8 параллельных).
   (число воркеров применяется после перезапуска).

@@ -31,6 +31,8 @@ export function createAcquisitionMock(deps: AcquisitionDeps) {
   let paused = false;
   let torrents: Torrent[] = [];
   let jobs: Job[] = [];
+  /** Отчёт проверки инвариантов непуст (`POST /__test/acquisition/stuck`). */
+  let stuck = false;
   let pinFail = false;
 
   const err = (status: number, code: string, message: string) => deps.json(status, { error: { code, message } });
@@ -234,6 +236,26 @@ export function createAcquisitionMock(deps: AcquisitionDeps) {
       }));
       return deps.json(200, { counts: { failed: jobs.length, queued: 0, running: 0 }, jobs: list });
     }
+    if (path === '/api/jobs/invariants' && m === 'GET') {
+      const sections = stuck
+        ? [
+            {
+              count: 2,
+              invariant: 'I1',
+              violations: [
+                { detail: 'tracks in adding: 2', entity: 'album', id: 926, invariant: 'I1' },
+                { detail: 'tracks in adding: 5', entity: 'album', id: 927, invariant: 'I1' },
+              ],
+            },
+            {
+              count: 1,
+              invariant: 'I8',
+              violations: [{ detail: 'storage: disk full', entity: 'pin', id: 9230, invariant: 'I8' }],
+            },
+          ]
+        : [];
+      return deps.json(200, { checked_at: deps.now(), grace_secs: 1800, sections, total: stuck ? 3 : 0 });
+    }
     const retry = path.match(/^\/api\/jobs\/(\d+)\/retry$/);
     if (retry && m === 'POST') {
       const id = Number(retry[1]);
@@ -247,8 +269,9 @@ export function createAcquisitionMock(deps: AcquisitionDeps) {
   /** Служебные эндпоинты `/__test/*` этого модуля. */
   async function testRoute(req: Request, path: string): Promise<Response | null> {
     if (path === '/__test/acquisition') {
-      const body = (await req.json().catch(() => ({}))) as { pinFail?: boolean };
+      const body = (await req.json().catch(() => ({}))) as { pinFail?: boolean; stuck?: boolean };
       pinFail = body.pinFail === true;
+      stuck = body.stuck === true;
       seed();
       return deps.json(200, { ok: true });
     }
@@ -339,6 +362,7 @@ export function createAcquisitionMock(deps: AcquisitionDeps) {
     paused = false;
     torrents = [];
     jobs = [];
+    stuck = false;
     pinFail = false;
   }
 
