@@ -364,6 +364,7 @@ const messages: Messages = {
   'play.none': '재생할 수 있는 곡이 아직 없습니다',
   'play.pause': '일시정지',
   'play.slowHint': '몇 분 걸릴 수 있습니다 — 트랙이 자동으로 재생됩니다',
+  'play.tapToPlay': '소스를 찾았습니다 — ▶를 눌러 들어보세요',
   'play.started': '“{title}” 재생 중',
   'play.playlist': '재생',
   'play.waiting': '“{title}”의 소스를 찾는 중 — 찾으면 바로 재생됩니다',

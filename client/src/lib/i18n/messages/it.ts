@@ -367,6 +367,7 @@ const messages: Messages = {
   'play.none': 'Ancora nessun brano riproducibile',
   'play.pause': 'Pausa',
   'play.slowHint': 'Può richiedere qualche minuto: il brano partirà da solo',
+  'play.tapToPlay': 'Fonte trovata: premi ▶ per ascoltare',
   'play.started': 'In riproduzione «{title}»',
   'play.playlist': 'Riproduci',
   'play.waiting': 'Cerchiamo una fonte per «{title}»: la riproduzione partirà appena trovata',

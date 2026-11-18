@@ -366,6 +366,7 @@ const messages: Messages = {
   'play.none': 'Henüz çalınabilir parça yok',
   'play.pause': 'Duraklat',
   'play.slowHint': 'Birkaç dakika sürebilir — parça kendiliğinden başlayacak',
+  'play.tapToPlay': 'Kaynak bulundu — dinlemek için ▶ düğmesine basın',
   'play.started': '“{title}” çalıyor',
   'play.playlist': 'Çal',
   'play.waiting': '“{title}” için kaynak aranıyor — bulunur bulunmaz çalmaya başlayacak',

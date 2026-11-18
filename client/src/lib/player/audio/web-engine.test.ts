@@ -22,6 +22,52 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 
+describe('prime', () => {
+  it('нетронутый элемент: играет тишину и ставит на паузу; повторно — ничего', async () => {
+    const { audio, engine } = setup();
+    engine.prime?.();
+    expect(audio.getAttribute('src')).toMatch(/^data:audio\/wav;base64,/);
+    expect(audio.playCalls).toBe(1);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(audio.paused).toBe(true);
+    engine.prime?.();
+    expect(audio.playCalls).toBe(1);
+  });
+
+  it('что-то загружено или играет — не трогает элемент', () => {
+    const { audio, engine } = setup();
+    engine.load(src(1), { autoplay: true, startAt: 0 });
+    engine.prime?.();
+    expect(audio.getAttribute('src')).toBe('/s/1');
+    expect(audio.playCalls).toBe(1);
+  });
+
+  it('трек загрузился, пока играла тишина, — не ставится на паузу', async () => {
+    const { audio, engine } = setup();
+    engine.prime?.();
+    engine.load(src(1), { autoplay: true, startAt: 0 });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(audio.paused).toBe(false);
+    expect(audio.getAttribute('src')).toBe('/s/1');
+  });
+
+  it('события тишины не доходят до плеера; отказ play() молчит', async () => {
+    const { audio, engine, events } = setup();
+    engine.prime?.();
+    audio.fire('playing');
+    audio.fire('loadstart');
+    expect(events).toEqual([]);
+    const blocked = setup();
+    blocked.audio.playError = new DOMException('blocked', 'NotAllowedError');
+    blocked.engine.prime?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(blocked.events).toEqual([]);
+  });
+});
+
 describe('load', () => {
   it('синхронно выставляет src и вызывает play() в том же тике при autoplay', () => {
     const { audio, engine } = setup();

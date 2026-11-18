@@ -306,6 +306,9 @@ export class PlayerController {
     this.loadAndPlay(track, position);
   }
 
+  /** В жесте пользователя: подготовить движок к отложенному старту (если он это умеет). */
+  prime = () => this.engine.prime?.();
+
   /** Отменить загрузку/ожидание раздачи: источник сбрасывается, очередь остаётся. */
   cancel = () => {
     clearTimeout(this.errorTimer);

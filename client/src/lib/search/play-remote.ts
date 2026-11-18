@@ -82,6 +82,11 @@ export type PlayRemoteDeps = {
   /** id текущего трека плеера и подписка на его смену. */
   currentTrackId: () => number | null;
   subscribePlayer: (listener: () => void) => () => void;
+  /** Синхронно в жесте: подготовить аудио к отложенному старту (iOS). */
+  prime: () => void;
+  /** Намерение «играть» в плеере и запуск текущего трека (из жеста — кнопка в toast). */
+  playerIsPlaying: () => boolean;
+  resume: () => void;
   /** Текущий экран (путь). */
   pathname: () => string;
   now: () => number;
@@ -95,6 +100,8 @@ export const WAITING_TOAST_MS = 8000;
 export const PENDING_POLL_MS = 15_000;
 /** Через сколько ожидания индикатор добавляет «это может занять несколько минут». */
 export const SLOW_PENDING_MS = 45_000;
+/** Сколько после отложенного старта следим, не отклонил ли его браузер (iOS без жеста). */
+export const START_WATCH_MS = 3000;
 /** Сколько висят короткие toast «Ожидание отменено» и «Играет …». */
 export const NOTICE_TOAST_MS = 3000;
 
@@ -157,9 +164,33 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
   function started(pending: Pending, view: TrackView, t: TFn) {
     toast.dismiss(PLAY_TOAST_ID);
     start(view, pending.request);
+    watchStart(view.id, t);
     if (deps.pathname() !== pending.origin) {
       toast.info(t('play.started', { title: pending.request.title }), { duration: NOTICE_TOAST_MS, id: PLAY_TOAST_ID });
     }
+  }
+
+  /**
+   * Старт случился вне жеста пользователя: браузер (iOS Safari) мог его отклонить, и трек молча встал на паузу.
+   * Если в первые секунды намерение «играть» пропало, не молчим: toast с кнопкой «Играть» — это уже жест.
+   */
+  function watchStart(trackId: number, t: TFn) {
+    let off: () => void = () => undefined;
+    const finish = () => {
+      off();
+      clearTimeout(timer);
+    };
+    const timer = setTimeout(finish, START_WATCH_MS);
+    off = deps.subscribePlayer(() => {
+      if (deps.currentTrackId() !== trackId) return finish();
+      if (deps.playerIsPlaying()) return;
+      finish();
+      toast.info(t('play.tapToPlay'), {
+        action: { label: t('player.play'), onClick: deps.resume },
+        duration: 10_000,
+        id: PLAY_TOAST_ID,
+      });
+    });
   }
 
   function start(view: TrackView, request: PlayRemoteRequest) {
@@ -357,6 +388,8 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
       },
     });
     watch();
+    // В жесте разблокируем аудио: отложенный старт (источник найдётся позже) на iOS иначе будет отклонён.
+    deps.prime();
     // Toast не висит всё ожидание (поиск источника может занять минуты): дальше о нём говорит спиннер в строке.
     toast.loading(t('play.waiting', { title: request.title }), {
       action: { label: t('common.cancel'), onClick: userCancel },
@@ -479,6 +512,9 @@ function appDeps(): PlayRemoteDeps {
     requestSync: () => appData().engine.requestSync('play-pending'),
     subscribeLibrary: listener => appData().library.subscribe(listener),
     now: () => Date.now(),
+    playerIsPlaying: () => player().store.getState().isPlaying,
+    prime: () => player().prime(),
+    resume: () => player().resume(),
     pathname: () => window.location.pathname,
     subscribePlayer: listener => player().store.subscribe(listener),
   };

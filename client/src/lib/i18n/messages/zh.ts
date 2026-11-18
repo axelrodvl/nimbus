@@ -360,6 +360,7 @@ const messages: Messages = {
   'play.none': '暂无可播放的曲目',
   'play.pause': '暂停',
   'play.slowHint': '可能需要几分钟 — 曲目会自动开始播放',
+  'play.tapToPlay': '已找到来源 — 点按 ▶ 开始收听',
   'play.started': '正在播放“{title}”',
   'play.playlist': '播放',
   'play.waiting': '正在为“{title}”查找音源——找到后立即播放',

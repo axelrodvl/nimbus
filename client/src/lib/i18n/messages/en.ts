@@ -363,6 +363,7 @@ export const en = {
   'play.none': 'No playable tracks yet',
   'play.pause': 'Pause',
   'play.slowHint': 'This can take a few minutes — the track will start on its own',
+  'play.tapToPlay': 'Source found — press ▶ to listen',
   'play.started': 'Playing “{title}”',
   'play.playlist': 'Play',
   'play.waiting': 'Looking for a source for “{title}” — playback starts as soon as it is found',

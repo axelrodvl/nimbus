@@ -8,7 +8,7 @@ import type { TFn } from '@/lib/i18n/messages';
 import type { TrackView } from '@/lib/store/selectors';
 import { makeTrack } from '@/test/factories';
 import { retryDelay } from './use-remote-search';
-import { createPlayRemote, PENDING_POLL_MS, PLAY_TOAST_ID, WAITING_TOAST_MS, type PlayRemoteDeps } from './play-remote';
+import { createPlayRemote, PENDING_POLL_MS, START_WATCH_MS, PLAY_TOAST_ID, WAITING_TOAST_MS, type PlayRemoteDeps } from './play-remote';
 
 const t = ((key: string, params?: Record<string, string | number>) => translate(en as never, 'en', key, params)) as TFn;
 
@@ -27,6 +27,7 @@ function harness() {
   let album: TrackView[] = [];
   let current: number | null = null;
   let path = '/search/album/rg-1';
+  let playing = true;
   const libraryListeners = new Set<() => void>();
   const playerListeners = new Set<() => void>();
   let settle: { resolve: (r: PlayResponse) => void; reject: (e: unknown) => void } = {
@@ -43,6 +44,7 @@ function harness() {
     ),
     play: vi.fn((track: { id: number }) => {
       current = track.id;
+      playing = true;
       playerListeners.forEach(l => l());
     }),
     fetchStatus: vi.fn(() => Promise.resolve<TrackView['status']>('adding')),
@@ -50,6 +52,9 @@ function harness() {
     requestSync: vi.fn(),
     now: () => Date.now(),
     pathname: () => path,
+    playerIsPlaying: () => playing,
+    prime: vi.fn(),
+    resume: vi.fn(),
     subscribeLibrary: l => {
       libraryListeners.add(l);
       return () => libraryListeners.delete(l);
@@ -83,6 +88,11 @@ function harness() {
     },
     setAlbum: (list: TrackView[]) => (album = list),
     setPath: (p: string) => (path = p),
+    /** Браузер отклонил отложенный старт: намерение «играть» пропало. */
+    rejectPlayback: () => {
+      playing = false;
+      playerListeners.forEach(l => l());
+    },
     setCurrent: (id: number | null) => {
       current = id;
       playerListeners.forEach(l => l());
@@ -124,6 +134,7 @@ describe('playRemote', () => {
   });
 
   it('трека нет: «сыграть» без добавления в библиотеку, toast ожидания; заигрывает, когда стал found', async () => {
+    vi.useFakeTimers();
     const h = harness();
     h.pr.playRemote(request, t);
     expect(h.deps.request).toHaveBeenCalledWith({ albumMbid: 'rg-1', mbid: REC, type: 'track' }, expect.any(AbortSignal));
@@ -141,6 +152,7 @@ describe('playRemote', () => {
     expect(h.deps.play).toHaveBeenCalledOnce();
     expect(pending(h)).toBeNull();
     expect(toast.dismiss).toHaveBeenCalledWith(PLAY_TOAST_ID);
+    await vi.advanceTimersByTimeAsync(START_WATCH_MS);
     // Подписки сняты: ожидание не висит.
     expect(h.libraryListeners.size).toBe(0);
     expect(h.playerListeners.size).toBe(0);
@@ -569,6 +581,54 @@ describe('playRemote', () => {
       await h.fail(new ApiError(422, 'recording_not_in_release', 'x'));
       expect(toast.error).toHaveBeenCalledWith(expect.any(String), { action: undefined, id: PLAY_TOAST_ID });
       expect(h.deps.request).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('отложенный старт вне жеста (iOS)', () => {
+    it('prime вызывается синхронно в жесте — до запроса, а не при немедленном старте', () => {
+      const h = harness();
+      h.pr.playRemote(request, t);
+      expect(h.deps.prime).toHaveBeenCalledOnce();
+      const order = [vi.mocked(h.deps.prime).mock.invocationCallOrder[0], vi.mocked(h.deps.request).mock.invocationCallOrder[0]];
+      expect(order[0]).toBeLessThan(order[1]!);
+      const ready = harness();
+      ready.setTrack(REC, view());
+      ready.pr.playRemote(request, t);
+      expect(ready.deps.prime).not.toHaveBeenCalled();
+    });
+
+    it('старт отклонён браузером — toast «нажмите ▶» с действием «Играть», которое вызывает resume', async () => {
+      const h = harness();
+      h.pr.playRemote(request, t);
+      await h.respond();
+      h.setTrack(REC, view());
+      expect(h.deps.play).toHaveBeenCalledOnce();
+      expect(toast.info).not.toHaveBeenCalled();
+      h.rejectPlayback();
+      const call = vi.mocked(toast.info).mock.calls.at(-1);
+      expect(call?.[0]).toBe('Source found — press ▶ to listen');
+      const opts = call?.[1] as unknown as { action: { label: string; onClick: () => void } };
+      expect(opts.action.label).toBe('Play');
+      opts.action.onClick();
+      expect(h.deps.resume).toHaveBeenCalledOnce();
+    });
+
+    it('играет нормально, другой трек или прошло время — без toast', async () => {
+      vi.useFakeTimers();
+      const h = harness();
+      h.pr.playRemote(request, t);
+      await h.respond();
+      h.setTrack(REC, view());
+      h.setCurrent(99);
+      h.rejectPlayback();
+      expect(toast.info).not.toHaveBeenCalled();
+      const late = harness();
+      late.pr.playRemote(request, t);
+      await late.respond();
+      late.setTrack(REC, view());
+      await vi.advanceTimersByTimeAsync(START_WATCH_MS + 1);
+      late.rejectPlayback();
+      expect(toast.info).not.toHaveBeenCalled();
     });
   });
 

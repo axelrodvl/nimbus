@@ -361,6 +361,7 @@ const messages: Messages = {
   'play.none': 'अभी चलाने योग्य कोई ट्रैक नहीं है',
   'play.pause': 'रोकें',
   'play.slowHint': 'इसमें कुछ मिनट लग सकते हैं — ट्रैक अपने आप चलने लगेगा',
+  'play.tapToPlay': 'स्रोत मिल गया — सुनने के लिए ▶ दबाएँ',
   'play.started': '“{title}” चल रहा है',
   'play.playlist': 'चलाएँ',
   'play.waiting': '“{title}” के लिए स्रोत खोजा जा रहा है — मिलते ही चलना शुरू होगा',

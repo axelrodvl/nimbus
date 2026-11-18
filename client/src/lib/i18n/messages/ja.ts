@@ -367,6 +367,7 @@ const messages: Messages = {
   'play.none': '再生できる曲がまだありません',
   'play.pause': '一時停止',
   'play.slowHint': '数分かかる場合があります — 見つかり次第自動で再生します',
+  'play.tapToPlay': 'ソースが見つかりました — ▶ を押して再生してください',
   'play.started': '「{title}」を再生中',
   'play.playlist': '再生',
   'play.waiting': '「{title}」のソースを探しています — 見つかり次第再生します',

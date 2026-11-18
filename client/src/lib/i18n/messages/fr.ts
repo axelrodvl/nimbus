@@ -372,6 +372,7 @@ const messages: Messages = {
   'play.none': 'Aucun morceau lisible pour l’instant',
   'play.pause': 'Pause',
   'play.slowHint': 'Cela peut prendre quelques minutes — le titre démarrera tout seul',
+  'play.tapToPlay': 'Source trouvée — appuyez sur ▶ pour écouter',
   'play.started': 'Lecture de « {title} »',
   'play.playlist': 'Lire',
   'play.waiting': 'Recherche d’une source pour « {title} » — la lecture démarrera dès qu’elle sera trouvée',

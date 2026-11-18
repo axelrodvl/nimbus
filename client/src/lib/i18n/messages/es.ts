@@ -366,6 +366,7 @@ const messages: Messages = {
   'play.none': 'Aún no hay pistas reproducibles',
   'play.pause': 'Pausa',
   'play.slowHint': 'Puede tardar unos minutos: la pista empezará sola',
+  'play.tapToPlay': 'Fuente encontrada: pulsa ▶ para escuchar',
   'play.started': 'Reproduciendo «{title}»',
   'play.playlist': 'Reproducir',
   'play.waiting': 'Buscando una fuente para «{title}»: empezará a sonar en cuanto se encuentre',

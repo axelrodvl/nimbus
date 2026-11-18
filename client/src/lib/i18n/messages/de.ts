@@ -370,6 +370,7 @@ const messages: Messages = {
   'play.none': 'Noch keine abspielbaren Titel',
   'play.pause': 'Pause',
   'play.slowHint': 'Das kann einige Minuten dauern — der Titel startet von selbst',
+  'play.tapToPlay': 'Quelle gefunden — zum Hören ▶ drücken',
   'play.started': '„{title}“ wird gespielt',
   'play.playlist': 'Abspielen',
   'play.waiting': 'Quelle für „{title}“ wird gesucht – die Wiedergabe startet, sobald sie gefunden ist',

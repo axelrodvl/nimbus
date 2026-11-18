@@ -368,6 +368,7 @@ const messages: Messages = {
   'play.none': 'Поки немає треків, які можна слухати',
   'play.pause': 'Пауза',
   'play.slowHint': 'Це може тривати кілька хвилин — трек заграє сам',
+  'play.tapToPlay': 'Джерело знайдено — натисніть ▶, щоб слухати',
   'play.started': 'Грає «{title}»',
   'play.playlist': 'Слухати',
   'play.waiting': 'Шукаємо джерело для «{title}» — заграє, щойно знайдеться',

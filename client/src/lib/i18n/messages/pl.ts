@@ -371,6 +371,7 @@ const messages: Messages = {
   'play.none': 'Brak utworów do odtworzenia',
   'play.pause': 'Pauza',
   'play.slowHint': 'To może potrwać kilka minut — utwór ruszy sam',
+  'play.tapToPlay': 'Źródło znalezione — naciśnij ▶, aby posłuchać',
   'play.started': 'Odtwarzanie „{title}”',
   'play.playlist': 'Odtwórz',
   'play.waiting': 'Szukamy źródła dla „{title}” — odtwarzanie ruszy, gdy tylko się znajdzie',

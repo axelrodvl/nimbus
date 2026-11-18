@@ -38,6 +38,31 @@ export function createAudioElement(): HTMLAudioElement {
   return audio;
 }
 
+/**
+ * Тишина для «разблокировки» элемента (`prime`): 8-бит моно WAV, 0,1 с. Собирается в коде, а не хранится строкой,
+ * чтобы размер и заголовок были видны.
+ */
+function silentWavUri(): string {
+  const samples = 800;
+  const bytes = new Uint8Array(44 + samples);
+  const view = new DataView(bytes.buffer);
+  const text = (at: number, s: string) => [...s].forEach((c, i) => bytes.set([c.charCodeAt(0)], at + i));
+  text(0, 'RIFF');
+  view.setUint32(4, 36 + samples, true);
+  text(8, 'WAVEfmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // моно
+  view.setUint32(24, 8000, true);
+  view.setUint32(28, 8000, true);
+  view.setUint16(32, 1, true);
+  view.setUint16(34, 8, true);
+  text(36, 'data');
+  view.setUint32(40, samples, true);
+  bytes.fill(0x80, 44); // 8-бит PCM: 0x80 — ноль
+  return `data:audio/wav;base64,${btoa(String.fromCharCode(...bytes))}`;
+}
+
 /** Фаза воспроизведения, о которой движок уже сообщил: чтобы не слать `playing` на каждый `timeupdate`. */
 type Phase = 'idle' | 'loading' | 'waiting' | 'playing' | 'paused';
 
@@ -54,6 +79,8 @@ export function createWebAudioEngine(deps: WebAudioDeps = {}): AudioEngine {
     deps.mediaSession ?? globalThis.navigator?.mediaSession,
   );
 
+  /** Элемент уже воспроизводил звук по жесту: дальше iOS разрешает `play()` и вне жеста. */
+  let unlocked = false;
   /** Адрес, загруженный последним вызовом `load`; `null` — источника нет (после `unload`). */
   let loadedUrl: string | null = null;
   let mode: AudioSource['mode'] = 'direct';
@@ -235,14 +262,17 @@ export function createWebAudioEngine(deps: WebAudioDeps = {}): AudioEngine {
       session.refresh(nowPlaying);
       if (opts.autoplay) {
         // Синхронно, в том же тике: iOS разрешает запуск только из обработчика жеста.
-        audio.play().catch((e: unknown) => {
+        audio.play().then(
+          () => void (unlocked = true),
+          (e: unknown) => {
           // AbortError — загрузку заменили другим треком; иное (NotAllowedError — политика автозапуска) — пауза.
           if (e instanceof DOMException && e.name === 'AbortError') return;
-          if (isCurrent()) {
-            setPhase('paused');
-            emit({ type: 'paused' });
-          }
-        });
+            if (isCurrent()) {
+              setPhase('paused');
+              emit({ type: 'paused' });
+            }
+          },
+        );
       }
     },
     on(handler) {
@@ -259,6 +289,7 @@ export function createWebAudioEngine(deps: WebAudioDeps = {}): AudioEngine {
       if (audio.error && recover(true)) return;
       try {
         await audio.play();
+        unlocked = true;
       } catch (e) {
         if (e instanceof DOMException && e.name === 'AbortError') return;
         if (e instanceof DOMException && e.name === 'NotAllowedError') throw e;
@@ -285,6 +316,19 @@ export function createWebAudioEngine(deps: WebAudioDeps = {}): AudioEngine {
     unload() {
       reset();
       setPhase('idle');
+    },
+    prime() {
+      // Трогаем только нетронутый элемент: загруженный трек или звук не прерываем.
+      if (unlocked || loadedUrl !== null || !audio.paused) return;
+      audio.src = silentWavUri();
+      audio.play().then(
+        () => {
+          unlocked = true;
+          // Реальный трек мог загрузиться, пока играла тишина, — его не трогаем.
+          if (loadedUrl === null) audio.pause();
+        },
+        () => undefined,
+      );
     },
   };
 }
