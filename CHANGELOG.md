@@ -1,5 +1,10 @@
 # Что нового
 
+## 0.9.1
+
+- **Улучшено:** FlareSolverr всегда входит в docker compose и используется по умолчанию — дополнительные строки в `.env` не нужны (Jackett по-прежнему по `COMPOSE_PROFILES=jackett`); проверка RuTracker доступна только при логине с паролем или cookie и объясняет, чего не хватает.
+- **Исправлено:** RuTracker больше не упирается в Cloudflare на установках, где настройки сохранены до появления FlareSolverr: пустое поле FlareSolverr означает адрес по умолчанию.
+
 ## 0.9.0
 
 - **Добавлено:** RuTracker сам проходит проверку Cloudflare через FlareSolverr (поле в настройках и `NIMBUS_FLARESOLVERR_URL`); необязательные контейнеры `flaresolverr` и `jackett` в docker compose, FlareSolverr включён в `.env.example`.
