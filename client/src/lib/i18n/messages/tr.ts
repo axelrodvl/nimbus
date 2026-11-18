@@ -376,6 +376,7 @@ const messages: Messages = {
   'player.error.ffmpeg_missing': 'Sunucuda ffmpeg yüklü değil: CUE imajları ve APE/WV/DSD biçimleri çalınamaz',
   'player.error.network': 'Sunucuyla bağlantı yok',
   'player.error.no_peers': 'Eş yok: torrent verileri alınamadı',
+  'player.error.seek_unavailable': 'Albüm indirildiğinde ileri sarma kullanılabilir olacak',
   'player.error.track_not_playable': 'Parça henüz bulunamadı — şimdilik çalınamaz',
   'player.error.transcode_failed': 'Dosya dönüştürülemedi',
   'player.error.transcoder_busy': 'Sunucu dönüştürme ile meşgul, bir dakika sonra tekrar deneyin',

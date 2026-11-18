@@ -30,6 +30,8 @@ export const TICK_MS = 250;
 export const PERSIST_INTERVAL_MS = 2000;
 /** Через сколько после ошибки потока играет следующий трек. */
 export const ERROR_ADVANCE_MS = 2000;
+/** Как часто повторяется запуск трека недокачанного CUE-образа (событие `ready` могло потеряться). */
+export const IMAGE_RETRY_MS = 30_000;
 /** За сколько секунд до конца трека предзагружается следующий (если не включено «предзагружать сразу»). */
 export const PREFETCH_BEFORE_END_S = 30;
 /** Шаг перемотки стрелками и по `seekforward`/`seekbackward`. */
@@ -90,6 +92,17 @@ export class PlayerController {
   /** Номер последней загрузки: ответ устаревшего асинхронного `resolveStreamUrl` отбрасывается. */
   private loadSeq = 0;
   private errorTimer: ReturnType<typeof setTimeout> | undefined;
+  /** С какой секунды запрошен текущий поток (`startAt` последней загрузки). */
+  private loadStart = 0;
+  /** Запускалась ли последняя загрузка с воспроизведением (ожидание образа продолжит так же). */
+  private loadAutoplay = true;
+  /**
+   * Перемотка перекодируемого трека открыла новый поток: если сервер ответит `425 image_downloading`, возвращаемся
+   * на начало прежнего потока (он был получен успешно) и сообщаем, что перемотка пока недоступна.
+   */
+  private revert: { at: number; playing: boolean } | null = null;
+  /** Начало потока, который играл до перемотки (смещение `?t=` последней успешной загрузки). */
+  private streamOffset = 0;
   private seekTimer: ReturnType<typeof setTimeout> | undefined;
   /** Цель отложенной перемотки перекодируемого трека: до открытия нового потока позиция показывается по ней. */
   private pendingSeek: number | null = null;
@@ -159,13 +172,22 @@ export class PlayerController {
 
   // ------------------------------------------------------------------ загрузка и запуск
 
-  private loadAndPlay(track: PlayerTrack, startAt = 0, autoplay = true) {
+  private loadAndPlay(
+    track: PlayerTrack,
+    startAt = 0,
+    autoplay = true,
+    revert: { at: number; playing: boolean } | null = null,
+  ) {
     clearTimeout(this.errorTimer);
     this.cancelPendingSeek();
+    this.loadStart = startAt;
+    this.loadAutoplay = autoplay;
+    this.revert = revert;
     const fresh = this.live(track) ?? track;
     const viaOffline = this.deps.isOffline?.(track.id) === true;
     const transcoded = this.transcoded(fresh);
     const offset = transcoded ? startAt : 0;
+    if (!revert) this.streamOffset = offset;
     const seq = ++this.loadSeq;
     this.loadedId = track.id;
     this.source = null;
@@ -307,7 +329,9 @@ export class PlayerController {
       clearTimeout(this.seekTimer);
       this.pendingSeek = t;
       this.seekTimer = setTimeout(() => {
-        if (this.loadedId === track.id) this.loadAndPlay(track, t, this.state.isPlaying);
+        if (this.loadedId !== track.id) return;
+        const playing = this.state.isPlaying;
+        this.loadAndPlay(track, t, playing, { at: this.streamOffset, playing });
       }, TRANSCODE_SEEK_DEBOUNCE_MS);
     } else if (this.loadedId !== null) {
       this.engine.seek(t);
@@ -439,8 +463,47 @@ export class PlayerController {
     void this.deps.probe(src).then(err => {
       // Пока шла расшифровка, трек могли загрузить заново (в т. ч. тот же): ошибка относится к старой загрузке.
       if (seq !== this.loadSeq) return;
-      this.showError(track, err, true);
+      if (err.code === 'image_downloading') this.onImageDownloading(track);
+      else this.showError(track, err, true);
     });
+  }
+
+  /**
+   * Трек CUE-образа, который ещё докачивается (`425`): это ожидание, а не ошибка — очередь не двигается. После
+   * перемотки возвращаемся на прежний поток; иначе ждём, пока трек станет `ready` (или повторяем раз в 30 с).
+   */
+  private onImageDownloading(track: PlayerTrack) {
+    const revert = this.revert;
+    this.revert = null;
+    if (revert) {
+      this.loadAndPlay(track, revert.at, revert.playing);
+      this.deps.notifyError?.(track, { code: 'seek_unavailable' });
+      return;
+    }
+    this.loadSeq++;
+    this.loadedId = null;
+    this.source = null;
+    this.dispatch({ position: this.loadStart, type: 'TICK' });
+    this.dispatch({ error: { code: 'image_downloading' }, status: 'error', type: 'STATUS' });
+    clearTimeout(this.errorTimer);
+    this.errorTimer = setTimeout(() => this.retryImage(track.id), IMAGE_RETRY_MS);
+  }
+
+  private waitingForImage(track: PlayerTrack): boolean {
+    const s = this.state;
+    return (
+      currentTrack(s)?.id === track.id &&
+      s.status === 'error' &&
+      s.error?.code === 'image_downloading' &&
+      this.loadedId === null
+    );
+  }
+
+  private retryImage(id: number) {
+    const track = currentTrack(this.state);
+    if (!track || track.id !== id || !this.waitingForImage(track)) return;
+    this.setStatus('loading');
+    this.loadAndPlay(track, this.state.position, this.loadAutoplay);
   }
 
   private showError(track: PlayerTrack, error: PlayerError, advance: boolean) {
@@ -516,6 +579,8 @@ export class PlayerController {
         this.loadAndPlay(track, s.position);
       }
     }
+    // Трек недокачанного образа стал `ready` — продолжаем с того же места.
+    if (track && this.waitingForImage(track) && this.live(track)?.status === 'ready') this.retryImage(track.id);
     this.syncNext();
   }
 

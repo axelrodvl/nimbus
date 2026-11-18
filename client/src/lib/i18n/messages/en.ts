@@ -374,6 +374,7 @@ export const en = {
     'ffmpeg is not installed on the server: CUE images and APE/WV/DSD formats cannot be played',
   'player.error.network': 'No connection to the server',
   'player.error.no_peers': 'No peers: could not get the torrent data',
+  'player.error.seek_unavailable': 'Seeking will be available once the album finishes downloading',
   'player.error.track_not_playable': "The track hasn't been found yet — it can't be played for now",
   'player.error.transcode_failed': 'Could not transcode the file',
   'player.error.transcoder_busy': 'The server is busy transcoding, try again in a minute',

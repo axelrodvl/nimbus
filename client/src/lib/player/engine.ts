@@ -306,6 +306,7 @@ const KNOWN_ERRORS = [
   'ffmpeg_missing',
   'image_downloading',
   'no_peers',
+  'seek_unavailable',
   'track_not_playable',
   'transcode_failed',
   'transcoder_busy',

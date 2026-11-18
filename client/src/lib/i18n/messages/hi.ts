@@ -371,6 +371,7 @@ const messages: Messages = {
   'player.error.ffmpeg_missing': 'सर्वर पर ffmpeg इंस्टॉल नहीं है: CUE इमेज और APE/WV/DSD फ़ॉर्मैट नहीं चल सकते',
   'player.error.network': 'सर्वर से कनेक्शन नहीं है',
   'player.error.no_peers': 'कोई पियर नहीं: टोरेंट का डेटा नहीं मिल सका',
+  'player.error.seek_unavailable': 'एल्बम डाउनलोड पूरा होने पर आगे-पीछे करना संभव होगा',
   'player.error.track_not_playable': 'ट्रैक अभी नहीं मिला है — फ़िलहाल चलाया नहीं जा सकता',
   'player.error.transcode_failed': 'फ़ाइल ट्रांसकोड नहीं हो सकी',
   'player.error.transcoder_busy': 'सर्वर ट्रांसकोडिंग में व्यस्त है, एक मिनट बाद कोशिश करें',

@@ -375,6 +375,7 @@ const messages: Messages = {
     '서버에 ffmpeg가 설치되어 있지 않습니다: CUE 이미지와 APE/WV/DSD 형식은 재생할 수 없습니다',
   'player.error.network': '서버에 연결할 수 없습니다',
   'player.error.no_peers': '피어 없음: 토렌트 데이터를 가져오지 못했습니다',
+  'player.error.seek_unavailable': '앨범 다운로드가 끝나면 탐색할 수 있습니다',
   'player.error.track_not_playable': '곡을 아직 찾지 못해 지금은 재생할 수 없습니다',
   'player.error.transcode_failed': '파일을 트랜스코딩하지 못했습니다',
   'player.error.transcoder_busy': '서버가 트랜스코딩 중입니다. 1분 후 다시 시도하세요',

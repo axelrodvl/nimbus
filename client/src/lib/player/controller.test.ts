@@ -4,7 +4,7 @@ import { createLibraryStore } from '@/lib/store/library';
 import { createMutations } from '@/lib/store/mutations';
 import { makeTrack } from '@/test/factories';
 import type { AudioSource } from './audio/types';
-import { ERROR_ADVANCE_MS, PERSIST_INTERVAL_MS, TICK_MS, TRANSCODE_SEEK_DEBOUNCE_MS } from './controller';
+import { ERROR_ADVANCE_MS, IMAGE_RETRY_MS, PERSIST_INTERVAL_MS, TICK_MS, TRANSCODE_SEEK_DEBOUNCE_MS } from './controller';
 import { STORAGE_KEY } from './engine';
 
 const flush = () => vi.advanceTimersByTimeAsync(0);
@@ -234,6 +234,80 @@ describe('удаление трека из библиотеки', () => {
     expect(s.ctl.hasNext()).toBe(true);
     s.ctl.next();
     expect(s.engine.lastLoad?.src.url).toBe('/s/2');
+  });
+});
+
+describe('CUE-образ ещё докачивается (425 image_downloading)', () => {
+  const downloading = () => ({ code: 'image_downloading' });
+
+  it('image_downloading_does_not_advance', async () => {
+    const s = setup({}, [pt(1), pt(2, { playback: 'transcode' }), pt(3)]);
+    s.probe.mockResolvedValue(downloading());
+    s.ctl.play(s.library.get(2)!, queue(s));
+    s.engine.emit({ code: 'media', type: 'error' });
+    await vi.advanceTimersByTimeAsync(ERROR_ADVANCE_MS * 2);
+    expect(s.ctl.state).toMatchObject({ error: { code: 'image_downloading' }, index: 1, status: 'error' });
+    // Не ошибка воспроизведения: ни toast, ни перехода к следующему.
+    expect(s.notify).not.toHaveBeenCalled();
+    expect(s.engine.loads).toHaveLength(1);
+  });
+
+  it('image_downloading_resumes_when_track_ready', async () => {
+    const s = setup({}, [pt(1, { playback: 'transcode' })]);
+    s.probe.mockResolvedValue(downloading());
+    s.ctl.play(s.library.get(1)!);
+    s.ctl.seekTo(0);
+    s.engine.emit({ code: 'media', type: 'error' });
+    await flush();
+    expect(s.ctl.state.status).toBe('error');
+    s.library.set(1, pt(1, { playback: 'transcode', status: 'ready' }));
+    s.changeLibrary();
+    expect(s.engine.loads).toHaveLength(2);
+    expect(s.engine.lastLoad?.opts.autoplay).toBe(true);
+    expect(s.ctl.state.status).toBe('loading');
+  });
+
+  it('повторяет запуск раз в 30 с, пока образ не докачан', async () => {
+    const s = setup({}, [pt(1, { playback: 'transcode' })]);
+    s.probe.mockResolvedValue(downloading());
+    s.ctl.play(s.library.get(1)!);
+    s.engine.emit({ code: 'media', type: 'error' });
+    await flush();
+    await vi.advanceTimersByTimeAsync(IMAGE_RETRY_MS);
+    expect(s.engine.loads).toHaveLength(2);
+    // Снова 425 — снова ожидание.
+    s.engine.emit({ code: 'media', type: 'error' });
+    await flush();
+    expect(s.ctl.state).toMatchObject({ error: { code: 'image_downloading' }, status: 'error' });
+  });
+
+  it('seek_in_downloading_image_keeps_track', async () => {
+    const s = setup({}, [pt(1, { durationMs: 300_000, playback: 'transcode' }), pt(2)]);
+    s.ctl.play(s.library.get(1)!, queue(s));
+    s.ctl.seekTo(120);
+    vi.advanceTimersByTime(TRANSCODE_SEEK_DEBOUNCE_MS);
+    expect(s.engine.lastLoad?.src.url).toBe('/s/1?t=120');
+    s.probe.mockResolvedValue(downloading());
+    s.engine.emit({ code: 'media', type: 'error' });
+    await flush();
+    // Тот же трек, прежний поток открыт заново, играет; пользователю сказано, почему перемотка не сработала.
+    expect(s.ctl.state.index).toBe(0);
+    expect(s.engine.lastLoad).toMatchObject({ opts: { autoplay: true, positionOffset: 0 }, src: { url: '/s/1' } });
+    expect(s.notify).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), { code: 'seek_unavailable' });
+    await vi.advanceTimersByTimeAsync(ERROR_ADVANCE_MS * 2);
+    expect(s.ctl.state.index).toBe(0);
+  });
+
+  it('next_cancels_image_wait', async () => {
+    const s = setup({}, [pt(1, { playback: 'transcode' }), pt(2)]);
+    s.probe.mockResolvedValue(downloading());
+    s.ctl.play(s.library.get(1)!, queue(s));
+    s.engine.emit({ code: 'media', type: 'error' });
+    await flush();
+    s.ctl.next();
+    expect(s.ctl.state.index).toBe(1);
+    await vi.advanceTimersByTimeAsync(IMAGE_RETRY_MS * 2);
+    expect(s.engine.loads.map(l => l.src.url)).toEqual(['/s/1', '/s/2']);
   });
 });
 

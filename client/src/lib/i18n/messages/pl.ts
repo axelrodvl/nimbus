@@ -381,6 +381,7 @@ const messages: Messages = {
   'player.error.ffmpeg_missing': 'Na serwerze nie ma ffmpeg: obrazy CUE i formaty APE/WV/DSD nie są odtwarzane',
   'player.error.network': 'Brak połączenia z serwerem',
   'player.error.no_peers': 'Brak peerów: nie udało się pobrać danych torrenta',
+  'player.error.seek_unavailable': 'Przewijanie będzie dostępne po pobraniu albumu',
   'player.error.track_not_playable': 'Utwór nie został jeszcze znaleziony — na razie nie można go odtworzyć',
   'player.error.transcode_failed': 'Nie udało się przetranskodować pliku',
   'player.error.transcoder_busy': 'Serwer jest zajęty transkodowaniem, spróbuj za minutę',

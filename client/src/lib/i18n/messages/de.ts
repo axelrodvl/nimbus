@@ -381,6 +381,7 @@ const messages: Messages = {
     'Auf dem Server ist ffmpeg nicht installiert: CUE-Images und die Formate APE/WV/DSD können nicht abgespielt werden',
   'player.error.network': 'Keine Verbindung zum Server',
   'player.error.no_peers': 'Keine Peers: Torrent-Daten konnten nicht abgerufen werden',
+  'player.error.seek_unavailable': 'Vorspulen ist möglich, sobald das Album fertig heruntergeladen ist',
   'player.error.track_not_playable': 'Der Titel wurde noch nicht gefunden – er kann derzeit nicht abgespielt werden',
   'player.error.transcode_failed': 'Die Datei konnte nicht transkodiert werden',
   'player.error.transcoder_busy': 'Der Server ist mit Transkodieren ausgelastet, versuche es in einer Minute erneut',

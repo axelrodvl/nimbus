@@ -378,6 +378,7 @@ const messages: Messages = {
   'player.error.ffmpeg_missing': 'На сервері не встановлено ffmpeg: образи CUE та формати APE/WV/DSD не відтворюються',
   'player.error.network': 'Немає зв’язку із сервером',
   'player.error.no_peers': 'Немає пірів: не вдалося отримати дані роздачі',
+  'player.error.seek_unavailable': 'Перемотування стане доступним, коли альбом докачається',
   'player.error.track_not_playable': 'Трек ще не знайдено — слухати поки не можна',
   'player.error.transcode_failed': 'Не вдалося перекодувати файл',
   'player.error.transcoder_busy': 'Сервер зайнятий перекодуванням, спробуйте за хвилину',

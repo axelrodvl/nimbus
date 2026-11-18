@@ -370,6 +370,7 @@ const messages: Messages = {
   'player.error.ffmpeg_missing': '服务器未安装 ffmpeg：无法播放 CUE 镜像以及 APE/WV/DSD 格式',
   'player.error.network': '无法连接到服务器',
   'player.error.no_peers': '没有节点：无法获取种子数据',
+  'player.error.seek_unavailable': '专辑下载完成后即可拖动进度',
   'player.error.track_not_playable': '尚未找到该曲目，暂时无法播放',
   'player.error.transcode_failed': '无法转码该文件',
   'player.error.transcoder_busy': '服务器正忙于转码，请一分钟后重试',

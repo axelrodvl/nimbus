@@ -383,6 +383,7 @@ const messages: Messages = {
     'ffmpeg n’est pas installé sur le serveur : les images CUE et les formats APE/WV/DSD ne peuvent pas être lus',
   'player.error.network': 'Pas de connexion au serveur',
   'player.error.no_peers': 'Aucun pair : impossible d’obtenir les données du torrent',
+  'player.error.seek_unavailable': "L'avance rapide sera disponible une fois l'album téléchargé",
   'player.error.track_not_playable': 'Le morceau n’a pas encore été trouvé — lecture impossible pour l’instant',
   'player.error.transcode_failed': 'Impossible de transcoder le fichier',
   'player.error.transcoder_busy': 'Le serveur est occupé à transcoder, réessayez dans une minute',

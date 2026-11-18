@@ -378,6 +378,7 @@ const messages: Messages = {
     'ffmpeg non è installato sul server: le immagini CUE e i formati APE/WV/DSD non possono essere riprodotti',
   'player.error.network': 'Nessuna connessione al server',
   'player.error.no_peers': 'Nessun peer: impossibile ottenere i dati del torrent',
+  'player.error.seek_unavailable': "Lo spostamento nel brano sarà disponibile al termine del download dell'album",
   'player.error.track_not_playable': 'Il brano non è ancora stato trovato — per ora non si può riprodurre',
   'player.error.transcode_failed': 'Impossibile transcodificare il file',
   'player.error.transcoder_busy': 'Il server è occupato con la transcodifica, riprova tra un minuto',

@@ -378,6 +378,7 @@ const messages: Messages = {
     'サーバーに ffmpeg がインストールされていません：CUE イメージと APE/WV/DSD 形式は再生できません',
   'player.error.network': 'サーバーに接続できません',
   'player.error.no_peers': 'ピアがありません：トレントのデータを取得できませんでした',
+  'player.error.seek_unavailable': 'アルバムのダウンロードが完了するとシークできます',
   'player.error.track_not_playable': 'この曲はまだ見つかっていないため、再生できません',
   'player.error.transcode_failed': 'ファイルをトランスコードできませんでした',
   'player.error.transcoder_busy': 'サーバーがトランスコード中です。1 分後にもう一度お試しください',
