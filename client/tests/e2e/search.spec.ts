@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { mockLog, resetMock, setSearch } from './mock';
+import { mockLog, mutate, resetMock, setSearch } from './mock';
 
 const waitSynced = (page: Page) => expect(page.getByTestId('sync-status')).toContainText('Библиотека синхронизирована');
 const searchRequests = async (request: Parameters<typeof mockLog>[0]) =>
@@ -146,5 +146,46 @@ test.describe('поиск', () => {
     await expect(page.getByTestId('search-albums')).toBeVisible();
     await expect(page.getByRole('searchbox')).toHaveValue('radiohead');
     expect(await searchRequests(request)).toBe(1);
+  });
+  test('как в музыкальном сервисе: артист → его альбомы → альбом → треки → нажатие на трек — играет, когда нашёлся источник', async ({
+    page,
+    request,
+  }) => {
+    await page.goto('/');
+    await waitSynced(page);
+    await searchFor(page, 'radiohead');
+    await expect(page.getByTestId('search-artists')).toBeVisible();
+    await page.getByTestId('remote-artist').filter({ hasText: 'Radiohead' }).first().getByRole('link').click();
+    await expect(page).toHaveURL(/\/search\/artist\/a74b1b7f-/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Radiohead' })).toBeVisible();
+    const albums = page.getByTestId('catalog-albums');
+    await expect(albums.getByTestId('catalog-album')).toHaveCount(2);
+    await albums.getByTestId('catalog-album').filter({ hasText: 'OK Computer' }).click();
+    await expect(page).toHaveURL(/\/search\/album\/b1392450-/);
+    const tracks = page.getByTestId('catalog-track');
+    await expect(tracks).toHaveCount(2);
+
+    const added = page.waitForResponse(r => r.url().endsWith('/api/library') && r.request().method() === 'POST');
+    await tracks.filter({ hasText: 'Paranoid Android' }).getByTestId('remote-play').click();
+    const { id } = (await (await added).json()) as { id: number };
+    // Трек добавлен, источник ищется: строка показывает ожидание.
+    await expect(tracks.filter({ hasText: 'Paranoid Android' }).getByTestId('remote-play')).toHaveAttribute(
+      'data-pending',
+      'true',
+    );
+    await expect(page.getByText(/Ищем источник для «Paranoid Android»/)).toBeVisible();
+    await mutate(request, { entity: 'track', id, patch: { status: 'found' } });
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const a = document.querySelector('[data-testid=player-audio]') as HTMLAudioElement | null;
+          return a ? { paused: a.paused, src: a.getAttribute('src') ?? '' } : null;
+        }),
+      )
+      .toEqual({ paused: false, src: expect.stringContaining(`/api/tracks/${id}/stream`) });
+    await expect(page.locator('[data-testid=player-track]:visible').first()).toContainText('Paranoid Android');
+
+    await page.getByTestId('catalog-back').click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Radiohead' })).toBeVisible();
   });
 });

@@ -21,6 +21,11 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
         .route("/health", get(health))
         .route("/openapi.json", get(openapi_json))
         .route("/search", get(search))
+        .route(
+            "/catalog/artists/{mbid}",
+            get(crate::catalog::catalog_artist),
+        )
+        .route("/catalog/albums/{mbid}", get(crate::catalog::catalog_album))
         .route("/library", post(library::add_to_library))
         .route("/library/{type}/{id}", delete(library::remove_from_library))
         .route("/library/artists", get(library::list_artists))

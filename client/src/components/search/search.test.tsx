@@ -6,6 +6,7 @@ import * as searchApi from '@/lib/api/search';
 import { appData } from '@/lib/app-data';
 import { addingStore } from '@/lib/search/add';
 import { addToHistory, readHistory } from '@/lib/search/history';
+import { playRemoteApp } from '@/lib/search/play-remote';
 import { SLOW_SEARCH_MS } from '@/components/search/search-results';
 import { SearchScreen } from '@/screens/search';
 import { makeAlbum, makeArtist, makeTrack, resetFactories } from '@/test/factories';
@@ -125,11 +126,21 @@ describe('экран поиска', () => {
     expect(await screen.findByText('album page')).toBeInTheDocument();
   });
 
-  it('локальный результат ведёт на свою страницу и тоже запоминает запрос', () => {
+  it('локальный артист ведёт на свою страницу и тоже запоминает запрос', () => {
     search.mockReturnValue(new Promise(() => undefined));
     const { router } = open('radio');
-    fireEvent.click(screen.getByRole('link', { name: /Radio Ga Ga/ }));
-    expect(router.state.location.pathname).toBe('/album/1');
+    fireEvent.click(screen.getByRole('link', { name: /Radiohead Tribute/ }));
+    expect(router.state.location.pathname).toBe('/artist/1');
+    expect(readHistory()).toEqual(['radio']);
+  });
+
+  it('нажатие на локальный трек запускает его (а не открывает альбом) и запоминает запрос', () => {
+    search.mockReturnValue(new Promise(() => undefined));
+    const play = vi.spyOn(playRemoteApp(), 'playRemote').mockImplementation(() => undefined);
+    const { router } = open('radio');
+    fireEvent.click(screen.getByRole('button', { name: /Radio Ga Ga/ }));
+    expect(play).toHaveBeenCalledWith(expect.objectContaining({ title: 'Radio Ga Ga', trackId: 1 }), expect.any(Function));
+    expect(router.state.location.pathname).toBe('/search');
     expect(readHistory()).toEqual(['radio']);
   });
 

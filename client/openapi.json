@@ -645,6 +645,128 @@
         }
       }
     },
+    "/api/catalog/albums/{mbid}": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "operationId": "catalog_album",
+        "parameters": [
+          {
+            "name": "mbid",
+            "in": "path",
+            "description": "MBID группы релизов (альбома)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Альбом и его треклист из MusicBrainz",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogAlbumResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "mbid — не UUID (bad_mbid)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Нет в MusicBrainz (mb_not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "MusicBrainz недоступен (mb_unavailable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/catalog/artists/{mbid}": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "operationId": "catalog_artist",
+        "parameters": [
+          {
+            "name": "mbid",
+            "in": "path",
+            "description": "MBID артиста",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Артист и его альбомы из MusicBrainz",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogArtistResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "mbid — не UUID (bad_mbid)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Нет в MusicBrainz (mb_not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "MusicBrainz недоступен (mb_unavailable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/covers/{kind}/{mbid}/{size}": {
       "get": {
         "tags": [
@@ -3508,6 +3630,133 @@
           "transcoded": {
             "type": "boolean",
             "description": "Играет через перекодирование на лету (в браузер уходит FLAC)."
+          }
+        }
+      },
+      "CatalogAlbumResponse": {
+        "type": "object",
+        "required": [
+          "album",
+          "tracks"
+        ],
+        "properties": {
+          "album": {
+            "$ref": "#/components/schemas/AlbumResult"
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CatalogTrack"
+            },
+            "description": "Треклист каноничного релиза группы (тот же, что получит альбом при добавлении)."
+          }
+        }
+      },
+      "CatalogArtist": {
+        "type": "object",
+        "required": [
+          "mbid",
+          "name"
+        ],
+        "properties": {
+          "country": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "disambiguation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "library_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "`id` в нашей БД, если артист добавлен в библиотеку."
+          },
+          "mbid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CatalogArtistResponse": {
+        "type": "object",
+        "required": [
+          "artist",
+          "albums"
+        ],
+        "properties": {
+          "albums": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlbumResult"
+            },
+            "description": "Альбомы и EP артиста: новые сверху, без года — в конце."
+          },
+          "artist": {
+            "$ref": "#/components/schemas/CatalogArtist"
+          }
+        }
+      },
+      "CatalogTrack": {
+        "type": "object",
+        "required": [
+          "mbid",
+          "title",
+          "disc_no",
+          "position"
+        ],
+        "properties": {
+          "disc_no": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "duration_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "library_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "`id` трека в библиотеке, если он добавлен."
+          },
+          "mbid": {
+            "type": "string",
+            "format": "uuid",
+            "description": "MBID записи (recording) — его принимает `POST /api/library` с `type=track`."
+          },
+          "position": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TrackStatus"
+              }
+            ]
+          },
+          "title": {
+            "type": "string"
           }
         }
       },

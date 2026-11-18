@@ -22,11 +22,21 @@ export const appRoutes: RouteObject[] = [
   { element: <AlbumScreen />, path: '/album/:id' },
   // Редкий экран — отдельным чанком (бюджет начального JS); чанк в precache PWA, офлайн открывается так же.
   {
-    lazy: async () => ({ Component: (await import('@/screens/library/sources')).SourcesScreen }),
+    lazy: async () => ({ Component: (await import('@/screens/rare-screens')).SourcesScreen }),
     path: '/album/:id/sources',
   },
   { element: <PlaylistScreen />, path: '/playlist/:id' },
   { element: <SearchScreen />, path: '/search' },
+  // Каталог MusicBrainz: артист и альбом из поиска, которых может не быть в библиотеке.
+  // Тем же отдельным чанком: открывается по нажатию на результат поиска, и только при сети.
+  {
+    lazy: async () => ({ Component: (await import('@/screens/rare-screens')).CatalogArtistScreen }),
+    path: '/search/artist/:mbid',
+  },
+  {
+    lazy: async () => ({ Component: (await import('@/screens/rare-screens')).CatalogAlbumScreen }),
+    path: '/search/album/:mbid',
+  },
   { element: <DownloadsScreen />, path: '/downloads/:tab?' },
   // Статический маршрут приоритетнее `/settings/:section?`.
   { element: <LegacyDownloadsRedirect />, path: '/settings/downloads' },

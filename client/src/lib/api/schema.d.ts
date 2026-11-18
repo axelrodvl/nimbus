@@ -228,6 +228,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/catalog/albums/{mbid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["catalog_album"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/catalog/artists/{mbid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["catalog_artist"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/covers/{kind}/{mbid}/{size}": {
         parameters: {
             query?: never;
@@ -1190,6 +1222,48 @@ export interface components {
             sample_rate?: number | null;
             /** @description Играет через перекодирование на лету (в браузер уходит FLAC). */
             transcoded: boolean;
+        };
+        CatalogAlbumResponse: {
+            album: components["schemas"]["AlbumResult"];
+            /** @description Треклист каноничного релиза группы (тот же, что получит альбом при добавлении). */
+            tracks: components["schemas"]["CatalogTrack"][];
+        };
+        CatalogArtist: {
+            country?: string | null;
+            disambiguation?: string | null;
+            /**
+             * Format: int64
+             * @description `id` в нашей БД, если артист добавлен в библиотеку.
+             */
+            library_id?: number | null;
+            /** Format: uuid */
+            mbid: string;
+            name: string;
+        };
+        CatalogArtistResponse: {
+            /** @description Альбомы и EP артиста: новые сверху, без года — в конце. */
+            albums: components["schemas"]["AlbumResult"][];
+            artist: components["schemas"]["CatalogArtist"];
+        };
+        CatalogTrack: {
+            /** Format: int32 */
+            disc_no: number;
+            /** Format: int32 */
+            duration_ms?: number | null;
+            /**
+             * Format: int64
+             * @description `id` трека в библиотеке, если он добавлен.
+             */
+            library_id?: number | null;
+            /**
+             * Format: uuid
+             * @description MBID записи (recording) — его принимает `POST /api/library` с `type=track`.
+             */
+            mbid: string;
+            /** Format: int32 */
+            position: number;
+            status?: null | components["schemas"]["TrackStatus"];
+            title: string;
         };
         ChangesResponse: {
             albums: components["schemas"]["SyncAlbum"][];
@@ -2346,6 +2420,106 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionInfo"];
+                };
+            };
+        };
+    };
+    catalog_album: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description MBID группы релизов (альбома) */
+                mbid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Альбом и его треклист из MusicBrainz */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogAlbumResponse"];
+                };
+            };
+            /** @description mbid — не UUID (bad_mbid) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Нет в MusicBrainz (mb_not_found) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description MusicBrainz недоступен (mb_unavailable) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    catalog_artist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description MBID артиста */
+                mbid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Артист и его альбомы из MusicBrainz */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogArtistResponse"];
+                };
+            };
+            /** @description mbid — не UUID (bad_mbid) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Нет в MusicBrainz (mb_not_found) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description MusicBrainz недоступен (mb_unavailable) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

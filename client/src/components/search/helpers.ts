@@ -34,3 +34,16 @@ export function pickBestArtist(data: SearchResponse): ArtistResult | undefined {
   }
   return data.artists[0];
 }
+
+/**
+ * Экраны каталога MusicBrainz: сущность может быть ещё не в библиотеке. Артист из поиска всегда открывается в
+ * каталоге — в библиотеке у него может быть лишь один добавленный трек, а нужна вся дискография.
+ */
+export const catalogArtistHref = (mbid: string) => `/search/artist/${mbid}`;
+export const catalogAlbumHref = (mbid: string) => `/search/album/${mbid}`;
+
+/** Альбом: в библиотеке — её экран, иначе — каталог. */
+export const albumLink = (mbid: string, index: { albums: ReadonlyMap<string, number> }): string => {
+  const id = index.albums.get(mbid);
+  return id === undefined ? catalogAlbumHref(mbid) : albumHref(id);
+};

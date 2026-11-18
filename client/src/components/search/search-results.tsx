@@ -16,7 +16,8 @@ import type { RemoteSearch } from '@/lib/search/use-remote-search';
 import type { MbidIndex, SearchResult } from '@/lib/store/selectors';
 import { formatDuration } from '@/lib/utils';
 import { AddToLibraryButton, InLibrary } from './add-to-library-button';
-import { albumHref, albumSubtitle, artistHref, pickBestArtist } from './helpers';
+import { albumHref, albumLink, albumSubtitle, artistHref, catalogArtistHref, pickBestArtist } from './helpers';
+import { RemotePlayRow } from './remote-play';
 
 type Props = {
   query: string;
@@ -80,15 +81,18 @@ function LocalResults({ local, query }: { local: SearchResult; query: string }) 
         ))}
         {local.tracks.map(tr => (
           <li key={`track-${tr.id}`}>
-            <Link className={rowLink} onClick={remember} to={albumHref(tr.album_id)}>
-              <Cover alt={tr.albumTitle} className="size-10" src={tr.coverUrl} />
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate text-sm font-medium">{tr.title}</span>
-                <span className="text-muted truncate text-xs">
-                  {t('kind.track')} · {tr.artistName} · {tr.albumTitle}
-                </span>
+            <RemotePlayRow
+              className="hover:bg-card/60 dark:hover:bg-card-dark/60 p-2"
+              leading={<Cover alt={tr.albumTitle} className="size-10" src={tr.coverUrl} />}
+              ownId={tr.id}
+              query={query}
+              request={{ albumMbid: null, mbid: tr.mbid_recording, title: tr.title, trackId: tr.id }}
+            >
+              <span className="truncate text-sm font-medium">{tr.title}</span>
+              <span className="text-muted truncate text-xs">
+                {t('kind.track')} · {tr.artistName} · {tr.albumTitle}
               </span>
-            </Link>
+            </RemotePlayRow>
           </li>
         ))}
       </ul>
@@ -110,7 +114,13 @@ function ArtistCard({ artist, index, query }: { artist: ArtistResult; index: Mbi
   );
   return (
     <div className="flex flex-col items-center" data-testid="remote-artist">
-      <div className="flex flex-col items-center">{body}</div>
+      <Link
+        className="focus-visible:ring-accent/40 flex flex-col items-center rounded-lg transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:outline-none"
+        onClick={() => addToHistory(query)}
+        to={catalogArtistHref(artist.mbid)}
+      >
+        {body}
+      </Link>
       <div className="mt-2">
         <AddToLibraryButton input={artistInput(artist)} libraryHref={href} query={query} />
       </div>
@@ -126,13 +136,17 @@ function AlbumCard({ album, index, query }: { album: AlbumResult; index: MbidInd
       className="bg-card/50 dark:bg-card-dark/50 flex h-full flex-col justify-between rounded-lg p-3"
       data-testid="remote-album"
     >
-      <div>
+      <Link
+        className="focus-visible:ring-accent/40 block rounded-md focus-visible:ring-2 focus-visible:outline-none"
+        onClick={() => addToHistory(query)}
+        to={albumLink(album.mbid, index)}
+      >
         <Cover alt={album.title} className="w-full shadow-lg" src={album.cover_url} />
         <div className="mt-3 min-w-0">
-          <p className="line-clamp-2 text-sm font-semibold">{album.title}</p>
+          <p className="line-clamp-2 text-sm font-semibold hover:underline">{album.title}</p>
           <p className="text-muted line-clamp-2 text-xs">{albumSubtitle(album, t)}</p>
         </div>
-      </div>
+      </Link>
       <div className="mt-3 flex justify-end">
         <AddToLibraryButton
           input={{
@@ -155,13 +169,23 @@ function TrackRow({ track, index, query }: { track: TrackResult; index: MbidInde
       className="hover:bg-card/60 dark:hover:bg-card-dark/60 flex items-center gap-3 rounded-md px-2 py-1.5"
       data-testid="remote-track"
     >
-      <Cover alt={track.album_title ?? track.title} className="size-10" src={track.cover_url} />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <RemotePlayRow
+        leading={<Cover alt={track.album_title ?? track.title} className="size-10" src={track.cover_url} />}
+        ownId={own?.id ?? null}
+        query={query}
+        request={{
+          albumMbid: track.album_mbid ?? null,
+          artistName: track.artist_name,
+          cover: track.cover_url,
+          mbid: track.mbid,
+          title: track.title,
+        }}
+      >
         <span className="truncate text-sm font-medium">{track.title}</span>
         <span className="text-muted truncate text-xs">
           {[track.artist_name, track.album_title].filter(Boolean).join(' · ')}
         </span>
-      </div>
+      </RemotePlayRow>
       {track.duration_ms ? (
         <span className="text-muted font-mono text-xs">{formatDuration(Math.floor(track.duration_ms / 1000))}</span>
       ) : null}
@@ -202,13 +226,20 @@ function BestResult({
           {t('search.best')}
         </h2>
         <div className="bg-card/60 dark:bg-card-dark/60 flex flex-col gap-4 rounded-lg p-5">
-          <ArtistAvatar className="h-24 w-24 text-3xl" mbid={artist.mbid} name={artist.name} />
-          <div className="min-w-0">
-            <p className="truncate text-2xl font-bold tracking-tight">{artist.name}</p>
-            <p className="text-muted truncate text-sm">
-              {[t('kind.artist'), artist.disambiguation, artist.country].filter(Boolean).join(' · ')}
-            </p>
-          </div>
+          <Link
+            className="focus-visible:ring-accent/40 flex flex-col gap-4 rounded-md focus-visible:ring-2 focus-visible:outline-none"
+            data-testid="best-artist-link"
+            onClick={() => addToHistory(query)}
+            to={catalogArtistHref(artist.mbid)}
+          >
+            <ArtistAvatar className="h-24 w-24 text-3xl" mbid={artist.mbid} name={artist.name} />
+            <span className="min-w-0">
+              <span className="block truncate text-2xl font-bold tracking-tight hover:underline">{artist.name}</span>
+              <span className="text-muted block truncate text-sm">
+                {[t('kind.artist'), artist.disambiguation, artist.country].filter(Boolean).join(' · ')}
+              </span>
+            </span>
+          </Link>
           <div>
             {id === undefined ? (
               <AddToLibraryButton input={artistInput(artist)} libraryHref={null} query={query} />
@@ -270,14 +301,27 @@ export const SLOW_SEARCH_MS = 2500;
  * Что сейчас делает поиск — словами, а не только скелетом: ищем, ищем долго, MusicBrainz не ответил и мы
  * повторяем запрос сами. Таймер «долго» начинается заново с каждым новым запросом (компонент монтируется заново).
  */
-export function SearchProgress({ retrying, partial = false }: { retrying: boolean; partial?: boolean }) {
+export function SearchProgress({
+  retrying,
+  partial = false,
+  loadingText,
+}: {
+  retrying: boolean;
+  partial?: boolean;
+  /** Текст обычного ожидания вместо «Ищем в MusicBrainz…» (экраны каталога). */
+  loadingText?: string;
+}) {
   const t = useT();
   const [slow, setSlow] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => setSlow(true), SLOW_SEARCH_MS);
     return () => clearTimeout(timer);
   }, []);
-  const title = partial ? t('search.partialRetrying') : retrying ? t('search.retrying') : t('search.searching');
+  const title = partial
+    ? t('search.partialRetrying')
+    : retrying
+      ? t('search.retrying')
+      : (loadingText ?? t('search.searching'));
   const body = retrying ? t('search.retryingBody') : slow ? t('search.slowBody') : null;
   return (
     <div

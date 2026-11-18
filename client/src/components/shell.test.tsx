@@ -313,3 +313,15 @@ describe('ошибки и язык', () => {
     expect(router.state.location.pathname).toBe('/');
   });
 });
+
+describe('ленивые маршруты', () => {
+  it('редкие экраны (источники, каталог MusicBrainz) грузятся одним чанком и отдают свой компонент', async () => {
+    const lazy = Object.fromEntries(
+      appRoutes.filter(r => typeof r.lazy === 'function').map(r => [r.path, r.lazy as () => Promise<{ Component: unknown }>]),
+    );
+    const rare = await import('@/screens/rare-screens');
+    expect((await lazy['/album/:id/sources']!()).Component).toBe(rare.SourcesScreen);
+    expect((await lazy['/search/artist/:mbid']!()).Component).toBe(rare.CatalogArtistScreen);
+    expect((await lazy['/search/album/:mbid']!()).Component).toBe(rare.CatalogAlbumScreen);
+  });
+});

@@ -258,6 +258,46 @@ function addToLibrary(body: AddBody): { status: number; body: unknown } | null {
   return { body: { id: track.id, status: 'added', type: 'track' }, status: 201 };
 }
 
+/** `GET /api/catalog/{artists|albums}/{mbid}`: каталог MusicBrainz из фикстуры поиска; `null` — такого mbid нет. */
+function catalogRoute(kind: string, mbid: string): unknown {
+  const libraryArtist = (id: string) =>
+    state.server.all('artist').find(a => a.mbid === id && a.in_library)?.id ?? null;
+  const libraryAlbum = (id: string) => state.server.all('album').find(a => a.mbid === id && a.in_library)?.id ?? null;
+  if (kind === 'artists') {
+    const hit = searchFixture.artists.find(a => a.mbid === mbid);
+    if (!hit) return null;
+    return {
+      albums: searchFixture.albums
+        .filter(a => a.artist_mbid === mbid)
+        .map(a => ({ ...a, library_id: libraryAlbum(a.mbid) })),
+      artist: {
+        country: hit.country,
+        disambiguation: hit.disambiguation,
+        library_id: libraryArtist(mbid),
+        mbid,
+        name: hit.name,
+      },
+    };
+  }
+  const album = searchFixture.albums.find(a => a.mbid === mbid);
+  if (!album) return null;
+  const tracks = searchFixture.tracks
+    .filter(t => t.album_mbid === mbid)
+    .map((t, i) => {
+      const own = state.server.all('track').find(r => r.mbid_recording === t.mbid && r.in_library);
+      return {
+        disc_no: 1,
+        duration_ms: t.duration_ms,
+        library_id: own?.id ?? null,
+        mbid: t.mbid,
+        position: i + 1,
+        status: own?.status ?? null,
+        title: t.title,
+      };
+    });
+  return { album: { ...album, library_id: libraryAlbum(mbid) }, tracks };
+}
+
 /** Обработчик `/api/tracks/{id}/{stream|played|prefetch|audio-info}`. */
 async function playbackRoute(req: Request, id: number, kind: string): Promise<Response> {
   const track = state.server.get('track', id);
@@ -888,6 +928,19 @@ Bun.serve({
       }
       const q = new URL(req.url).searchParams.get('q') ?? '';
       return json(200, { ...searchFixture, query: q });
+    }
+    if (path.startsWith('/api/catalog/')) {
+      if (!authed(req)) return json(401, { error: { code: 'unauthorized', message: 'login required' } });
+      if (state.faults.delayMs) await sleep(state.faults.delayMs);
+      if (state.faults.failStatus) {
+        return json(state.faults.failStatus, {
+          error: { code: 'mb_unavailable', message: 'MusicBrainz is unavailable' },
+        });
+      }
+      const [, , kind = '', mbid = ''] = path.split('/').filter(Boolean); // api, catalog, kind, mbid
+      const body = catalogRoute(kind, decodeURIComponent(mbid));
+      if (!body) return json(404, { error: { code: 'mb_not_found', message: 'not found in MusicBrainz' } });
+      return json(200, body);
     }
     if (path === '/api/library' && req.method === 'POST') {
       if (!authed(req)) return json(401, { error: { code: 'unauthorized', message: 'login required' } });

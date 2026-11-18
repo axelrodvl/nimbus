@@ -140,6 +140,33 @@ export const SCREENS: Screen[] = [
     },
     path: '/search',
   },
+  {
+    name: 'catalog-artist',
+    open: async ({ page }) => void (await expect(page.getByTestId('catalog-albums')).toBeVisible()),
+    path: '/search/artist/a74b1b7f-71a5-4011-9441-d0b5e4122711',
+  },
+  {
+    name: 'catalog-album',
+    open: async ({ page }) => void (await expect(page.getByTestId('catalog-tracks')).toBeVisible()),
+    path: '/search/album/b1392450-e666-3926-a536-22c65f834433',
+  },
+  {
+    name: 'catalog-loading',
+    open: async ({ page }) => void (await page.waitForTimeout(3200)),
+    path: '/search/artist/a74b1b7f-71a5-4011-9441-d0b5e4122711',
+    seed: ({ request }) => setSearch(request, { delayMs: 60_000 }),
+  },
+  {
+    name: 'catalog-track-pending',
+    open: async ({ page }) => {
+      await page.getByTestId('catalog-track').first().getByTestId('remote-play').click();
+      await expect(page.getByTestId('catalog-track').first().getByTestId('remote-play')).toHaveAttribute(
+        'data-pending',
+        'true',
+      );
+    },
+    path: '/search/album/b1392450-e666-3926-a536-22c65f834433',
+  },
   { name: 'sources', path: '/album/913/sources', seed: ({ request }) => seedSources(request) },
   {
     name: 'track-source-dialog',
