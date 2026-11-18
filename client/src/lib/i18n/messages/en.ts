@@ -369,6 +369,7 @@ export const en = {
   'player.connectingPeers': 'Connecting to the torrent… (peers: {peers})',
   'player.download': 'Downloading from the torrent: {pct}% · {peers} · {speed}',
   'player.error.default': 'Could not play the track',
+  'player.error.image_downloading': 'The album is still downloading — this track will be playable when it finishes',
   'player.error.ffmpeg_missing':
     'ffmpeg is not installed on the server: CUE images and APE/WV/DSD formats cannot be played',
   'player.error.network': 'No connection to the server',

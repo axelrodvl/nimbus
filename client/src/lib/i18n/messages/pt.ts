@@ -372,6 +372,7 @@ const messages: Messages = {
   'player.connectingPeers': 'Conectando ao torrent… (peers: {peers})',
   'player.download': 'Baixando do torrent: {pct}% · {peers} · {speed}',
   'player.error.default': 'Não foi possível tocar a faixa',
+  'player.error.image_downloading': 'O álbum ainda está sendo baixado — a faixa poderá ser tocada ao terminar',
   'player.error.ffmpeg_missing':
     'O ffmpeg não está instalado no servidor: imagens CUE e os formatos APE/WV/DSD não podem ser tocados',
   'player.error.network': 'Sem conexão com o servidor',

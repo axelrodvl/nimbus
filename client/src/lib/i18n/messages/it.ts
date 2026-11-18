@@ -373,6 +373,7 @@ const messages: Messages = {
   'player.connectingPeers': 'Connessione al torrent… (peer: {peers})',
   'player.download': 'Download dal torrent: {pct}% · {peers} · {speed}',
   'player.error.default': 'Impossibile riprodurre il brano',
+  'player.error.image_downloading': 'L’album è ancora in download: il brano sarà riproducibile al termine',
   'player.error.ffmpeg_missing':
     'ffmpeg non è installato sul server: le immagini CUE e i formati APE/WV/DSD non possono essere riprodotti',
   'player.error.network': 'Nessuna connessione al server',

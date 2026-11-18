@@ -367,6 +367,7 @@ const messages: Messages = {
   'player.connectingPeers': 'टोरेंट से कनेक्ट हो रहा है… (पियर: {peers})',
   'player.download': 'टोरेंट से डाउनलोड हो रहा है: {pct}% · {peers} · {speed}',
   'player.error.default': 'ट्रैक चलाया नहीं जा सका',
+  'player.error.image_downloading': 'एल्बम अभी डाउनलोड हो रहा है — पूरा होने पर ट्रैक चलाया जा सकेगा',
   'player.error.ffmpeg_missing': 'सर्वर पर ffmpeg इंस्टॉल नहीं है: CUE इमेज और APE/WV/DSD फ़ॉर्मैट नहीं चल सकते',
   'player.error.network': 'सर्वर से कनेक्शन नहीं है',
   'player.error.no_peers': 'कोई पियर नहीं: टोरेंट का डेटा नहीं मिल सका',

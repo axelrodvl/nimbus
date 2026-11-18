@@ -376,6 +376,7 @@ const messages: Messages = {
   'player.connectingPeers': 'Verbindung zum Torrent wird hergestellt… (Peers: {peers})',
   'player.download': 'Download aus dem Torrent: {pct} % · {peers} · {speed}',
   'player.error.default': 'Der Titel konnte nicht abgespielt werden',
+  'player.error.image_downloading': 'Das Album wird noch heruntergeladen – der Titel ist danach abspielbar',
   'player.error.ffmpeg_missing':
     'Auf dem Server ist ffmpeg nicht installiert: CUE-Images und die Formate APE/WV/DSD können nicht abgespielt werden',
   'player.error.network': 'Keine Verbindung zum Server',

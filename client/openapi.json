@@ -2822,6 +2822,16 @@
               }
             }
           },
+          "425": {
+            "description": "CUE-образ ещё докачивается, трек из него пока не играет (`image_downloading`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Нет ffmpeg (`ffmpeg_missing`) или слишком много перекодирований (`transcoder_busy`)",
             "content": {

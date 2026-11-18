@@ -370,6 +370,7 @@ const messages: Messages = {
   'player.connectingPeers': '토렌트에 연결하는 중… (피어: {peers})',
   'player.download': '토렌트에서 다운로드 중: {pct}% · {peers} · {speed}',
   'player.error.default': '곡을 재생하지 못했습니다',
+  'player.error.image_downloading': '앨범을 아직 다운로드 중입니다. 완료되면 재생할 수 있습니다',
   'player.error.ffmpeg_missing':
     '서버에 ffmpeg가 설치되어 있지 않습니다: CUE 이미지와 APE/WV/DSD 형식은 재생할 수 없습니다',
   'player.error.network': '서버에 연결할 수 없습니다',

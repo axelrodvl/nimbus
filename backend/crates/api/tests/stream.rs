@@ -670,6 +670,56 @@ async fn transcode_streams_cue_segment_from_disk(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn cue_segment_of_unfinished_image_answers_image_downloading(pool: PgPool) {
+    // FLAC-образ без seektable нельзя перематывать, пока он качается: сразу `425 image_downloading`,
+    // а не минутное ожидание и ложное `no_peers`.
+    let f = fixture(pool.clone(), "flac", TrackStatus::Found).await;
+    sqlx::query(
+        "UPDATE track_sources SET cue_start_ms = 10000, cue_end_ms = 20000 WHERE track_id = $1",
+    )
+    .bind(f.track_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let dir = temp_dir();
+    let fake = Fake::new(f.path.clone(), Mode::Normal);
+    let st = state(pool.clone())
+        .with_files(fake.clone())
+        .with_transcoder(Transcoder::new(fake_ffmpeg(&dir, false)).with_available(true));
+    let uri = format!("/api/tracks/{}/stream", f.track_id);
+
+    for method in ["GET", "HEAD"] {
+        let r = call(&st, method, &uri, None).await;
+        assert_eq!(r.status.as_u16(), 425, "{method}");
+    }
+    let r = call(&st, "GET", &uri, None).await;
+    assert!(String::from_utf8_lossy(&r.body).contains("image_downloading"));
+    assert!(!dir.join("args").exists(), "ffmpeg must not be started");
+    // Образ зарегистрирован на докачку.
+    assert!(
+        downloads::get(&pool, f.torrent_id, 0)
+            .await
+            .unwrap()
+            .is_some(),
+        "the image download is registered"
+    );
+
+    // Первый трек образа (начало файла, без перемотки) играет и из недокачанного образа.
+    sqlx::query("UPDATE track_sources SET cue_start_ms = 0 WHERE track_id = $1")
+        .bind(f.track_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let r = call(&st, "GET", &uri, None).await;
+    assert_ne!(r.status.as_u16(), 425);
+    // А перемотка внутри него — уже нет.
+    let r = call(&st, "GET", &format!("{uri}?t=5"), None).await;
+    assert_eq!(r.status.as_u16(), 425);
+    let _ = std::fs::remove_file(&f.path);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn transcode_non_browser_format_has_no_segment(pool: PgPool) {
     let f = fixture(pool.clone(), "wv", TrackStatus::Ready).await;
     complete_download(&f).await;

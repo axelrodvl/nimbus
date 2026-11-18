@@ -372,6 +372,7 @@ const messages: Messages = {
   'player.connectingPeers': 'Conectando con el torrent… (pares: {peers})',
   'player.download': 'Descargando del torrent: {pct} % · {peers} · {speed}',
   'player.error.default': 'No se pudo reproducir la pista',
+  'player.error.image_downloading': 'El álbum aún se está descargando: la pista se podrá reproducir cuando termine',
   'player.error.ffmpeg_missing':
     'ffmpeg no está instalado en el servidor: las imágenes CUE y los formatos APE/WV/DSD no se pueden reproducir',
   'player.error.network': 'Sin conexión con el servidor',

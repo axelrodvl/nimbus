@@ -232,6 +232,7 @@ describe('ошибки и форматирование', () => {
     const fakeFetch = (status: number) => (async () => ({ ok: status < 400, status }) as Response) as typeof fetch;
     expect((await probeStreamError('u', fakeFetch(503))).code).toBe('ffmpeg_missing');
     expect((await probeStreamError('u', fakeFetch(409))).code).toBe('track_not_playable');
+    expect((await probeStreamError('u', fakeFetch(425))).code).toBe('image_downloading');
     expect((await probeStreamError('u', fakeFetch(504))).code).toBe('no_peers');
     expect((await probeStreamError('u', fakeFetch(500))).code).toBe('unknown');
     // HEAD проходит — значит, не удалось прочитать данные раздачи

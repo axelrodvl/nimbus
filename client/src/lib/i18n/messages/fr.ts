@@ -378,6 +378,7 @@ const messages: Messages = {
   'player.connectingPeers': 'Connexion au torrent… (pairs : {peers})',
   'player.download': 'Téléchargement depuis le torrent : {pct} % · {peers} · {speed}',
   'player.error.default': 'Impossible de lire le morceau',
+  'player.error.image_downloading': 'L’album est encore en téléchargement — le morceau sera lisible une fois terminé',
   'player.error.ffmpeg_missing':
     'ffmpeg n’est pas installé sur le serveur : les images CUE et les formats APE/WV/DSD ne peuvent pas être lus',
   'player.error.network': 'Pas de connexion au serveur',

@@ -373,6 +373,7 @@ const messages: Messages = {
   'player.connectingPeers': 'トレントに接続中…（ピア：{peers}）',
   'player.download': 'トレントからダウンロード中：{pct}% · {peers} · {speed}',
   'player.error.default': '曲を再生できませんでした',
+  'player.error.image_downloading': 'アルバムをダウンロード中です。完了すると再生できます',
   'player.error.ffmpeg_missing':
     'サーバーに ffmpeg がインストールされていません：CUE イメージと APE/WV/DSD 形式は再生できません',
   'player.error.network': 'サーバーに接続できません',

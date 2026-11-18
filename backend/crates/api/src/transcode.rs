@@ -161,6 +161,26 @@ pub async fn transcode_response(
     let offset = t.filter(|v| v.is_finite() && *v > 0.0).unwrap_or(0.0);
     let total_ms = duration_ms(track, source);
 
+    // Недокачанный образ нельзя перематывать: у FLAC без seektable `ffmpeg -ss` делает десятки
+    // бинарных поисков по файлу, и каждый упирается в ещё не скачанные куски — ответа нет минуту,
+    // а клиент видит ложное «нет пиров». Говорим сразу, что образ ещё качается.
+    let needs_seek = source.cue_start_ms.is_some_and(|s| s > 0 || offset > 0.0);
+    if needs_seek
+        && crate::stream::completed_local_path(state, source, size)
+            .await?
+            .is_none()
+    {
+        if method != Method::HEAD {
+            // Пусть образ докачивается, даже если менеджер загрузок до него ещё не дошёл.
+            let _ = crate::stream::register_download(state, torrent, source, size).await;
+        }
+        return Err(err(
+            StatusCode::TOO_EARLY,
+            "image_downloading",
+            "the album image is still downloading; this track can be played when it finishes",
+        ));
+    }
+
     let mut builder = Response::builder()
         .header(header::CONTENT_TYPE, "audio/flac")
         .header(header::ACCEPT_RANGES, "none")

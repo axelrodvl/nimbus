@@ -149,6 +149,7 @@ pub struct StreamQuery {
         (status = 416, description = "Диапазон вне файла", body = crate::error::ErrorResponse),
         (status = 507, description = "Ошибка хранилища торрент-движка, например нет места (`storage_error`)", body = crate::error::ErrorResponse),
         (status = 503, description = "Нет ffmpeg (`ffmpeg_missing`) или слишком много перекодирований (`transcoder_busy`)", body = crate::error::ErrorResponse),
+        (status = 425, description = "CUE-образ ещё докачивается, трек из него пока не играет (`image_downloading`)", body = crate::error::ErrorResponse),
         (status = 504, description = "Нет пиров: данные не пришли вовремя (`no_peers`)", body = crate::error::ErrorResponse),
     )
 )]

@@ -372,6 +372,7 @@ const messages: Messages = {
   'player.connectingPeers': 'Torrente bağlanılıyor… (eş: {peers})',
   'player.download': 'Torrentten indiriliyor: %{pct} · {peers} · {speed}',
   'player.error.default': 'Parça çalınamadı',
+  'player.error.image_downloading': 'Albüm hâlâ indiriliyor — parça bitince çalınabilecek',
   'player.error.ffmpeg_missing': 'Sunucuda ffmpeg yüklü değil: CUE imajları ve APE/WV/DSD biçimleri çalınamaz',
   'player.error.network': 'Sunucuyla bağlantı yok',
   'player.error.no_peers': 'Eş yok: torrent verileri alınamadı',

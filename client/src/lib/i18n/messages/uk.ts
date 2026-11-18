@@ -374,6 +374,7 @@ const messages: Messages = {
   'player.connectingPeers': 'Підключаємося до роздачі… (пірів: {peers})',
   'player.download': 'Завантаження з торента: {pct}% · {peers} · {speed}',
   'player.error.default': 'Не вдалося відтворити трек',
+  'player.error.image_downloading': 'Альбом ще завантажується — трек можна буде слухати після завершення',
   'player.error.ffmpeg_missing': 'На сервері не встановлено ffmpeg: образи CUE та формати APE/WV/DSD не відтворюються',
   'player.error.network': 'Немає зв’язку із сервером',
   'player.error.no_peers': 'Немає пірів: не вдалося отримати дані роздачі',

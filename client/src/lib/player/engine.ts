@@ -304,6 +304,7 @@ export function parseStored(raw: string | null): StoredPlayer | null {
 
 const KNOWN_ERRORS = [
   'ffmpeg_missing',
+  'image_downloading',
   'no_peers',
   'track_not_playable',
   'transcode_failed',
@@ -339,6 +340,7 @@ export async function probeStreamError(
     // У HEAD нет тела — код берём из статуса.
     const byStatus: Record<number, string> = {
       409: 'track_not_playable',
+      425: 'image_downloading',
       503: 'ffmpeg_missing',
       504: 'no_peers',
     };

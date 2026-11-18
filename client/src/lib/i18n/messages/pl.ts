@@ -377,6 +377,7 @@ const messages: Messages = {
   'player.connectingPeers': 'Łączenie z torrentem… (peerów: {peers})',
   'player.download': 'Pobieranie z torrenta: {pct}% · {peers} · {speed}',
   'player.error.default': 'Nie udało się odtworzyć utworu',
+  'player.error.image_downloading': 'Album jest jeszcze pobierany — utwór da się odtworzyć po zakończeniu',
   'player.error.ffmpeg_missing': 'Na serwerze nie ma ffmpeg: obrazy CUE i formaty APE/WV/DSD nie są odtwarzane',
   'player.error.network': 'Brak połączenia z serwerem',
   'player.error.no_peers': 'Brak peerów: nie udało się pobrać danych torrenta',

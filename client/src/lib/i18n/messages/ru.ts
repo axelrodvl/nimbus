@@ -376,6 +376,7 @@ const messages: Messages = {
   'player.connectingPeers': 'Подключаемся к раздаче… (пиров: {peers})',
   'player.download': 'Загрузка из торрента: {pct}% · {peers} · {speed}',
   'player.error.default': 'Не удалось воспроизвести трек',
+  'player.error.image_downloading': 'Альбом ещё скачивается — трек можно будет слушать после завершения',
   'player.error.ffmpeg_missing': 'На сервере не установлен ffmpeg: образы CUE и форматы APE/WV/DSD не играют',
   'player.error.network': 'Нет связи с сервером',
   'player.error.no_peers': 'Нет пиров: не удалось получить данные раздачи',

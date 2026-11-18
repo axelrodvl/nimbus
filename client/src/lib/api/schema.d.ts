@@ -4131,6 +4131,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description CUE-образ ещё докачивается, трек из него пока не играет (`image_downloading`) */
+            425: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Нет ffmpeg (`ffmpeg_missing`) или слишком много перекодирований (`transcoder_busy`) */
             503: {
                 headers: {

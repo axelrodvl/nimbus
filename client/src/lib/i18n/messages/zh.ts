@@ -366,6 +366,7 @@ const messages: Messages = {
   'player.connectingPeers': '正在连接种子…（节点：{peers}）',
   'player.download': '正在从种子下载：{pct}% · {peers} · {speed}',
   'player.error.default': '无法播放该曲目',
+  'player.error.image_downloading': '专辑仍在下载，下载完成后即可播放该曲目',
   'player.error.ffmpeg_missing': '服务器未安装 ffmpeg：无法播放 CUE 镜像以及 APE/WV/DSD 格式',
   'player.error.network': '无法连接到服务器',
   'player.error.no_peers': '没有节点：无法获取种子数据',
