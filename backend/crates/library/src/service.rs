@@ -325,21 +325,7 @@ impl LibraryService {
         recording_mbid: Uuid,
         album_mbid: Option<Uuid>,
     ) -> Result<AddOutcome> {
-        let rg_mbid = match album_mbid {
-            Some(m) => m,
-            None => self
-                .mb
-                .recording(recording_mbid)
-                .await?
-                .release_group_mbid
-                .ok_or(LibraryError::RecordingNotInRelease)?,
-        };
-        let (album, album_tracks) = self.ensure_album(rg_mbid, None).await?;
-        // Запись может встречаться в альбоме несколько раз — берём первое вхождение.
-        let track = album_tracks
-            .into_iter()
-            .find(|t| t.mbid_recording == recording_mbid)
-            .ok_or(LibraryError::RecordingNotInRelease)?;
+        let (album, track) = self.locate_track(recording_mbid, album_mbid).await?;
         if track.in_library {
             return Ok(AddOutcome::Exists { id: track.id });
         }
@@ -383,25 +369,10 @@ impl LibraryService {
         mb_timeout: Duration,
     ) -> Result<PlayOutcome> {
         // Таймаут — только вокруг части с MusicBrainz: `request_play` ниже — короткая транзакция, её не обрываем.
-        let (album, track) = tokio::time::timeout(mb_timeout, async {
-            let rg_mbid = match album_mbid {
-                Some(m) => m,
-                None => self
-                    .mb
-                    .recording(recording_mbid)
-                    .await?
-                    .release_group_mbid
-                    .ok_or(LibraryError::RecordingNotInRelease)?,
-            };
-            let (album, album_tracks) = self.ensure_album(rg_mbid, None).await?;
-            let track = album_tracks
-                .into_iter()
-                .find(|t| t.mbid_recording == recording_mbid)
-                .ok_or(LibraryError::RecordingNotInRelease)?;
-            Ok::<_, LibraryError>((album, track))
-        })
-        .await
-        .map_err(|_| LibraryError::MbUnavailable("timeout".into()))??;
+        let (album, track) =
+            tokio::time::timeout(mb_timeout, self.locate_track(recording_mbid, album_mbid))
+                .await
+                .map_err(|_| LibraryError::MbUnavailable("timeout".into()))??;
         self.request_play(album.id, vec![track]).await
     }
 
@@ -449,6 +420,91 @@ impl LibraryService {
             track_ids: ids,
             statuses,
         })
+    }
+
+    /// Альбом и трек для записи (общий путь «сыграть» и «добавить трек»). Записи может не быть в треклисте
+    /// каноничного релиза (бонус-трек издания, другой мастеринг): тогда она ищется в остальных релизах той же
+    /// группы и добавляется в тот же альбом ([`Self::add_bonus_track`]). Нет ни релизов, ни записи в них —
+    /// `RecordingNotInRelease`.
+    async fn locate_track(
+        &self,
+        recording_mbid: Uuid,
+        album_mbid: Option<Uuid>,
+    ) -> Result<(Album, Track)> {
+        let rg_mbid = match album_mbid {
+            Some(m) => m,
+            None => self
+                .mb
+                .recording(recording_mbid)
+                .await?
+                .release_group_mbid
+                .ok_or(LibraryError::RecordingNotInRelease)?,
+        };
+        let (album, album_tracks) = self.ensure_album(rg_mbid, None).await?;
+        // Запись может встречаться в альбоме несколько раз — берём первое вхождение.
+        if let Some(track) = album_tracks
+            .iter()
+            .find(|t| t.mbid_recording == recording_mbid)
+        {
+            return Ok((album.clone(), track.clone()));
+        }
+        // Записи нет в MusicBrainz под этим MBID — для вызывающего это тот же «нет в альбоме».
+        let (_, item) = match self
+            .mb
+            .track_in_release_group(recording_mbid, rg_mbid)
+            .await
+        {
+            Ok(Some(found)) => found,
+            Ok(None) | Err(nimbus_musicbrainz::MbError::NotFound) => {
+                return Err(LibraryError::RecordingNotInRelease)
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let track = self.add_bonus_track(&album, &album_tracks, &item).await?;
+        Ok((album, track))
+    }
+
+    /// Добавляет в существующий альбом трек из другого релиза его группы. Нумерация: место из того релиза
+    /// (диск, позиция), а если оно занято треком каноничного релиза (уникальность `album_id, disc_no, position`) —
+    /// следующая позиция на последнем диске, то есть бонус оказывается в конце альбома.
+    async fn add_bonus_track(
+        &self,
+        album: &Album,
+        existing: &[Track],
+        item: &nimbus_musicbrainz::TrackItem,
+    ) -> Result<Track> {
+        let taken = |disc: i32, pos: i32| {
+            existing
+                .iter()
+                .any(|t| t.disc_no == disc && t.position == pos)
+        };
+        let (disc_no, position) = if taken(item.disc_no, item.position) {
+            let disc = existing.iter().map(|t| t.disc_no).max().unwrap_or(1);
+            let last = existing
+                .iter()
+                .filter(|t| t.disc_no == disc)
+                .map(|t| t.position)
+                .max()
+                .unwrap_or(0);
+            (disc, last + 1)
+        } else {
+            (item.disc_no, item.position)
+        };
+        let track = tracks::upsert_by_mbid_track(
+            &self.db,
+            &NewTrack {
+                mbid_recording: item.mbid_recording,
+                mbid_track: Some(item.mbid_track),
+                album_id: album.id,
+                artist_id: album.artist_id,
+                title: item.title.clone(),
+                disc_no,
+                position,
+                duration_ms: item.duration_ms.and_then(|d| i32::try_from(d).ok()),
+            },
+        )
+        .await?;
+        Ok(track)
     }
 
     /// Добавляет артиста; дискографию импортирует фоновая задача `ImportArtist`.

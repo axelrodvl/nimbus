@@ -11,6 +11,9 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 const RADIOHEAD: &str = "a74b1b7f-71a5-4011-9441-d0b5e4122711";
 const OK_COMPUTER: &str = "b1392450-e666-3926-a536-22c65f834433";
 const R_OKC: &str = "c0000000-0000-4000-8000-000000000002";
+const BONUS: &str = "f0000000-0000-4000-8000-000000000005";
+const ORPHAN: &str = "f0000000-0000-4000-8000-000000000006";
+const R_DELUXE: &str = "c0000000-0000-4000-8000-000000000003";
 const PARANOID: &str = "f0000000-0000-4000-8000-000000000002";
 
 fn fixture(name: &str) -> String {
@@ -324,6 +327,136 @@ async fn play_album_requests_every_track_in_tracklist_order(pool: PgPool) {
     assert_eq!(titles[0], "Airbag");
     assert_eq!(titles.len(), 4);
     assert!(v["album_id"].is_i64());
+}
+
+/// `mb_server` + запись «Pearly», которой нет в каноничном релизе, а есть в издании Deluxe той же группы
+/// (в Deluxe она стоит на месте второго трека — как у «Paranoid Android» в каноничном), и запись без релизов.
+async fn mb_server_with_bonus() -> MockServer {
+    let s = mb_server().await;
+    mount(
+        &s,
+        format!("/ws/2/recording/{BONUS}"),
+        None,
+        "recording_bonus",
+    )
+    .await;
+    mount(
+        &s,
+        format!("/ws/2/release/{R_DELUXE}"),
+        None,
+        "release_deluxe",
+    )
+    .await;
+    mount(
+        &s,
+        format!("/ws/2/recording/{ORPHAN}"),
+        None,
+        "recording_orphan",
+    )
+    .await;
+    s
+}
+
+async fn track_position(pool: &PgPool, id: i64) -> (i32, i32, String) {
+    sqlx::query_as("SELECT disc_no, position, title FROM tracks WHERE id = $1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn mb_requests(server: &MockServer) -> usize {
+    server.received_requests().await.unwrap().len()
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn play_track_finds_bonus_track_outside_canonical_release(pool: PgPool) {
+    let server = mb_server_with_bonus().await;
+    let app = router(state_with_mb(pool.clone(), mb_client(&server)));
+    let body = json!({"type": "track", "mbid": BONUS, "album_mbid": OK_COMPUTER});
+    let (status, v) = post_json(app.clone(), "/api/play", body.clone()).await;
+    assert_eq!(status, 200, "{v}");
+    let id = v["track_ids"][0].as_i64().unwrap();
+    assert_eq!(v["tracks"][0]["status"], "adding");
+    // Место в Deluxe (диск 1, позиция 2) занято «Paranoid Android» — бонус идёт в конец последнего диска (2).
+    assert_eq!(track_position(&pool, id).await, (2, 2, "Pearly".into()));
+    // Тот же альбом: канонические треки на месте, дубля нет.
+    let (albums, tracks): (i64, i64) =
+        sqlx::query_as("SELECT (SELECT count(*) FROM albums), (SELECT count(*) FROM tracks)")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!((albums, tracks), (1, 5));
+    assert_eq!(
+        track_row(&pool, id).await,
+        (false, true, "adding".to_string())
+    );
+
+    // Повтор идемпотентен: тот же трек, и MusicBrainz больше не спрашивается.
+    let before = mb_requests(&server).await;
+    let (_, again) = post_json(app, "/api/play", body).await;
+    assert_eq!(again["track_ids"][0], id);
+    assert_eq!(mb_requests(&server).await, before);
+    let tracks: i64 = sqlx::query_scalar("SELECT count(*) FROM tracks")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(tracks, 5);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn add_track_finds_bonus_track_outside_canonical_release(pool: PgPool) {
+    let server = mb_server_with_bonus().await;
+    let app = router(state_with_mb(pool.clone(), mb_client(&server)));
+    let (status, v) = post_json(
+        app,
+        "/api/library",
+        json!({"type": "track", "mbid": BONUS, "album_mbid": OK_COMPUTER}),
+    )
+    .await;
+    assert_eq!(status, 201, "{v}");
+    let id = v["id"].as_i64().unwrap();
+    assert_eq!(track_position(&pool, id).await, (2, 2, "Pearly".into()));
+    assert!(track_row(&pool, id).await.0);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn bonus_track_keeps_its_own_slot_when_free(pool: PgPool) {
+    // Без альбома в запросе группа определяется по записи; место в релизе (диск 1, позиция 4) свободно — берётся как есть.
+    let server = mb_server().await;
+    mount(
+        &server,
+        format!("/ws/2/recording/{BONUS}"),
+        None,
+        "recording_bonus",
+    )
+    .await;
+    mount(
+        &server,
+        format!("/ws/2/release/{R_DELUXE}"),
+        None,
+        "release_deluxe_free",
+    )
+    .await;
+    let app = router(state_with_mb(pool.clone(), mb_client(&server)));
+    let (status, v) = post_json(app, "/api/play", json!({"type": "track", "mbid": BONUS})).await;
+    assert_eq!(status, 200, "{v}");
+    let id = v["track_ids"][0].as_i64().unwrap();
+    assert_eq!(track_position(&pool, id).await, (1, 4, "Pearly".into()));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn play_track_without_releases_is_422(pool: PgPool) {
+    let server = mb_server_with_bonus().await;
+    let app = router(state_with_mb(pool.clone(), mb_client(&server)));
+    let (status, v) = post_json(app, "/api/play", json!({"type": "track", "mbid": ORPHAN})).await;
+    assert_eq!(status, 422, "{v}");
+    assert_eq!(v["error"]["code"], "recording_not_in_release");
+    let tracks: i64 = sqlx::query_scalar("SELECT count(*) FROM tracks")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(tracks, 0);
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]

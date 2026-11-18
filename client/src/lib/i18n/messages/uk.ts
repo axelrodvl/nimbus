@@ -198,7 +198,7 @@ const messages: Messages = {
   'error.offline': 'Немає мережі — зараз це змінити не можна',
   'error.page.body': 'Не вдалося отримати дані. Перевірте, що бекенд запущено (just backend), і спробуйте ще раз.',
   'error.page.title': 'Щось пішло не так',
-  'error.recording_not_in_release': 'Цього треку немає в трекліст альбому',
+  'error.recording_not_in_release': 'У цього запису немає альбому в MusicBrainz — його не можна знайти в роздачах',
   'error.torrent_no_files': 'Список файлів роздачі ще не отримано',
   'error.track_ready': 'Трек уже завантажено',
   'filter.adding': 'Шукаємо',

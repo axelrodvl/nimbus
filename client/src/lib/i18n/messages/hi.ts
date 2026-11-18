@@ -192,7 +192,7 @@ const messages: Messages = {
   'error.offline': 'आप ऑफ़लाइन हैं — अभी इसे बदला नहीं जा सकता',
   'error.page.body': 'डेटा नहीं मिल सका। जाँचें कि बैकएंड चल रहा है (just backend) और फिर से कोशिश करें।',
   'error.page.title': 'कुछ गड़बड़ हो गई',
-  'error.recording_not_in_release': 'यह ट्रैक एल्बम की ट्रैकलिस्ट में नहीं है',
+  'error.recording_not_in_release': 'इस रिकॉर्डिंग का MusicBrainz में कोई एल्बम नहीं है, इसलिए इसका स्रोत नहीं मिल सकता',
   'error.torrent_no_files': 'टोरेंट की फ़ाइल सूची अभी नहीं मिली है',
   'error.track_ready': 'ट्रैक पहले ही डाउनलोड हो चुका है',
   'filter.adding': 'खोजे जा रहे हैं',

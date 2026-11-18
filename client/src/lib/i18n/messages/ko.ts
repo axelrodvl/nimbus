@@ -194,7 +194,7 @@ const messages: Messages = {
   'error.offline': '오프라인 상태라 지금은 변경할 수 없습니다',
   'error.page.body': '데이터를 불러오지 못했습니다. 백엔드가 실행 중인지(just backend) 확인하고 다시 시도하세요.',
   'error.page.title': '문제가 발생했습니다',
-  'error.recording_not_in_release': '이 곡은 앨범 트랙 목록에 없습니다',
+  'error.recording_not_in_release': '이 녹음은 MusicBrainz에 앨범이 없어 소스를 찾을 수 없습니다',
   'error.torrent_no_files': '토렌트의 파일 목록을 아직 받지 못했습니다',
   'error.track_ready': '이미 다운로드된 곡입니다',
   'filter.adding': '검색 중',

@@ -200,7 +200,7 @@ const messages: Messages = {
   'error.offline': 'Нет сети — сейчас это изменить нельзя',
   'error.page.body': 'Не удалось получить данные. Проверьте, что бэкенд запущен (just backend), и попробуйте ещё раз.',
   'error.page.title': 'Что-то пошло не так',
-  'error.recording_not_in_release': 'Этого трека нет в треклисте альбома',
+  'error.recording_not_in_release': 'У этой записи нет альбома в MusicBrainz — её нельзя найти в раздачах',
   'error.torrent_no_files': 'Список файлов раздачи ещё не получен',
   'error.track_ready': 'Трек уже скачан',
   'filter.adding': 'Ищем',

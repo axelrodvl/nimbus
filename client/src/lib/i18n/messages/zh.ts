@@ -191,7 +191,7 @@ const messages: Messages = {
   'error.offline': '当前离线，暂时无法修改',
   'error.page.body': '无法获取数据。请确认后端已启动（just backend），然后重试。',
   'error.page.title': '出了点问题',
-  'error.recording_not_in_release': '该曲目不在专辑曲目列表中',
+  'error.recording_not_in_release': '这条录音在 MusicBrainz 中没有专辑，无法找到来源',
   'error.torrent_no_files': '尚未收到种子的文件列表',
   'error.track_ready': '该曲目已下载',
   'filter.adding': '搜索中',

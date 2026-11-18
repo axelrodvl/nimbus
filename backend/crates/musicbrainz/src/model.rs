@@ -151,7 +151,6 @@ pub(crate) struct RawRecording {
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct RawRecRelease {
-    #[allow(dead_code)]
     pub id: Uuid,
     #[serde(default)]
     pub status: Option<String>,

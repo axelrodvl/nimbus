@@ -197,7 +197,7 @@ const messages: Messages = {
   'error.page.body':
     'データを取得できませんでした。バックエンドが起動していること（just backend）を確認して、もう一度お試しください。',
   'error.page.title': '問題が発生しました',
-  'error.recording_not_in_release': 'この曲はアルバムのトラックリストにありません',
+  'error.recording_not_in_release': 'この録音は MusicBrainz にアルバムがないため、ソースを探せません',
   'error.torrent_no_files': 'トレントのファイル一覧をまだ受信していません',
   'error.track_ready': 'この曲はすでにダウンロード済みです',
   'filter.adding': '検索中',

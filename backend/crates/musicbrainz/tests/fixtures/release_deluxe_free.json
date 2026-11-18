@@ -1,0 +1,42 @@
+{
+  "id": "c0000000-0000-4000-8000-000000000003",
+  "title": "OK Computer (Deluxe)",
+  "status": "Official",
+  "date": "2009-01-01",
+  "media": [
+    {
+      "position": 1,
+      "format": "Digital Media",
+      "title": "",
+      "track-count": 2,
+      "tracks": [
+        {
+          "id": "e0000000-0000-4000-8000-000000000011",
+          "number": "1",
+          "position": 1,
+          "title": "Airbag",
+          "length": 284000,
+          "recording": {
+            "id": "f0000000-0000-4000-8000-000000000001",
+            "title": "Airbag",
+            "length": 284000,
+            "video": false
+          }
+        },
+        {
+          "id": "e0000000-0000-4000-8000-000000000012",
+          "number": "4",
+          "position": 4,
+          "title": "Pearly",
+          "length": 210000,
+          "recording": {
+            "id": "f0000000-0000-4000-8000-000000000005",
+            "title": "Pearly",
+            "length": 210000,
+            "video": false
+          }
+        }
+      ]
+    }
+  ]
+}

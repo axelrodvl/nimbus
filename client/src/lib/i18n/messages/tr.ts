@@ -195,7 +195,7 @@ const messages: Messages = {
   'error.offline': 'Çevrimdışısın — şu an değiştirilemez',
   'error.page.body': 'Veriler alınamadı. Arka ucun çalıştığından (just backend) emin olun ve tekrar deneyin.',
   'error.page.title': 'Bir şeyler ters gitti',
-  'error.recording_not_in_release': 'Bu parça albümün parça listesinde yok',
+  'error.recording_not_in_release': 'Bu kaydın MusicBrainz’de albümü yok — bunun için kaynak bulunamaz',
   'error.torrent_no_files': 'Torrentin dosya listesi henüz alınmadı',
   'error.track_ready': 'Parça zaten indirildi',
   'filter.adding': 'Aranıyor',

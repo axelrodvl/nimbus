@@ -23,6 +23,8 @@ pub const LOOKUP_TTL: Duration = Duration::from_secs(7 * 24 * 3600);
 
 const MAX_RETRIES: u32 = 3;
 const PAGE_LIMIT: usize = 100;
+/// Сколько релизов группы просматривается в поисках записи, которой нет в каноничном релизе.
+const BONUS_RELEASES_LOOKED_UP: usize = 3;
 /// Размер страницы browse релизов с `inc=recordings`: для «тяжёлых» запросов MusicBrainz
 /// ограничивает `limit` (документация — 25). Листаем по фактически полученному числу.
 const RELEASE_BROWSE_LIMIT: usize = 25;
@@ -514,6 +516,53 @@ impl MbClient {
             )
             .await?;
         r.into_hit()
+    }
+
+    /// Запись внутри группы релизов, когда её нет в треклисте каноничного релиза (бонус-трек издания, другой
+    /// мастеринг): релизы группы, в которых она встречается (официальные и ранние — первыми), и её трек в первом
+    /// из них, где она нашлась. Не более `BONUS_RELEASES_LOOKED_UP` релизов — по запросу на каждый. `None` — записи
+    /// нет ни в одном из них (или у неё нет релизов этой группы).
+    pub async fn track_in_release_group(
+        &self,
+        recording: Uuid,
+        release_group: Uuid,
+    ) -> Result<Option<(Uuid, TrackItem)>> {
+        let r: RawRecording = self
+            .get_typed(
+                &format!("recording/{recording}"),
+                &[("inc", "artist-credits releases release-groups")],
+                LOOKUP_TTL,
+            )
+            .await?;
+        let mut releases: Vec<&RawRecRelease> = r
+            .releases
+            .iter()
+            .filter(|rel| {
+                rel.release_group
+                    .as_ref()
+                    .is_some_and(|g| g.id == release_group)
+            })
+            .collect();
+        releases.sort_by_key(|rel| {
+            (
+                rel.status.as_deref() != Some("Official"),
+                rel.date
+                    .clone()
+                    .filter(|d| !d.is_empty())
+                    .unwrap_or_else(|| "9999".into()),
+            )
+        });
+        for rel in releases.into_iter().take(BONUS_RELEASES_LOOKED_UP) {
+            let list = self.release_tracklist(rel.id).await?;
+            if let Some(track) = list
+                .tracks
+                .into_iter()
+                .find(|t| t.mbid_recording == recording)
+            {
+                return Ok(Some((rel.id, track)));
+            }
+        }
+        Ok(None)
     }
 
     /// Все release group'ы артиста указанных типов (`album`, `ep`, ...), с пагинацией по 100.

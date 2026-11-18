@@ -199,7 +199,7 @@ const messages: Messages = {
   'error.page.body':
     'Impossible de charger les données. Vérifiez que le backend est lancé (just backend) et réessayez.',
   'error.page.title': 'Une erreur s’est produite',
-  'error.recording_not_in_release': 'Ce morceau ne figure pas dans la liste des pistes de l’album',
+  'error.recording_not_in_release': 'Cet enregistrement n’a pas d’album dans MusicBrainz : impossible de lui trouver une source',
   'error.torrent_no_files': 'La liste des fichiers du torrent n’est pas encore reçue',
   'error.track_ready': 'Le morceau est déjà téléchargé',
   'filter.adding': 'En recherche',

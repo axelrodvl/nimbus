@@ -199,7 +199,7 @@ const messages: Messages = {
   'error.offline': 'Brak sieci — teraz nie można tego zmienić',
   'error.page.body': 'Nie udało się pobrać danych. Sprawdź, czy backend działa (just backend), i spróbuj ponownie.',
   'error.page.title': 'Coś poszło nie tak',
-  'error.recording_not_in_release': 'Tego utworu nie ma na liście utworów albumu',
+  'error.recording_not_in_release': 'To nagranie nie ma albumu w MusicBrainz — nie da się dla niego znaleźć źródła',
   'error.torrent_no_files': 'Lista plików torrenta nie została jeszcze odebrana',
   'error.track_ready': 'Utwór jest już pobrany',
   'filter.adding': 'W wyszukiwaniu',

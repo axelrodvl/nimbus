@@ -195,7 +195,7 @@ const messages: Messages = {
   'error.page.body':
     'Impossibile caricare i dati. Controlla che il backend sia in esecuzione (just backend) e riprova.',
   'error.page.title': 'Qualcosa è andato storto',
-  'error.recording_not_in_release': 'Questo brano non è nella tracklist dell’album',
+  'error.recording_not_in_release': 'Questa registrazione non ha un album in MusicBrainz, quindi non si può trovare una fonte',
   'error.torrent_no_files': 'L’elenco dei file del torrent non è ancora stato ricevuto',
   'error.track_ready': 'Il brano è già scaricato',
   'filter.adding': 'In ricerca',

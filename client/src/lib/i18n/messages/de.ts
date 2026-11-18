@@ -197,7 +197,7 @@ const messages: Messages = {
   'error.page.body':
     'Die Daten konnten nicht geladen werden. Prüfe, ob das Backend läuft (just backend), und versuche es erneut.',
   'error.page.title': 'Etwas ist schiefgelaufen',
-  'error.recording_not_in_release': 'Dieser Titel steht nicht in der Titelliste des Albums',
+  'error.recording_not_in_release': 'Diese Aufnahme hat in MusicBrainz kein Album — für sie lässt sich keine Quelle finden',
   'error.torrent_no_files': 'Die Dateiliste des Torrents ist noch nicht empfangen',
   'error.track_ready': 'Der Titel ist bereits heruntergeladen',
   'filter.adding': 'Wird gesucht',

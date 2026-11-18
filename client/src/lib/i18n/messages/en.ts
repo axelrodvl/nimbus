@@ -192,7 +192,7 @@ export const en = {
   'error.offline': "You're offline — can't change this now",
   'error.page.body': "Couldn't load the data. Make sure the backend is running (just backend) and try again.",
   'error.page.title': 'Something went wrong',
-  'error.recording_not_in_release': "This track isn't in the album's tracklist",
+  'error.recording_not_in_release': 'This recording has no album in MusicBrainz, so no source can be found for it',
   'error.torrent_no_files': 'The torrent\'s file list isn\'t received yet',
   'error.track_ready': 'The track is already downloaded',
   'filter.adding': 'Searching',
