@@ -18,9 +18,15 @@ import type { AlbumResult } from '@/lib/api/search-types';
 import { useT } from '@/lib/i18n/provider';
 import { albumTypeLabel } from '@/lib/library/status';
 import { useOnline } from '@/lib/live/hooks';
-import { groupDiscography, useCatalogAlbum, useCatalogArtist, type CatalogQuery, type DiscographySection } from '@/lib/search/catalog';
+import {
+  groupDiscography,
+  useCatalogAlbum,
+  useCatalogArtist,
+  type CatalogQuery,
+  type DiscographySection,
+} from '@/lib/search/catalog';
 import { playRemoteApp } from '@/lib/search/play-remote';
-import { useMbidIndex } from '@/lib/store/hooks';
+import { useAlbumTracksByMbid, useMbidIndex } from '@/lib/store/hooks';
 import type { MbidIndex } from '@/lib/store/selectors';
 import { formatDuration } from '@/lib/utils';
 import { AlbumGridSkeleton, TrackListSkeleton } from './library/skeletons';
@@ -44,7 +50,7 @@ function BackButton() {
   const first = useLocation().key === 'default';
   return (
     <button
-      className="text-muted hover:text-black focus-visible:ring-accent/40 mb-4 inline-flex items-center gap-1 rounded text-sm font-medium focus-visible:ring-2 focus-visible:outline-none dark:hover:text-white"
+      className="text-muted focus-visible:ring-accent/40 mb-4 inline-flex items-center gap-1 rounded text-sm font-medium hover:text-black focus-visible:ring-2 focus-visible:outline-none dark:hover:text-white"
       data-testid="catalog-back"
       onClick={() => (first ? navigate('/search') : navigate(-1))}
       type="button"
@@ -193,6 +199,11 @@ function AlbumBody({ data, index }: { data: CatalogAlbumResponse; index: MbidInd
   const t = useT();
   const { album, tracks } = data;
   const libraryId = index.albums.get(album.mbid);
+  // Треки именно этого альбома в store (альбом сохраняется на сервере при открытии): «в библиотеке» и «играет» — по
+  // ним, а не по записи вообще (та же запись бывает на сингле или сборнике).
+  const ownTracks = useAlbumTracksByMbid(album.mbid);
+  const byRecording = new Map<string, (typeof ownTracks)[number]>();
+  for (const v of ownTracks) if (!byRecording.has(v.mbid_recording)) byRecording.set(v.mbid_recording, v);
   const multiDisc = new Set(tracks.map(tr => tr.disc_no)).size > 1;
   const first = tracks[0];
   const totalMs = tracks.reduce((sum, tr) => sum + (tr.duration_ms ?? 0), 0);
@@ -201,6 +212,7 @@ function AlbumBody({ data, index }: { data: CatalogAlbumResponse; index: MbidInd
     context: 'album' as const,
     mbid: tr.mbid,
     title: wholeAlbum ? album.title : tr.title,
+    trackId: byRecording.get(tr.mbid)?.id,
     wholeAlbum,
   });
   return (
@@ -234,7 +246,10 @@ function AlbumBody({ data, index }: { data: CatalogAlbumResponse; index: MbidInd
               // Альбом уже в библиотеке: играет то, что доступно, как на его экране.
               <PlayAlbumButton albumId={libraryId} />
             ) : first ? (
-              <Button data-testid="catalog-play-album" onClick={() => playRemoteApp().playRemote(request(first, true), t)}>
+              <Button
+                data-testid="catalog-play-album"
+                onClick={() => playRemoteApp().playRemote(request(first, true), t)}
+              >
                 <Play aria-hidden className="size-4" fill="currentColor" />
                 {t('play.album')}
               </Button>
@@ -259,7 +274,7 @@ function AlbumBody({ data, index }: { data: CatalogAlbumResponse; index: MbidInd
       ) : (
         <ol className="flex flex-col gap-0.5" data-testid="catalog-tracks">
           {tracks.map((tr, i) => {
-            const own = index.tracks.get(tr.mbid);
+            const own = byRecording.get(tr.mbid);
             return (
               <li key={`${tr.disc_no}-${tr.position}-${tr.mbid}`}>
                 {multiDisc && tr.disc_no !== tracks[i - 1]?.disc_no ? (
@@ -277,7 +292,6 @@ function AlbumBody({ data, index }: { data: CatalogAlbumResponse; index: MbidInd
                         {tr.position}
                       </span>
                     }
-                    ownId={own?.id ?? null}
                     request={request(tr)}
                   >
                     <span className="truncate text-sm font-medium">{tr.title}</span>
@@ -294,7 +308,7 @@ function AlbumBody({ data, index }: { data: CatalogAlbumResponse; index: MbidInd
                       preview: { artistName: album.artist_name, cover: album.cover_url, title: tr.title },
                       type: 'track',
                     }}
-                    libraryHref={own ? albumHref(own.albumId) : null}
+                    libraryHref={own?.in_library ? albumHref(own.album_id) : null}
                   />
                 </div>
               </li>
@@ -342,4 +356,3 @@ export function CatalogAlbumScreen() {
     </PageLayout>
   );
 }
-

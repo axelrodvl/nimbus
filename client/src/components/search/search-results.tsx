@@ -84,7 +84,6 @@ function LocalResults({ local, query }: { local: SearchResult; query: string }) 
             <RemotePlayRow
               className="hover:bg-card/60 dark:hover:bg-card-dark/60 p-2"
               leading={<Cover alt={tr.albumTitle} className="size-10" src={tr.coverUrl} />}
-              ownId={tr.id}
               query={query}
               request={{ albumMbid: null, mbid: tr.mbid_recording, title: tr.title, trackId: tr.id }}
             >
@@ -171,7 +170,6 @@ function TrackRow({ track, index, query }: { track: TrackResult; index: MbidInde
     >
       <RemotePlayRow
         leading={<Cover alt={track.album_title ?? track.title} className="size-10" src={track.cover_url} />}
-        ownId={own?.id ?? null}
         query={query}
         request={{ albumMbid: track.album_mbid ?? null, mbid: track.mbid, title: track.title }}
       >

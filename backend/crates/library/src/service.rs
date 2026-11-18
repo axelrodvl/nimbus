@@ -404,13 +404,11 @@ impl LibraryService {
 
     async fn request_play(&self, album_id: i64, wanted: Vec<Track>) -> Result<PlayOutcome> {
         let ids: Vec<i64> = wanted.iter().map(|t| t.id).collect();
-        let needs_search = wanted
-            .iter()
-            .any(|t| matches!(t.status, TrackStatus::NotFound | TrackStatus::Adding));
         // Пометка и поиск — одной транзакцией: трек в `adding` без задачи поиска нарушил бы инвариант I1.
+        // Решение «искать ли» — по статусам на момент пометки: поиск мог закончиться, пока читали альбом.
         let mut tx = self.db.begin().await?;
-        tracks::request_play(&mut *tx, &ids).await?;
-        if needs_search {
+        let marked = tracks::request_play(&mut *tx, &ids).await?;
+        if marked.iter().any(|t| t.status == TrackStatus::Adding) {
             jobs::enqueue(
                 &mut *tx,
                 &Job::DiscoverAlbum { album_id },
@@ -419,7 +417,7 @@ impl LibraryService {
             .await?;
         }
         tx.commit().await?;
-        for t in wanted.iter().filter(|t| t.status == TrackStatus::NotFound) {
+        for t in marked.iter().filter(|t| t.reset) {
             self.events.publish(Event::TrackStatus {
                 track_id: t.id,
                 album_id: t.album_id,

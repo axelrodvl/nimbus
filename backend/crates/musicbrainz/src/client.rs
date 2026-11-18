@@ -795,11 +795,8 @@ impl Inner {
         ttl: Duration,
         key: &str,
     ) -> Result<Value> {
-        let value = match self.fetch(priority, observer, path, query).await {
-            Ok(v) => v,
-            // Сущность пропала из MusicBrainz: прежний ответ в кэше остаётся (кэш никогда не чистится сам).
-            Err(e) => return Err(e),
-        };
+        // Ошибка (в том числе 404) прежнюю запись не трогает: кэш никогда не чистится сам.
+        let value = self.fetch(priority, observer, path, query).await?;
         if let Some(pool) = &self.cache {
             if let Err(e) = mb_cache::put(pool, key, &value, ttl).await {
                 tracing::warn!(error = %e, "mb_cache write failed");

@@ -42,6 +42,23 @@ pub async fn list_by_artist(db: impl PgExecutor<'_>, artist_id: i64) -> sqlx::Re
         .await
 }
 
+/// Альбомы артиста, которым нужны источники: в библиотеке или с треком, запрошенным для прослушивания и ещё
+/// ищущимся. Порядок — как у [`list_by_artist`].
+pub async fn list_wanted_by_artist(
+    db: impl PgExecutor<'_>,
+    artist_id: i64,
+) -> sqlx::Result<Vec<Album>> {
+    sqlx::query_as(
+        "SELECT * FROM albums a WHERE artist_id = $1
+           AND (in_library OR EXISTS (
+             SELECT 1 FROM tracks t WHERE t.album_id = a.id AND t.play_requested AND t.status = 'adding'))
+         ORDER BY year NULLS LAST, id",
+    )
+    .bind(artist_id)
+    .fetch_all(db)
+    .await
+}
+
 pub async fn set_in_library(
     db: impl PgExecutor<'_>,
     id: i64,

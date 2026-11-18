@@ -93,6 +93,25 @@ fn album_result(a: ReleaseGroupHit, library_id: Option<i64>) -> AlbumResult {
     }
 }
 
+/// Дискография артиста для экрана: без совместных релизов, где первым указан другой артист (как у импорта), без
+/// повторов (страницы browse кэшируются по отдельности, и устаревшая страница может пересечься со свежей), новые
+/// сверху, без года — в конце.
+fn own_discography(groups: Vec<ReleaseGroupHit>, artist: Uuid) -> Vec<ReleaseGroupHit> {
+    let mut seen = std::collections::HashSet::new();
+    let mut groups: Vec<_> = groups
+        .into_iter()
+        .filter(|g| g.artist_mbid == artist && seen.insert(g.mbid))
+        .collect();
+    groups.sort_by(|a, b| {
+        b.year
+            .is_some()
+            .cmp(&a.year.is_some())
+            .then(b.year.cmp(&a.year))
+            .then_with(|| a.title.cmp(&b.title))
+    });
+    groups
+}
+
 #[utoipa::path(
     get,
     path = "/api/catalog/artists/{mbid}",
@@ -114,18 +133,7 @@ pub async fn catalog_artist(
         mb_call(state.mb.artist(mbid)),
         mb_call(state.mb.artist_release_groups(mbid, DISCOGRAPHY_TYPES)),
     )?;
-    // Совместные релизы, где первым указан другой артист, — не его дискография (как у импорта).
-    let mut groups: Vec<_> = groups
-        .into_iter()
-        .filter(|g| g.artist_mbid == mbid)
-        .collect();
-    groups.sort_by(|a, b| {
-        b.year
-            .is_some()
-            .cmp(&a.year.is_some())
-            .then(b.year.cmp(&a.year))
-            .then_with(|| a.title.cmp(&b.title))
-    });
+    let groups = own_discography(groups, mbid);
     let artist_id = artists::library_ids_by_mbid(&state.db, &[mbid])
         .await?
         .first()
@@ -262,4 +270,40 @@ pub async fn play(
         album_id: outcome.album_id,
         track_ids: outcome.track_ids,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn group(n: u128, artist: Uuid, year: Option<i32>) -> ReleaseGroupHit {
+        ReleaseGroupHit {
+            mbid: Uuid::from_u128(n),
+            title: format!("g{n}"),
+            artist_mbid: artist,
+            artist_name: String::new(),
+            primary_type: Some("Album".into()),
+            secondary_types: vec![],
+            year,
+            score: 100,
+        }
+    }
+
+    #[test]
+    fn discography_drops_foreign_and_duplicate_groups_and_sorts_newest_first() {
+        let me = Uuid::from_u128(1000);
+        let other = Uuid::from_u128(2000);
+        let got = own_discography(
+            vec![
+                group(1, me, Some(1990)),
+                group(2, me, None),
+                group(3, other, Some(2020)),
+                group(4, me, Some(2001)),
+                group(1, me, Some(1990)), // та же группа со второй (устаревшей) страницы
+            ],
+            me,
+        );
+        let ids: Vec<u128> = got.iter().map(|g| g.mbid.as_u128()).collect();
+        assert_eq!(ids, [4, 1, 2]);
+    }
 }

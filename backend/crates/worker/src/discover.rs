@@ -89,17 +89,14 @@ impl JobHandler for DiscoverHandler {
     }
 }
 
-/// Финализирует все альбомы артиста из библиотеки (`own_key` — `dedup_key` вызывающей задачи).
+/// Финализирует альбомы артиста, которым нужны источники: из библиотеки и с треками, запрошенными для
+/// прослушивания (`own_key` — `dedup_key` вызывающей задачи).
 async fn finalize_artist_albums(
     ctx: &JobCtx,
     artist_id: i64,
     own_key: Option<&str>,
 ) -> Result<(), JobError> {
-    for a in albums::list_by_artist(&ctx.db, artist_id)
-        .await?
-        .into_iter()
-        .filter(|a| a.in_library)
-    {
+    for a in albums::list_wanted_by_artist(&ctx.db, artist_id).await? {
         match own_key {
             Some(key) => finalize_album_from_discover(ctx, a.id, key).await?,
             None => finalize_album(ctx, a.id).await?,
@@ -614,7 +611,7 @@ pub async fn discover_artist(ctx: &JobCtx, artist_id: i64) -> Result<(), JobErro
             .await?;
     }
 
-    // Привязка к альбомам, уже находящимся в библиотеке, и проверка новых связей.
+    // Привязка к альбомам, которым нужны источники, и проверка новых связей.
     // Лучшие раздачи (первая волна) проверяются с приоритетом выше; для альбомов, у которых
     // всё уже найдено, дискография — лишь резерв.
     let rank_of: HashMap<i64, usize> = stored
@@ -622,11 +619,8 @@ pub async fn discover_artist(ctx: &JobCtx, artist_id: i64) -> Result<(), JobErro
         .enumerate()
         .map(|(i, (_, t))| (t.id, i))
         .collect();
-    let lib_albums: Vec<Album> = albums::list_by_artist(&ctx.db, artist_id)
-        .await?
-        .into_iter()
-        .filter(|a| a.in_library)
-        .collect();
+    // Альбомы библиотеки и те, где ищется трек, запрошенный для прослушивания.
+    let lib_albums: Vec<Album> = albums::list_wanted_by_artist(&ctx.db, artist_id).await?;
     for a in &lib_albums {
         let fresh = album_torrents::link_artist_discographies(&ctx.db, a.id).await?;
         if fresh.is_empty() {

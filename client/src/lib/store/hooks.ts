@@ -43,6 +43,17 @@ export const useLibraryTracks = (statuses?: readonly TrackStatus[]): TrackView[]
 export const useArtistAlbums = (artistId: number, libraryOnly = false): AlbumView[] =>
   useLibrary(s => appData().selectors.artistAlbums(s, artistId, libraryOnly));
 /** Треки альбомов артиста библиотеки (для «Слушать» в шапке артиста). */
+/**
+ * Треки альбома по MBID группы релизов — в библиотеке он или нет (альбом из каталога, который открывали или слушали).
+ * Пустой список — альбома в store ещё нет.
+ */
+export const useAlbumTracksByMbid = (mbid: string): TrackView[] =>
+  useLibrary(s => {
+    for (const a of s.albums.values()) if (a.mbid === mbid) return appData().selectors.albumTracks(s, a.id);
+    return EMPTY_TRACKS;
+  });
+const EMPTY_TRACKS: TrackView[] = [];
+
 export const useArtistTracks = (artistId: number): TrackView[] =>
   useLibrary(s => appData().selectors.artistTracks(s, artistId));
 export const useAlbumTracks = (albumId: number): TrackView[] =>

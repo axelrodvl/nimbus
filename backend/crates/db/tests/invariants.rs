@@ -235,8 +235,10 @@ async fn i1_track_requested_for_playback_needs_a_job_too(pool: PgPool) {
         .unwrap();
     // «Сыграть» без добавления: трек снова ищется, но не в библиотеке.
     let t = tracks::request_play(&pool, &track_ids).await.unwrap();
-    assert_eq!(t[0].status, TrackStatus::Adding);
-    assert!(t[0].play_requested && !t[0].in_library && t[0].status_reason.is_none());
+    assert_eq!((t[0].status, t[0].reset), (TrackStatus::Adding, true));
+    let row = tracks::get(&pool, track_ids[0]).await.unwrap().unwrap();
+    assert!(row.play_requested && !row.in_library && row.status_reason.is_none());
+    assert!(row.wanted());
     assert_eq!(
         ids(&invariants::i1_adding_without_job(&pool, ZERO)
             .await
@@ -259,16 +261,49 @@ async fn request_play_keeps_found_status(pool: PgPool) {
     let ar = artist(&pool).await;
     let (_, track_ids) = album(&pool, ar, &[TrackStatus::Found, TrackStatus::Adding]).await;
     let t = tracks::request_play(&pool, &track_ids).await.unwrap();
-    let mut statuses: Vec<_> = t.iter().map(|t| (t.id, t.status)).collect();
+    let mut statuses: Vec<_> = t.iter().map(|t| (t.id, t.status, t.reset)).collect();
     statuses.sort_by_key(|x| x.0);
     assert_eq!(
         statuses,
         vec![
-            (track_ids[0], TrackStatus::Found),
-            (track_ids[1], TrackStatus::Adding)
+            (track_ids[0], TrackStatus::Found, false),
+            (track_ids[1], TrackStatus::Adding, false)
         ]
     );
-    assert!(t.iter().all(|t| t.play_requested));
+    for id in &track_ids {
+        assert!(
+            tracks::get(&pool, *id)
+                .await
+                .unwrap()
+                .unwrap()
+                .play_requested
+        );
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn played_track_that_was_not_found_stops_waiting_for_a_source(pool: PgPool) {
+    let ar = artist(&pool).await;
+    let (_, track_ids) = album(&pool, ar, &[TrackStatus::Adding]).await;
+    sqlx::query("UPDATE tracks SET in_library = FALSE")
+        .execute(&pool)
+        .await
+        .unwrap();
+    tracks::request_play(&pool, &track_ids).await.unwrap();
+    assert!(tracks::get(&pool, track_ids[0])
+        .await
+        .unwrap()
+        .unwrap()
+        .wanted());
+    tracks::set_status(&pool, track_ids[0], TrackStatus::NotFound, None)
+        .await
+        .unwrap();
+    // Поиск ничего не дал: трек больше не держит альбом «не всё найдено», пока его снова не попросят сыграть.
+    assert!(!tracks::get(&pool, track_ids[0])
+        .await
+        .unwrap()
+        .unwrap()
+        .wanted());
 }
 
 // ------------------------------------------------------------------ I2

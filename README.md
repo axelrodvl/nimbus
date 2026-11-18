@@ -32,8 +32,9 @@ Two containers: `db` (PostgreSQL) and `nimbus` (backend + web client on one port
 - **Downloads screen:** what has not been found yet and why, automatic and manual search retry, server-side downloads.
 
 - Search artists, albums and tracks via MusicBrainz (⌘K / Ctrl+K); cover art from the Cover Art Archive.
-  Tap an artist to browse their discography, an album to see its tracklist, a track to play it — it is added to
-  the library and starts as soon as a source is found.
+  Tap an artist to browse their discography, an album to see its tracklist, a track to play it — without adding it
+  to the library; it starts as soon as a source is found. Everything found (MusicBrainz data, torrents) stays in the
+  database, so searching again is instant.
 - Library: add an album or a whole discography — Nimbus finds releases on its own (TPB, Torznab/Jackett/Prowlarr,
   RuTracker), checks their contents and matches files to tracks.
 - Streaming playback directly from the torrent (HTTP Range, seeking); ffmpeg transcoding for CUE images and APE/WV/DSD.

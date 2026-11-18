@@ -117,16 +117,31 @@ pub async fn set_status_for_album(
     .await
 }
 
+/// Итог [`request_play`] для одного трека.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::FromRow)]
+pub struct PlayRequested {
+    pub id: i64,
+    pub album_id: i64,
+    /// Статус после пометки.
+    pub status: TrackStatus,
+    /// Был `not_found` и снова ищется.
+    pub reset: bool,
+}
+
 /// Трек попросили сыграть (без добавления в библиотеку): `play_requested`, а ненайденный снова ищется
-/// (`not_found` → `adding`). Возвращает обновлённые строки.
-pub async fn request_play(db: impl PgExecutor<'_>, ids: &[i64]) -> sqlx::Result<Vec<Track>> {
+/// (`not_found` → `adding`). Статусы — на момент обновления (под блокировкой строк), а не из прочитанного раньше.
+pub async fn request_play(
+    db: impl PgExecutor<'_>,
+    ids: &[i64],
+) -> sqlx::Result<Vec<PlayRequested>> {
     sqlx::query_as(
-        "UPDATE tracks SET play_requested = true,
-            status = CASE WHEN status = 'not_found' THEN 'adding' ELSE status END,
-            status_reason = CASE WHEN status = 'not_found' THEN NULL ELSE status_reason END,
-            updated_at = CASE WHEN status = 'not_found' THEN now() ELSE updated_at END
-         WHERE id = ANY($1)
-         RETURNING *",
+        "WITH old AS (SELECT id, status FROM tracks WHERE id = ANY($1) FOR UPDATE)
+         UPDATE tracks t SET play_requested = true,
+            status = CASE WHEN old.status = 'not_found' THEN 'adding' ELSE old.status END,
+            status_reason = CASE WHEN old.status = 'not_found' THEN NULL ELSE t.status_reason END,
+            updated_at = CASE WHEN old.status = 'not_found' THEN now() ELSE t.updated_at END
+         FROM old WHERE t.id = old.id
+         RETURNING t.id, t.album_id, t.status, old.status = 'not_found' AS reset",
     )
     .bind(ids)
     .fetch_all(db)

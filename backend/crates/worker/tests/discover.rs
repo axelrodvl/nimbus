@@ -517,6 +517,35 @@ async fn artist_links_discography_to_all_library_albums(pool: PgPool) {
         .all(|j| j.run_after <= chrono::Utc::now() && j.priority == 1));
 }
 
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn artist_discography_also_reaches_albums_played_without_adding(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    artists::set_in_library(&pool, artist_id, true)
+        .await
+        .unwrap();
+    let played = album(&pool, artist_id, "Pablo Honey", 1993, 2, false).await;
+    let browsed = album(&pool, artist_id, "Kid A", 2000, 2, false).await;
+    let first = tracks::list_by_album(&pool, played).await.unwrap()[0].id;
+    tracks::request_play(&pool, &[first]).await.unwrap();
+    let (c, _) = ctx(&pool, Some(discography_provider()), 1, 5);
+    discover_artist(&c, artist_id).await.unwrap();
+    // Альбом, трек которого слушают, ждёт дискографию так же, как альбом библиотеки; просто открытый — нет.
+    assert_eq!(
+        album_torrents::list_for_album(&pool, played)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(album_torrents::list_for_album(&pool, browsed)
+        .await
+        .unwrap()
+        .is_empty());
+    let verifies = queued(&pool, "verify_torrent").await;
+    assert_eq!(verifies.len(), 1);
+    assert_eq!(verifies[0].payload["album_id"], played);
+}
+
 fn discography_provider() -> Arc<Fake> {
     Fake::new(|_| {
         Ok(vec![cand(

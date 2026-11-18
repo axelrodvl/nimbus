@@ -5,7 +5,10 @@ import type { CatalogAlbumResponse, CatalogArtistResponse } from '@/lib/api/cata
 import { ApiError } from '@/lib/api/errors';
 import * as searchApi from '@/lib/api/search';
 import type { AlbumResult } from '@/lib/api/search-types';
+import { appData } from '@/lib/app-data';
+import { resetPlayer, toPlayerTrack } from '@/lib/player';
 import { groupDiscography } from '@/lib/search/catalog';
+import { installTestPlayer } from '@/test/player-ui';
 import { playRemoteApp } from '@/lib/search/play-remote';
 import { SearchScreen } from '@/screens/search';
 import { makeAlbum, makeArtist, makeTrack, resetFactories } from '@/test/factories';
@@ -14,6 +17,7 @@ import { OK_COMPUTER, PARANOID, RADIOHEAD, searchFixture } from '@/test/search';
 import { seed } from '@/test/seed';
 import { CatalogAlbumScreen, CatalogArtistScreen } from './catalog';
 
+vi.mock('@/lib/api/settings', () => ({ loadPrefetchEnabled: async () => true }));
 vi.mock('@/lib/api/catalog', async importOriginal => ({
   ...(await importOriginal<typeof catalogApi>()),
   fetchCatalogAlbum: vi.fn(),
@@ -56,8 +60,24 @@ const artistResponse = (): CatalogArtistResponse => ({
 const albumResponse = (): CatalogAlbumResponse => ({
   album: album({}),
   tracks: [
-    { disc_no: 1, duration_ms: 284_000, library_id: null, mbid: 'rec-airbag', position: 1, status: null, title: 'Airbag' },
-    { disc_no: 1, duration_ms: 387_000, library_id: null, mbid: PARANOID, position: 2, status: null, title: 'Paranoid Android' },
+    {
+      disc_no: 1,
+      duration_ms: 284_000,
+      library_id: null,
+      mbid: 'rec-airbag',
+      position: 1,
+      status: null,
+      title: 'Airbag',
+    },
+    {
+      disc_no: 1,
+      duration_ms: 387_000,
+      library_id: null,
+      mbid: PARANOID,
+      position: 2,
+      status: null,
+      title: 'Paranoid Android',
+    },
   ],
 });
 
@@ -150,10 +170,11 @@ describe('экран артиста', () => {
     expect(screen.getByTestId('catalog-loading')).toHaveTextContent('Загружаем из MusicBrainz…');
     expect(await screen.findByText('GB · 3 альбома')).toBeInTheDocument();
     const studio = screen.getByTestId('catalog-albums');
-    expect(within(studio).getAllByTestId('catalog-album').map(a => a.textContent)).toEqual([
-      'Kid A2000 · Альбом',
-      'OK Computer1997 · Альбом',
-    ]);
+    expect(
+      within(studio)
+        .getAllByTestId('catalog-album')
+        .map(a => a.textContent),
+    ).toEqual(['Kid A2000 · Альбом', 'OK Computer1997 · Альбом']);
     expect(within(screen.getByTestId('catalog-live')).getByText('I Might Be Wrong')).toBeInTheDocument();
     expect(within(studio).getAllByTestId('catalog-album')[1]).toHaveAttribute('href', `/search/album/${OK_COMPUTER}`);
     expect(screen.getByRole('button', { name: 'Добавить в библиотеку' })).toBeInTheDocument();
@@ -267,5 +288,35 @@ describe('экран альбома', () => {
     renderRoutes(routes, `/search/album/${OK_COMPUTER}`);
     expect(await screen.findByText('Треков нет')).toBeInTheDocument();
     expect(screen.queryByTestId('catalog-play-album')).not.toBeInTheDocument();
+  });
+  it('та же запись в библиотеке на другом альбоме — у трека этого альбома остаётся «Добавить»', async () => {
+    seed({
+      albums: [makeAlbum({ artist_id: 1, id: 6, mbid: 'other-single' })],
+      artists: [makeArtist({ id: 1 })],
+      tracks: [makeTrack({ album_id: 6, artist_id: 1, id: 60, mbid_recording: PARANOID })],
+    });
+    renderRoutes(routes, `/search/album/${OK_COMPUTER}`);
+    const rows = within(await screen.findByTestId('catalog-tracks')).getAllByTestId('catalog-track');
+    expect(within(rows[1]!).getByRole('button', { name: 'Добавить в библиотеку' })).toBeInTheDocument();
+  });
+
+  it('трек играет, не будучи в библиотеке, — строка показывает «играет»', async () => {
+    seed({
+      albums: [makeAlbum({ artist_id: 1, id: 5, in_library: false, mbid: OK_COMPUTER })],
+      artists: [makeArtist({ id: 1, in_library: false })],
+      tracks: [
+        makeTrack({ album_id: 5, artist_id: 1, id: 8, in_library: false, mbid_recording: PARANOID, status: 'found' }),
+      ],
+    });
+    const env = installTestPlayer();
+    const view = appData().selectors.trackView(appData().library.getState(), 8)!;
+    act(() => env.ctl.play(toPlayerTrack(view)));
+    renderRoutes(routes, `/search/album/${OK_COMPUTER}`);
+    const rows = within(await screen.findByTestId('catalog-tracks')).getAllByTestId('catalog-track');
+    expect(within(rows[1]!).getByTestId('remote-play')).toHaveAttribute('data-playing', 'true');
+    expect(within(rows[0]!).getByTestId('remote-play')).not.toHaveAttribute('data-playing');
+    // И в библиотеке он по-прежнему не числится.
+    expect(within(rows[1]!).getByRole('button', { name: 'Добавить в библиотеку' })).toBeInTheDocument();
+    resetPlayer(true);
   });
 });

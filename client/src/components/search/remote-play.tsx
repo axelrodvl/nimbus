@@ -3,15 +3,15 @@ import type { ReactNode } from 'react';
 import { Equalizer } from '@/components/ui/equalizer';
 import { Spinner } from '@/components/ui/spinner';
 import { useT } from '@/lib/i18n/provider';
-import { useIsTrackPlaying } from '@/lib/player/hooks';
+import { currentTrack } from '@/lib/player/engine';
+import { usePlayerState } from '@/lib/player/hooks';
 import { addToHistory } from '@/lib/search/history';
 import { playRemoteApp, usePlayPending, type PlayRemoteRequest } from '@/lib/search/play-remote';
+import { useTrackView } from '@/lib/store/hooks';
 import { cn } from '@/lib/utils';
 
 type Props = {
   request: PlayRemoteRequest;
-  /** id трека в библиотеке, если он там есть (чтобы показать «играет»). */
-  ownId: number | null;
   /** Запрос поиска — попадёт в историю. */
   query?: string;
   /** Миниатюра слева (обложка или номер); поверх неё — состояние: ждём источник / играет / «играть» при наведении. */
@@ -21,13 +21,25 @@ type Props = {
 };
 
 /**
- * Строка трека из MusicBrainz — целиком кнопка «играть»: трек добавляется в библиотеку, если его там нет, и заигрывает,
- * как только найдётся источник (до этого поверх миниатюры крутится спиннер). Доступное имя — видимый текст строки.
+ * Играет ли сейчас эта запись — в библиотеке трек или его просто слушают: по текущему треку плеера и его MBID записи
+ * (у трека из библиотеки — ещё и точный `trackId`).
  */
-export function RemotePlayRow({ request, ownId, query, leading, children, className }: Props) {
+function useIsRecordingPlaying(request: PlayRemoteRequest): boolean {
+  const id = usePlayerState(s => (s.isPlaying ? (currentTrack(s)?.id ?? null) : null));
+  const view = useTrackView(id ?? -1);
+  if (!view) return false;
+  return request.trackId !== undefined ? view.id === request.trackId : view.mbid_recording === request.mbid;
+}
+
+/**
+ * Строка трека из MusicBrainz — целиком кнопка «играть»: трек играет, не добавляясь в библиотеку; если источника
+ * ещё нет — заигрывает, как только он найдётся (до этого поверх миниатюры крутится спиннер). Доступное имя — видимый
+ * текст строки.
+ */
+export function RemotePlayRow({ request, query, leading, children, className }: Props) {
   const t = useT();
   const pending = usePlayPending(request.mbid);
-  const playing = useIsTrackPlaying(ownId ?? -1);
+  const playing = useIsRecordingPlaying(request);
   return (
     <button
       aria-busy={pending || undefined}
