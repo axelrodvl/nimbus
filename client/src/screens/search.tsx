@@ -1,6 +1,6 @@
 import { Search as SearchIcon } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useNavigationType, useSearchParams } from 'react-router';
 import { PageLayout } from '@/components/page-layout';
 import { SearchResults } from '@/components/search/search-results';
 import { Spinner } from '@/components/ui/spinner';
@@ -8,6 +8,9 @@ import { useT } from '@/lib/i18n/provider';
 import { useOnline } from '@/lib/live/hooks';
 import { LOCAL_LIMIT } from '@/lib/search/query';
 import { useRemoteSearch } from '@/lib/search/use-remote-search';
+import { scrollRoot } from '@/lib/nav/scroll-top';
+import { restoreScrollOnce } from '@/lib/nav/use-scroll-restoration';
+import { rememberQuery, rememberScroll, searchSession } from '@/lib/search/session';
 import { useMbidIndex, useSearchLocal } from '@/lib/store/hooks';
 
 /** Настольное устройство с точным указателем: автофокус на телефоне открыл бы клавиатуру поверх результатов. */
@@ -31,17 +34,38 @@ export function SearchScreen() {
   const [prevUrl, setPrevUrl] = useState(urlQuery);
   if (urlQuery !== prevUrl) {
     setPrevUrl(urlQuery);
-    if (urlQuery !== value) setValue(urlQuery);
+    if (urlQuery !== value) {
+      setValue(urlQuery);
+      rememberQuery(urlQuery);
+    }
   }
+  // Вернулись на поиск вкладкой (переход вперёд на тот же запрос) — прокрутка как была. «Назад» прокрутку
+  // восстанавливает оболочка сама. Layout-эффект — раньше эффекта оболочки, который иначе прокрутил бы наверх.
+  const navigation = useNavigationType();
+  useLayoutEffect(() => {
+    const saved = searchSession.getState();
+    if (navigation !== 'POP' && saved.query === urlQuery && urlQuery.trim()) restoreScrollOnce(saved.scroll);
+    rememberQuery(urlQuery);
+    // Автофокус — только на пустом поиске: вернувшись к результатам, клавиатура не нужна.
+    if (wantsAutofocus() && !urlQuery) input.current?.focus();
+    // Только при входе на экран.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Прокрутку запоминаем по ходу: при уходе с экрана контейнер уже может быть подрезан под новый экран.
   useEffect(() => {
-    if (wantsAutofocus()) input.current?.focus();
-    // Экраны артиста и альбома — отдельный чанк: грузим заранее, чтобы нажатие на результат открывало их сразу,
-    // а не после загрузки кода (роутер держит прежний экран, пока чанк не пришёл).
-    void import('@/screens/rare-screens');
+    const root = scrollRoot();
+    if (!root) return;
+    // Экран уже снят (контейнер подрезан под следующий) — это не прокрутка поиска.
+    const onScroll = () => {
+      if (input.current?.isConnected) rememberScroll(root.scrollTop);
+    };
+    root.addEventListener('scroll', onScroll, { passive: true });
+    return () => root.removeEventListener('scroll', onScroll);
   }, []);
 
   function onChange(next: string) {
     setValue(next);
+    rememberQuery(next);
     setParams(next.trim() ? { q: next } : {}, { replace: true });
   }
 

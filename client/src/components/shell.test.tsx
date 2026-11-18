@@ -315,7 +315,7 @@ describe('ошибки и язык', () => {
 });
 
 describe('ленивые маршруты', () => {
-  it('редкие экраны (источники, каталог MusicBrainz) грузятся одним чанком и отдают свой компонент', async () => {
+  it('экраны отдельного чанка (поиск, каталог MusicBrainz, источники) грузятся одним чанком и отдают свой компонент', async () => {
     const lazy = Object.fromEntries(
       appRoutes.filter(r => typeof r.lazy === 'function').map(r => [r.path, r.lazy as () => Promise<{ Component: unknown }>]),
     );
@@ -323,5 +323,38 @@ describe('ленивые маршруты', () => {
     expect((await lazy['/album/:id/sources']!()).Component).toBe(rare.SourcesScreen);
     expect((await lazy['/search/artist/:mbid']!()).Component).toBe(rare.CatalogArtistScreen);
     expect((await lazy['/search/album/:mbid']!()).Component).toBe(rare.CatalogAlbumScreen);
+    expect((await lazy['/search']!()).Component).toBe(rare.SearchScreen);
+  });
+});
+
+describe('предзагрузка экранов отдельного чанка', () => {
+  it('чанк поиска и каталога грузится в простое после старта', async () => {
+    const idle = vi.fn((cb: () => void) => {
+      cb();
+      return 1;
+    });
+    vi.stubGlobal('requestIdleCallback', idle);
+    vi.stubGlobal('cancelIdleCallback', vi.fn());
+    const { usePreloadRareScreens } = await import('./app-shell');
+    function Probe() {
+      usePreloadRareScreens();
+      return null;
+    }
+    const { unmount } = renderRoutes([{ element: <Probe />, path: '*' }]);
+    expect(idle).toHaveBeenCalledOnce();
+    unmount();
+  });
+
+  it('без requestIdleCallback — по таймеру', async () => {
+    vi.stubGlobal('requestIdleCallback', undefined);
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+    const { usePreloadRareScreens } = await import('./app-shell');
+    function Probe() {
+      usePreloadRareScreens();
+      return null;
+    }
+    const { unmount } = renderRoutes([{ element: <Probe />, path: '*' }]);
+    expect(spy).toHaveBeenCalledWith(expect.any(Function), 500);
+    unmount();
   });
 });

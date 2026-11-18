@@ -5,7 +5,6 @@ import { AlbumScreen } from '@/screens/library/album';
 import { ArtistScreen } from '@/screens/library/artist';
 import { LibraryScreen } from '@/screens/library/library';
 import { PlaylistScreen } from '@/screens/playlist';
-import { SearchScreen } from '@/screens/search';
 import { SettingsScreen } from '@/screens/settings/settings-screen';
 
 /**
@@ -26,7 +25,9 @@ export const appRoutes: RouteObject[] = [
     path: '/album/:id/sources',
   },
   { element: <PlaylistScreen />, path: '/playlist/:id' },
-  { element: <SearchScreen />, path: '/search' },
+  // Поиск и каталог — тем же отдельным чанком (общие модули результатов и запуска трека); оболочка загружает его сразу
+  // после старта (`usePreloadRareScreens`), так что первое нажатие на «Поиск» не ждёт кода.
+  { lazy: async () => ({ Component: (await import('@/screens/rare-screens')).SearchScreen }), path: '/search' },
   // Каталог MusicBrainz: артист и альбом из поиска, которых может не быть в библиотеке.
   // Тем же отдельным чанком: открывается по нажатию на результат поиска, и только при сети.
   {

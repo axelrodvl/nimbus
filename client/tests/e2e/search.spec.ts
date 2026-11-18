@@ -191,4 +191,26 @@ test.describe('поиск', () => {
     await page.getByTestId('catalog-back').click();
     await expect(page.getByRole('heading', { level: 1, name: 'Radiohead' })).toBeVisible();
   });
+  test('ушёл с поиска вкладкой и вернулся вкладкой — тот же запрос, результаты и прокрутка, без нового запроса', async ({
+    page,
+    request,
+  }) => {
+    await page.setViewportSize({ height: 500, width: 1280 });
+    await page.goto('/');
+    await waitSynced(page);
+    await searchFor(page, 'radiohead');
+    await expect(page.getByTestId('search-tracks')).toBeVisible();
+    const scroller = page.locator('[data-scroll-root]');
+    await scroller.evaluate(el => el.scrollTo({ top: 400 }));
+    await expect.poll(() => scroller.evaluate(el => el.scrollTop)).toBeGreaterThan(300);
+    const top = await scroller.evaluate(el => el.scrollTop);
+    await page.getByTestId('sidebar').getByRole('link', { name: 'Библиотека' }).click();
+    await expect(page).toHaveURL(/\/library/);
+    await page.getByTestId('sidebar').getByRole('link', { name: 'Поиск' }).click();
+    await expect(page).toHaveURL(/\/search\?q=radiohead$/);
+    await expect(page.getByRole('searchbox')).toHaveValue('radiohead');
+    await expect(page.getByTestId('search-tracks')).toBeVisible();
+    await expect.poll(() => scroller.evaluate(el => el.scrollTop)).toBe(top);
+    expect(await searchRequests(request)).toBe(1);
+  });
 });

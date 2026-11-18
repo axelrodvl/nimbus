@@ -3,6 +3,7 @@ import { DownloadsBadge } from '@/components/nav-badge';
 import { useT } from '@/lib/i18n/provider';
 import type { NavItem } from '@/lib/nav/items';
 import { scrollRoot, scrollToTop } from '@/lib/nav/scroll-top';
+import { useSearchHref } from '@/lib/search/session';
 
 const mobileTab =
   'flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[10px] font-medium text-gray hover:text-black dark:hover:text-white aria-[current=page]:text-accent-fg aria-[current=page]:font-bold aria-[current=page]:[&_svg]:stroke-[2.5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40';
@@ -10,6 +11,8 @@ const mobileTab =
 /** Нижняя панель вкладок (мобильная, до `sm`). */
 export function MobileTabBar({ items }: { items: readonly NavItem[] }) {
   const t = useT();
+  // «Поиск» возвращает к последнему запросу, а не к пустому экрану.
+  const searchTo = useSearchHref();
   return (
     // In-flow (не position: fixed): при запуске с домашнего экрана iOS фиксированный контейнер
     // может остаться слишком коротким, и панель «зависала» над мёртвой полосой.
@@ -30,7 +33,7 @@ export function MobileTabBar({ items }: { items: readonly NavItem[] }) {
               scrollToTop(scrollRoot(), matchMedia('(prefers-reduced-motion: reduce)').matches);
             }
           }}
-          to={to}
+          to={to === '/search' ? searchTo : to}
         >
           <span className="relative">
             <Icon className="size-5" />

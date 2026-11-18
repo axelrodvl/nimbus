@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AppNavLink } from '@/components/app-nav-link';
 import { renderRoutes } from '@/test/render';
 import { hasRoute, NAV_ITEMS, visibleNavItems } from './items';
-import { RESTORE_TIMEOUT_MS, useScrollRestoration } from './use-scroll-restoration';
+import { RESTORE_TIMEOUT_MS, restoreScrollOnce, useScrollRestoration } from './use-scroll-restoration';
 import { useTitle } from './use-title';
 
 describe('пункты навигации', () => {
@@ -110,6 +110,18 @@ describe('восстановление прокрутки', () => {
     el.dispatchEvent(new Event('scroll'));
     await act(async () => screen.getByText('back').click());
     expect(el.scrollTop).toBe(420);
+  });
+
+  it('экран, помнящий прокрутку, задаёт позицию следующего перехода вперёд — один раз', async () => {
+    const { el, router } = setup();
+    restoreScrollOnce(300);
+    await act(async () => screen.getByText('to-b').click());
+    expect(el.scrollTop).toBe(300);
+    await act(async () => void router.navigate('/'));
+    expect(el.scrollTop).toBe(0);
+    restoreScrollOnce(0);
+    await act(async () => screen.getByText('to-b').click());
+    expect(el.scrollTop).toBe(0);
   });
 
   it('подрезка прокрутки при смене экрана (контент усох) не затирает запомненную позицию', async () => {

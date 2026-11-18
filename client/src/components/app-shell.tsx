@@ -29,6 +29,22 @@ function useKeyboardWatch() {
   useEffect(() => watchKeyboard(), []);
 }
 
+/**
+ * Экраны отдельного чанка (поиск, каталог, источники) грузятся сразу после старта, в простое: роутер держит прежний
+ * экран, пока код маршрута не пришёл, — переход не должен ждать сеть.
+ */
+export function usePreloadRareScreens() {
+  useEffect(() => {
+    const load = () => void import('@/screens/rare-screens');
+    if (typeof globalThis.requestIdleCallback === 'function') {
+      const id = globalThis.requestIdleCallback(load, { timeout: 2000 });
+      return () => globalThis.cancelIdleCallback?.(id);
+    }
+    const timer = setTimeout(load, 500);
+    return () => clearTimeout(timer);
+  }, []);
+}
+
 let storageWarned = false;
 
 /** Один раз за сессию предупреждает, что IndexedDB недоступна (данные живут только до закрытия вкладки). */
@@ -94,6 +110,7 @@ export function AppShell() {
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
   useScrollRestoration(scroller);
   useStorageWarning();
+  usePreloadRareScreens();
   return (
     <TrackDialogsProvider>
       <CommandPaletteProvider>

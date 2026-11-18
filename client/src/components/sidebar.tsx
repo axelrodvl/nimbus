@@ -1,5 +1,6 @@
 import { LogOut, Search } from 'lucide-react';
 import { AppNavLink } from '@/components/app-nav-link';
+import { useSearchHref } from '@/lib/search/session';
 import { DownloadsBadge } from '@/components/nav-badge';
 import { OfflineQueueIndicator } from '@/components/offline/queue-indicator';
 import { ConnectionIndicator } from '@/components/connection-indicator';
@@ -20,6 +21,8 @@ export function Sidebar({ items }: { items: readonly NavItem[] }) {
   const t = useT();
   const palette = useCommandPalette();
   const shortcut = useShortcutText();
+  // «Поиск» возвращает к последнему запросу, а не к пустому экрану.
+  const searchTo = useSearchHref();
   return (
     <aside className="hidden w-[4.5rem] shrink-0 flex-col gap-2 p-2 sm:flex lg:w-[17.5rem]" data-testid="sidebar">
       <div className="bg-card dark:bg-card-dark rounded-lg p-3 lg:p-4">
@@ -48,7 +51,7 @@ export function Sidebar({ items }: { items: readonly NavItem[] }) {
         </button>
         <nav aria-label={t('nav.primary')} className="flex flex-col gap-1 text-sm font-medium">
           {items.map(({ badge, end, icon: Icon, label, to }) => (
-            <AppNavLink className={sidebarLink} end={end} key={to} to={to}>
+            <AppNavLink className={sidebarLink} end={end} key={to} to={to === '/search' ? searchTo : to}>
               <span className="relative">
                 <Icon className="size-5" />
                 {badge === 'downloads' ? <DownloadsBadge /> : null}

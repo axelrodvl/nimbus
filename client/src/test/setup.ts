@@ -13,6 +13,7 @@ beforeEach(() => {
   // Файлы с `@vitest-environment node` (линт-тесты) работают без DOM.
   if (typeof document === 'undefined') return;
   localStorage.clear();
+  sessionStorage.clear();
   document.documentElement.className = '';
   document.documentElement.lang = '';
 });

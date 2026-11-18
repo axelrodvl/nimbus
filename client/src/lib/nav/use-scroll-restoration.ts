@@ -4,6 +4,16 @@ import { useLocation, useNavigationType } from 'react-router';
 /** Сколько ждём, пока контент дорисуется до нужной высоты, прежде чем отпустить прокрутку. */
 export const RESTORE_TIMEOUT_MS = 3000;
 
+let pending: number | null = null;
+
+/**
+ * Следующий переход вперёд (не «назад») начнётся с этой позиции, а не сверху: экран, который сам помнит свою прокрутку
+ * (поиск), вызывает это при монтировании — эффект оболочки срабатывает после эффектов экрана.
+ */
+export function restoreScrollOnce(top: number): void {
+  pending = top > 0 ? top : null;
+}
+
 /**
  * Позиции прокрутки по ключу записи истории (`location.key`): «назад/вперёд» возвращает позицию,
  * новый переход начинает сверху. Скроллится контейнер, а не `window`, поэтому встроенного
@@ -18,7 +28,8 @@ export function useScrollRestoration(ref: RefObject<HTMLElement | null>): void {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const target = type === 'POP' ? (positions.current.get(key) ?? 0) : 0;
+    const target = type === 'POP' ? (positions.current.get(key) ?? 0) : (pending ?? 0);
+    pending = null;
     let restoring = target > 0;
     if (!restoring) el.scrollTop = 0;
 
