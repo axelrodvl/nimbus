@@ -1629,6 +1629,76 @@
         }
       }
     },
+    "/api/play": {
+      "post": {
+        "tags": [
+          "search"
+        ],
+        "operationId": "play",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlayRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Треки запрошены для прослушивания (в библиотеку не добавлены); источник ищется",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Некорректный запрос",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "MBID не найден в MusicBrainz (mb_not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Запись не входит в треклист альбома (recording_not_in_release)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "MusicBrainz недоступен (mb_unavailable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/playlists": {
       "get": {
         "tags": [
@@ -4523,6 +4593,59 @@
           "play_count": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "PlayKind": {
+        "type": "string",
+        "enum": [
+          "album",
+          "track"
+        ]
+      },
+      "PlayRequest": {
+        "type": "object",
+        "required": [
+          "type",
+          "mbid"
+        ],
+        "properties": {
+          "album_mbid": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Для `track`: MBID release group альбома (иначе определяется по MusicBrainz)."
+          },
+          "mbid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "type": {
+            "$ref": "#/components/schemas/PlayKind",
+            "description": "`track` (MBID recording) или `album` (MBID release group — все треки альбома)."
+          }
+        }
+      },
+      "PlayResponse": {
+        "type": "object",
+        "required": [
+          "album_id",
+          "track_ids"
+        ],
+        "properties": {
+          "album_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "track_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "description": "Запрошенные треки в порядке треклиста; их статусы приходят синхронизацией."
           }
         }
       },

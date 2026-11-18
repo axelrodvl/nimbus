@@ -26,6 +26,7 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
             get(crate::catalog::catalog_artist),
         )
         .route("/catalog/albums/{mbid}", get(crate::catalog::catalog_album))
+        .route("/play", post(crate::catalog::play))
         .route("/library", post(library::add_to_library))
         .route("/library/{type}/{id}", delete(library::remove_from_library))
         .route("/library/artists", get(library::list_artists))

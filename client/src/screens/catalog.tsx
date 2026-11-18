@@ -196,14 +196,12 @@ function AlbumBody({ data, index }: { data: CatalogAlbumResponse; index: MbidInd
   const multiDisc = new Set(tracks.map(tr => tr.disc_no)).size > 1;
   const first = tracks[0];
   const totalMs = tracks.reduce((sum, tr) => sum + (tr.duration_ms ?? 0), 0);
-  const request = (tr: (typeof tracks)[number], addAlbum = false) => ({
-    addAlbum,
+  const request = (tr: (typeof tracks)[number], wholeAlbum = false) => ({
     albumMbid: album.mbid,
-    artistName: album.artist_name,
     context: 'album' as const,
-    cover: album.cover_url,
     mbid: tr.mbid,
-    title: addAlbum ? album.title : tr.title,
+    title: wholeAlbum ? album.title : tr.title,
+    wholeAlbum,
   });
   return (
     <>

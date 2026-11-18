@@ -224,17 +224,17 @@ describe('экран альбома', () => {
     expect(screen.getByText(/2 трека · 11:11/)).toBeInTheDocument();
     fireEvent.click(within(list).getByRole('button', { name: /Paranoid Android/ }));
     expect(play).toHaveBeenCalledWith(
-      expect.objectContaining({ addAlbum: false, albumMbid: OK_COMPUTER, context: 'album', mbid: PARANOID }),
+      expect.objectContaining({ wholeAlbum: false, albumMbid: OK_COMPUTER, context: 'album', mbid: PARANOID }),
       expect.any(Function),
     );
   });
 
-  it('«Слушать альбом» — добавить альбом и играть с первого трека', async () => {
+  it('«Слушать альбом» — играть с первого трека, не добавляя альбом', async () => {
     const play = vi.spyOn(playRemoteApp(), 'playRemote').mockImplementation(() => undefined);
     renderRoutes(routes, `/search/album/${OK_COMPUTER}`);
     fireEvent.click(await screen.findByTestId('catalog-play-album'));
     expect(play).toHaveBeenCalledWith(
-      expect.objectContaining({ addAlbum: true, mbid: 'rec-airbag', title: 'OK Computer' }),
+      expect.objectContaining({ mbid: 'rec-airbag', title: 'OK Computer', wholeAlbum: true }),
       expect.any(Function),
     );
   });

@@ -126,7 +126,7 @@ macro_rules! active_discover {
     };
 }
 
-/// I1. Трек библиотеки в `adding` дольше `grace`, а у альбома нет ни активного поиска
+/// I1. Нужный трек (из библиотеки или запрошенный для прослушивания) в `adding` дольше `grace`, а у альбома нет ни активного поиска
 /// (`discover_album`, `discover_artist` артиста), ни `verify_torrent`, ни `process_cue`.
 pub async fn i1_adding_without_job(db: &PgPool, grace: Duration) -> sqlx::Result<Option<Section>> {
     let rows: Vec<Row> = sqlx::query_as(concat!(
@@ -134,7 +134,7 @@ pub async fn i1_adding_without_job(db: &PgPool, grace: Duration) -> sqlx::Result
          FROM albums a
            JOIN LATERAL (
              SELECT count(*) AS n FROM tracks t
-             WHERE t.album_id = a.id AND t.in_library AND t.status = 'adding'
+             WHERE t.album_id = a.id AND (t.in_library OR t.play_requested) AND t.status = 'adding'
                AND t.updated_at < now() - make_interval(secs => $1)) s ON s.n > 0
          WHERE NOT ",
         active_discover!("a.id", "a.artist_id"),

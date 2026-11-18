@@ -173,13 +173,7 @@ function TrackRow({ track, index, query }: { track: TrackResult; index: MbidInde
         leading={<Cover alt={track.album_title ?? track.title} className="size-10" src={track.cover_url} />}
         ownId={own?.id ?? null}
         query={query}
-        request={{
-          albumMbid: track.album_mbid ?? null,
-          artistName: track.artist_name,
-          cover: track.cover_url,
-          mbid: track.mbid,
-          title: track.title,
-        }}
+        request={{ albumMbid: track.album_mbid ?? null, mbid: track.mbid, title: track.title }}
       >
         <span className="truncate text-sm font-medium">{track.title}</span>
         <span className="text-muted truncate text-xs">

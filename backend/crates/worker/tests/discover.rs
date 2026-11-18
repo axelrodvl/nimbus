@@ -439,6 +439,25 @@ async fn nothing_to_search_does_not_touch_providers(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn track_requested_for_playback_is_searched_without_being_in_library(pool: PgPool) {
+    let artist_id = artist(&pool, "Radiohead").await;
+    let album_id = album(&pool, artist_id, "OK Computer", 1997, 3, false).await;
+    let first = tracks::list_by_album(&pool, album_id).await.unwrap()[0].id;
+    tracks::request_play(&pool, &[first]).await.unwrap();
+    let provider = Fake::new(|_| {
+        Ok(vec![cand(
+            "Radiohead - OK Computer (1997) [FLAC]",
+            Some(1),
+            50,
+        )])
+    });
+    let (c, _) = ctx(&pool, Some(provider.clone()), 1, 5);
+    discover_album(&c, album_id).await.unwrap();
+    assert!(!provider.queries.lock().unwrap().is_empty());
+    assert_eq!(queued(&pool, "verify_torrent").await.len(), 1);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn artist_links_discography_to_all_library_albums(pool: PgPool) {
     let artist_id = artist(&pool, "Radiohead").await;
     artists::set_in_library(&pool, artist_id, true)

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fetchCatalogAlbum, fetchCatalogArtist } from './catalog';
+import { fetchCatalogAlbum, fetchCatalogArtist, requestPlay } from './catalog';
 import { createApiClient } from './client';
 import { ApiError } from './errors';
 
@@ -20,5 +20,26 @@ describe('каталог MusicBrainz', () => {
     const err = await fetchCatalogAlbum('m', undefined, client).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err).toMatchObject({ code: 'mb_not_found', status: 404 });
+  });
+
+  it('«сыграть»: POST /api/play с типом; у трека — альбом, у альбома — только mbid', async () => {
+    const bodies: unknown[] = [];
+    const fetch = vi.fn(async (req: RequestInfo | URL) => {
+      const r = req as Request;
+      bodies.push([new URL(r.url).pathname, r.method, await r.json()]);
+      return json({ album_id: 1, track_ids: [5] });
+    });
+    const client = createApiClient({ baseUrl: 'http://x', fetch });
+    await expect(requestPlay({ albumMbid: 'rg', mbid: 'rec', type: 'track' }, client)).resolves.toEqual({
+      album_id: 1,
+      track_ids: [5],
+    });
+    await requestPlay({ mbid: 'rg', type: 'album' }, client);
+    await requestPlay({ mbid: 'rec', type: 'track' }, client);
+    expect(bodies).toEqual([
+      ['/api/play', 'POST', { album_mbid: 'rg', mbid: 'rec', type: 'track' }],
+      ['/api/play', 'POST', { mbid: 'rg', type: 'album' }],
+      ['/api/play', 'POST', { album_mbid: null, mbid: 'rec', type: 'track' }],
+    ]);
   });
 });

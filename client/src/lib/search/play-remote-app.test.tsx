@@ -1,7 +1,7 @@
 import { act } from '@testing-library/react';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as searchApi from '@/lib/api/search';
+import * as catalogApi from '@/lib/api/catalog';
 import { appData } from '@/lib/app-data';
 import { en } from '@/lib/i18n/messages/en';
 import type { TFn } from '@/lib/i18n/messages';
@@ -10,15 +10,14 @@ import { resetPlayer, toPlayerTrack } from '@/lib/player';
 import { makeAlbum, makeArtist, makeTrack, resetFactories } from '@/test/factories';
 import { installTestPlayer } from '@/test/player-ui';
 import { seed } from '@/test/seed';
-import { addingStore } from './add';
 import { playRemoteApp } from './play-remote';
 
 vi.mock('@/lib/api/settings', () => ({ loadPrefetchEnabled: async () => true }));
-vi.mock('@/lib/api/search', async importOriginal => ({
-  ...(await importOriginal<typeof searchApi>()),
-  addToLibraryRequest: vi.fn(),
+vi.mock('@/lib/api/catalog', async importOriginal => ({
+  ...(await importOriginal<typeof catalogApi>()),
+  requestPlay: vi.fn(),
 }));
-const post = vi.mocked(searchApi.addToLibraryRequest);
+const post = vi.mocked(catalogApi.requestPlay);
 
 const t = ((key: string, params?: Record<string, string | number>) => translate(en as never, 'en', key, params)) as TFn;
 
@@ -26,8 +25,26 @@ const rows = (status: 'adding' | 'found') => ({
   albums: [makeAlbum({ artist_id: 1, id: 2, mbid: 'rg', title: 'Alb' })],
   artists: [makeArtist({ id: 1 })],
   tracks: [
-    makeTrack({ album_id: 2, artist_id: 1, id: 10, mbid_recording: 'rec-a', position: 1, status, title: 'A' }),
-    makeTrack({ album_id: 2, artist_id: 1, id: 11, mbid_recording: 'rec-b', position: 2, status: 'ready', title: 'B' }),
+    makeTrack({
+      album_id: 2,
+      artist_id: 1,
+      id: 10,
+      in_library: false,
+      mbid_recording: 'rec-a',
+      position: 1,
+      status,
+      title: 'A',
+    }),
+    makeTrack({
+      album_id: 2,
+      artist_id: 1,
+      id: 11,
+      in_library: false,
+      mbid_recording: 'rec-b',
+      position: 2,
+      status: 'ready',
+      title: 'B',
+    }),
   ],
 });
 
@@ -40,12 +57,11 @@ beforeEach(() => {
 afterEach(() => {
   playRemoteApp().cancel();
   resetPlayer(true);
-  addingStore.setState({ adding: new Map() });
   vi.restoreAllMocks();
 });
 
 describe('playRemoteApp: связка с библиотекой и плеером приложения', () => {
-  it('трек из библиотеки — играет сразу; в контексте альбома очередь — доступные треки альбома', () => {
+  it('трек уже на сервере (не в библиотеке) — играет сразу; в контексте альбома очередь — доступные треки альбома', () => {
     seed(rows('found'));
     const env = installTestPlayer();
     playRemoteApp().playRemote({ albumMbid: 'rg', context: 'album', mbid: 'rec-a', title: 'A' }, t);
@@ -53,15 +69,13 @@ describe('playRemoteApp: связка с библиотекой и плееро�
     expect(post).not.toHaveBeenCalled();
   });
 
-  it('трека нет — добавляется без своего toast «добавлено»; заигрывает, когда дельта принесла его найденным', async () => {
+  it('трека нет — сервер ищет источник (в библиотеку не добавляет); заигрывает, когда синхронизация принесла его найденным', async () => {
     seed({ albums: [], artists: [], tracks: [] });
     const env = installTestPlayer();
-    const success = vi.spyOn(toast, 'success');
-    post.mockResolvedValue({ id: 10, status: 'added', type: 'track' });
+    post.mockResolvedValue({ album_id: 2, track_ids: [10] });
     playRemoteApp().playRemote({ albumMbid: 'rg', mbid: 'rec-a', title: 'A' }, t);
     await act(async () => undefined);
     expect(post).toHaveBeenCalledWith({ albumMbid: 'rg', mbid: 'rec-a', type: 'track' });
-    expect(success).not.toHaveBeenCalled();
     act(() => seed(rows('adding')));
     expect(env.ctl.state.queue).toEqual([]);
     act(() => seed(rows('found')));
@@ -96,7 +110,7 @@ describe('playRemoteApp: связка с библиотекой и плееро�
     expect(current()).toBe(30);
     playRemoteApp().playRemote({ albumMbid: 'rg', mbid: 'rec-a', title: 'A' }, t);
     expect(current()).toBe(10);
-    // Альбома ещё нет в store — трек «не найден», значит добавляем и ждём.
+    // Альбома ещё нет в store — просим сервер и ждём.
     post.mockReturnValue(new Promise(() => undefined));
     playRemoteApp().playRemote({ albumMbid: 'rg-new', mbid: 'rec-a', title: 'A' }, t);
     expect(post).toHaveBeenCalledWith({ albumMbid: 'rg-new', mbid: 'rec-a', type: 'track' });

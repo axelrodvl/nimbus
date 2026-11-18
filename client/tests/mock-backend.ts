@@ -258,6 +258,39 @@ function addToLibrary(body: AddBody): { status: number; body: unknown } | null {
   return { body: { id: track.id, status: 'added', type: 'track' }, status: 201 };
 }
 
+/** `POST /api/play`: как настоящий сервер — метаданные сохраняются, треки ищутся (`adding`), в библиотеку не попадают. */
+function playRoute(body: { type: string; mbid: string; album_mbid?: string | null }): unknown {
+  const albumMbid =
+    body.type === 'album' ? body.mbid : (body.album_mbid ?? searchFixture.tracks.find(t => t.mbid === body.mbid)?.album_mbid);
+  if (!albumMbid) return null;
+  const album = ensureAlbum(albumMbid, false);
+  if (!album) return null;
+  const hits = searchFixture.tracks.filter(t => t.album_mbid === albumMbid);
+  const wanted = body.type === 'album' ? hits : hits.filter(t => t.mbid === body.mbid);
+  if (wanted.length === 0) return null;
+  const ids = wanted.map(hit => {
+    const existing = state.server.all('track').find(r => r.mbid_recording === hit.mbid && r.album_id === album.id);
+    if (existing) {
+      if (existing.status === 'not_found') state.server.upsert('track', { ...existing, status: 'adding' });
+      return Number(existing.id);
+    }
+    const track = makeTrack({
+      added_at: null,
+      album_id: album.id,
+      artist_id: Number(album.artist_id),
+      id: nextId('track'),
+      in_library: false,
+      mbid_recording: hit.mbid,
+      position: hits.indexOf(hit) + 1,
+      status: 'adding',
+      title: hit.title,
+    });
+    state.server.upsert('track', track);
+    return track.id;
+  });
+  return { album_id: album.id, track_ids: ids };
+}
+
 /** `GET /api/catalog/{artists|albums}/{mbid}`: каталог MusicBrainz из фикстуры поиска; `null` — такого mbid нет. */
 function catalogRoute(kind: string, mbid: string): unknown {
   const libraryArtist = (id: string) =>
@@ -928,6 +961,13 @@ Bun.serve({
       }
       const q = new URL(req.url).searchParams.get('q') ?? '';
       return json(200, { ...searchFixture, query: q });
+    }
+    if (path === '/api/play' && req.method === 'POST') {
+      if (!authed(req)) return json(401, { error: { code: 'unauthorized', message: 'login required' } });
+      const result = playRoute((await req.json()) as { type: string; mbid: string; album_mbid?: string | null });
+      if (!result) return json(404, { error: { code: 'mb_not_found', message: 'not found in MusicBrainz' } });
+      broadcast({ type: 'sync.poke' });
+      return json(200, result);
     }
     if (path.startsWith('/api/catalog/')) {
       if (!authed(req)) return json(401, { error: { code: 'unauthorized', message: 'login required' } });

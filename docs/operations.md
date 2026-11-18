@@ -140,7 +140,7 @@ Jackett — необязательный контейнер compose: `COMPOSE_PR
 
 | Код | Что застряло | Кто должен был починить |
 |---|---|---|
-| I1 | Трек библиотеки в `adding`, а у альбома нет ни поиска (`discover_album`, `discover_artist`), ни `verify_torrent`, ни `process_cue` | `finalize_stuck_albums` (каждую минуту, через 2 минуты простоя) |
+| I1 | Трек библиотеки (или запрошенный для прослушивания, `play_requested`) в `adding`, а у альбома нет ни поиска (`discover_album`, `discover_artist`), ни `verify_torrent`, ни `process_cue` | `finalize_stuck_albums` (каждую минуту, через 2 минуты простоя) |
 | I2 | Связь альбома с раздачей не проверена, задачи `verify_torrent` нет, поиск альбома не идёт | `requeue_lost_jobs` (каждую минуту) |
 | I3 | CUE-образ не разобран, задачи `process_cue` нет | `requeue_lost_jobs` (каждую минуту) |
 | I4 | У альбома есть ненайденные треки, поиск не идёт, авто-повтор не назначен (при включённом `search.auto_retry`) | `adopt_orphans` в `retry_missing` (каждые 5 минут, без ожидания) |

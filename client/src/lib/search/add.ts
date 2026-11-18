@@ -92,8 +92,6 @@ export type AddDeps = {
   post?: (input: AddInput) => Promise<AddResult>;
   requestSync?: (reason: string) => void;
   now?: () => number;
-  /** Без toast об успехе: добавление — часть другого действия («играть»), у которого свой toast. */
-  quiet?: boolean;
 };
 
 /**
@@ -112,17 +110,11 @@ export async function addToLibrary(request: AddRequest, t: TFn, query?: string, 
     if (query) addToHistory(query);
     (deps.requestSync ?? (reason => appData().engine.requestSync(reason)))('add');
     setTimeout(() => finishAdding(input.mbid), ADDING_TIMEOUT_MS);
-    if (!deps.quiet) {
-      toast.success(
-        t(
-          result.status === 'exists'
-            ? 'toast.exists'
-            : result.status === 'importing'
-              ? 'toast.importing'
-              : 'toast.added',
-        ),
-      );
-    }
+    toast.success(
+      t(
+        result.status === 'exists' ? 'toast.exists' : result.status === 'importing' ? 'toast.importing' : 'toast.added',
+      ),
+    );
     return true;
   } catch (error) {
     finishAdding(input.mbid);

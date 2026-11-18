@@ -298,6 +298,16 @@ pub struct Track {
     pub in_library: bool,
     pub added_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
+    /// Трек попросили сыграть, не добавляя в библиотеку: источник ему нужен так же, как треку библиотеки.
+    #[sqlx(default)]
+    pub play_requested: bool,
+}
+
+impl Track {
+    /// Нужен ли треку источник: он в библиотеке или его попросили сыграть.
+    pub fn wanted(&self) -> bool {
+        self.in_library || self.play_requested
+    }
 }
 
 /// `.torrent` больше этого размера не сохраняется (защита БД и памяти от гигантских файлов).

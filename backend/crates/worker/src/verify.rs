@@ -404,7 +404,7 @@ pub async fn verify_torrent(ctx: &JobCtx, torrent_id: i64, album_id: i64) -> Res
     let all_found = tracks::list_by_album(&ctx.db, album_id)
         .await?
         .iter()
-        .filter(|t| t.in_library)
+        .filter(|t| t.wanted())
         .all(|t| matches!(t.status, TrackStatus::Found | TrackStatus::Ready));
     if all_found {
         jobs::demote_queued_verifies(&ctx.db, album_id, PRIORITY_BACKGROUND).await?;

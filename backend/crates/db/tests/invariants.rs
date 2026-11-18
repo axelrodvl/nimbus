@@ -225,6 +225,52 @@ async fn i1_respects_grace_library_flag_and_active_jobs(pool: PgPool) {
         .is_none());
 }
 
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn i1_track_requested_for_playback_needs_a_job_too(pool: PgPool) {
+    let ar = artist(&pool).await;
+    let (a, track_ids) = album(&pool, ar, &[TrackStatus::NotFound]).await;
+    sqlx::query("UPDATE tracks SET in_library = FALSE")
+        .execute(&pool)
+        .await
+        .unwrap();
+    // «Сыграть» без добавления: трек снова ищется, но не в библиотеке.
+    let t = tracks::request_play(&pool, &track_ids).await.unwrap();
+    assert_eq!(t[0].status, TrackStatus::Adding);
+    assert!(t[0].play_requested && !t[0].in_library && t[0].status_reason.is_none());
+    assert_eq!(
+        ids(&invariants::i1_adding_without_job(&pool, ZERO)
+            .await
+            .unwrap()),
+        vec![a]
+    );
+    assert_eq!(
+        tracks::albums_stuck_in_adding(&pool, ZERO).await.unwrap(),
+        vec![a]
+    );
+    enqueue(&pool, Job::DiscoverAlbum { album_id: a }).await;
+    assert!(invariants::i1_adding_without_job(&pool, ZERO)
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn request_play_keeps_found_status(pool: PgPool) {
+    let ar = artist(&pool).await;
+    let (_, track_ids) = album(&pool, ar, &[TrackStatus::Found, TrackStatus::Adding]).await;
+    let t = tracks::request_play(&pool, &track_ids).await.unwrap();
+    let mut statuses: Vec<_> = t.iter().map(|t| (t.id, t.status)).collect();
+    statuses.sort_by_key(|x| x.0);
+    assert_eq!(
+        statuses,
+        vec![
+            (track_ids[0], TrackStatus::Found),
+            (track_ids[1], TrackStatus::Adding)
+        ]
+    );
+    assert!(t.iter().all(|t| t.play_requested));
+}
+
 // ------------------------------------------------------------------ I2
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]

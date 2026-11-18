@@ -71,7 +71,7 @@ pub async fn mark_found(db: impl PgExecutor<'_>, ids: &[i64]) -> sqlx::Result<Ve
     .await
 }
 
-/// Альбомы с треками библиотеки в `adding`, которые не менялись дольше `grace` и по которым нет
+/// Альбомы с нужными треками (библиотеки или запрошенными для прослушивания) в `adding`, которые не менялись дольше `grace` и по которым нет
 /// активного поиска (`discover_album` альбома или `discover_artist` его артиста). Такие альбомы
 /// остались без исполнителя решения: поиск закончился, а финализация была отложена другим поиском.
 pub async fn albums_stuck_in_adding(
@@ -82,7 +82,7 @@ pub async fn albums_stuck_in_adding(
         "SELECT a.id FROM albums a
          WHERE EXISTS (
              SELECT 1 FROM tracks t
-             WHERE t.album_id = a.id AND t.in_library AND t.status = 'adding'
+             WHERE t.album_id = a.id AND (t.in_library OR t.play_requested) AND t.status = 'adding'
                AND t.updated_at < now() - make_interval(secs => $1))
            AND NOT EXISTS (
              SELECT 1 FROM jobs j
@@ -113,6 +113,22 @@ pub async fn set_status_for_album(
     .bind(from)
     .bind(to)
     .bind(reason)
+    .fetch_all(db)
+    .await
+}
+
+/// Трек попросили сыграть (без добавления в библиотеку): `play_requested`, а ненайденный снова ищется
+/// (`not_found` → `adding`). Возвращает обновлённые строки.
+pub async fn request_play(db: impl PgExecutor<'_>, ids: &[i64]) -> sqlx::Result<Vec<Track>> {
+    sqlx::query_as(
+        "UPDATE tracks SET play_requested = true,
+            status = CASE WHEN status = 'not_found' THEN 'adding' ELSE status END,
+            status_reason = CASE WHEN status = 'not_found' THEN NULL ELSE status_reason END,
+            updated_at = CASE WHEN status = 'not_found' THEN now() ELSE updated_at END
+         WHERE id = ANY($1)
+         RETURNING *",
+    )
+    .bind(ids)
     .fetch_all(db)
     .await
 }

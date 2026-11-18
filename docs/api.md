@@ -153,6 +153,9 @@ primary-источником (CUE или формат файла), поэтом�
 - `GET /api/catalog/albums/{mbid}` — альбом (release group) и треклист каноничного релиза: `mbid` трека — запись (recording)
   для `POST /api/library` с `type=track`; у добавленного — `library_id` и `status`.
 - `400` `bad_mbid`, `404` `mb_not_found`, `503` `mb_unavailable` (MusicBrainz не ответил за 30 с).
+- `POST /api/play` `{ type: "track" | "album", mbid, album_mbid? }` — сыграть, не добавляя в библиотеку: метаданные альбома
+  сохраняются, треки помечаются `play_requested` и ищутся как треки библиотеки (ненайденный — заново); ответ —
+  `album_id` и `track_ids` в порядке треклиста, статусы приходят синхронизацией. Последующий `POST /api/library` — мгновенный.
 
 **Воспроизведение.**
 - `GET /api/tracks/{id}/stream` — аудио: Range (`206`, `416`), условные запросы (`304`), перекодирование CUE/APE/WV/DSD

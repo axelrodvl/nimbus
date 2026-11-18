@@ -168,3 +168,121 @@ async fn musicbrainz_down_is_503(pool: PgPool) {
     assert_eq!(status, 503, "{v}");
     assert_eq!(v["error"]["code"], "mb_unavailable");
 }
+
+async fn track_row(pool: &PgPool, id: i64) -> (bool, bool, String) {
+    sqlx::query_as("SELECT in_library, play_requested, status::text FROM tracks WHERE id = $1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn discover_jobs(pool: &PgPool) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = 'discover_album'")
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn play_track_searches_a_source_without_adding_to_library(pool: PgPool) {
+    let server = mb_server().await;
+    let app = router(state_with_mb(pool.clone(), mb_client(&server)));
+    let (status, v) = post_json(
+        app.clone(),
+        "/api/play",
+        json!({"type": "track", "mbid": PARANOID, "album_mbid": OK_COMPUTER}),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    let ids = v["track_ids"].as_array().unwrap();
+    assert_eq!(ids.len(), 1);
+    let id = ids[0].as_i64().unwrap();
+    assert_eq!(
+        track_row(&pool, id).await,
+        (false, true, "adding".to_string())
+    );
+    assert_eq!(discover_jobs(&pool).await, 1);
+    // В библиотеке ничего не появилось: ни трек, ни альбом, ни артист.
+    let in_library: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM tracks WHERE in_library) + (SELECT count(*) FROM albums WHERE in_library)
+              + (SELECT count(*) FROM artists WHERE in_library)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(in_library, 0);
+    let (_, album) = get_json(app.clone(), &format!("/api/catalog/albums/{OK_COMPUTER}")).await;
+    assert!(album["tracks"][1]["library_id"].is_null(), "{album}");
+
+    // Повтор — тот же трек, без второй задачи; «добавить» потом — сразу в библиотеку, метаданные уже есть.
+    let (_, again) = post_json(
+        app.clone(),
+        "/api/play",
+        json!({"type": "track", "mbid": PARANOID, "album_mbid": OK_COMPUTER}),
+    )
+    .await;
+    assert_eq!(again["track_ids"][0], id);
+    assert_eq!(discover_jobs(&pool).await, 1);
+    let (status, added) = post_json(
+        app,
+        "/api/library",
+        json!({"type": "track", "mbid": PARANOID, "album_mbid": OK_COMPUTER}),
+    )
+    .await;
+    assert_eq!(status, 201, "{added}");
+    assert_eq!(added["id"], id);
+    assert!(track_row(&pool, id).await.0);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn play_album_requests_every_track_in_tracklist_order(pool: PgPool) {
+    let server = mb_server().await;
+    let app = router(state_with_mb(pool.clone(), mb_client(&server)));
+    let (status, v) = post_json(
+        app,
+        "/api/play",
+        json!({"type": "album", "mbid": OK_COMPUTER}),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    let ids: Vec<i64> = v["track_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_i64().unwrap())
+        .collect();
+    assert_eq!(ids.len(), 4);
+    let titles: Vec<String> = sqlx::query_scalar(
+        "SELECT title FROM tracks WHERE id = ANY($1) AND play_requested AND NOT in_library
+         ORDER BY array_position($1, id)",
+    )
+    .bind(&ids)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(titles[0], "Airbag");
+    assert_eq!(titles.len(), 4);
+    assert!(v["album_id"].is_i64());
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn play_errors(pool: PgPool) {
+    let server = mb_server().await;
+    let app = router(state_with_mb(pool, mb_client(&server)));
+    let (status, v) = post_json(
+        app.clone(),
+        "/api/play",
+        json!({"type": "artist", "mbid": RADIOHEAD}),
+    )
+    .await;
+    assert_eq!(status, 400, "{v}");
+    let (status, v) = post_json(
+        app,
+        "/api/play",
+        json!({"type": "track", "mbid": RADIOHEAD, "album_mbid": OK_COMPUTER}),
+    )
+    .await;
+    assert_eq!(status, 422, "{v}");
+    assert_eq!(v["error"]["code"], "recording_not_in_release");
+}

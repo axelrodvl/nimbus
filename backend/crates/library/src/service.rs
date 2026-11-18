@@ -71,6 +71,13 @@ impl std::str::FromStr for LibraryType {
     }
 }
 
+/// Что запрошено для прослушивания: альбом и его треки в порядке треклиста (для альбома — все, для трека — он один).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlayOutcome {
+    pub album_id: i64,
+    pub track_ids: Vec<i64>,
+}
+
 /// Результат добавления.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AddOutcome {
@@ -363,6 +370,70 @@ impl LibraryService {
         self.changed(Entity::Track, track.id);
         self.changed(Entity::Artist, track.artist_id);
         Ok(AddOutcome::Added { id: track.id })
+    }
+
+    /// Сыграть трек, не добавляя его в библиотеку: метаданные альбома сохраняются, трек помечается
+    /// `play_requested` и ищется так же, как трек библиотеки. Последующее «добавить» найдёт всё готовым.
+    pub async fn play_track(
+        &self,
+        recording_mbid: Uuid,
+        album_mbid: Option<Uuid>,
+    ) -> Result<PlayOutcome> {
+        let rg_mbid = match album_mbid {
+            Some(m) => m,
+            None => self
+                .mb
+                .recording(recording_mbid)
+                .await?
+                .release_group_mbid
+                .ok_or(LibraryError::RecordingNotInRelease)?,
+        };
+        let (album, album_tracks) = self.ensure_album(rg_mbid, None).await?;
+        let track = album_tracks
+            .into_iter()
+            .find(|t| t.mbid_recording == recording_mbid)
+            .ok_or(LibraryError::RecordingNotInRelease)?;
+        self.request_play(album.id, vec![track]).await
+    }
+
+    /// Сыграть альбом, не добавляя его в библиотеку (все треки — `play_requested`).
+    pub async fn play_album(&self, rg_mbid: Uuid) -> Result<PlayOutcome> {
+        let (album, album_tracks) = self.ensure_album(rg_mbid, None).await?;
+        self.request_play(album.id, album_tracks).await
+    }
+
+    async fn request_play(&self, album_id: i64, wanted: Vec<Track>) -> Result<PlayOutcome> {
+        let ids: Vec<i64> = wanted.iter().map(|t| t.id).collect();
+        let needs_search = wanted
+            .iter()
+            .any(|t| matches!(t.status, TrackStatus::NotFound | TrackStatus::Adding));
+        // Пометка и поиск — одной транзакцией: трек в `adding` без задачи поиска нарушил бы инвариант I1.
+        let mut tx = self.db.begin().await?;
+        tracks::request_play(&mut *tx, &ids).await?;
+        if needs_search {
+            jobs::enqueue(
+                &mut *tx,
+                &Job::DiscoverAlbum { album_id },
+                EnqueueOpts::priority(PRIORITY_INTERACTIVE),
+            )
+            .await?;
+        }
+        tx.commit().await?;
+        for t in wanted.iter().filter(|t| t.status == TrackStatus::NotFound) {
+            self.events.publish(Event::TrackStatus {
+                track_id: t.id,
+                album_id: t.album_id,
+                status: TrackStatus::Adding,
+                reason: None,
+            });
+        }
+        for id in &ids {
+            self.changed(Entity::Track, *id);
+        }
+        Ok(PlayOutcome {
+            album_id,
+            track_ids: ids,
+        })
     }
 
     /// Добавляет артиста; дискографию импортирует фоновая задача `ImportArtist`.

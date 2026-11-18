@@ -1,6 +1,7 @@
 //! Каталог MusicBrainz для экранов поиска: дискография артиста и треклист альбома, которых может
 //! ещё не быть в библиотеке (`GET /api/catalog/artists/{mbid}`, `GET /api/catalog/albums/{mbid}`).
-//! Ответы MusicBrainz кэшируются клиентом (`mb_cache`), повторный заход — без сети.
+//! Ответы MusicBrainz кэшируются клиентом (`mb_cache`), повторный заход — без сети. `POST /api/play` — сыграть
+//! трек или альбом из каталога, не добавляя в библиотеку.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -12,11 +13,12 @@ use nimbus_core::model::TrackStatus;
 use nimbus_db::repo::{albums, artists, tracks};
 use nimbus_library::LibraryError;
 use nimbus_musicbrainz::{cover_url, MbError, ReleaseGroupHit};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::error::ApiError;
+use crate::extract::ApiJson;
 use crate::search::AlbumResult;
 use crate::state::AppState;
 
@@ -201,5 +203,58 @@ pub async fn catalog_album(
                 }
             })
             .collect(),
+    }))
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PlayKind {
+    Album,
+    Track,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct PlayRequest {
+    /// `track` (MBID recording) или `album` (MBID release group — все треки альбома).
+    #[serde(rename = "type")]
+    #[schema(rename = "type")]
+    pub kind: PlayKind,
+    pub mbid: Uuid,
+    /// Для `track`: MBID release group альбома (иначе определяется по MusicBrainz).
+    #[serde(default)]
+    pub album_mbid: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PlayResponse {
+    pub album_id: i64,
+    /// Запрошенные треки в порядке треклиста; их статусы приходят синхронизацией.
+    pub track_ids: Vec<i64>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/play",
+    tag = "search",
+    request_body = PlayRequest,
+    responses(
+        (status = 200, description = "Треки запрошены для прослушивания (в библиотеку не добавлены); источник ищется", body = PlayResponse),
+        (status = 400, description = "Некорректный запрос", body = crate::error::ErrorResponse),
+        (status = 404, description = "MBID не найден в MusicBrainz (mb_not_found)", body = crate::error::ErrorResponse),
+        (status = 422, description = "Запись не входит в треклист альбома (recording_not_in_release)", body = crate::error::ErrorResponse),
+        (status = 503, description = "MusicBrainz недоступен (mb_unavailable)", body = crate::error::ErrorResponse),
+    )
+)]
+pub async fn play(
+    State(state): State<AppState>,
+    ApiJson(req): ApiJson<PlayRequest>,
+) -> Result<Json<PlayResponse>, ApiError> {
+    let outcome = match req.kind {
+        PlayKind::Track => state.library.play_track(req.mbid, req.album_mbid).await?,
+        PlayKind::Album => state.library.play_album(req.mbid).await?,
+    };
+    Ok(Json(PlayResponse {
+        album_id: outcome.album_id,
+        track_ids: outcome.track_ids,
     }))
 }

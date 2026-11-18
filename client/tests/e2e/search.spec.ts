@@ -147,7 +147,7 @@ test.describe('поиск', () => {
     await expect(page.getByRole('searchbox')).toHaveValue('radiohead');
     expect(await searchRequests(request)).toBe(1);
   });
-  test('как в музыкальном сервисе: артист → его альбомы → альбом → треки → нажатие на трек — играет, когда нашёлся источник', async ({
+  test('как в музыкальном сервисе: артист → его альбомы → альбом → треки → нажатие на трек — играет (без добавления в библиотеку), когда нашёлся источник', async ({
     page,
     request,
   }) => {
@@ -165,14 +165,15 @@ test.describe('поиск', () => {
     const tracks = page.getByTestId('catalog-track');
     await expect(tracks).toHaveCount(2);
 
-    const added = page.waitForResponse(r => r.url().endsWith('/api/library') && r.request().method() === 'POST');
-    await tracks.filter({ hasText: 'Paranoid Android' }).getByTestId('remote-play').click();
-    const { id } = (await (await added).json()) as { id: number };
-    // Трек добавлен, источник ищется: строка показывает ожидание.
-    await expect(tracks.filter({ hasText: 'Paranoid Android' }).getByTestId('remote-play')).toHaveAttribute(
-      'data-pending',
-      'true',
-    );
+    const played = page.waitForResponse(r => r.url().endsWith('/api/play') && r.request().method() === 'POST');
+    const row = tracks.filter({ hasText: 'Paranoid Android' });
+    await row.getByTestId('remote-play').click();
+    const { track_ids } = (await (await played).json()) as { track_ids: number[] };
+    const id = track_ids[0]!;
+    // Источник ищется: строка показывает ожидание, а в библиотеку трек не попал.
+    await expect(row.getByTestId('remote-play')).toHaveAttribute('data-pending', 'true');
+    await expect(row.getByRole('button', { name: 'Добавить в библиотеку' })).toBeVisible();
+    expect((await mockLog(request)).filter(l => l === 'POST /api/library')).toEqual([]);
     await expect(page.getByText(/Ищем источник для «Paranoid Android»/)).toBeVisible();
     await mutate(request, { entity: 'track', id, patch: { status: 'found' } });
     await expect
@@ -184,6 +185,8 @@ test.describe('поиск', () => {
       )
       .toEqual({ paused: false, src: expect.stringContaining(`/api/tracks/${id}/stream`) });
     await expect(page.locator('[data-testid=player-track]:visible').first()).toContainText('Paranoid Android');
+    // Играет, но в библиотеке по-прежнему нет.
+    await expect(row.getByRole('button', { name: 'Добавить в библиотеку' })).toBeVisible();
 
     await page.getByTestId('catalog-back').click();
     await expect(page.getByRole('heading', { level: 1, name: 'Radiohead' })).toBeVisible();

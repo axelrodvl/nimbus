@@ -411,12 +411,12 @@ async fn load_album(ctx: &JobCtx, album_id: i64) -> Result<(Album, Artist), JobE
 pub async fn discover_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError> {
     let (album, artist) = load_album(ctx, album_id).await?;
 
-    // Нечего искать, если нет добавленных в библиотеку треков в статусе `adding` и нет закреплений
+    // Нечего искать, если нет нужных треков (из библиотеки или запрошенных для прослушивания) в `adding` и нет закреплений
     // с мёртвыми источниками (B04: им нужны новые раздачи).
     let needs_search = tracks::list_by_album(&ctx.db, album_id)
         .await?
         .iter()
-        .any(|t| t.in_library && t.status == TrackStatus::Adding)
+        .any(|t| t.wanted() && t.status == TrackStatus::Adding)
         || pins::album_needs_sources(&ctx.db, album_id).await?;
     if !needs_search {
         tracing::debug!(album_id, "nothing to discover");
@@ -508,12 +508,12 @@ pub async fn discover_album(ctx: &JobCtx, album_id: i64) -> Result<(), JobError>
     finalize_album_from_discover(ctx, album_id, &own_key).await
 }
 
-/// Все ли треки альбома из библиотеки уже найдены/скачаны.
+/// Все ли нужные треки альбома (из библиотеки и запрошенные для прослушивания) уже найдены/скачаны.
 async fn library_tracks_found(ctx: &JobCtx, album_id: i64) -> Result<bool, JobError> {
     Ok(tracks::list_by_album(&ctx.db, album_id)
         .await?
         .iter()
-        .filter(|t| t.in_library)
+        .filter(|t| t.wanted())
         .all(|t| matches!(t.status, TrackStatus::Found | TrackStatus::Ready)))
 }
 

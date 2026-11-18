@@ -564,6 +564,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/play": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["play"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/playlists": {
         parameters: {
             query?: never;
@@ -1531,6 +1547,25 @@ export interface components {
         PlayCountResponse: {
             /** Format: int32 */
             play_count: number;
+        };
+        /** @enum {string} */
+        PlayKind: "album" | "track";
+        PlayRequest: {
+            /**
+             * Format: uuid
+             * @description Для `track`: MBID release group альбома (иначе определяется по MusicBrainz).
+             */
+            album_mbid?: string | null;
+            /** Format: uuid */
+            mbid: string;
+            /** @description `track` (MBID recording) или `album` (MBID release group — все треки альбома). */
+            type: components["schemas"]["PlayKind"];
+        };
+        PlayResponse: {
+            /** Format: int64 */
+            album_id: number;
+            /** @description Запрошенные треки в порядке треклиста; их статусы приходят синхронизацией. */
+            track_ids: number[];
         };
         /** @enum {string} */
         PlaybackMode: "direct" | "transcode";
@@ -3152,6 +3187,66 @@ export interface operations {
             };
             /** @description Не найдено */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    play: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlayRequest"];
+            };
+        };
+        responses: {
+            /** @description Треки запрошены для прослушивания (в библиотеку не добавлены); источник ищется */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlayResponse"];
+                };
+            };
+            /** @description Некорректный запрос */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description MBID не найден в MusicBrainz (mb_not_found) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Запись не входит в треклист альбома (recording_not_in_release) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description MusicBrainz недоступен (mb_unavailable) */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

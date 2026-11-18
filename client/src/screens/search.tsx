@@ -35,6 +35,9 @@ export function SearchScreen() {
   }
   useEffect(() => {
     if (wantsAutofocus()) input.current?.focus();
+    // Экраны артиста и альбома — отдельный чанк: грузим заранее, чтобы нажатие на результат открывало их сразу,
+    // а не после загрузки кода (роутер держит прежний экран, пока чанк не пришёл).
+    void import('@/screens/rare-screens');
   }, []);
 
   function onChange(next: string) {

@@ -1,42 +1,50 @@
 import { toast } from 'sonner';
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
+import { requestPlay, type PlayInput, type PlayResponse } from '@/lib/api/catalog';
+import { apiErrorMessage } from '@/lib/api/error-message';
 import { appData } from '@/lib/app-data';
 import type { TFn } from '@/lib/i18n/messages';
 import { currentTrack } from '@/lib/player/engine';
 import { player } from '@/lib/player/index';
 import { canPlay, toPlayerTrack, type PlayerTrack } from '@/lib/player/track';
 import type { TrackView } from '@/lib/store/selectors';
-import { addToLibrary, type AddRequest } from './add';
 
-/** Трек из MusicBrainz (поиск, каталог), который нужно сыграть, — возможно, его ещё нет в библиотеке. */
+/** Трек из MusicBrainz (поиск, каталог), который нужно сыграть, — возможно, его ещё нет на сервере. */
 export type PlayRemoteRequest = {
   /** MBID записи (recording). */
   mbid: string;
-  /** Альбом (release group), в составе которого добавить трек. */
+  /** Альбом (release group), в составе которого играть трек. */
   albumMbid: string | null;
   title: string;
-  artistName?: string | null;
-  cover?: string | null;
   /** `album` — очередь из доступных треков его альбома (экран альбома); иначе — только он. */
   context?: 'single' | 'album';
-  /** Добавить альбом целиком, а не только трек («Слушать» у альбома из каталога). */
-  addAlbum?: boolean;
-  /** Точный трек библиотеки (локальный результат поиска): одна запись бывает в нескольких альбомах. */
+  /** «Слушать альбом»: источник ищется всем трекам альбома, играет первый (`mbid`). */
+  wholeAlbum?: boolean;
+  /** Точный трек на сервере (локальный результат поиска): одна запись бывает в нескольких альбомах. */
   trackId?: number;
 };
 
-type State = { pending: PlayRemoteRequest | null };
+type Pending = {
+  request: PlayRemoteRequest;
+  /** id трека на сервере — известен после ответа `POST /api/play`. */
+  trackId: number | null;
+  /** Трек уже видели в `adding`: `not_found` после этого — итог поиска, а не устаревшая строка store. */
+  searched: boolean;
+};
+
+type State = { pending: Pending | null };
 
 export type PlayRemoteDeps = {
   /**
-   * Трек библиотеки для запроса: по `trackId`; иначе запись в составе `albumMbid`; без альбома — любая копия записи.
+   * Трек в store (в библиотеке он или нет): по `trackId`; иначе запись в составе `albumMbid`; без альбома — любая копия.
    */
   findTrack: (request: Pick<PlayRemoteRequest, 'mbid' | 'albumMbid' | 'trackId'>) => TrackView | undefined;
   albumTracks: (albumId: number) => TrackView[];
   canPlay: (track: TrackView) => boolean;
   play: (track: PlayerTrack, queue: PlayerTrack[]) => void;
-  add: (request: AddRequest, t: TFn) => Promise<boolean>;
+  /** `POST /api/play`: сыграть, не добавляя в библиотеку. */
+  request: (input: PlayInput) => Promise<PlayResponse>;
   subscribeLibrary: (listener: () => void) => () => void;
   /** id текущего трека плеера и подписка на его смену. */
   currentTrackId: () => number | null;
@@ -48,11 +56,16 @@ export const PLAY_TOAST_ID = 'play-remote';
 /** Сколько висит toast ожидания. */
 export const WAITING_TOAST_MS = 8000;
 
+const playInput = (r: PlayRemoteRequest): PlayInput =>
+  r.wholeAlbum && r.albumMbid
+    ? { mbid: r.albumMbid, type: 'album' }
+    : { albumMbid: r.albumMbid, mbid: r.mbid, type: 'track' };
+
 /**
- * «Нажал на трек — он играет», даже если трека нет в библиотеке: трек добавляется, а запуск ждёт, пока библиотека
- * не скажет, что у него есть источник (`found`). Ожидание одно: новый запуск заменяет прежний, повторное нажатие на тот
- * же трек — отменяет; пользователь включил что-то другое в плеере — ожидание снимается (иначе трек внезапно заиграл бы
- * поверх). Источник не найден — toast.
+ * «Нажал на трек — он играет», не добавляя его в библиотеку: сервер сохраняет метаданные и ищет источник
+ * (`POST /api/play`), а запуск ждёт, пока синхронизация не скажет, что источник есть (`found`). Ожидание одно: новый
+ * запуск заменяет прежний, повторное нажатие на то же — отменяет; пользователь включил что-то другое в плеере —
+ * ожидание снимается (иначе трек внезапно заиграл бы поверх). Источник не найден — toast.
  */
 export function createPlayRemote(deps: PlayRemoteDeps) {
   const store = createStore<State>(() => ({ pending: null }));
@@ -83,34 +96,43 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
       request.context === 'album'
         ? deps
             .albumTracks(view.album_id)
-            .filter(v => v.id === view.id || (v.in_library && deps.canPlay(v)))
+            .filter(v => v.id === view.id || deps.canPlay(v))
             .map(toPlayerTrack)
         : [track];
     deps.play(track, queue);
   }
 
+  const lookup = (p: Pending) =>
+    deps.findTrack(p.trackId === null ? p.request : { ...p.request, trackId: p.trackId });
+
   /**
-   * Проверить ожидание: трек появился и готов — играть; источник не найден — сообщить. Источник есть, но играть нельзя
+   * Проверить ожидание: трек готов — играть; поиск закончился без источника — сообщить. Источник есть, но играть нельзя
    * (нет связи, а на устройство трек не скачан) — тоже сообщить, а не крутить спиннер без конца.
    */
   function check() {
     const pending = store.getState().pending;
-    if (!pending) return;
-    const view = deps.findTrack(pending);
+    if (!pending || !tRef) return;
+    const view = lookup(pending);
     if (!view) return;
     if (deps.canPlay(view)) {
       clear();
       toast.dismiss(PLAY_TOAST_ID);
-      start(view, pending);
+      start(view, pending.request);
       return;
     }
-    if (view.status === 'adding' || !tRef) return;
-    clear();
-    if (view.status === 'not_found') {
-      toast.error(tRef('play.noSource', { title: pending.title }), { id: PLAY_TOAST_ID });
-    } else {
-      toast.info(tRef('offline.hint.notDownloaded'), { id: PLAY_TOAST_ID });
+    if (view.status === 'adding') {
+      if (!pending.searched) store.setState({ pending: { ...pending, searched: true } });
+      return;
     }
+    if (view.status === 'not_found') {
+      // Пока синхронизация не принесла `adding`, это прежний итог: поиск заново ещё не начат.
+      if (!pending.searched) return;
+      clear();
+      toast.error(tRef('play.noSource', { title: pending.request.title }), { id: PLAY_TOAST_ID });
+      return;
+    }
+    clear();
+    toast.info(tRef('offline.hint.notDownloaded'), { id: PLAY_TOAST_ID });
   }
 
   function watch() {
@@ -127,40 +149,33 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
   }
 
   /**
-   * Сыграть трек. Уже в библиотеке и доступен — сразу (в цепочке клика: iOS требует жеста для звука). Иначе —
-   * добавить (если ещё не добавлен) и ждать источника; toast «Ищем источник…» с кнопкой «Отмена».
+   * Сыграть трек. Уже на сервере и доступен — сразу (в цепочке клика: iOS требует жеста для звука). Иначе — попросить
+   * сервер найти источник и ждать; toast «Ищем источник…» с кнопкой «Отмена». В библиотеку ничего не добавляется.
    */
   function playRemote(request: PlayRemoteRequest, t: TFn): void {
     tRef = t;
     // Повторное нажатие на то же (трек или «Слушать альбом»), что ждёт источника, — передумал: ожидание снимается.
-    const pending = store.getState().pending;
-    if (pending && pending.mbid === request.mbid && !!pending.addAlbum === !!request.addAlbum) {
+    const current = store.getState().pending?.request;
+    if (current && current.mbid === request.mbid && !!current.wholeAlbum === !!request.wholeAlbum) {
       cancel();
       return;
     }
-    const add: AddRequest =
-      request.addAlbum && request.albumMbid
-        ? {
-            mbid: request.albumMbid,
-            preview: { artistName: request.artistName, cover: request.cover, title: request.title },
-            type: 'album',
-          }
-        : {
-            albumMbid: request.albumMbid,
-            mbid: request.mbid,
-            preview: { artistName: request.artistName, cover: request.cover, title: request.title },
-            type: 'track',
-          };
     const own = deps.findTrack(request);
     if (own && deps.canPlay(own)) {
       cancel();
       start(own, request);
-      // «Слушать альбом», которого нет в библиотеке, а первый трек в ней уже есть: альбом всё равно добавляется.
-      if (add.type === 'album') void deps.add(add, t);
+      // «Слушать альбом»: первый трек уже играет, остальным источник ищется в фоне.
+      if (request.wholeAlbum) void deps.request(playInput(request)).catch(() => undefined);
+      return;
+    }
+    if (own && (own.status === 'found' || own.status === 'ready')) {
+      // Источник есть, но играть нельзя: нет связи, а на устройство трек не скачан.
+      cancel();
+      toast.info(t('offline.hint.notDownloaded'), { id: PLAY_TOAST_ID });
       return;
     }
     stopWatching();
-    store.setState({ pending: request });
+    store.setState({ pending: { request, searched: own?.status === 'adding', trackId: null } });
     watch();
     // Toast не висит всё ожидание (поиск источника может занять минуты): дальше о нём говорит спиннер в строке.
     toast.loading(t('play.waiting', { title: request.title }), {
@@ -168,20 +183,20 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
       duration: WAITING_TOAST_MS,
       id: PLAY_TOAST_ID,
     });
-    if (own && add.type === 'track') {
-      // Уже в библиотеке, но играть нельзя: не найден или нет связи — сообщить сразу; ищется — ждать.
-      check();
-      return;
-    }
-    void deps.add(add, t).then(ok => {
-      // Добавить не удалось (ошибку уже показал toast добавления) — ждать нечего.
-      if (!ok && store.getState().pending === request) {
+    deps.request(playInput(request)).then(
+      res => {
+        const now = store.getState().pending;
+        if (now?.request !== request) return;
+        // У «Слушать альбом» первый в треклисте — тот, что играет.
+        store.setState({ pending: { ...now, trackId: res.track_ids[0] ?? null } });
+        check();
+      },
+      (error: unknown) => {
+        if (store.getState().pending?.request !== request) return;
         clear();
-        toast.dismiss(PLAY_TOAST_ID);
-      }
-      // Добавление ничего не изменило (альбом уже добавлялся) — трек мог уже быть в store.
-      else check();
-    });
+        toast.error(apiErrorMessage(error, t), { id: PLAY_TOAST_ID });
+      },
+    );
   }
 
   return { cancel, check, playRemote, store };
@@ -191,7 +206,6 @@ export type PlayRemote = ReturnType<typeof createPlayRemote>;
 
 function appDeps(): PlayRemoteDeps {
   return {
-    add: (request, t) => addToLibrary(request, t, undefined, { quiet: true }),
     albumTracks: albumId => {
       const { library, selectors } = appData();
       return selectors.albumTracks(library.getState(), albumId);
@@ -201,19 +215,22 @@ function appDeps(): PlayRemoteDeps {
     findTrack: ({ mbid, albumMbid, trackId }) => {
       const { library, selectors } = appData();
       const state = library.getState();
-      const inLibrary = (v: TrackView | undefined) => (v?.in_library ? v : undefined);
-      if (trackId !== undefined) return inLibrary(selectors.trackView(state, trackId));
+      if (trackId !== undefined) return selectors.trackView(state, trackId);
       if (albumMbid) {
         for (const album of state.albums.values()) {
           if (album.mbid !== albumMbid) continue;
-          return selectors.albumTracks(state, album.id).find(v => v.in_library && v.mbid_recording === mbid);
+          return selectors.albumTracks(state, album.id).find(v => v.mbid_recording === mbid);
         }
         return undefined;
       }
+      // Без альбома: копия из библиотеки, иначе любая (её уже просили сыграть).
       const own = selectors.mbidIndex(state).tracks.get(mbid);
-      return own ? selectors.trackView(state, own.id) : undefined;
+      if (own) return selectors.trackView(state, own.id);
+      for (const t of state.tracks.values()) if (t.mbid_recording === mbid) return selectors.trackView(state, t.id);
+      return undefined;
     },
     play: (track, queue) => player().play(track, queue),
+    request: input => requestPlay(input),
     subscribeLibrary: listener => appData().library.subscribe(listener),
     subscribePlayer: listener => player().store.subscribe(listener),
   };
@@ -229,5 +246,5 @@ export function playRemoteApp(): PlayRemote {
 
 /** Этот трек (MBID записи) ждёт источника, чтобы заиграть. */
 export function usePlayPending(mbid: string): boolean {
-  return useStore(playRemoteApp().store, s => s.pending?.mbid === mbid);
+  return useStore(playRemoteApp().store, s => s.pending?.request.mbid === mbid);
 }

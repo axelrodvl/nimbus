@@ -24,3 +24,18 @@ export async function fetchCatalogAlbum(
 ): Promise<CatalogAlbumResponse> {
   return unwrap(await client.GET('/api/catalog/albums/{mbid}', { params: { path: { mbid } }, signal }));
 }
+
+export type PlayInput = { type: 'track' | 'album'; mbid: string; albumMbid?: string | null };
+export type PlayResponse = Schemas['PlayResponse'];
+
+/**
+ * `POST /api/play`: сыграть трек или альбом, не добавляя в библиотеку. Сервер сохраняет метаданные и ищет источник;
+ * ответ — id треков в порядке треклиста, статусы приходят синхронизацией.
+ */
+export async function requestPlay(input: PlayInput, client: Client = defaultClient): Promise<PlayResponse> {
+  const body =
+    input.type === 'track'
+      ? { album_mbid: input.albumMbid ?? null, mbid: input.mbid, type: input.type }
+      : { mbid: input.mbid, type: input.type };
+  return unwrap(await client.POST('/api/play', { body }));
+}
