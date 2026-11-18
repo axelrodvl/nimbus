@@ -256,11 +256,16 @@ pub async fn transcode_response(
             ))
         }
         Err(_) => {
+            tracing::warn!(
+                torrent_id = source.torrent_id,
+                file_index = source.file_index,
+                "transcode produced no data in time, answering 504 no_peers"
+            );
             return Err(err(
                 StatusCode::GATEWAY_TIMEOUT,
                 "no_peers",
                 "no data received in time (no peers?)",
-            ))
+            ));
         }
     };
     if n == 0 {

@@ -546,11 +546,14 @@ async fn open_reader(
 
 pub(crate) fn map_engine_error(e: EngineError) -> ApiError {
     match e {
-        EngineError::MetadataTimeout => err(
-            StatusCode::GATEWAY_TIMEOUT,
-            "no_peers",
-            "no peers: torrent metadata was not received in time",
-        ),
+        EngineError::MetadataTimeout => {
+            tracing::warn!("torrent metadata was not received in time, answering 504 no_peers");
+            err(
+                StatusCode::GATEWAY_TIMEOUT,
+                "no_peers",
+                "no peers: torrent metadata was not received in time",
+            )
+        }
         EngineError::Storage(m) => err(StatusCode::INSUFFICIENT_STORAGE, "storage_error", m),
         other => err(StatusCode::BAD_GATEWAY, "torrent_error", other.to_string()),
     }
@@ -639,6 +642,14 @@ async fn body_from(
             return Err(err(StatusCode::BAD_GATEWAY, "stream_error", e.to_string()));
         }
         Err(_) => {
+            tracing::warn!(
+                track_id,
+                torrent_id = source.torrent_id,
+                file_index = source.file_index,
+                start,
+                timeout_secs = state.first_byte_timeout.as_secs(),
+                "no first byte in time, answering 504 no_peers"
+            );
             failover(state, source).await;
             return Err(err(
                 StatusCode::GATEWAY_TIMEOUT,
@@ -826,11 +837,16 @@ async fn prefetch_head(
         Ok(Ok(n)) => tracing::debug!(bytes = n, "prefetched"),
         Ok(Err(e)) => return Err(err(StatusCode::BAD_GATEWAY, "stream_error", e.to_string())),
         Err(_) => {
+            tracing::warn!(
+                torrent_id = source.torrent_id,
+                file_index = source.file_index,
+                "prefetch timed out"
+            );
             return Err(err(
                 StatusCode::GATEWAY_TIMEOUT,
                 "no_peers",
                 "prefetch timed out",
-            ))
+            ));
         }
     }
     Ok(())
