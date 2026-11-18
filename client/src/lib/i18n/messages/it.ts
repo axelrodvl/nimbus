@@ -363,6 +363,7 @@ const messages: Messages = {
   'play.album': 'Riproduci album',
   'play.cancelled': 'Attesa annullata',
   'play.noSource': 'Nessuna fonte trovata per «{title}»',
+  'play.mbRetry': 'MusicBrainz non risponde: nuovo tentativo…',
   'play.none': 'Ancora nessun brano riproducibile',
   'play.pause': 'Pausa',
   'play.slowHint': 'Può richiedere qualche minuto: il brano partirà da solo',
@@ -630,8 +631,7 @@ const messages: Messages = {
   'sources.title': 'Fonti',
   'sources.trackFallback': 'brano n. {id}',
   'sources.use': 'Usa per questo album',
-  'sources.useConfirmBody':
-    'I brani dell’album trovati in questo torrent verranno riprodotti da esso. Le copie scaricate dal torrent precedente verranno eliminate dal server e da questo dispositivo; i brani fissati verranno scaricati di nuovo.',
+  'sources.useConfirmBody': 'I brani dell’album trovati in questo torrent verranno riprodotti da esso. Le copie scaricate dal torrent precedente verranno eliminate dal server e da questo dispositivo; i brani fissati verranno scaricati di nuovo.',
   'sources.useConfirmTitle': 'Passare l’album a questo torrent?',
   'sources.useDoneImage': 'Brani passati: {count}. L’immagine dell’album è ancora in download: partiranno al termine',
   'sources.useDone': 'Brani passati a questo torrent: {count}',

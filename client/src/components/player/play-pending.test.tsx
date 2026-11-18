@@ -2,6 +2,7 @@ import { act, fireEvent, screen } from '@testing-library/react';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as catalogApi from '@/lib/api/catalog';
+import { ApiError } from '@/lib/api/errors';
 import { appData } from '@/lib/app-data';
 import { en } from '@/lib/i18n/messages/en';
 import type { TFn } from '@/lib/i18n/messages';
@@ -68,6 +69,14 @@ describe('индикатор ожидания источника', () => {
       await vi.advanceTimersByTimeAsync(SLOW_PENDING_MS);
     });
     expect(screen.getByTestId('play-pending-stage')).toHaveTextContent('несколько минут');
+  });
+
+  it('первый запрос не удался — в индикаторе «MusicBrainz не отвечает, пробуем ещё раз»', async () => {
+    vi.mocked(catalogApi.requestPlay).mockRejectedValueOnce(new ApiError(503, 'mb_unavailable', 'down'));
+    renderWithProviders(<PlayPending />);
+    playRemoteApp().playRemote(request, t);
+    await act(async () => undefined);
+    expect(screen.getByTestId('play-pending-stage')).toHaveTextContent('MusicBrainz не отвечает');
   });
 
   it('«Отмена» снимает ожидание и показывает toast отмены', async () => {

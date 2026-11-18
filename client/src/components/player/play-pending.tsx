@@ -24,8 +24,9 @@ export function PlayPending() {
   }, [request, startedAt]);
   const slow = slowFor !== null && slowFor === request;
   if (!pending) return null;
-  const stage =
-    progress?.stage === 'verifying' && progress.total > 0
+  const stage = pending.retrying
+    ? t('play.mbRetry')
+    : progress?.stage === 'verifying' && progress.total > 0
       ? t('status.label.verifying', { done: progress.done, total: progress.total })
       : t('status.label.adding');
   return (

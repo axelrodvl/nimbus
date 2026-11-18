@@ -356,6 +356,7 @@ const messages: Messages = {
   'play.album': '播放专辑',
   'play.cancelled': '已取消等待',
   'play.noSource': '未找到“{title}”的音源',
+  'play.mbRetry': 'MusicBrainz 没有响应 — 正在重试…',
   'play.none': '暂无可播放的曲目',
   'play.pause': '暂停',
   'play.slowHint': '可能需要几分钟 — 曲目会自动开始播放',
@@ -616,8 +617,7 @@ const messages: Messages = {
   'sources.title': '来源',
   'sources.trackFallback': '曲目 #{id}',
   'sources.use': '用于此专辑',
-  'sources.useConfirmBody':
-    '在此种子中找到的专辑曲目将从它播放。从之前种子下载的副本将从服务器和本设备删除；已固定的曲目将重新下载。',
+  'sources.useConfirmBody': '在此种子中找到的专辑曲目将从它播放。从之前种子下载的副本将从服务器和本设备删除；已固定的曲目将重新下载。',
   'sources.useConfirmTitle': '将专辑切换到此种子？',
   'sources.useDoneImage': '已切换曲目：{count}。专辑镜像仍在下载，完成后即可播放',
   'sources.useDone': '已切换到此种子的曲目：{count}',

@@ -273,6 +273,7 @@ describe('экран альбома', () => {
           albumId: 5,
           origin: '/',
           request: { albumMbid: OK_COMPUTER, mbid: 'rec-airbag', title: 'OK Computer', wholeAlbum: true },
+          retrying: false,
           searched: false,
           searching: new Set(),
           seen: false,

@@ -80,7 +80,7 @@ describe('playRemoteApp: связка с библиотекой и плееро�
     post.mockResolvedValue({ album_id: 2, track_ids: [10], tracks: [{ id: 10, status: 'adding' }] });
     playRemoteApp().playRemote({ albumMbid: 'rg', mbid: 'rec-a', title: 'A' }, t);
     await act(async () => undefined);
-    expect(post).toHaveBeenCalledWith({ albumMbid: 'rg', mbid: 'rec-a', type: 'track' });
+    expect(post).toHaveBeenCalledWith({ albumMbid: 'rg', mbid: 'rec-a', type: 'track' }, expect.any(AbortSignal));
     act(() => seed(rows('adding')));
     expect(env.ctl.state.queue).toEqual([]);
     act(() => seed(rows('found')));
@@ -116,7 +116,7 @@ describe('playRemoteApp: связка с библиотекой и плееро�
     playRemoteApp().playRemote({ albumMbid: 'rg', context: 'album', mbid: 'rec-a', title: 'Alb', wholeAlbum: true }, t);
     expect(env.ctl.state.queue.map(q => q.id)).toEqual([10, 11]);
     expect(env.ctl.state.queue[env.ctl.state.index]?.id).toBe(10);
-    expect(post).toHaveBeenCalledWith({ mbid: 'rg', type: 'album' });
+    expect(post).toHaveBeenCalledWith({ mbid: 'rg', type: 'album' }, undefined);
     // Альбома нет в store — играть нечего, ждём ответ сервера.
     seed({ albums: [], artists: [], tracks: [] });
     playRemoteApp().cancel();
@@ -157,6 +157,6 @@ describe('playRemoteApp: связка с библиотекой и плееро�
     // Альбома ещё нет в store — просим сервер и ждём.
     post.mockReturnValue(new Promise(() => undefined));
     playRemoteApp().playRemote({ albumMbid: 'rg-new', mbid: 'rec-a', title: 'A' }, t);
-    expect(post).toHaveBeenCalledWith({ albumMbid: 'rg-new', mbid: 'rec-a', type: 'track' });
+    expect(post).toHaveBeenCalledWith({ albumMbid: 'rg-new', mbid: 'rec-a', type: 'track' }, expect.any(AbortSignal));
   });
 });

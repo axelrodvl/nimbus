@@ -26,7 +26,7 @@ const COVER_SIZE: u16 = 250;
 /// Типы групп в дискографии — как у импорта артиста.
 const DISCOGRAPHY_TYPES: &[&str] = &["album", "ep"];
 /// Дискография — несколько страниц MusicBrainz под лимитом 1 запрос/с: дольше поиска.
-const CATALOG_TIMEOUT: Duration = Duration::from_secs(30);
+pub const CATALOG_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CatalogArtist {
@@ -264,7 +264,7 @@ pub struct PlayTrack {
         (status = 400, description = "Некорректный запрос", body = crate::error::ErrorResponse),
         (status = 404, description = "MBID не найден в MusicBrainz (mb_not_found)", body = crate::error::ErrorResponse),
         (status = 422, description = "Запись не входит в треклист альбома (recording_not_in_release)", body = crate::error::ErrorResponse),
-        (status = 503, description = "MusicBrainz недоступен (mb_unavailable)", body = crate::error::ErrorResponse),
+        (status = 503, description = "MusicBrainz недоступен или не ответил за 30 с (mb_unavailable); ничего не помечено, запрос можно повторить", body = crate::error::ErrorResponse),
     )
 )]
 pub async fn play(
@@ -272,8 +272,18 @@ pub async fn play(
     ApiJson(req): ApiJson<PlayRequest>,
 ) -> Result<Json<PlayResponse>, ApiError> {
     let outcome = match req.kind {
-        PlayKind::Track => state.library.play_track(req.mbid, req.album_mbid).await?,
-        PlayKind::Album => state.library.play_album(req.mbid).await?,
+        PlayKind::Track => {
+            state
+                .library
+                .play_track(req.mbid, req.album_mbid, state.catalog_timeout)
+                .await?
+        }
+        PlayKind::Album => {
+            state
+                .library
+                .play_album(req.mbid, state.catalog_timeout)
+                .await?
+        }
     };
     let tracks = outcome
         .track_ids

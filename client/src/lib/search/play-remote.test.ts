@@ -7,6 +7,7 @@ import { translate } from '@/lib/i18n/translate';
 import type { TFn } from '@/lib/i18n/messages';
 import type { TrackView } from '@/lib/store/selectors';
 import { makeTrack } from '@/test/factories';
+import { retryDelay } from './use-remote-search';
 import { createPlayRemote, PENDING_POLL_MS, PLAY_TOAST_ID, WAITING_TOAST_MS, type PlayRemoteDeps } from './play-remote';
 
 const t = ((key: string, params?: Record<string, string | number>) => translate(en as never, 'en', key, params)) as TFn;
@@ -125,7 +126,7 @@ describe('playRemote', () => {
   it('трека нет: «сыграть» без добавления в библиотеку, toast ожидания; заигрывает, когда стал found', async () => {
     const h = harness();
     h.pr.playRemote(request, t);
-    expect(h.deps.request).toHaveBeenCalledWith({ albumMbid: 'rg-1', mbid: REC, type: 'track' });
+    expect(h.deps.request).toHaveBeenCalledWith({ albumMbid: 'rg-1', mbid: REC, type: 'track' }, expect.any(AbortSignal));
     expect(pending(h)?.request).toEqual(request);
     expect(toast.loading).toHaveBeenCalledWith(
       expect.stringContaining('Song'),
@@ -203,7 +204,7 @@ describe('playRemote', () => {
   it('сервер отказал — ожидание снимается, toast с ошибкой', async () => {
     const h = harness();
     h.pr.playRemote(request, t);
-    await h.fail(new ApiError(503, 'mb_unavailable', 'MusicBrainz is unavailable'));
+    await h.fail(new ApiError(404, 'mb_not_found', 'Not found in MusicBrainz'));
     expect(pending(h)).toBeNull();
     expect(toast.error).toHaveBeenCalledWith(expect.any(String), { id: PLAY_TOAST_ID });
   });
@@ -256,7 +257,7 @@ describe('playRemote', () => {
   it('«Слушать альбом»: запрос по альбому; ждёт первый трек; очередь — доступные треки альбома (в библиотеке или нет)', async () => {
     const h = harness();
     h.pr.playRemote({ ...request, context: 'album', title: 'Album', wholeAlbum: true }, t);
-    expect(h.deps.request).toHaveBeenCalledWith({ mbid: 'rg-1', type: 'album' });
+    expect(h.deps.request).toHaveBeenCalledWith({ mbid: 'rg-1', type: 'album' }, expect.any(AbortSignal));
     await h.respond([11, 12, 13]);
     const first = view();
     const second = view({ id: 12, mbid_recording: 'rec-2', position: 2 });
@@ -491,6 +492,83 @@ describe('playRemote', () => {
       h.pr.playRemote(request, t);
       await h.respond();
       expect(pending(h)?.albumId).toBe(7);
+    });
+  });
+
+  describe('запрос и повторы', () => {
+    const unavailable = () => new ApiError(503, 'mb_unavailable', 'MusicBrainz is unavailable');
+    const signalOf = (h: ReturnType<typeof harness>, n = 0) =>
+      vi.mocked(h.deps.request).mock.calls[n]?.[1] as AbortSignal;
+
+    it('cancel_aborts_request: отмена и замена ожидания обрывают запрос', async () => {
+      const h = harness();
+      h.pr.playRemote(request, t);
+      const first = signalOf(h);
+      expect(first.aborted).toBe(false);
+      h.pr.playRemote({ ...request, mbid: 'rec-2', title: 'Other' }, t);
+      expect(first.aborted).toBe(true);
+      const second = signalOf(h, 1);
+      h.pr.cancel();
+      expect(second.aborted).toBe(true);
+      // Обрыв — не ошибка: без toast.
+      await h.fail(new DOMException('aborted', 'AbortError'));
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    it('retries_once_on_503: один повтор через retryDelay(1), в индикаторе — «пробуем ещё раз»', async () => {
+      vi.useFakeTimers();
+      const h = harness();
+      h.pr.playRemote(request, t);
+      await h.fail(unavailable());
+      expect(pending(h)?.retrying).toBe(true);
+      expect(toast.error).not.toHaveBeenCalled();
+      expect(h.deps.request).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(retryDelay(1));
+      expect(h.deps.request).toHaveBeenCalledTimes(2);
+      await h.respond();
+      expect(pending(h)).toMatchObject({ retrying: false, trackId: 11 });
+    });
+
+    it('сетевая ошибка тоже повторяется один раз', async () => {
+      vi.useFakeTimers();
+      const h = harness();
+      h.pr.playRemote(request, t);
+      await h.fail(new TypeError('Failed to fetch'));
+      await vi.advanceTimersByTimeAsync(retryDelay(1));
+      expect(h.deps.request).toHaveBeenCalledTimes(2);
+    });
+
+    it('second_503_shows_retry_toast: вторая неудача — ошибка с кнопкой «Повторить»', async () => {
+      vi.useFakeTimers();
+      const h = harness();
+      h.pr.playRemote(request, t);
+      await h.fail(unavailable());
+      await vi.advanceTimersByTimeAsync(retryDelay(1));
+      await h.fail(unavailable());
+      expect(pending(h)).toBeNull();
+      const opts = vi.mocked(toast.error).mock.calls[0]?.[1] as unknown as { action: { label: string; onClick: () => void } };
+      expect(opts.action.label).toBe('Retry');
+      opts.action.onClick();
+      expect(h.deps.request).toHaveBeenCalledTimes(3);
+      expect(pending(h)).not.toBeNull();
+    });
+
+    it('отмена во время паузы перед повтором снимает таймер', async () => {
+      vi.useFakeTimers();
+      const h = harness();
+      h.pr.playRemote(request, t);
+      await h.fail(unavailable());
+      h.pr.cancel();
+      await vi.advanceTimersByTimeAsync(retryDelay(1) * 3);
+      expect(h.deps.request).toHaveBeenCalledOnce();
+    });
+
+    it('4xx не повторяется и без кнопки «Повторить»', async () => {
+      const h = harness();
+      h.pr.playRemote(request, t);
+      await h.fail(new ApiError(422, 'recording_not_in_release', 'x'));
+      expect(toast.error).toHaveBeenCalledWith(expect.any(String), { action: undefined, id: PLAY_TOAST_ID });
+      expect(h.deps.request).toHaveBeenCalledOnce();
     });
   });
 

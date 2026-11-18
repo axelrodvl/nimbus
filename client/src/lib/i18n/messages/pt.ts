@@ -362,6 +362,7 @@ const messages: Messages = {
   'play.album': 'Tocar álbum',
   'play.cancelled': 'Espera cancelada',
   'play.noSource': 'Nenhuma fonte encontrada para “{title}”',
+  'play.mbRetry': 'O MusicBrainz não responde — tentando de novo…',
   'play.none': 'Ainda não há faixas para tocar',
   'play.pause': 'Pausar',
   'play.slowHint': 'Pode levar alguns minutos — a faixa começa sozinha',
@@ -629,8 +630,7 @@ const messages: Messages = {
   'sources.title': 'Fontes',
   'sources.trackFallback': 'faixa n.º {id}',
   'sources.use': 'Usar para este álbum',
-  'sources.useConfirmBody':
-    'As faixas do álbum encontradas neste torrent tocarão a partir dele. As cópias baixadas do torrent anterior serão excluídas do servidor e deste dispositivo; as faixas fixadas serão baixadas novamente.',
+  'sources.useConfirmBody': 'As faixas do álbum encontradas neste torrent tocarão a partir dele. As cópias baixadas do torrent anterior serão excluídas do servidor e deste dispositivo; as faixas fixadas serão baixadas novamente.',
   'sources.useConfirmTitle': 'Mudar o álbum para este torrent?',
   'sources.useDoneImage': 'Faixas trocadas: {count}. A imagem do álbum ainda está sendo baixada — tocarão ao terminar',
   'sources.useDone': 'Faixas mudadas para este torrent: {count}',

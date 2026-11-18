@@ -32,10 +32,14 @@ export type PlayResponse = Schemas['PlayResponse'];
  * `POST /api/play`: сыграть трек или альбом, не добавляя в библиотеку. Сервер сохраняет метаданные и ищет источник;
  * ответ — id треков в порядке треклиста, статусы приходят синхронизацией.
  */
-export async function requestPlay(input: PlayInput, client: Client = defaultClient): Promise<PlayResponse> {
+export async function requestPlay(
+  input: PlayInput,
+  signal?: AbortSignal,
+  client: Client = defaultClient,
+): Promise<PlayResponse> {
   const body =
     input.type === 'track'
       ? { album_mbid: input.albumMbid ?? null, mbid: input.mbid, type: input.type }
       : { mbid: input.mbid, type: input.type };
-  return unwrap(await client.POST('/api/play', { body }));
+  return unwrap(await client.POST('/api/play', { body, signal }));
 }

@@ -360,6 +360,7 @@ const messages: Messages = {
   'play.album': '앨범 재생',
   'play.cancelled': '대기를 취소했습니다',
   'play.noSource': '“{title}”의 소스를 찾지 못했습니다',
+  'play.mbRetry': 'MusicBrainz가 응답하지 않습니다 — 다시 시도합니다…',
   'play.none': '재생할 수 있는 곡이 아직 없습니다',
   'play.pause': '일시정지',
   'play.slowHint': '몇 분 걸릴 수 있습니다 — 트랙이 자동으로 재생됩니다',
@@ -623,8 +624,7 @@ const messages: Messages = {
   'sources.title': '소스',
   'sources.trackFallback': '곡 #{id}',
   'sources.use': '이 앨범에 사용',
-  'sources.useConfirmBody':
-    '이 토렌트에서 찾은 앨범 트랙은 여기에서 재생됩니다. 이전 토렌트에서 다운로드한 사본은 서버와 이 기기에서 삭제되며, 고정한 트랙은 다시 다운로드됩니다.',
+  'sources.useConfirmBody': '이 토렌트에서 찾은 앨범 트랙은 여기에서 재생됩니다. 이전 토렌트에서 다운로드한 사본은 서버와 이 기기에서 삭제되며, 고정한 트랙은 다시 다운로드됩니다.',
   'sources.useConfirmTitle': '앨범을 이 토렌트로 전환할까요?',
   'sources.useDoneImage': '전환된 곡: {count}. 앨범 이미지를 아직 다운로드 중이며 완료되면 재생됩니다',
   'sources.useDone': '이 토렌트로 전환된 트랙: {count}',

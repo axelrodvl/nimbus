@@ -5,6 +5,7 @@ import { requestPlay, type PlayInput, type PlayResponse } from '@/lib/api/catalo
 import { apiErrorMessage } from '@/lib/api/error-message';
 import { appData } from '@/lib/app-data';
 import { ApiError } from '@/lib/api/errors';
+import { retryDelay } from '@/lib/search/use-remote-search';
 import { getTrack } from '@/lib/api/tracks';
 import type { TFn } from '@/lib/i18n/messages';
 import { currentTrack } from '@/lib/player/engine';
@@ -45,6 +46,8 @@ export type Pending = {
   stale: TrackView | null;
   /** id альбома на сервере (после ответа): по нему показывается стадия поиска. */
   albumId: number | null;
+  /** Первый запрос не удался (MusicBrainz не ответил): идёт единственный автоповтор. */
+  retrying: boolean;
   /** Когда нажали (для подсказки «дольше обычного»). */
   startedAt: number;
   /** Экран (путь), на котором нажали: заигравшее на другом экране сопровождается toast. */
@@ -70,7 +73,7 @@ export type PlayRemoteDeps = {
   canPlay: (track: TrackView) => boolean;
   play: (track: PlayerTrack, queue: PlayerTrack[]) => void;
   /** `POST /api/play`: сыграть, не добавляя в библиотеку. */
-  request: (input: PlayInput) => Promise<PlayResponse>;
+  request: (input: PlayInput, signal?: AbortSignal) => Promise<PlayResponse>;
   /** Статус трека на сервере напрямую (сторож, когда синхронизация молчит). */
   fetchStatus: (trackId: number) => Promise<TrackView['status']>;
   /** Догнать store до сервера (дельта синхронизации). */
@@ -113,6 +116,16 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
   // Текущий трек плеера в момент постановки ожидания: смена на любой другой — отмена.
   let playerAtStart: number | null = null;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
+  // Запрос `POST /api/play` текущего ожидания и таймер единственного повтора: снимаются вместе с ожиданием.
+  let controller: AbortController | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function abortRequest() {
+    controller?.abort();
+    controller = null;
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = null;
+  }
 
   function stopWatching() {
     unsubscribe?.();
@@ -123,6 +136,7 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
 
   function clear() {
     stopWatching();
+    abortRequest();
     if (store.getState().pending) store.setState({ pending: null });
   }
 
@@ -336,6 +350,7 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
         searching: new Set(),
         seen: !!own,
         stale: null,
+        retrying: false,
         staleViews: new Set(),
         trackId: null,
         trackIds: [],
@@ -348,10 +363,19 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
       duration: WAITING_TOAST_MS,
       id: PLAY_TOAST_ID,
     });
-    deps.request(playInput(request)).then(
+    send(request, t);
+  }
+
+  /** Отправить `POST /api/play`; при `503`/сети — один повтор, потом ошибка с «Повторить». */
+  function send(request: PlayRemoteRequest, t: TFn, retried = false) {
+    abortRequest();
+    const own = new AbortController();
+    controller = own;
+    deps.request(playInput(request), own.signal).then(
       res => {
-        const now = store.getState().pending;
-        if (now?.request !== request) return;
+        const current = store.getState().pending;
+        if (current?.request !== request) return;
+        const now = { ...current, retrying: false };
         if (request.wholeAlbum) {
           const searching = new Set(res.tracks.filter(x => x.status === 'adding').map(x => x.id));
           const staleViews = new Set(
@@ -391,9 +415,22 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
         check();
       },
       (error: unknown) => {
-        if (store.getState().pending?.request !== request) return;
+        const now = store.getState().pending;
+        if (own.signal.aborted || now?.request !== request) return;
+        const transient = !(error instanceof ApiError) || (error.status === 503 && error.code === 'mb_unavailable');
+        if (transient && !retried) {
+          store.setState({ pending: { ...now, retrying: true } });
+          retryTimer = setTimeout(() => {
+            retryTimer = null;
+            if (store.getState().pending?.request === request) send(request, t, true);
+          }, retryDelay(1));
+          return;
+        }
         clear();
-        toast.error(apiErrorMessage(error, t), { id: PLAY_TOAST_ID });
+        toast.error(apiErrorMessage(error, t), {
+          action: transient ? { label: t('common.retry'), onClick: () => playRemote(request, t) } : undefined,
+          id: PLAY_TOAST_ID,
+        });
       },
     );
   }
@@ -438,7 +475,7 @@ function appDeps(): PlayRemoteDeps {
     },
     play: (track, queue) => player().play(track, queue),
     fetchStatus: async id => (await getTrack(id)).status,
-    request: input => requestPlay(input),
+    request: (input, signal) => requestPlay(input, signal),
     requestSync: () => appData().engine.requestSync('play-pending'),
     subscribeLibrary: listener => appData().library.subscribe(listener),
     now: () => Date.now(),

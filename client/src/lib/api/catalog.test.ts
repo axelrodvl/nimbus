@@ -30,13 +30,13 @@ describe('каталог MusicBrainz', () => {
       return json({ album_id: 1, track_ids: [5], tracks: [{ id: 5, status: 'adding' }] });
     });
     const client = createApiClient({ baseUrl: 'http://x', fetch });
-    await expect(requestPlay({ albumMbid: 'rg', mbid: 'rec', type: 'track' }, client)).resolves.toEqual({
+    await expect(requestPlay({ albumMbid: 'rg', mbid: 'rec', type: 'track' }, undefined, client)).resolves.toEqual({
       album_id: 1,
       track_ids: [5],
       tracks: [{ id: 5, status: 'adding' }],
     });
-    await requestPlay({ mbid: 'rg', type: 'album' }, client);
-    await requestPlay({ mbid: 'rec', type: 'track' }, client);
+    await requestPlay({ mbid: 'rg', type: 'album' }, undefined, client);
+    await requestPlay({ mbid: 'rec', type: 'track' }, undefined, client);
     expect(bodies).toEqual([
       ['/api/play', 'POST', { album_mbid: 'rg', mbid: 'rec', type: 'track' }],
       ['/api/play', 'POST', { mbid: 'rg', type: 'album' }],

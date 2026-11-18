@@ -1687,7 +1687,7 @@
             }
           },
           "503": {
-            "description": "MusicBrainz недоступен (mb_unavailable)",
+            "description": "MusicBrainz недоступен или не ответил за 30 с (mb_unavailable); ничего не помечено, запрос можно повторить",
             "content": {
               "application/json": {
                 "schema": {

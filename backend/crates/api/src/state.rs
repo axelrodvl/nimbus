@@ -39,6 +39,8 @@ pub struct AppState {
     pub internal_token: Arc<str>,
     /// Общий таймаут эндпоинта поиска.
     pub search_timeout: Duration,
+    /// Сколько ждать MusicBrainz в `POST /api/play`, прежде чем ответить `503 mb_unavailable`.
+    pub catalog_timeout: Duration,
     /// Связь менеджера загрузок с API: будильник и живая статистика (скорость, пиры) по альбомам.
     pub downloads: crate::download_manager::DownloadHub,
     /// Сколько задач-источников снимков синхронизации сейчас живо (`GET /api/sync/snapshot`).
@@ -95,6 +97,7 @@ impl AppState {
             events,
             mb,
             search_timeout: Duration::from_secs(12),
+            catalog_timeout: crate::catalog::CATALOG_TIMEOUT,
         }
     }
 

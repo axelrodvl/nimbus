@@ -363,6 +363,7 @@ const messages: Messages = {
   'play.album': 'アルバムを再生',
   'play.cancelled': '待機をキャンセルしました',
   'play.noSource': '「{title}」のソースが見つかりませんでした',
+  'play.mbRetry': 'MusicBrainz が応答しません — 再試行しています…',
   'play.none': '再生できる曲がまだありません',
   'play.pause': '一時停止',
   'play.slowHint': '数分かかる場合があります — 見つかり次第自動で再生します',
@@ -627,8 +628,7 @@ const messages: Messages = {
   'sources.title': 'ソース',
   'sources.trackFallback': '曲 #{id}',
   'sources.use': 'このアルバムに使用',
-  'sources.useConfirmBody':
-    'このトレントで見つかったアルバムのトラックはここから再生されます。以前のトレントからダウンロードしたコピーはサーバーとこのデバイスから削除され、ピン留めしたトラックは再ダウンロードされます。',
+  'sources.useConfirmBody': 'このトレントで見つかったアルバムのトラックはここから再生されます。以前のトレントからダウンロードしたコピーはサーバーとこのデバイスから削除され、ピン留めしたトラックは再ダウンロードされます。',
   'sources.useConfirmTitle': 'アルバムをこのトレントに切り替えますか？',
   'sources.useDoneImage': '切り替えた曲：{count}。アルバムイメージをダウンロード中です。完了すると再生できます',
   'sources.useDone': 'このトレントに切り替えたトラック: {count}',

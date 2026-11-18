@@ -380,27 +380,37 @@ impl LibraryService {
         &self,
         recording_mbid: Uuid,
         album_mbid: Option<Uuid>,
+        mb_timeout: Duration,
     ) -> Result<PlayOutcome> {
-        let rg_mbid = match album_mbid {
-            Some(m) => m,
-            None => self
-                .mb
-                .recording(recording_mbid)
-                .await?
-                .release_group_mbid
-                .ok_or(LibraryError::RecordingNotInRelease)?,
-        };
-        let (album, album_tracks) = self.ensure_album(rg_mbid, None).await?;
-        let track = album_tracks
-            .into_iter()
-            .find(|t| t.mbid_recording == recording_mbid)
-            .ok_or(LibraryError::RecordingNotInRelease)?;
+        // Таймаут — только вокруг части с MusicBrainz: `request_play` ниже — короткая транзакция, её не обрываем.
+        let (album, track) = tokio::time::timeout(mb_timeout, async {
+            let rg_mbid = match album_mbid {
+                Some(m) => m,
+                None => self
+                    .mb
+                    .recording(recording_mbid)
+                    .await?
+                    .release_group_mbid
+                    .ok_or(LibraryError::RecordingNotInRelease)?,
+            };
+            let (album, album_tracks) = self.ensure_album(rg_mbid, None).await?;
+            let track = album_tracks
+                .into_iter()
+                .find(|t| t.mbid_recording == recording_mbid)
+                .ok_or(LibraryError::RecordingNotInRelease)?;
+            Ok::<_, LibraryError>((album, track))
+        })
+        .await
+        .map_err(|_| LibraryError::MbUnavailable("timeout".into()))??;
         self.request_play(album.id, vec![track]).await
     }
 
     /// Сыграть альбом, не добавляя его в библиотеку (все треки — `play_requested`).
-    pub async fn play_album(&self, rg_mbid: Uuid) -> Result<PlayOutcome> {
-        let (album, album_tracks) = self.ensure_album(rg_mbid, None).await?;
+    pub async fn play_album(&self, rg_mbid: Uuid, mb_timeout: Duration) -> Result<PlayOutcome> {
+        let (album, album_tracks) =
+            tokio::time::timeout(mb_timeout, self.ensure_album(rg_mbid, None))
+                .await
+                .map_err(|_| LibraryError::MbUnavailable("timeout".into()))??;
         self.request_play(album.id, album_tracks).await
     }
 

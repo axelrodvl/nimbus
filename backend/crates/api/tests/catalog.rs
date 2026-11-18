@@ -264,6 +264,38 @@ async fn play_returns_statuses_after_marking(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn play_times_out_as_mb_unavailable(pool: PgPool) {
+    // MusicBrainz отвечает дольше таймаута: 503, и ничего не помечено к воспроизведению (поиск не поставлен).
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(fixture("release_group"), "application/json")
+                .set_delay(std::time::Duration::from_secs(5)),
+        )
+        .mount(&server)
+        .await;
+    let mut st = state_with_mb(pool.clone(), mb_client(&server));
+    st.catalog_timeout = std::time::Duration::from_millis(300);
+    let started = std::time::Instant::now();
+    for body in [
+        json!({"type": "track", "mbid": PARANOID, "album_mbid": OK_COMPUTER}),
+        json!({"type": "album", "mbid": OK_COMPUTER}),
+    ] {
+        let (status, v) = post_json(router(st.clone()), "/api/play", body).await;
+        assert_eq!(status, 503, "{v}");
+        assert_eq!(v["error"]["code"], "mb_unavailable");
+    }
+    assert!(started.elapsed() < std::time::Duration::from_secs(3));
+    let marked: i64 = sqlx::query_scalar("SELECT count(*) FROM tracks WHERE play_requested")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(marked, 0);
+    assert_eq!(discover_jobs(&pool).await, 0);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn play_album_requests_every_track_in_tracklist_order(pool: PgPool) {
     let server = mb_server().await;
     let app = router(state_with_mb(pool.clone(), mb_client(&server)));
