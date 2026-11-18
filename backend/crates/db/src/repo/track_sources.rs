@@ -1,5 +1,5 @@
 use nimbus_core::model::{NewTrackSource, TrackSource};
-use sqlx::{PgExecutor, PgPool};
+use sqlx::{PgConnection, PgExecutor, PgPool};
 
 pub async fn insert(db: impl PgExecutor<'_>, s: &NewTrackSource) -> sqlx::Result<TrackSource> {
     sqlx::query_as(
@@ -53,21 +53,50 @@ pub async fn set_primary(
     source_id: i64,
 ) -> sqlx::Result<TrackSource> {
     let mut tx = pool.begin().await?;
+    let src = set_primary_in(&mut tx, track_id, source_id).await?;
+    tx.commit().await?;
+    Ok(src)
+}
+
+/// [`set_primary`] внутри транзакции вызывающего: снимает прежний primary, назначает новый и
+/// возвращает закрепление трека в очередь (ему нужен новый файл).
+pub async fn set_primary_in(
+    db: &mut PgConnection,
+    track_id: i64,
+    source_id: i64,
+) -> sqlx::Result<TrackSource> {
     sqlx::query("UPDATE track_sources SET is_primary = FALSE WHERE track_id = $1 AND is_primary")
         .bind(track_id)
-        .execute(&mut *tx)
+        .execute(&mut *db)
         .await?;
     let src = sqlx::query_as(
         "UPDATE track_sources SET is_primary = TRUE WHERE id = $1 AND track_id = $2 RETURNING *",
     )
     .bind(source_id)
     .bind(track_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut *db)
     .await?;
-    // Закреплённому треку нужен новый файл: возвращаем закрепление в очередь (в той же транзакции).
-    super::pins::requeue(&mut *tx, track_id).await?;
-    tx.commit().await?;
+    super::pins::requeue(&mut *db, track_id).await?;
     Ok(src)
+}
+
+/// Лучший источник из раздачи `torrent_id` для каждого трека альбома, у которого он есть
+/// (сначала уверенные, затем по оценке) — ручной выбор раздачи для альбома.
+pub async fn best_in_torrent_for_album(
+    db: impl PgExecutor<'_>,
+    album_id: i64,
+    torrent_id: i64,
+) -> sqlx::Result<Vec<TrackSource>> {
+    sqlx::query_as(
+        "SELECT DISTINCT ON (ts.track_id) ts.* FROM track_sources ts
+           JOIN tracks t ON t.id = ts.track_id
+         WHERE t.album_id = $1 AND ts.torrent_id = $2
+         ORDER BY ts.track_id, ts.needs_confirmation, ts.match_score DESC, ts.id",
+    )
+    .bind(album_id)
+    .bind(torrent_id)
+    .fetch_all(db)
+    .await
 }
 
 /// Треки, у которых primary-источник — файл `(torrent_id, file_index)`, в статусе `status`.

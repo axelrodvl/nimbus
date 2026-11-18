@@ -5,10 +5,13 @@ import {
   retryAlbumRequest,
   retryTrackRequest,
   setTrackSourceRequest,
+  selectTorrentRequest,
   type RetryResult,
   type SourceChoice,
+  type UseTorrentResult,
 } from '@/lib/api/sources';
 import { appData } from '@/lib/app-data';
+import { offline } from '@/lib/offline';
 import { player } from '@/lib/player';
 import { albumTorrentsKey, trackSourcesKey } from './keys';
 
@@ -19,6 +22,7 @@ export type SourceRequests = {
   retryTrack: typeof retryTrackRequest;
   retryAlbum: typeof retryAlbumRequest;
   addMagnet: typeof addMagnetRequest;
+  selectTorrent: typeof selectTorrentRequest;
 };
 
 const defaults: SourceRequests = {
@@ -27,9 +31,17 @@ const defaults: SourceRequests = {
   retryAlbum: retryAlbumRequest,
   retryTrack: retryTrackRequest,
   setSource: setTrackSourceRequest,
+  selectTorrent: selectTorrentRequest,
 };
 
-type Ctx = { queryClient: QueryClient; requests?: SourceRequests };
+type Ctx = {
+  queryClient: QueryClient;
+  requests?: SourceRequests;
+  /** Удалить устаревшие копии треков на устройстве (по умолчанию — офлайн-менеджер, если он запущен). */
+  markStale?: (trackIds: readonly number[]) => unknown;
+};
+
+const defaultMarkStale = (trackIds: readonly number[]) => offline().manager?.markStale(trackIds);
 
 const after = (queryClient: QueryClient, albumId: number, trackId?: number) => {
   void queryClient.invalidateQueries({ queryKey: albumTorrentsKey(albumId) });
@@ -89,5 +101,30 @@ export async function retryAlbumSearch(
 export async function addAlbumMagnet(albumId: number, magnet: string, { queryClient, requests = defaults }: Ctx) {
   const result = await requests.addMagnet(albumId, magnet.trim());
   after(queryClient, albumId);
+  return result;
+}
+
+/**
+ * Выбрать раздачу для всего альбома. Сервер переводит на неё найденные треки и удаляет свою копию прежних файлов;
+ * здесь — удаляются копии этих треков на устройстве (закреплённые скачаются заново), играющий трек перезапускается
+ * с новым источником. Бросает `ApiError`.
+ */
+export async function selectAlbumTorrent(
+  albumId: number,
+  torrentId: number,
+  { queryClient, requests = defaults, markStale = defaultMarkStale }: Ctx,
+): Promise<UseTorrentResult> {
+  const result = await requests.selectTorrent(albumId, torrentId);
+  void queryClient.invalidateQueries({ queryKey: ['track-sources'] });
+  after(queryClient, albumId);
+  for (const id of result.switched_track_ids) player().reloadTrack(id);
+  if (result.switched_track_ids.length > 0) {
+    // Переключение на сервере уже состоялось: сбой локального хранилища его не отменяет — сообщаем и идём дальше.
+    try {
+      await markStale(result.switched_track_ids);
+    } catch (e) {
+      globalThis.reportError?.(e);
+    }
+  }
   return result;
 }

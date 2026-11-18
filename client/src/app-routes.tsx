@@ -4,7 +4,6 @@ import { Home } from '@/screens/home';
 import { AlbumScreen } from '@/screens/library/album';
 import { ArtistScreen } from '@/screens/library/artist';
 import { LibraryScreen } from '@/screens/library/library';
-import { SourcesScreen } from '@/screens/library/sources';
 import { PlaylistScreen } from '@/screens/playlist';
 import { SearchScreen } from '@/screens/search';
 import { SettingsScreen } from '@/screens/settings/settings-screen';
@@ -21,7 +20,11 @@ export const appRoutes: RouteObject[] = [
   { element: <LibraryScreen />, path: '/library/:tab?' },
   { element: <ArtistScreen />, path: '/artist/:id' },
   { element: <AlbumScreen />, path: '/album/:id' },
-  { element: <SourcesScreen />, path: '/album/:id/sources' },
+  // Редкий экран — отдельным чанком (бюджет начального JS); чанк в precache PWA, офлайн открывается так же.
+  {
+    lazy: async () => ({ Component: (await import('@/screens/library/sources')).SourcesScreen }),
+    path: '/album/:id/sources',
+  },
   { element: <PlaylistScreen />, path: '/playlist/:id' },
   { element: <SearchScreen />, path: '/search' },
   { element: <DownloadsScreen />, path: '/downloads/:tab?' },

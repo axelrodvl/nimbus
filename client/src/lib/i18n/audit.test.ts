@@ -39,6 +39,7 @@ const SAME_AS_ENGLISH = new Set(
     'User-Agent',
     'Pause',
     'Sources',
+    'Format',
     'Source',
     'Album',
     'Albums',

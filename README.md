@@ -36,7 +36,7 @@ Two containers: `db` (PostgreSQL) and `nimbus` (backend + web client on one port
   RuTracker), checks their contents and matches files to tracks.
 - Streaming playback directly from the torrent (HTTP Range, seeking); ffmpeg transcoding for CUE images and APE/WV/DSD.
 - Live track statuses over WebSocket: searching → playable → downloaded.
-- Manual source selection, custom magnet links, search retry.
+- Manual source selection: pick a torrent for a whole album (its formats — FLAC, MP3, … — are shown in the list) or a file for a single track; custom magnet links, search retry.
 - Pinning: download an album or track to the server on demand (queue, concurrency limit, pause); pinned files are
   never evicted from the cache, so they count against — and may exceed — the cache limit. Optional auto-download
   of everything added to the library.

@@ -6,11 +6,14 @@ use axum::Json;
 use nimbus_core::events::{Entity, Event};
 use nimbus_core::jobs::{Job, PRIORITY_INTERACTIVE};
 use nimbus_core::model::{
-    InfoHash, MetaStatus, NewTorrent, TorrentKind, TorrentSource, TrackSource, TrackStatus,
+    InfoHash, MetaStatus, NewTorrent, NewTrackSource, TorrentKind, TorrentSource, TrackSource,
+    TrackStatus,
 };
 use nimbus_db::helpers::set_track_status_and_publish;
 use nimbus_db::repo::jobs::EnqueueOpts;
-use nimbus_db::repo::{album_torrents, albums, downloads, jobs, torrents, track_sources, tracks};
+use nimbus_db::repo::{
+    album_torrents, albums, artists, downloads, jobs, torrents, track_sources, tracks,
+};
 use nimbus_library::retry::{self as library_retry, queue_search, RetryOptions};
 use nimbus_torrent::TorrentHandleId;
 use serde::{Deserialize, Serialize};
@@ -60,6 +63,10 @@ pub struct AlbumTorrentDto {
     /// Сколько треков альбома сопоставлено с файлами этой раздачи.
     pub matched_tracks: i64,
     pub files_count: i64,
+    /// Сколько треков альбома сейчас играет из этой раздачи (её выбрали — вручную или автоматически).
+    pub primary_tracks: i64,
+    /// Аудиоформаты внутри (`FLAC`, `MP3`, …) по убыванию доли; без метаданных — угаданные по названию.
+    pub formats: Vec<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -106,9 +113,75 @@ pub struct RetryResponse {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+pub struct UseTorrentResponse {
+    /// Треки, у которых сменился источник (их скачанные копии устарели).
+    pub switched_track_ids: Vec<i64>,
+    /// Сколько треков альбома нашлось в раздаче.
+    pub matched: i64,
+    /// Сколько треков альбома в раздаче не нашлось (у них источник прежний).
+    pub unmatched: i64,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
 pub struct AddMagnetResponse {
     pub torrent: TorrentDto,
     pub queued: bool,
+}
+
+/// Форматы по названию раздачи (метаданных ещё нет): слово названия → формат. Слова, которые бывают и
+/// обычными (`Opus`, `Ape`, `Wav`), засчитываются только в верхнем регистре: «Magnum Opus» — не формат.
+const TITLE_FORMATS: &[(&str, &str, bool)] = &[
+    ("flac", "FLAC", false),
+    ("alac", "ALAC", false),
+    ("mp3", "MP3", false),
+    ("aac", "AAC", false),
+    ("m4a", "M4A", false),
+    ("ape", "APE", true),
+    ("wv", "WV", false),
+    ("wavpack", "WV", false),
+    ("ogg", "OGG", false),
+    ("vorbis", "OGG", false),
+    ("opus", "OPUS", true),
+    ("wav", "WAV", true),
+    ("aiff", "AIFF", false),
+    ("dsd", "DSD", false),
+    ("dsf", "DSD", false),
+    ("dff", "DSD", false),
+];
+
+/// Аудиоформаты раздачи: по расширениям файлов (уже упорядочены по размеру), иначе — по словам
+/// названия. Без повторов.
+fn torrent_formats(exts: &[String], title: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut push = |f: String| {
+        if !out.contains(&f) {
+            out.push(f);
+        }
+    };
+    let audio: Vec<&String> = exts
+        .iter()
+        .filter(|e| nimbus_matcher::filename::AUDIO_EXTENSIONS.contains(&e.as_str()))
+        .collect();
+    if audio.is_empty() {
+        for word in title.split(|c: char| !c.is_alphanumeric()) {
+            let lower = word.to_lowercase();
+            let hit = TITLE_FORMATS.iter().find(|(w, _, upper_only)| {
+                *w == lower && (!upper_only || word.chars().all(|c| !c.is_lowercase()))
+            });
+            if let Some((_, f, _)) = hit {
+                push((*f).to_string());
+            }
+        }
+    } else {
+        for e in audio {
+            let f = match e.as_str() {
+                "dsf" | "dff" => "DSD".to_string(),
+                other => other.to_uppercase(),
+            };
+            push(f);
+        }
+    }
+    out
 }
 
 fn not_found(what: &str) -> ApiError {
@@ -172,6 +245,8 @@ pub async fn album_torrents_list(
                 verified: r.verified,
                 matched_tracks: r.matched_tracks,
                 files_count: r.files_count,
+                primary_tracks: r.primary_tracks,
+                formats: torrent_formats(&r.exts, &r.torrent.title),
             })
             .collect(),
     ))
@@ -281,7 +356,7 @@ pub async fn set_source(
                 }
                 track_sources::insert(
                     &state.db,
-                    &nimbus_core::model::NewTrackSource {
+                    &NewTrackSource {
                         track_id: id,
                         torrent_id,
                         file_index,
@@ -384,6 +459,182 @@ pub async fn confirm_source(
         .ok_or_else(|| not_found("source"))?;
     track_changed(&state, id);
     Ok(Json(source_dto(&state, &s).await?))
+}
+
+// ------------------------------------------------------------------ выбор раздачи альбома
+
+#[utoipa::path(
+    post,
+    path = "/api/albums/{id}/torrents/{torrent_id}/use",
+    tag = "sources",
+    params(
+        ("id" = i64, Path, description = "ID альбома"),
+        ("torrent_id" = i64, Path, description = "ID раздачи альбома"),
+    ),
+    responses(
+        (status = 200, description = "Треки альбома, найденные в раздаче, переведены на неё; скачанные с прежнего источника файлы удалены с сервера", body = UseTorrentResponse),
+        (status = 404, description = "Нет альбома или раздача не привязана к нему", body = ErrorResponse),
+        (status = 409, description = "Метаданные раздачи не получены (`torrent_no_files`) или в ней нет треков альбома (`no_match`)", body = ErrorResponse),
+    )
+)]
+pub async fn use_torrent(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, torrent_id)): Path<(i64, i64)>,
+) -> Result<Json<UseTorrentResponse>, ApiError> {
+    authorize(&state, &headers)?;
+    let album = albums::get(&state.db, id)
+        .await?
+        .ok_or_else(|| not_found("album"))?;
+    if !album_torrents::is_linked(&state.db, id, torrent_id).await? {
+        return Err(not_found("album torrent"));
+    }
+    let torrent = torrents::get(&state.db, torrent_id)
+        .await?
+        .ok_or_else(|| not_found("torrent"))?;
+    let files = if torrent.meta_status == MetaStatus::Ok {
+        torrents::files(&state.db, torrent_id).await?
+    } else {
+        Vec::new()
+    };
+    if files.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "torrent_no_files",
+            "torrent metadata is not received yet",
+        ));
+    }
+    let artist = artists::get(&state.db, album.artist_id)
+        .await?
+        .ok_or_else(ApiError::internal)?;
+    // В отличие от автоматической проверки — со всеми треками, включая скачанные: их и переводим.
+    let album_tracks = tracks::list_by_album(&state.db, id).await?;
+    let outcome = nimbus_worker::verify::match_files(
+        &files,
+        &artist.name,
+        &album,
+        &album_tracks,
+        &state.settings.get().matching,
+    );
+    let new_sources: Vec<NewTrackSource> = outcome
+        .matches
+        .iter()
+        .map(|m| NewTrackSource {
+            track_id: m.track_id,
+            torrent_id,
+            file_index: m.file_index as i32,
+            match_score: m.score,
+            needs_confirmation: m.needs_confirmation,
+            cue_start_ms: None,
+            cue_end_ms: None,
+        })
+        .collect();
+
+    // Источники и primary — одна транзакция под блокировкой альбома (как у проверки раздачи).
+    let mut tx = state.db.begin().await?;
+    sqlx::query("SELECT id FROM albums WHERE id = $1 FOR UPDATE")
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    track_sources::insert_many(&mut *tx, &new_sources).await?;
+    // Учитываются и источники из этой раздачи, найденные раньше (в том числе CUE-образы).
+    let best = track_sources::best_in_torrent_for_album(&mut *tx, id, torrent_id).await?;
+    if best.is_empty() {
+        tx.rollback().await?;
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "no_match",
+            "no files of this torrent match the album tracks",
+        ));
+    }
+    // Под блокировкой альбома: новый primary и статус трека меняются вместе (трек не бывает `ready`
+    // на нескачанном файле), закрепления возвращаются в очередь.
+    let mut switched: Vec<(TrackSource, Option<TrackSource>)> = Vec::new();
+    let mut changed: Vec<nimbus_core::model::Track> = Vec::new();
+    for src in &best {
+        let old = track_sources::primary_for_track(&mut *tx, src.track_id).await?;
+        if old.as_ref().is_some_and(|o| o.id == src.id) {
+            continue;
+        }
+        let new = track_sources::set_primary_in(&mut tx, src.track_id, src.id).await?;
+        let complete = downloads::get(&mut *tx, new.torrent_id, new.file_index)
+            .await?
+            .is_some_and(|d| d.completed_at.is_some());
+        let target = if complete {
+            TrackStatus::Ready
+        } else {
+            TrackStatus::Found
+        };
+        let current = tracks::get(&mut *tx, new.track_id).await?.map(|t| t.status);
+        if current != Some(target) {
+            changed.push(tracks::set_status(&mut *tx, new.track_id, target, None).await?);
+        }
+        switched.push((new, old));
+    }
+    album_torrents::mark_verified(&mut *tx, id, torrent_id).await?;
+    tx.commit().await?;
+
+    for t in &changed {
+        state.events.publish(Event::TrackStatus {
+            track_id: t.id,
+            album_id: t.album_id,
+            status: t.status,
+            reason: t.status_reason.clone(),
+        });
+    }
+    for (new, _) in &switched {
+        track_changed(&state, new.track_id);
+    }
+    if !switched.is_empty() {
+        state.events.publish_acquisition_changed(id);
+        state.downloads.wake();
+    }
+
+    // Прежние файлы больше никому не нужны — удаляем серверную копию (скачанную или частичную).
+    // Переключение уже сохранено, поэтому сбой удаления не проваливает запрос: файл без
+    // пользователей позже вытеснит кэш. Файл, который сейчас стримится, тоже оставляем кэшу.
+    let mut old_files: Vec<(i64, i32)> = switched
+        .iter()
+        .filter_map(|(_, old)| old.as_ref().map(|o| (o.torrent_id, o.file_index)))
+        .collect();
+    old_files.sort_unstable();
+    old_files.dedup();
+    for (old_torrent, old_file) in old_files {
+        if let Err(e) = delete_unused_file(&state, old_torrent, old_file).await {
+            tracing::warn!(
+                album_id = id,
+                torrent_id = old_torrent,
+                file_index = old_file,
+                error = %e,
+                "old file of a switched album was not deleted; cache eviction will remove it"
+            );
+        }
+    }
+    tracing::info!(
+        album_id = id,
+        torrent_id,
+        switched = switched.len(),
+        "album switched to a torrent manually"
+    );
+    let matched = best.len() as i64;
+    Ok(Json(UseTorrentResponse {
+        switched_track_ids: switched.iter().map(|(n, _)| n.track_id).collect(),
+        matched,
+        unmatched: album_tracks.len() as i64 - matched,
+    }))
+}
+
+/// Удаляет файл, если он больше ничей не primary и сейчас не стримится.
+async fn delete_unused_file(
+    state: &AppState,
+    torrent_id: i64,
+    file_index: i32,
+) -> Result<(), sqlx::Error> {
+    let users = track_sources::track_ids_with_primary(&state.db, torrent_id, file_index).await?;
+    if users.is_empty() && !state.activity.is_protected(torrent_id, file_index) {
+        crate::download_manager::delete_file(state, torrent_id, file_index).await?;
+    }
+    Ok(())
 }
 
 // ------------------------------------------------------------------ retry
@@ -567,7 +818,37 @@ pub async fn add_magnet(
 
 #[cfg(test)]
 mod tests {
-    use super::magnet_display_name;
+    use super::{magnet_display_name, torrent_formats};
+
+    #[test]
+    fn formats_from_files_then_title() {
+        let exts = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // По файлам: только аудио, порядок — как пришёл (по размеру), DSD-варианты сливаются.
+        assert_eq!(
+            torrent_formats(&exts(&["flac", "jpg", "mp3", "cue"]), "x MP3"),
+            vec!["FLAC", "MP3"]
+        );
+        assert_eq!(torrent_formats(&exts(&["dsf", "dff"]), ""), vec!["DSD"]);
+        // Без аудиофайлов — по словам названия.
+        assert_eq!(
+            torrent_formats(
+                &[],
+                "(Rock) Artist - Discography (1990-2020) [FLAC|MP3, 320]"
+            ),
+            vec!["FLAC", "MP3"]
+        );
+        assert_eq!(
+            torrent_formats(&exts(&["log"]), "Album (WavPack)"),
+            vec!["WV"]
+        );
+        // Слово внутри другого слова — не формат; обычные слова — только в верхнем регистре.
+        assert!(torrent_formats(&[], "Flacon - Apex").is_empty());
+        assert!(torrent_formats(&[], "Beethoven - Opus 111 (Ape, Wav)").is_empty());
+        assert_eq!(
+            torrent_formats(&[], "Artist - Album [APE+CUE] / OPUS / wv"),
+            vec!["APE", "OPUS", "WV"]
+        );
+    }
 
     #[test]
     fn dn_decoding() {

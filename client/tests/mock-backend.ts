@@ -55,6 +55,8 @@ const state = {
   failPlaylists: null as number | null,
   playlistDelayMs: 0,
   extraTorrents: new Map<number, MockTorrent[]>(),
+  /** Раздача, выбранная для альбома вручную (`POST …/torrents/{id}/use`). */
+  usedTorrent: new Map<number, number>(),
   trackSources: new Map<number, MockSource[]>(),
   faults: { ...NO_SEARCH_FAULTS },
   failDelete: false,
@@ -127,6 +129,7 @@ function reset(opts: { authRequired?: boolean; snapshotDelayMs?: number }) {
   state.failPlaylists = null;
   state.playlistDelayMs = 0;
   state.extraTorrents.clear();
+  state.usedTorrent.clear();
   state.trackSources.clear();
   state.log = [];
   state.server = new FakeSyncServer().load(makeSmallLibrary());
@@ -529,14 +532,32 @@ const MAGNET = /^magnet:\?(?:.*&)?xt=urn:btih:([0-9a-f]{40}|[a-z2-7]{32})(?:&|$)
 async function sourcesRoute(req: Request, parts: string[]): Promise<Response | null> {
   const [, kind, rawId, sub, rawSource, action] = parts;
   const id = Number(rawId);
+  if (kind === 'albums' && sub === 'torrents' && rawSource !== undefined && action === 'use' && req.method === 'POST') {
+    if (!state.server.get('album', id)) return err(404, 'not_found', 'album not found');
+    const tor = albumTorrents(id).find(t => t.id === Number(rawSource));
+    if (!tor) return err(404, 'not_found', 'album torrent not found');
+    if (tor.meta_status !== 'ok') return err(409, 'torrent_no_files', 'torrent metadata is not received yet');
+    const before = state.usedTorrent.get(id) ?? albumTorrents(id)[0]!.id;
+    state.usedTorrent.set(id, tor.id);
+    const tracks = state.server.all('track').filter(t => t.album_id === id);
+    const switched = before === tor.id ? [] : tracks.map(t => Number(t.id));
+    for (const t of tracks) {
+      if (switched.includes(Number(t.id)) && t.status === 'ready') state.server.upsert('track', { ...t, status: 'found' });
+    }
+    poke();
+    return json(200, { matched: tracks.length, switched_track_ids: switched, unmatched: 0 });
+  }
   if (kind === 'albums' && sub === 'torrents') {
     if (!state.server.get('album', id)) return err(404, 'not_found', 'album not found');
     if (req.method === 'GET') {
+      const used = state.usedTorrent.get(id) ?? albumTorrents(id)[0]!.id;
       return json(
         200,
         albumTorrents(id).map((t, i) => ({
           files_count: 12,
+          formats: /mp3/i.test(t.title) ? ['MP3'] : /flac/i.test(t.title) ? ['FLAC'] : [],
           matched_tracks: 10 - i,
+          primary_tracks: t.id === used ? 10 : 0,
           rank_score: 0.9 - i / 10,
           torrent: t,
           verified: i === 0,

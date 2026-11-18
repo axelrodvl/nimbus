@@ -872,7 +872,7 @@ pub async fn release_files(
 }
 
 /// Удаляет файл из движка и с диска, строку `downloads`; `ready`-треки файла становятся `found`.
-async fn delete_file(
+pub(crate) async fn delete_file(
     state: &AppState,
     torrent_id: i64,
     file_index: i32,

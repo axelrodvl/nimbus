@@ -13,7 +13,7 @@ use nimbus_db::repo::{
     acquisition, album_torrents, albums, artists, cue_candidates, jobs, pins, torrents,
     track_sources, tracks,
 };
-use nimbus_matcher::{match_album, AlbumInput, FileInput, MatchConfig, TrackInput};
+use nimbus_matcher::{match_album, AlbumInput, FileInput, MatchConfig, MatchOutcome, TrackInput};
 use nimbus_torrent::{parse_torrent_file, EngineError, TorrentMeta};
 
 use crate::runner::{JobCtx, JobError, JobHandler};
@@ -241,6 +241,56 @@ async fn load_files(ctx: &JobCtx, torrent: &Torrent) -> Result<FileList, JobErro
     }
 }
 
+/// Сопоставляет файлы раздачи с треками альбома (matcher с порогами из настроек). Общая часть
+/// проверки раздачи и ручного выбора раздачи для альбома (`POST /api/albums/{id}/torrents/{torrent_id}/use`).
+pub fn match_files(
+    files: &[nimbus_core::model::TorrentFile],
+    artist: &str,
+    album: &nimbus_core::model::Album,
+    album_tracks: &[nimbus_core::model::Track],
+    matching: &nimbus_core::settings::MatchingSettings,
+) -> MatchOutcome {
+    let inputs: Vec<TrackInput> = album_tracks
+        .iter()
+        .map(|t| TrackInput {
+            id: t.id,
+            title: t.title.clone(),
+            disc_no: t.disc_no,
+            position: t.position,
+            duration_ms: t.duration_ms,
+        })
+        .collect();
+    let file_inputs: Vec<FileInput> = files
+        .iter()
+        .map(|f| FileInput {
+            index: f.file_index as usize,
+            path: f.path.clone(),
+            size: f.size_bytes.max(0) as u64,
+        })
+        .collect();
+    let total_discs = album_tracks
+        .iter()
+        .map(|t| t.disc_no)
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    match_album(
+        &file_inputs,
+        &AlbumInput {
+            artist,
+            title: &album.title,
+            year: album.year,
+            total_discs,
+            tracks: &inputs,
+        },
+        &MatchConfig {
+            accept: matching.accept as f32,
+            confirm: matching.confirm as f32,
+            ..MatchConfig::default()
+        },
+    )
+}
+
 pub async fn verify_torrent(ctx: &JobCtx, torrent_id: i64, album_id: i64) -> Result<(), JobError> {
     let torrent = torrents::get(&ctx.db, torrent_id)
         .await?
@@ -262,47 +312,12 @@ pub async fn verify_torrent(ctx: &JobCtx, torrent_id: i64, album_id: i64) -> Res
         .filter(|t| t.status != TrackStatus::Ready)
         .collect();
     if !files.is_empty() && !album_tracks.is_empty() {
-        let inputs: Vec<TrackInput> = album_tracks
-            .iter()
-            .map(|t| TrackInput {
-                id: t.id,
-                title: t.title.clone(),
-                disc_no: t.disc_no,
-                position: t.position,
-                duration_ms: t.duration_ms,
-            })
-            .collect();
-        let file_inputs: Vec<FileInput> = files
-            .iter()
-            .map(|f| FileInput {
-                index: f.file_index as usize,
-                path: f.path.clone(),
-                size: f.size_bytes.max(0) as u64,
-            })
-            .collect();
-        let total_discs = album_tracks
-            .iter()
-            .map(|t| t.disc_no)
-            .max()
-            .unwrap_or(1)
-            .max(1);
-        let outcome = match_album(
-            &file_inputs,
-            &AlbumInput {
-                artist: &artist.name,
-                title: &album.title,
-                year: album.year,
-                total_discs,
-                tracks: &inputs,
-            },
-            &{
-                let m = &ctx.settings.get().matching;
-                MatchConfig {
-                    accept: m.accept as f32,
-                    confirm: m.confirm as f32,
-                    ..MatchConfig::default()
-                }
-            },
+        let outcome = match_files(
+            &files,
+            &artist.name,
+            &album,
+            &album_tracks,
+            &ctx.settings.get().matching,
         );
 
         // Все записи — пакетом и в одной транзакции под блокировкой альбома: параллельные verify

@@ -67,7 +67,7 @@ export function SourcesScreen() {
           </Button>
         </ErrorState>
       ) : null}
-      {query.data ? <TorrentList torrents={query.data} trackTitles={titles} /> : null}
+      {query.data ? <TorrentList albumId={id} torrents={query.data} trackTitles={titles} /> : null}
     </PageLayout>
   );
 }

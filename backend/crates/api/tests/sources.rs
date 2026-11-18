@@ -433,3 +433,232 @@ async fn invalid_magnet_is_400(pool: PgPool) {
     }
     assert_eq!(jobs::list(&pool, None, 10).await.unwrap().len(), 0);
 }
+
+/// Вторая раздача альбома (MP3), с которой треки уже скачаны: primary — она, файлы лежат на диске.
+async fn mp3_torrent_in_use(pool: &PgPool, w: &World, dir: &std::path::Path) -> i64 {
+    let torrent = torrents::upsert_by_info_hash(
+        pool,
+        &NewTorrent {
+            info_hash: InfoHash::parse("d12fe1c06bba254a9dc9f519b335aa7c1367a88a").unwrap(),
+            magnet: "magnet:?xt=urn:btih:d12fe1c06bba254a9dc9f519b335aa7c1367a88a".into(),
+            source: TorrentSource::Tpb,
+            source_topic_id: None,
+            title: "A - B (2001) MP3 320".into(),
+            size_bytes: Some(100),
+            seeders: Some(1),
+            leechers: Some(0),
+            kind: TorrentKind::Album,
+        },
+    )
+    .await
+    .unwrap();
+    torrents::set_meta_status(pool, torrent.id, MetaStatus::Ok, None)
+        .await
+        .unwrap();
+    let files: Vec<NewTorrentFile> = (0..2)
+        .map(|i| NewTorrentFile {
+            file_index: i,
+            path: format!("A - B/0{}. Song {}.mp3", i + 1, i + 1),
+            size_bytes: 50,
+            ext: Some("mp3".into()),
+        })
+        .collect();
+    torrents::replace_files(pool, torrent.id, &files)
+        .await
+        .unwrap();
+    album_torrents::link(pool, w.album_id, torrent.id, "q", 0.9)
+        .await
+        .unwrap();
+    for (i, track) in [w.track_id, w.other_track_id].into_iter().enumerate() {
+        let s = track_sources::insert(
+            pool,
+            &NewTrackSource {
+                track_id: track,
+                torrent_id: torrent.id,
+                file_index: i as i32,
+                match_score: 0.9,
+                needs_confirmation: false,
+                cue_start_ms: None,
+                cue_end_ms: None,
+            },
+        )
+        .await
+        .unwrap();
+        track_sources::set_primary(pool, track, s.id).await.unwrap();
+        let path = dir.join(format!("{i}.mp3"));
+        std::fs::write(&path, b"mp3").unwrap();
+        downloads::upsert(
+            pool,
+            &nimbus_core::model::NewDownload {
+                torrent_id: torrent.id,
+                file_index: i as i32,
+                local_path: path.to_string_lossy().into_owned(),
+                bytes_total: 3,
+                bytes_done: 3,
+            },
+        )
+        .await
+        .unwrap();
+        downloads::mark_completed(pool, torrent.id, i as i32)
+            .await
+            .unwrap();
+    }
+    torrent.id
+}
+
+/// Файлы FLAC-раздачи из `world` с названиями треков (как в настоящей раздаче).
+async fn flac_files_named(pool: &PgPool, w: &World) {
+    let files: Vec<NewTorrentFile> = (0..2)
+        .map(|i| NewTorrentFile {
+            file_index: i,
+            path: format!("A - B [FLAC]/0{}. Song {}.flac", i + 1, i + 1),
+            size_bytes: 500,
+            ext: Some("flac".into()),
+        })
+        .collect();
+    torrents::replace_files(pool, w.torrent_id, &files)
+        .await
+        .unwrap();
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn use_torrent_switches_album_and_deletes_old_server_copy(pool: PgPool) {
+    let w = world(&pool, TrackStatus::Ready).await;
+    flac_files_named(&pool, &w).await;
+    let dir = tempfile::tempdir().unwrap();
+    let mp3 = mp3_torrent_in_use(&pool, &w, dir.path()).await;
+    nimbus_db::repo::pins::pin_tracks(&pool, &[w.track_id], false)
+        .await
+        .unwrap();
+    nimbus_db::repo::pins::set_state(&pool, w.track_id, nimbus_core::model::PinState::Done, None)
+        .await
+        .unwrap();
+    let (app, _) = app(pool.clone());
+
+    let uri = format!("/api/albums/{}/torrents/{}/use", w.album_id, w.torrent_id);
+    let (code, body) = post_json(app.clone(), &uri, json!({})).await;
+    assert_eq!(code, 200, "{body}");
+    let mut switched: Vec<i64> = body["switched_track_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_i64().unwrap())
+        .collect();
+    switched.sort_unstable();
+    assert_eq!(switched, vec![w.track_id, w.other_track_id]);
+    assert_eq!(body["matched"], 2);
+    assert_eq!(body["unmatched"], 0);
+
+    for track in [w.track_id, w.other_track_id] {
+        let p = track_sources::primary_for_track(&pool, track)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(p.torrent_id, w.torrent_id);
+        // Новый файл не скачан — трек снова `found`.
+        assert_eq!(status_of(&pool, track).await, TrackStatus::Found);
+    }
+    // Серверная копия MP3 удалена: и файлы, и учёт.
+    for i in 0..2 {
+        assert!(!dir.path().join(format!("{i}.mp3")).exists());
+        assert!(downloads::get(&pool, mp3, i).await.unwrap().is_none());
+    }
+    // Закреплённый трек снова в очереди: серверу нужно скачать новый файл.
+    let pin = nimbus_db::repo::pins::get(&pool, w.track_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(pin.state, nimbus_core::model::PinState::Queued);
+
+    // Список раздач: какая используется и какие внутри форматы.
+    let (_, list) = get_json(app.clone(), &format!("/api/albums/{}/torrents", w.album_id)).await;
+    let by_id = |id: i64| {
+        list.as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["torrent"]["id"] == id)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(by_id(w.torrent_id)["primary_tracks"], 2);
+    assert_eq!(by_id(w.torrent_id)["formats"], json!(["FLAC"]));
+    assert_eq!(by_id(mp3)["primary_tracks"], 0);
+    assert_eq!(by_id(mp3)["formats"], json!(["MP3"]));
+
+    // Повтор ничего не меняет.
+    let (code, body) = post_json(app, &uri, json!({})).await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(body["switched_track_ids"], json!([]));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn use_torrent_keeps_file_still_needed_by_another_track(pool: PgPool) {
+    let w = world(&pool, TrackStatus::Ready).await;
+    flac_files_named(&pool, &w).await;
+    let dir = tempfile::tempdir().unwrap();
+    let mp3 = mp3_torrent_in_use(&pool, &w, dir.path()).await;
+    // Во FLAC-раздаче только первый трек: второй остаётся на MP3, его файл не трогаем.
+    torrents::replace_files(
+        &pool,
+        w.torrent_id,
+        &[NewTorrentFile {
+            file_index: 0,
+            path: "A - B [FLAC]/01. Song 1.flac".into(),
+            size_bytes: 500,
+            ext: Some("flac".into()),
+        }],
+    )
+    .await
+    .unwrap();
+    let (app, _) = app(pool.clone());
+
+    let uri = format!("/api/albums/{}/torrents/{}/use", w.album_id, w.torrent_id);
+    let (code, body) = post_json(app, &uri, json!({})).await;
+    assert_eq!(code, 200, "{body}");
+    assert_eq!(body["switched_track_ids"], json!([w.track_id]));
+    assert_eq!(body["unmatched"], 1);
+    assert!(!dir.path().join("0.mp3").exists());
+    assert!(dir.path().join("1.mp3").exists());
+    assert!(downloads::get(&pool, mp3, 1).await.unwrap().is_some());
+    assert_eq!(status_of(&pool, w.other_track_id).await, TrackStatus::Ready);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn use_torrent_errors(pool: PgPool) {
+    let w = world(&pool, TrackStatus::Found).await;
+    let (app, _) = app(pool.clone());
+    let uri = |album: i64, torrent: i64| format!("/api/albums/{album}/torrents/{torrent}/use");
+
+    let (c, _) = post_json(app.clone(), &uri(999_999, w.torrent_id), json!({})).await;
+    assert_eq!(c, 404);
+    let (c, _) = post_json(app.clone(), &uri(w.album_id, 999_999), json!({})).await;
+    assert_eq!(c, 404);
+
+    // Только аудио, которое не похоже на треки альбома → no_match, ничего не меняется.
+    torrents::replace_files(
+        &pool,
+        w.torrent_id,
+        &[NewTorrentFile {
+            file_index: 0,
+            path: "cover.jpg".into(),
+            size_bytes: 5,
+            ext: Some("jpg".into()),
+        }],
+    )
+    .await
+    .unwrap();
+    let (c, body) = post_json(app.clone(), &uri(w.album_id, w.torrent_id), json!({})).await;
+    assert_eq!(c, 409, "{body}");
+    assert_eq!(body["error"]["code"], "no_match");
+
+    // Метаданные ещё не получены (файлов нет).
+    torrents::replace_files(&pool, w.torrent_id, &[])
+        .await
+        .unwrap();
+    torrents::set_meta_status(&pool, w.torrent_id, MetaStatus::Fetching, None)
+        .await
+        .unwrap();
+    let (c, body) = post_json(app, &uri(w.album_id, w.torrent_id), json!({})).await;
+    assert_eq!(c, 409);
+    assert_eq!(body["error"]["code"], "torrent_no_files");
+}

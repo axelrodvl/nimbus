@@ -2382,6 +2382,7 @@ dependencies = [
  "nimbus-core",
  "nimbus-db",
  "nimbus-library",
+ "nimbus-matcher",
  "nimbus-musicbrainz",
  "nimbus-testkit",
  "nimbus-torrent",

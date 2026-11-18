@@ -35,6 +35,25 @@ test('раздача раскрывается и показывает файлы
   await expect(page.getByTestId('torrent-file')).toHaveCount(3);
 });
 
+test('выбор раздачи для альбома: форматы, подтверждение, пометка «Используется» переезжает', async ({ page }) => {
+  await page.goto('/album/913/sources');
+  const items = page.getByTestId('torrent-item');
+  await expect(items).toHaveCount(2);
+  await expect(items.nth(0).getByTestId('torrent-formats')).toHaveText('FLAC');
+  await expect(items.nth(1).getByTestId('torrent-formats')).toHaveText('MP3');
+  await expect(items.nth(0).getByTestId('torrent-in-use')).toBeVisible();
+  await expect(items.nth(1).getByTestId('torrent-in-use')).toHaveCount(0);
+
+  await items.nth(1).locator('button[aria-expanded]').click();
+  await items.nth(1).getByTestId('use-torrent').click();
+  const dialog = page.getByRole('dialog', { name: 'Перевести альбом на эту раздачу?' });
+  await dialog.getByRole('button', { name: 'Использовать для альбома' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText(/Треков переведено на раздачу/).first()).toBeVisible();
+  await expect(items.nth(1).getByTestId('torrent-in-use')).toBeVisible();
+  await expect(items.nth(0).getByTestId('torrent-in-use')).toHaveCount(0);
+});
+
 test('«Повторить поиск» на странице источников: ненайденные треки переходят в adding', async ({ page }) => {
   await page.goto('/album/913');
   await waitSynced(page);

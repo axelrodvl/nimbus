@@ -1,24 +1,35 @@
+import * as Ariakit from '@ariakit/react';
+import { useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
+import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Spinner } from '@/components/ui/spinner';
+import { apiErrorMessage } from '@/lib/api/error-message';
 import type { AlbumTorrent } from '@/lib/api/sources';
 import { useT } from '@/lib/i18n/provider';
+import { selectAlbumTorrent } from '@/lib/sources/actions';
 import { formatSize, kindLabel, metaLabel, sourceLabel } from '@/lib/sources/format';
 import { useTorrentFiles } from '@/lib/sources/hooks';
 import { cn } from '@/lib/utils';
 
 /** Колонки на широком экране; на узком каждая раздача — карточка из двух строк. */
-const GRID = 'md:grid md:grid-cols-[1.25rem_5rem_minmax(0,1fr)_5rem_5rem_4.5rem_9rem_5rem] md:items-center md:gap-3';
+const GRID =
+  'md:grid md:grid-cols-[1.25rem_5rem_minmax(0,1fr)_5rem_5rem_5rem_4.5rem_9rem_5rem] md:items-center md:gap-3';
 
 /**
- * Раздачи альбома: таблица (название, источник, тип, размер, сиды/личи, статус метаданных, совпало треков и оценка);
- * на мобильной ширине — карточки. Строка раскрывается и показывает файлы с сопоставленными треками.
+ * Раздачи альбома: таблица (название, источник, формат, тип, размер, сиды/личи, статус метаданных, совпало треков и
+ * оценка); на мобильной ширине — карточки. Раздача, из которой играют треки альбома, помечена «Используется». Строка
+ * раскрывается: файлы с сопоставленными треками и кнопка «Использовать для альбома».
  */
 export function TorrentList({
+  albumId,
   torrents,
   trackTitles,
 }: {
+  albumId: number;
   torrents: AlbumTorrent[];
   /** Названия треков альбома по id (для пометок у файлов). */
   trackTitles: ReadonlyMap<number, string>;
@@ -37,6 +48,7 @@ export function TorrentList({
         <span />
         <span>{t('sources.sourceTitle')}</span>
         <span>{t('sources.colTitle')}</span>
+        <span>{t('sources.colFormat')}</span>
         <span>{t('sources.colKind')}</span>
         <span>{t('sources.colSize')}</span>
         <span>{t('sources.seedsLeeches')}</span>
@@ -45,21 +57,37 @@ export function TorrentList({
       </div>
       <ul className="flex flex-col gap-2" data-testid="torrent-list">
         {torrents.map(item => (
-          <TorrentItem item={item} key={item.torrent.id} trackTitles={trackTitles} />
+          <TorrentItem albumId={albumId} item={item} key={item.torrent.id} trackTitles={trackTitles} />
         ))}
       </ul>
     </div>
   );
 }
 
-function TorrentItem({ item, trackTitles }: { item: AlbumTorrent; trackTitles: ReadonlyMap<number, string> }) {
+function TorrentItem({
+  albumId,
+  item,
+  trackTitles,
+}: {
+  albumId: number;
+  item: AlbumTorrent;
+  trackTitles: ReadonlyMap<number, string>;
+}) {
   const t = useT();
   const { torrent: tor } = item;
+  const inUse = item.primary_tracks > 0;
   const [open, setOpen] = useState(false);
   const files = useTorrentFiles(tor.id, open);
   const Chevron = open ? ChevronDown : ChevronRight;
   return (
-    <li className="border-divider dark:border-divider-dark rounded-lg border" data-testid="torrent-item">
+    <li
+      className={cn(
+        'rounded-lg border',
+        inUse ? 'border-accent/60' : 'border-divider dark:border-divider-dark',
+      )}
+      data-in-use={inUse}
+      data-testid="torrent-item"
+    >
       <button
         aria-expanded={open}
         className={cn(
@@ -76,7 +104,21 @@ function TorrentItem({ item, trackTitles }: { item: AlbumTorrent; trackTitles: R
         >
           {sourceLabel(tor.source, t)}
         </span>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium md:flex-none">{tor.title}</span>
+        <span className="flex min-w-0 flex-1 items-center gap-2 md:flex-none">
+          <span className="min-w-0 truncate text-sm font-medium">{tor.title}</span>
+          {inUse ? (
+            <Badge
+              className="shrink-0"
+              data-testid="torrent-in-use"
+              tone="accent"
+            >
+              <span title={t('sources.inUseTitle', { count: item.primary_tracks })}>{t('sources.inUse')}</span>
+            </Badge>
+          ) : null}
+        </span>
+        <span className="font-mono text-xs font-medium" data-testid="torrent-formats" title={t('sources.colFormat')}>
+          {item.formats.length > 0 ? item.formats.join(' · ') : '—'}
+        </span>
         <span className="text-muted text-xs">{kindLabel(tor.kind, t)}</span>
         <span className="text-muted font-mono text-xs">{formatSize(tor.size_bytes, t)}</span>
         <span className="text-muted font-mono text-xs" title={t('sources.seedsLeeches')}>
@@ -97,6 +139,7 @@ function TorrentItem({ item, trackTitles }: { item: AlbumTorrent; trackTitles: R
       </button>
       {open ? (
         <div className="border-divider dark:border-divider-dark border-t px-3 py-2">
+          <UseTorrent albumId={albumId} item={item} />
           {files.isPending ? <Spinner className="size-4" /> : null}
           {files.isError ? (
             <div className="flex items-center gap-3 text-xs" role="alert">
@@ -123,5 +166,44 @@ function TorrentItem({ item, trackTitles }: { item: AlbumTorrent; trackTitles: R
         </div>
       ) : null}
     </li>
+  );
+}
+
+/** «Использовать для альбома»: подтверждение (скачанные копии удалятся) → перевод альбома на раздачу. */
+function UseTorrent({ albumId, item }: { albumId: number; item: AlbumTorrent }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const confirm = Ariakit.useDialogStore();
+  if (item.torrent.meta_status !== 'ok') {
+    return <p className="text-muted mb-2 text-xs">{t('sources.useNeedsMeta')}</p>;
+  }
+  async function run(): Promise<boolean> {
+    try {
+      const r = await selectAlbumTorrent(albumId, item.torrent.id, { queryClient });
+      toast.success(
+        r.switched_track_ids.length > 0
+          ? t('sources.useDone', { count: r.switched_track_ids.length })
+          : t('sources.useUnchanged'),
+      );
+      return true;
+    } catch (e) {
+      toast.error(apiErrorMessage(e, t));
+      return false;
+    }
+  }
+  return (
+    <div className="mb-2">
+      <Button data-testid="use-torrent" onClick={confirm.show} size="sm">
+        {t('sources.use')}
+      </Button>
+      <ConfirmDialog
+        confirmAction={run}
+        confirmLabel={t('sources.use')}
+        description={t('sources.useConfirmBody')}
+        store={confirm}
+        title={t('sources.useConfirmTitle')}
+        variant="primary"
+      />
+    </div>
   );
 }

@@ -656,11 +656,13 @@ describe('вкладки', () => {
     h.manager.retry(5);
     h.manager.setPaused(true);
     void h.manager.markBroken(5);
+    void h.manager.markStale([5, 6]);
     await h.manager.removeAll();
     expect(h.tabs.posted.slice(2)).toEqual([
       { trackId: 5, type: 'retry' },
       { type: 'paused', value: true },
       { trackId: 5, type: 'broken' },
+      { trackIds: [5, 6], type: 'stale' },
       { type: 'removeAll' },
     ]);
     // Снимок лидера заменяет состояние; чужие команды не лидером игнорируются.
@@ -712,6 +714,9 @@ describe('вкладки', () => {
     h.tabs.deliver({ trackId: 2, type: 'broken' });
     await h.settle();
     expect(h.file(2)).toMatchObject({ error: 'corrupt', state: 'queued' });
+    h.tabs.deliver({ trackIds: [2], type: 'stale' });
+    await h.settle();
+    expect(h.file(2)).toMatchObject({ error: null, state: 'queued' });
     h.tabs.deliver({ type: 'removeAll' });
     await h.settle();
     expect(h.status.getState().files.size).toBe(0);
@@ -816,6 +821,36 @@ describe('команды и жизненный цикл', () => {
     expect(h.storage.removed).toContain('1');
     expect(h.downloader.startedIds).toEqual([1, 1]);
     expect(h.db.files.get(1)).toMatchObject({ error: 'corrupt', state: 'downloading' });
+  });
+
+  it('markStale: устаревшие файлы удалены и скачиваются заново, без пометки об ошибке', async () => {
+    const h = offlineHarness({ settings: { concurrency: 2 } });
+    await h.start();
+    await h.manager.pin('track', 1);
+    await h.manager.pin('track', 2);
+    await h.settle();
+    await h.emit(done(1));
+    await h.emit(done(2));
+    h.storage.files.set('1', 100);
+    h.storage.files.set('2', 100);
+    await h.manager.markStale([1, 404]); // 404 — нет на устройстве, пропускается
+    await h.settle();
+    expect(h.storage.removed).toEqual(['1']);
+    expect(h.downloader.startedIds).toEqual([1, 2, 1]);
+    expect(h.db.files.get(1)).toMatchObject({ error: null, state: 'downloading' });
+    expect(h.db.files.get(2)).toMatchObject({ state: 'done' });
+    await h.manager.markStale([]); // пусто — ничего
+    await h.settle();
+    expect(h.downloader.startedIds).toEqual([1, 2, 1]);
+  });
+
+  it('markStale прерывает идущую загрузку', async () => {
+    const h = offlineHarness();
+    await h.start();
+    await h.manager.pin('track', 1);
+    await h.settle();
+    await h.manager.markStale([1]);
+    expect(h.downloader.aborted).toContain('1');
   });
 
   it('markBroken прерывает идущую загрузку', async () => {

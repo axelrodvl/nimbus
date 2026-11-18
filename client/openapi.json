@@ -407,6 +407,68 @@
         }
       }
     },
+    "/api/albums/{id}/torrents/{torrent_id}/use": {
+      "post": {
+        "tags": [
+          "sources"
+        ],
+        "operationId": "use_torrent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID альбома",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "torrent_id",
+            "in": "path",
+            "description": "ID раздачи альбома",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Треки альбома, найденные в раздаче, переведены на неё; скачанные с прежнего источника файлы удалены с сервера",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UseTorrentResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Нет альбома или раздача не привязана к нему",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Метаданные раздачи не получены (`torrent_no_files`) или в ней нет треков альбома (`no_match`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/artist-image/{mbid}": {
       "get": {
         "tags": [
@@ -3210,17 +3272,31 @@
           "rank_score",
           "verified",
           "matched_tracks",
-          "files_count"
+          "files_count",
+          "primary_tracks",
+          "formats"
         ],
         "properties": {
           "files_count": {
             "type": "integer",
             "format": "int64"
           },
+          "formats": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Аудиоформаты внутри (`FLAC`, `MP3`, …) по убыванию доли; без метаданных — угаданные по названию."
+          },
           "matched_tracks": {
             "type": "integer",
             "format": "int64",
             "description": "Сколько треков альбома сопоставлено с файлами этой раздачи."
+          },
+          "primary_tracks": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Сколько треков альбома сейчас играет из этой раздачи (её выбрали — вручную или автоматически)."
           },
           "rank_score": {
             "type": "number",
@@ -5246,6 +5322,34 @@
           "not_found",
           "ready"
         ]
+      },
+      "UseTorrentResponse": {
+        "type": "object",
+        "required": [
+          "switched_track_ids",
+          "matched",
+          "unmatched"
+        ],
+        "properties": {
+          "matched": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Сколько треков альбома нашлось в раздаче."
+          },
+          "switched_track_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "description": "Треки, у которых сменился источник (их скачанные копии устарели)."
+          },
+          "unmatched": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Сколько треков альбома в раздаче не нашлось (у них источник прежний)."
+          }
+        }
       },
       "ViolationDto": {
         "type": "object",

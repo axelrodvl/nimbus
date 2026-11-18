@@ -85,6 +85,21 @@ pub async fn list_for_album(
     .await
 }
 
+/// Привязана ли раздача к альбому.
+pub async fn is_linked(
+    db: impl PgExecutor<'_>,
+    album_id: i64,
+    torrent_id: i64,
+) -> sqlx::Result<bool> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM album_torrents WHERE album_id = $1 AND torrent_id = $2)",
+    )
+    .bind(album_id)
+    .bind(torrent_id)
+    .fetch_one(db)
+    .await
+}
+
 pub async fn mark_verified(
     db: impl PgExecutor<'_>,
     album_id: i64,
@@ -196,6 +211,10 @@ pub struct AlbumTorrentRow {
     pub verified: bool,
     pub files_count: i64,
     pub matched_tracks: i64,
+    /// Сколько треков альбома сейчас играет из этой раздачи (primary-источник в ней).
+    pub primary_tracks: i64,
+    /// Расширения файлов раздачи по убыванию суммарного размера (пусто без метаданных).
+    pub exts: Vec<String>,
 }
 
 pub async fn list_with_counts(
@@ -209,7 +228,14 @@ pub async fn list_with_counts(
                 (SELECT count(*) FROM torrent_files f WHERE f.torrent_id = t.id) AS files_count,
                 (SELECT count(DISTINCT ts.track_id) FROM track_sources ts
                    JOIN tracks tr ON tr.id = ts.track_id
-                  WHERE ts.torrent_id = t.id AND tr.album_id = at.album_id) AS matched_tracks
+                  WHERE ts.torrent_id = t.id AND tr.album_id = at.album_id) AS matched_tracks,
+                (SELECT count(*) FROM track_sources ts
+                   JOIN tracks tr ON tr.id = ts.track_id
+                  WHERE ts.torrent_id = t.id AND ts.is_primary
+                    AND tr.album_id = at.album_id) AS primary_tracks,
+                ARRAY(SELECT f.ext FROM torrent_files f
+                       WHERE f.torrent_id = t.id AND f.ext IS NOT NULL
+                       GROUP BY f.ext ORDER BY sum(f.size_bytes) DESC, f.ext) AS exts
          FROM album_torrents at JOIN torrents t ON t.id = at.torrent_id
          WHERE at.album_id = $1
          ORDER BY at.rank_score DESC, t.id"

@@ -7,6 +7,7 @@ export type AlbumTorrent = Schemas['AlbumTorrentDto'];
 export type TrackSource = Schemas['TrackSourceDto'];
 export type TorrentFile = Schemas['TorrentFileDto'];
 export type RetryResult = Schemas['RetryResponse'];
+export type UseTorrentResult = Schemas['UseTorrentResponse'];
 /** Выбор источника: существующий (`source_id`) или файл раздачи (`torrent_id` + `file_index`). */
 export type SourceChoice = { source_id: number } | { torrent_id: number; file_index: number };
 
@@ -53,5 +54,18 @@ export async function retryAlbumRequest(albumId: number, client: Client = defaul
 export async function addMagnetRequest(albumId: number, magnet: string, client: Client = defaultClient) {
   return unwrap(
     await client.POST('/api/albums/{id}/torrents', { body: { magnet }, params: { path: { id: albumId } } }),
+  );
+}
+
+/** `POST /api/albums/{id}/torrents/{torrent_id}/use`. */
+export async function selectTorrentRequest(
+  albumId: number,
+  torrentId: number,
+  client: Client = defaultClient,
+): Promise<UseTorrentResult> {
+  return unwrap(
+    await client.POST('/api/albums/{id}/torrents/{torrent_id}/use', {
+      params: { path: { id: albumId, torrent_id: torrentId } },
+    }),
   );
 }

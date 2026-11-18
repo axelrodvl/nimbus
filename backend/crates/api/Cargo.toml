@@ -12,6 +12,7 @@ nimbus-core.workspace = true
 reqwest.workspace = true
 nimbus-db.workspace = true
 nimbus-worker.workspace = true
+nimbus-matcher.workspace = true
 nimbus-musicbrainz.workspace = true
 nimbus-library.workspace = true
 nimbus-trackers.workspace = true

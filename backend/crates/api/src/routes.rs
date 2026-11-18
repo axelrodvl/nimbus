@@ -66,6 +66,10 @@ pub fn api_routes(state: &AppState) -> Router<AppState> {
             "/albums/{id}/torrents",
             get(sources::album_torrents_list).post(sources::add_magnet),
         )
+        .route(
+            "/albums/{id}/torrents/{torrent_id}/use",
+            post(sources::use_torrent),
+        )
         .route("/albums/{id}/retry", post(sources::retry_album))
         .route("/torrents/{id}/files", get(sources::torrent_files))
         .route("/tracks/{id}/sources", get(sources::track_sources_list))

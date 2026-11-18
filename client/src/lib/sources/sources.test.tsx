@@ -17,6 +17,7 @@ import {
   confirmTrackSource,
   retryAlbumSearch,
   retryTrackSearch,
+  selectAlbumTorrent,
   type SourceRequests,
 } from './actions';
 import { formatSize, kindLabel, metaLabel, sourceLabel } from './format';
@@ -85,6 +86,7 @@ describe('мутации источников', () => {
     confirm: vi.fn(async () => ({}) as never),
     retryAlbum: vi.fn(async () => ({ queued: true, tracks_reset: 2 })),
     retryTrack: vi.fn(async () => ({ queued: true, tracks_reset: 1 })),
+    selectTorrent: vi.fn(async () => ({ matched: 2, switched_track_ids: [10, 11], unmatched: 0 })),
     setSource: vi.fn(async () => ({}) as never),
     ...over,
   });
@@ -133,6 +135,50 @@ describe('мутации источников', () => {
     await chooseTrackSource(10, 2, { source_id: 5 }, { queryClient, requests: requests() });
     expect(engine.loads).toHaveLength(loads + 1);
     expect(engine.lastLoad?.opts.startAt).toBe(33);
+  });
+
+  it('выбор раздачи альбома: устаревшие копии на устройстве удаляются, играющий трек перезапускается', async () => {
+    const { ctl, engine } = installTestPlayer();
+    ctl.play(toPlayerTrack(appData().selectors.trackView(appData().library.getState(), 10)!));
+    engine.emit({ type: 'playing' });
+    engine.setPosition(12, 100);
+    const loads = engine.loads.length;
+    const r = requests();
+    const markStale = vi.fn();
+    const result = await selectAlbumTorrent(2, 7, { markStale, queryClient, requests: r });
+    expect(r.selectTorrent).toHaveBeenCalledWith(2, 7);
+    expect(result.switched_track_ids).toEqual([10, 11]);
+    expect(markStale).toHaveBeenCalledWith([10, 11]);
+    expect(engine.loads).toHaveLength(loads + 1);
+    expect(engine.lastLoad?.opts.startAt).toBe(12);
+    const keys = invalidate.mock.calls.map(c => (c[0] as { queryKey: unknown }).queryKey);
+    expect(keys).toContainEqual(albumTorrentsKey(2));
+    expect(keys).toContainEqual(['track-sources']);
+    expect(sync).toHaveBeenCalledWith('sources');
+  });
+
+  it('выбор раздачи без смены треков: на устройстве ничего не трогается; без менеджера — тоже без ошибок', async () => {
+    const markStale = vi.fn();
+    const none = requests({ selectTorrent: vi.fn(async () => ({ matched: 2, switched_track_ids: [], unmatched: 0 })) });
+    await selectAlbumTorrent(2, 7, { markStale, queryClient, requests: none });
+    expect(markStale).not.toHaveBeenCalled();
+    // Офлайн-менеджер не запущен — удаление копий по умолчанию ничего не делает.
+    await expect(selectAlbumTorrent(2, 7, { queryClient, requests: requests() })).resolves.toBeTruthy();
+  });
+
+  it('сбой удаления копий на устройстве не проваливает выбор раздачи: ошибка сообщается', async () => {
+    const report = vi.fn();
+    vi.stubGlobal('reportError', report);
+    const boom = new Error('idb closed');
+    const result = await selectAlbumTorrent(2, 7, {
+      markStale: vi.fn().mockRejectedValue(boom),
+      queryClient,
+      requests: requests(),
+    });
+    expect(result.switched_track_ids).toEqual([10, 11]);
+    expect(report).toHaveBeenCalledWith(boom);
+    expect(sync).toHaveBeenCalledWith('sources');
+    vi.unstubAllGlobals();
   });
 
   it('подтверждение, повторы и magnet: инвалидация и синхронизация', async () => {

@@ -116,6 +116,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/albums/{id}/torrents/{torrent_id}/use": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["use_torrent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/artist-image/{mbid}": {
         parameters: {
             query?: never;
@@ -1085,11 +1101,18 @@ export interface components {
         AlbumTorrentDto: {
             /** Format: int64 */
             files_count: number;
+            /** @description Аудиоформаты внутри (`FLAC`, `MP3`, …) по убыванию доли; без метаданных — угаданные по названию. */
+            formats: string[];
             /**
              * Format: int64
              * @description Сколько треков альбома сопоставлено с файлами этой раздачи.
              */
             matched_tracks: number;
+            /**
+             * Format: int64
+             * @description Сколько треков альбома сейчас играет из этой раздачи (её выбрали — вручную или автоматически).
+             */
+            primary_tracks: number;
             /** Format: float */
             rank_score: number;
             torrent: components["schemas"]["TorrentDto"];
@@ -1778,6 +1801,20 @@ export interface components {
         };
         /** @enum {string} */
         TrackStatus: "adding" | "found" | "not_found" | "ready";
+        UseTorrentResponse: {
+            /**
+             * Format: int64
+             * @description Сколько треков альбома нашлось в раздаче.
+             */
+            matched: number;
+            /** @description Треки, у которых сменился источник (их скачанные копии устарели). */
+            switched_track_ids: number[];
+            /**
+             * Format: int64
+             * @description Сколько треков альбома в раздаче не нашлось (у них источник прежний).
+             */
+            unmatched: number;
+        };
         /** @description Одно застрявшее состояние. */
         ViolationDto: {
             detail: string;
@@ -2105,6 +2142,49 @@ export interface operations {
             };
             /** @description Нет такого альбома */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    use_torrent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description ID альбома */
+                id: number;
+                /** @description ID раздачи альбома */
+                torrent_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Треки альбома, найденные в раздаче, переведены на неё; скачанные с прежнего источника файлы удалены с сервера */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UseTorrentResponse"];
+                };
+            };
+            /** @description Нет альбома или раздача не привязана к нему */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Метаданные раздачи не получены (`torrent_no_files`) или в ней нет треков альбома (`no_match`) */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

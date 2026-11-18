@@ -36,6 +36,7 @@ export type OfflineTabMessage =
   | { type: 'status'; snapshot: OfflineSnapshot }
   | { type: 'pins' }
   | { type: 'broken'; trackId: number }
+  | { type: 'stale'; trackIds: number[] }
   | { type: 'retry'; trackId: number }
   | { type: 'paused'; value: boolean }
   | { type: 'removeAll' };
@@ -560,6 +561,9 @@ export function createOfflineManager(deps: ManagerDeps) {
       case 'broken':
         track(markBroken(m.trackId));
         break;
+      case 'stale':
+        track(markStale(m.trackIds));
+        break;
       case 'retry':
         retry(m.trackId);
         break;
@@ -621,24 +625,38 @@ export function createOfflineManager(deps: ManagerDeps) {
   }
 
   /** Файл не воспроизвёлся (повреждён): запись возвращается в очередь, файл удаляется, плеер идёт в сеть. */
-  async function markBroken(trackId: number) {
+  const markBroken = (trackId: number) => invalidate([trackId], 'corrupt');
+
+  /**
+   * Скачанные файлы `trackIds` устарели (у трека сменился источник на сервере): файлы удаляются, закреплённые треки
+   * скачиваются заново. Треков без файла на устройстве это не касается.
+   */
+  const markStale = (trackIds: readonly number[]) => invalidate(trackIds, null);
+
+  async function invalidate(trackIds: readonly number[], error: OfflineFile['error']) {
+    const hit = trackIds.filter(id => files.has(id));
+    if (hit.length === 0) return;
+    for (const id of hit) if (inflight.delete(id)) abortDownload(id);
+    await filesReleased();
+    for (const id of hit) await invalidateOne(id, error);
+    quotaError = false;
+    await refreshUsage();
+    pump();
+  }
+
+  async function invalidateOne(trackId: number, error: OfflineFile['error']) {
     const f = files.get(trackId);
     if (!f) return;
-    if (inflight.delete(trackId)) abortDownload(trackId);
-    await filesReleased();
     await storage.remove(String(trackId)).catch(() => undefined);
     Object.assign(f, {
       attempts: 0,
       bytes_done: 0,
       completed_at: null,
-      error: 'corrupt',
+      error,
       next_attempt_at: null,
       state: 'queued',
     } satisfies Partial<OfflineFile>);
-    quotaError = false;
     await persist(f);
-    await refreshUsage();
-    pump();
   }
 
   /** Прерывает загрузки, снимает все закрепления и удаляет все файлы и записи. */
@@ -698,6 +716,8 @@ export function createOfflineManager(deps: ManagerDeps) {
     retry,
     setPaused,
     markBroken: (trackId: number) => (leader ? markBroken(trackId) : void tabs.post({ trackId, type: 'broken' })),
+    markStale: (trackIds: readonly number[]) =>
+      leader ? markStale(trackIds) : void tabs.post({ trackIds: [...trackIds], type: 'stale' }),
     removeAll,
     /** Выход из учётной записи: всё, что на устройстве, удаляется (менеджер после этого неработоспособен). */
     async clear() {

@@ -34,6 +34,7 @@ vi.mock('@/lib/api/sources', async importOriginal => ({
   getTrackSources: vi.fn(),
   retryAlbumRequest: vi.fn(),
   retryTrackRequest: vi.fn(),
+  selectTorrentRequest: vi.fn(),
   setTrackSourceRequest: vi.fn(),
 }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -44,6 +45,7 @@ const api = {
   files: vi.mocked(sourcesApi.getTorrentFiles),
   retryAlbum: vi.mocked(sourcesApi.retryAlbumRequest),
   retryTrack: vi.mocked(sourcesApi.retryTrackRequest),
+  selectTorrent: vi.mocked(sourcesApi.selectTorrentRequest),
   setSource: vi.mocked(sourcesApi.setTrackSourceRequest),
   sources: vi.mocked(sourcesApi.getTrackSources),
   torrents: vi.mocked(sourcesApi.getAlbumTorrents),
@@ -51,7 +53,9 @@ const api = {
 
 const torrent = (id: number, over: Partial<sourcesApi.AlbumTorrent['torrent']> = {}): sourcesApi.AlbumTorrent => ({
   files_count: 10,
+  formats: ['FLAC'],
   matched_tracks: 9,
+  primary_tracks: 0,
   rank_score: 0.87,
   torrent: {
     id,
@@ -67,6 +71,12 @@ const torrent = (id: number, over: Partial<sourcesApi.AlbumTorrent['torrent']> =
   },
   verified: true,
 });
+
+/** Кнопка раскрытия строки раздачи (в раскрытой строке есть и другие кнопки). */
+const toggleOf = (item: HTMLElement) =>
+  within(item)
+    .getAllByRole('button')
+    .find(b => b.hasAttribute('aria-expanded'))!;
 
 const source = (id: number, over: Partial<sourcesApi.TrackSource> = {}): sourcesApi.TrackSource => ({
   file_index: id,
@@ -96,6 +106,7 @@ beforeEach(() => {
   api.retryAlbum.mockResolvedValue({ queued: true, tracks_reset: 2 });
   api.retryTrack.mockResolvedValue({ queued: true, tracks_reset: 1 });
   api.addMagnet.mockResolvedValue({ queued: true, torrent: torrent(3).torrent });
+  api.selectTorrent.mockResolvedValue({ matched: 2, switched_track_ids: [11, 12], unmatched: 0 });
   vi.spyOn(appData().engine, 'requestSync').mockImplementation(() => undefined);
   seed({
     albums: [makeAlbum({ artist_id: 1, id: 2, title: 'Alb' })],
@@ -142,6 +153,62 @@ describe('экран источников альбома', () => {
     expect(document.title).toBe('Источники · Nimbus');
   });
 
+  it('форматы внутри и пометка «Используется» у раздачи, из которой играет альбом', async () => {
+    api.torrents.mockResolvedValue([
+      { ...torrent(1), formats: ['MP3'], primary_tracks: 2 },
+      { ...torrent(2), formats: ['FLAC', 'MP3'] },
+      { ...torrent(3), formats: [] },
+    ]);
+    renderRoutes(routes, '/album/2/sources');
+    const items = await screen.findAllByTestId('torrent-item');
+    expect(items.map(i => within(i).getByTestId('torrent-formats').textContent)).toEqual(['MP3', 'FLAC · MP3', '—']);
+    expect(within(items[0]!).getByTestId('torrent-in-use')).toHaveTextContent('Используется');
+    expect(items[0]).toHaveAttribute('data-in-use', 'true');
+    expect(within(items[1]!).queryByTestId('torrent-in-use')).not.toBeInTheDocument();
+  });
+
+  it('«Использовать для альбома»: подтверждение → запрос → сообщение', async () => {
+    renderRoutes(routes, '/album/2/sources');
+    const second = (await screen.findAllByTestId('torrent-item'))[1]!;
+    await userEvent.click(toggleOf(second));
+    await userEvent.click(within(second).getByTestId('use-torrent'));
+    const dialog = await screen.findByRole('dialog', { name: 'Перевести альбом на эту раздачу?' });
+    expect(dialog).toHaveTextContent(/удалятся с сервера и с этого устройства/);
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Использовать для альбома' }));
+    await waitFor(() => expect(api.selectTorrent).toHaveBeenCalledWith(2, 2));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Треков переведено на раздачу: 2'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('«Использовать»: альбом уже на раздаче — своё сообщение; ошибка — toast, диалог остаётся', async () => {
+    api.selectTorrent.mockResolvedValueOnce({ matched: 2, switched_track_ids: [], unmatched: 0 });
+    renderRoutes(routes, '/album/2/sources');
+    const first = (await screen.findAllByTestId('torrent-item'))[0]!;
+    await userEvent.click(toggleOf(first));
+    await userEvent.click(within(first).getByTestId('use-torrent'));
+    let dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Использовать для альбома' }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Альбом уже играет из этой раздачи'));
+
+    api.selectTorrent.mockRejectedValueOnce(new ApiError(409, 'no_match', 'no'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await userEvent.click(within(first).getByTestId('use-torrent'));
+    dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Использовать для альбома' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('В раздаче нет файлов, похожих на треки альбома'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('без метаданных выбрать раздачу нельзя — подсказка', async () => {
+    api.torrents.mockResolvedValue([torrent(1, { meta_status: 'fetching' })]);
+    api.files.mockResolvedValue([]);
+    renderRoutes(routes, '/album/2/sources');
+    const item = (await screen.findAllByTestId('torrent-item'))[0]!;
+    await userEvent.click(toggleOf(item));
+    expect(await within(item).findByText(/когда будет получен список её файлов/)).toBeInTheDocument();
+    expect(within(item).queryByTestId('use-torrent')).not.toBeInTheDocument();
+  });
+
   it('все статусы метаданных, неизвестные сиды и размер', async () => {
     const statuses = ['pending', 'fetching', 'ok', 'timeout', 'dead', 'error'] as const;
     api.torrents.mockResolvedValue(
@@ -159,30 +226,30 @@ describe('экран источников альбома', () => {
   it('раскрытие раздачи: файлы с сопоставленным треком; без метаданных — подсказка', async () => {
     renderRoutes(routes, '/album/2/sources');
     const first = (await screen.findAllByTestId('torrent-item'))[0]!;
-    await userEvent.click(within(first).getByRole('button'));
+    await userEvent.click(toggleOf(first));
     const files = await within(first).findAllByTestId('torrent-file');
     expect(files).toHaveLength(2);
     expect(within(files[0]!).getByText('One')).toBeInTheDocument();
     expect(within(files[1]!).queryByText('One')).not.toBeInTheDocument();
     api.files.mockResolvedValue([]);
     const second = screen.getAllByTestId('torrent-item')[1]!;
-    await userEvent.click(within(second).getByRole('button'));
+    await userEvent.click(toggleOf(second));
     expect(await within(second).findByText(/Файлы ещё неизвестны/)).toBeInTheDocument();
-    await userEvent.click(within(first).getByRole('button'));
+    await userEvent.click(toggleOf(first));
     expect(within(first).queryAllByTestId('torrent-file')).toHaveLength(0);
   });
 
   it('файл сопоставлен с неизвестным треком — запасное название', async () => {
     api.files.mockResolvedValue([{ ext: 'flac', file_index: 0, matched_track_id: 555, path: 'x.flac', size_bytes: 1 }]);
     renderRoutes(routes, '/album/2/sources');
-    await userEvent.click(within((await screen.findAllByTestId('torrent-item'))[0]!).getByRole('button'));
+    await userEvent.click(toggleOf((await screen.findAllByTestId('torrent-item'))[0]!));
     expect(await screen.findByText('трек #555')).toBeInTheDocument();
   });
 
   it('ошибка загрузки файлов — «Повторить»', async () => {
     api.files.mockRejectedValueOnce(new ApiError(500, 'internal', 'boom'));
     renderRoutes(routes, '/album/2/sources');
-    await userEvent.click(within((await screen.findAllByTestId('torrent-item'))[0]!).getByRole('button'));
+    await userEvent.click(toggleOf((await screen.findAllByTestId('torrent-item'))[0]!));
     await userEvent.click(await screen.findByRole('button', { name: 'Повторить' }));
     expect(await screen.findAllByTestId('torrent-file')).toHaveLength(2);
   });
