@@ -1,5 +1,10 @@
 # Что нового
 
+## 0.9.0
+
+- **Добавлено:** RuTracker сам проходит проверку Cloudflare через FlareSolverr (поле в настройках и `NIMBUS_FLARESOLVERR_URL`); необязательные контейнеры `flaresolverr` и `jackett` в docker compose, FlareSolverr включён в `.env.example`.
+- **Улучшено:** Torznab-индексеры без поиска по исполнителю/альбому (RuTracker в Jackett) ищут обычным текстом; проверка подключения RuTracker ждёт решения FlareSolverr.
+
 ## 0.8.0
 
 - **Добавлено:** коэффициент раздачи у торрентов; накопленная отдача сохраняется между перезапусками.
