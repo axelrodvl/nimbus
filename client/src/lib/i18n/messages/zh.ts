@@ -614,6 +614,7 @@ const messages: Messages = {
   'sources.use': '用于此专辑',
   'sources.useConfirmBody': '在此种子中找到的专辑曲目将从它播放。从之前种子下载的副本将从服务器和本设备删除；已固定的曲目将重新下载。',
   'sources.useConfirmTitle': '将专辑切换到此种子？',
+  'sources.useDoneImage': '已切换曲目：{count}。专辑镜像仍在下载，完成后即可播放',
   'sources.useDone': '已切换到此种子的曲目：{count}',
   'sources.useNeedsMeta': '收到文件列表后即可选择此种子。',
   'sources.useUnchanged': '专辑已经从此种子播放',

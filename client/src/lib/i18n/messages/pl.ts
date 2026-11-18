@@ -635,6 +635,7 @@ const messages: Messages = {
   'sources.use': 'Użyj dla tego albumu',
   'sources.useConfirmBody': 'Utwory albumu znalezione w tym torrencie będą z niego odtwarzane. Kopie pobrane z poprzedniego torrenta zostaną usunięte z serwera i z tego urządzenia; przypięte utwory zostaną pobrane ponownie.',
   'sources.useConfirmTitle': 'Przełączyć album na ten torrent?',
+  'sources.useDoneImage': 'Przełączono utworów: {count}. Obraz albumu jest jeszcze pobierany — zagrają po zakończeniu',
   'sources.useDone': 'Utwory przełączone na ten torrent: {count}',
   'sources.useNeedsMeta': 'Ten torrent można wybrać po odebraniu listy jego plików.',
   'sources.useUnchanged': 'Album jest już odtwarzany z tego torrenta',

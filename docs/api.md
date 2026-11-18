@@ -175,7 +175,7 @@ primary-источником (CUE или формат файла), поэтом�
   (`primary_tracks`); `POST /api/albums/{id}/torrents` `{ magnet }` → `202`: свой magnet;
   `GET /api/torrents/{id}/files` — файлы раздачи и их сопоставление трекам.
 - `POST /api/albums/{id}/torrents/{torrent_id}/use` — выбрать раздачу для альбома: треки, найденные в ней, переводятся на неё
-  (включая скачанные), прежние файлы удаляются с сервера; ответ — `switched_track_ids` (клиент удаляет их копии на устройстве).
+  (включая скачанные), прежние файлы удаляются с сервера; ответ — `switched_track_ids` (клиент удаляет их копии на устройстве) и `image_downloading` (треки вырезаются из ещё не скачанного CUE-образа и пока не играют).
   `409` — `torrent_no_files` (метаданные не получены) или `no_match` (в раздаче нет треков альбома).
 
 **Плейлисты.** `GET|POST /api/playlists`, `GET|DELETE /api/playlists/{id}`, `POST /api/playlists/{id}/tracks`,

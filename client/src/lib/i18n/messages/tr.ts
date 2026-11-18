@@ -625,6 +625,7 @@ const messages: Messages = {
   'sources.use': 'Bu albüm için kullan',
   'sources.useConfirmBody': 'Bu torrentte bulunan albüm parçaları buradan çalınacak. Önceki torrentten indirilen kopyalar sunucudan ve bu cihazdan silinecek; sabitlenen parçalar yeniden indirilecek.',
   'sources.useConfirmTitle': 'Albüm bu torrente geçirilsin mi?',
+  'sources.useDoneImage': 'Geçen parça: {count}. Albüm imajı hâlâ iniyor — bitince çalacaklar',
   'sources.useDone': 'Bu torrente geçirilen parçalar: {count}',
   'sources.useNeedsMeta': 'Dosya listesi alındığında bu torrenti seçebilirsiniz.',
   'sources.useUnchanged': 'Albüm zaten bu torrentten çalıyor',

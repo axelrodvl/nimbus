@@ -1912,6 +1912,11 @@ export interface components {
         TrackStatus: "adding" | "found" | "not_found" | "ready";
         UseTorrentResponse: {
             /**
+             * @description Выбранные треки вырезаются из CUE-образа, который ещё не скачан: пока он качается, они не играют
+             *     (`425 image_downloading`).
+             */
+            image_downloading: boolean;
+            /**
              * Format: int64
              * @description Сколько треков альбома нашлось в раздаче.
              */

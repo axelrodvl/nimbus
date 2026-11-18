@@ -548,6 +548,7 @@ async fn use_torrent_switches_album_and_deletes_old_server_copy(pool: PgPool) {
     assert_eq!(switched, vec![w.track_id, w.other_track_id]);
     assert_eq!(body["matched"], 2);
     assert_eq!(body["unmatched"], 0);
+    assert_eq!(body["image_downloading"], false, "no CUE sources here");
 
     for track in [w.track_id, w.other_track_id] {
         let p = track_sources::primary_for_track(&pool, track)

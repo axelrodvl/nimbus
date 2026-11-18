@@ -106,14 +106,27 @@ beforeEach(() => {
   api.retryAlbum.mockResolvedValue({ queued: true, tracks_reset: 2 });
   api.retryTrack.mockResolvedValue({ queued: true, tracks_reset: 1 });
   api.addMagnet.mockResolvedValue({ queued: true, torrent: torrent(3).torrent });
-  api.selectTorrent.mockResolvedValue({ matched: 2, switched_track_ids: [11, 12], unmatched: 0 });
+  api.selectTorrent.mockResolvedValue({
+    matched: 2,
+    switched_track_ids: [11, 12],
+    unmatched: 0,
+    image_downloading: false,
+  });
   vi.spyOn(appData().engine, 'requestSync').mockImplementation(() => undefined);
   seed({
     albums: [makeAlbum({ artist_id: 1, id: 2, title: 'Alb' })],
     artists: [makeArtist({ id: 1, name: 'Art' })],
     tracks: [
       makeTrack({ album_id: 2, artist_id: 1, id: 11, position: 1, status: 'found', title: 'One' }),
-      makeTrack({ album_id: 2, artist_id: 1, id: 12, needs_confirmation: true, position: 2, status: 'found', title: 'Two' }),
+      makeTrack({
+        album_id: 2,
+        artist_id: 1,
+        id: 12,
+        needs_confirmation: true,
+        position: 2,
+        status: 'found',
+        title: 'Two',
+      }),
     ],
   });
 });
@@ -180,8 +193,31 @@ describe('экран источников альбома', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
+  it('«Использовать»: образ ещё качается — сообщение, что треки заиграют после загрузки', async () => {
+    api.selectTorrent.mockResolvedValueOnce({
+      matched: 2,
+      switched_track_ids: [11, 12],
+      unmatched: 0,
+      image_downloading: true,
+    });
+    renderRoutes(routes, '/album/2/sources');
+    const second = (await screen.findAllByTestId('torrent-item'))[1]!;
+    await userEvent.click(toggleOf(second));
+    await userEvent.click(within(second).getByTestId('use-torrent'));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Использовать для альбома' }));
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/Образ альбома ещё скачивается/)),
+    );
+  });
+
   it('«Использовать»: альбом уже на раздаче — своё сообщение; ошибка — toast, диалог остаётся', async () => {
-    api.selectTorrent.mockResolvedValueOnce({ matched: 2, switched_track_ids: [], unmatched: 0 });
+    api.selectTorrent.mockResolvedValueOnce({
+      matched: 2,
+      switched_track_ids: [],
+      unmatched: 0,
+      image_downloading: false,
+    });
     renderRoutes(routes, '/album/2/sources');
     const first = (await screen.findAllByTestId('torrent-item'))[0]!;
     await userEvent.click(toggleOf(first));
@@ -218,7 +254,14 @@ describe('экран источников альбома', () => {
     );
     renderRoutes(routes, '/album/2/sources');
     const metas = (await screen.findAllByTestId('torrent-meta')).map(m => m.textContent);
-    expect(metas).toEqual(['Ожидает', 'Загрузка метаданных…', 'Метаданные получены', 'Нет ответа', 'Мёртвая', 'Ошибка']);
+    expect(metas).toEqual([
+      'Ожидает',
+      'Загрузка метаданных…',
+      'Метаданные получены',
+      'Нет ответа',
+      'Мёртвая',
+      'Ошибка',
+    ]);
     expect(screen.getAllByText('?/?')).toHaveLength(6);
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(6);
   });
@@ -549,7 +592,9 @@ describe('бейдж «требует подтверждения» в строк
       tracks: [makeTrack({ album_id: 2, artist_id: 1, id: 13, position: 1, status: 'not_found', title: 'Gone' })],
     });
     renderRoutes(routes, '/album/2');
-    await userEvent.click(within(document.querySelector('[data-track-id="13"]') as HTMLElement).getByTestId('track-menu'));
+    await userEvent.click(
+      within(document.querySelector('[data-track-id="13"]') as HTMLElement).getByTestId('track-menu'),
+    );
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Повторить поиск' }));
     await waitFor(() => expect(api.retryTrack).toHaveBeenCalledWith(13));
     expect(toast.success).toHaveBeenCalledWith('Поиск запущен заново');
@@ -563,7 +608,9 @@ describe('бейдж «требует подтверждения» в строк
       tracks: [makeTrack({ album_id: 2, artist_id: 1, id: 13, position: 1, status: 'not_found', title: 'Gone' })],
     });
     renderRoutes(routes, '/album/2');
-    await userEvent.click(within(document.querySelector('[data-track-id="13"]') as HTMLElement).getByTestId('track-menu'));
+    await userEvent.click(
+      within(document.querySelector('[data-track-id="13"]') as HTMLElement).getByTestId('track-menu'),
+    );
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Повторить поиск' }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Трек уже скачан'));
   });

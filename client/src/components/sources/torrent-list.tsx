@@ -181,9 +181,11 @@ function UseTorrent({ albumId, item }: { albumId: number; item: AlbumTorrent }) 
     try {
       const r = await selectAlbumTorrent(albumId, item.torrent.id, { queryClient });
       toast.success(
-        r.switched_track_ids.length > 0
-          ? t('sources.useDone', { count: r.switched_track_ids.length })
-          : t('sources.useUnchanged'),
+        r.switched_track_ids.length === 0
+          ? t('sources.useUnchanged')
+          : r.image_downloading
+            ? t('sources.useDoneImage', { count: r.switched_track_ids.length })
+            : t('sources.useDone', { count: r.switched_track_ids.length }),
       );
       return true;
     } catch (e) {

@@ -625,6 +625,7 @@ const messages: Messages = {
   'sources.use': 'このアルバムに使用',
   'sources.useConfirmBody': 'このトレントで見つかったアルバムのトラックはここから再生されます。以前のトレントからダウンロードしたコピーはサーバーとこのデバイスから削除され、ピン留めしたトラックは再ダウンロードされます。',
   'sources.useConfirmTitle': 'アルバムをこのトレントに切り替えますか？',
+  'sources.useDoneImage': '切り替えた曲：{count}。アルバムイメージをダウンロード中です。完了すると再生できます',
   'sources.useDone': 'このトレントに切り替えたトラック: {count}',
   'sources.useNeedsMeta': 'ファイル一覧を受信すると、このトレントを選択できます。',
   'sources.useUnchanged': 'アルバムはすでにこのトレントから再生されています',

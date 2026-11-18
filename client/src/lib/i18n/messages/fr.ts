@@ -636,6 +636,7 @@ const messages: Messages = {
   'sources.use': 'Utiliser pour cet album',
   'sources.useConfirmBody': 'Les pistes de l’album trouvées dans ce torrent seront lues depuis celui-ci. Les copies téléchargées depuis l’ancien torrent seront supprimées du serveur et de cet appareil ; les pistes épinglées seront retéléchargées.',
   'sources.useConfirmTitle': 'Basculer l’album sur ce torrent ?',
+  'sources.useDoneImage': 'Morceaux basculés : {count}. L’image de l’album est encore en téléchargement — lecture à la fin',
   'sources.useDone': 'Pistes basculées sur ce torrent : {count}',
   'sources.useNeedsMeta': 'Vous pourrez choisir ce torrent une fois sa liste de fichiers reçue.',
   'sources.useUnchanged': 'L’album est déjà lu depuis ce torrent',

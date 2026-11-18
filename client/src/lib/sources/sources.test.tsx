@@ -86,7 +86,12 @@ describe('мутации источников', () => {
     confirm: vi.fn(async () => ({}) as never),
     retryAlbum: vi.fn(async () => ({ queued: true, tracks_reset: 2 })),
     retryTrack: vi.fn(async () => ({ queued: true, tracks_reset: 1 })),
-    selectTorrent: vi.fn(async () => ({ matched: 2, switched_track_ids: [10, 11], unmatched: 0 })),
+    selectTorrent: vi.fn(async () => ({
+      matched: 2,
+      switched_track_ids: [10, 11],
+      unmatched: 0,
+      image_downloading: false,
+    })),
     setSource: vi.fn(async () => ({}) as never),
     ...over,
   });
@@ -159,7 +164,14 @@ describe('мутации источников', () => {
 
   it('выбор раздачи без смены треков: на устройстве ничего не трогается; без менеджера — тоже без ошибок', async () => {
     const markStale = vi.fn();
-    const none = requests({ selectTorrent: vi.fn(async () => ({ matched: 2, switched_track_ids: [], unmatched: 0 })) });
+    const none = requests({
+      selectTorrent: vi.fn(async () => ({
+        matched: 2,
+        switched_track_ids: [],
+        unmatched: 0,
+        image_downloading: false,
+      })),
+    });
     await selectAlbumTorrent(2, 7, { markStale, queryClient, requests: none });
     expect(markStale).not.toHaveBeenCalled();
     // Офлайн-менеджер не запущен — удаление копий по умолчанию ничего не делает.
@@ -220,7 +232,11 @@ describe('обновление источников по событиям', () =
     vi.clearAllMocks();
     resetFactories();
     vi.stubGlobal('WebSocket', FakeSocket);
-    seed({ albums: [makeAlbum({ artist_id: 1, id: 3 })], artists: [makeArtist({ id: 1 })], tracks: [makeTrack({ album_id: 3, artist_id: 1, id: 1 })] });
+    seed({
+      albums: [makeAlbum({ artist_id: 1, id: 3 })],
+      artists: [makeArtist({ id: 1 })],
+      tracks: [makeTrack({ album_id: 3, artist_id: 1, id: 1 })],
+    });
     vi.useFakeTimers({ shouldAdvanceTime: true });
     appData().socket.start();
     render(

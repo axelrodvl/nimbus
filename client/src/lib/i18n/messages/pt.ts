@@ -627,6 +627,7 @@ const messages: Messages = {
   'sources.use': 'Usar para este álbum',
   'sources.useConfirmBody': 'As faixas do álbum encontradas neste torrent tocarão a partir dele. As cópias baixadas do torrent anterior serão excluídas do servidor e deste dispositivo; as faixas fixadas serão baixadas novamente.',
   'sources.useConfirmTitle': 'Mudar o álbum para este torrent?',
+  'sources.useDoneImage': 'Faixas trocadas: {count}. A imagem do álbum ainda está sendo baixada — tocarão ao terminar',
   'sources.useDone': 'Faixas mudadas para este torrent: {count}',
   'sources.useNeedsMeta': 'Você poderá escolher este torrent quando a lista de arquivos for recebida.',
   'sources.useUnchanged': 'O álbum já toca a partir deste torrent',

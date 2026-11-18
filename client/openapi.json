@@ -5710,9 +5710,14 @@
         "required": [
           "switched_track_ids",
           "matched",
-          "unmatched"
+          "unmatched",
+          "image_downloading"
         ],
         "properties": {
+          "image_downloading": {
+            "type": "boolean",
+            "description": "Выбранные треки вырезаются из CUE-образа, который ещё не скачан: пока он качается, они не играют\n(`425 image_downloading`)."
+          },
           "matched": {
             "type": "integer",
             "format": "int64",

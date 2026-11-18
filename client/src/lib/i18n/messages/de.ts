@@ -633,6 +633,7 @@ const messages: Messages = {
   'sources.use': 'Für dieses Album verwenden',
   'sources.useConfirmBody': 'In diesem Torrent gefundene Albumtitel werden daraus abgespielt. Vom bisherigen Torrent geladene Kopien werden vom Server und von diesem Gerät gelöscht; angeheftete Titel werden neu geladen.',
   'sources.useConfirmTitle': 'Album auf diesen Torrent umstellen?',
+  'sources.useDoneImage': 'Titel umgestellt: {count}. Das Album-Image wird noch geladen – sie spielen nach dem Download',
   'sources.useDone': 'Auf diesen Torrent umgestellte Titel: {count}',
   'sources.useNeedsMeta': 'Dieser Torrent kann gewählt werden, sobald seine Dateiliste empfangen ist.',
   'sources.useUnchanged': 'Das Album spielt bereits aus diesem Torrent',

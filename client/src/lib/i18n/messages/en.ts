@@ -623,6 +623,7 @@ export const en = {
   'sources.use': 'Use for this album',
   'sources.useConfirmBody': 'Album tracks found in this torrent will play from it. Copies downloaded from the previous torrent will be deleted from the server and from this device; pinned tracks will be downloaded again.',
   'sources.useConfirmTitle': 'Switch the album to this torrent?',
+  'sources.useDoneImage': 'Tracks switched: {count}. The album image is still downloading — they will play when it finishes',
   'sources.useDone': 'Tracks switched to this torrent: {count}',
   'sources.useNeedsMeta': 'You can choose this torrent once its file list is received.',
   'sources.useUnchanged': 'The album already plays from this torrent',

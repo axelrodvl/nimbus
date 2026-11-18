@@ -628,6 +628,7 @@ const messages: Messages = {
   'sources.use': 'Usa per questo album',
   'sources.useConfirmBody': 'I brani dell’album trovati in questo torrent verranno riprodotti da esso. Le copie scaricate dal torrent precedente verranno eliminate dal server e da questo dispositivo; i brani fissati verranno scaricati di nuovo.',
   'sources.useConfirmTitle': 'Passare l’album a questo torrent?',
+  'sources.useDoneImage': 'Brani passati: {count}. L’immagine dell’album è ancora in download: partiranno al termine',
   'sources.useDone': 'Brani passati a questo torrent: {count}',
   'sources.useNeedsMeta': 'Potrai scegliere questo torrent quando ne sarà ricevuto l’elenco dei file.',
   'sources.useUnchanged': 'L’album è già riprodotto da questo torrent',

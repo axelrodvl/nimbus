@@ -120,6 +120,9 @@ pub struct UseTorrentResponse {
     pub matched: i64,
     /// Сколько треков альбома в раздаче не нашлось (у них источник прежний).
     pub unmatched: i64,
+    /// Выбранные треки вырезаются из CUE-образа, который ещё не скачан: пока он качается, они не играют
+    /// (`425 image_downloading`).
+    pub image_downloading: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -617,7 +620,18 @@ pub async fn use_torrent(
         "album switched to a torrent manually"
     );
     let matched = best.len() as i64;
+    let mut image_downloading = false;
+    for (new, _) in switched.iter().filter(|(n, _)| n.cue_start_ms.is_some()) {
+        let done = downloads::get(&state.db, new.torrent_id, new.file_index)
+            .await?
+            .is_some_and(|d| d.completed_at.is_some());
+        if !done {
+            image_downloading = true;
+            break;
+        }
+    }
     Ok(Json(UseTorrentResponse {
+        image_downloading,
         switched_track_ids: switched.iter().map(|(n, _)| n.track_id).collect(),
         matched,
         unmatched: album_tracks.len() as i64 - matched,

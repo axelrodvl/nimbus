@@ -621,6 +621,7 @@ const messages: Messages = {
   'sources.use': '이 앨범에 사용',
   'sources.useConfirmBody': '이 토렌트에서 찾은 앨범 트랙은 여기에서 재생됩니다. 이전 토렌트에서 다운로드한 사본은 서버와 이 기기에서 삭제되며, 고정한 트랙은 다시 다운로드됩니다.',
   'sources.useConfirmTitle': '앨범을 이 토렌트로 전환할까요?',
+  'sources.useDoneImage': '전환된 곡: {count}. 앨범 이미지를 아직 다운로드 중이며 완료되면 재생됩니다',
   'sources.useDone': '이 토렌트로 전환된 트랙: {count}',
   'sources.useNeedsMeta': '파일 목록을 받으면 이 토렌트를 선택할 수 있습니다.',
   'sources.useUnchanged': '앨범이 이미 이 토렌트에서 재생됩니다',
