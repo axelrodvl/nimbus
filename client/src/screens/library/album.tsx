@@ -42,7 +42,7 @@ export function AlbumScreen() {
     .join(' · ');
   const queueIds = tracks.map(tr => tr.id);
   const inLibraryCount = tracks.filter(tr => tr.in_library).length;
-  // Альбом «не найден»: ни один трек не найден и не ищется — остаются только «Источники» и «Удалить» в меню «…».
+  // Альбом «не найден»: ни один трек не найден и не ищется — остаются только кнопки «Источники» и «Удалить».
   const c = album.statusCounts;
   const notFound = c.ready + c.found + c.adding === 0;
   const multiDisc = new Set(tracks.map(tr => tr.disc_no)).size > 1;
@@ -87,7 +87,7 @@ export function AlbumScreen() {
                 />
               </>
             )}
-            <AlbumHeaderMenu albumId={album.id} inLibrary={album.in_library} title={album.title} />
+            <AlbumHeaderMenu albumId={album.id} inLibrary={album.in_library} inline={notFound} title={album.title} />
             {!album.in_library && inLibraryCount > 0 ? (
               <span className="text-muted text-xs">
                 {t('album.inLibraryCount', { count: inLibraryCount, total: album.trackCount })}

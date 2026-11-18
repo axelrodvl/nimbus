@@ -176,7 +176,8 @@ describe('альбом', () => {
     expect(screen.queryByRole('button', { name: /слушать|play/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId('offline-control')).not.toBeInTheDocument();
     expect(screen.queryByTestId('server-download')).not.toBeInTheDocument();
-    expect(screen.getByTestId('album-menu')).toBeInTheDocument();
+    expect(screen.queryByTestId('album-menu')).not.toBeInTheDocument();
+    expect(screen.getByTestId('album-sources-link')).toBeInTheDocument();
   });
 
   it('нет такого альбома — «не найдено»; до гидратации — skeleton', () => {

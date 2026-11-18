@@ -28,11 +28,44 @@ export function AlbumMenu({ store, albumId, artistId }: Props) {
 }
 
 /** Меню «…» шапки альбома: «Источники» и «Удалить из библиотеки» (если альбом в библиотеке). */
-export function AlbumHeaderMenu({ albumId, title, inLibrary }: { albumId: number; title: string; inLibrary: boolean }) {
+export function AlbumHeaderMenu({
+  albumId,
+  title,
+  inLibrary,
+  inline = false,
+}: {
+  albumId: number;
+  title: string;
+  inLibrary: boolean;
+  /** Альбом не найден: «Источники» и «Удалить» — отдельные кнопки, а не пункты меню «…». */
+  inline?: boolean;
+}) {
   const t = useT();
   const navigate = useNavigate();
   const remove = useRemoveFromLibrary({ id: albumId, redirectTo: '/library/albums', title, type: 'album' });
   const server = useServerMenu(albumId, title);
+  if (inline) {
+    const btn =
+      'border-divider hover:bg-card dark:border-divider-dark dark:hover:bg-card-dark focus-visible:ring-accent/40 flex h-9 items-center rounded-full border px-4 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none pointer-coarse:h-11';
+    return (
+      <>
+        <button
+          className={btn}
+          data-testid="album-sources-link"
+          onClick={() => void navigate(`/album/${albumId}/sources`)}
+          type="button"
+        >
+          {t('album.sources')}
+        </button>
+        {inLibrary ? (
+          <button className={`${btn} text-danger-fg`} data-testid="album-remove" onClick={remove.open} type="button">
+            {t('remove.button')}
+          </button>
+        ) : null}
+        {remove.dialog}
+      </>
+    );
+  }
   return (
     <Ariakit.MenuProvider>
       <Ariakit.MenuButton
