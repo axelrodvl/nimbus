@@ -1,14 +1,27 @@
+//! Кэш ответов MusicBrainz (и ListenBrainz, картинок артистов). Записи никогда не удаляются сами: просроченная
+//! отдаётся сразу и обновляется в фоне. Каждое чтение отмечает `last_used_at` (не чаще раза в час на запись) —
+//! задел под LRU, если кэш когда-нибудь разрастётся.
+
 use std::time::Duration;
 
 use serde_json::Value;
 use sqlx::PgExecutor;
 
+/// Чтение отмечает использование, но пишет не чаще раза в час на запись (без лишней записи на каждый поиск).
+const TOUCH: &str = "touch AS (
+        UPDATE mb_cache m SET last_used_at = now() FROM hit
+        WHERE m.key = hit.key AND hit.last_used_at < now() - interval '1 hour')";
+
 /// Возвращает значение, только если оно не истекло.
 pub async fn get(db: impl PgExecutor<'_>, key: &str) -> sqlx::Result<Option<Value>> {
-    sqlx::query_scalar("SELECT response FROM mb_cache WHERE key = $1 AND expires_at > now()")
-        .bind(key)
-        .fetch_optional(db)
-        .await
+    sqlx::query_scalar(&format!(
+        "WITH hit AS (SELECT key, response, last_used_at FROM mb_cache WHERE key = $1 AND expires_at > now()),
+         {TOUCH}
+         SELECT response FROM hit"
+    ))
+    .bind(key)
+    .fetch_optional(db)
+    .await
 }
 
 /// Запись кэша вместе с признаком «просрочена».
@@ -20,11 +33,14 @@ pub struct CacheEntry {
 
 /// Запись, в том числе просроченная (для stale-if-error: при отказе MusicBrainz лучше старый ответ, чем ошибка).
 pub async fn get_entry(db: impl PgExecutor<'_>, key: &str) -> sqlx::Result<Option<CacheEntry>> {
-    let row: Option<(Value, bool)> =
-        sqlx::query_as("SELECT response, expires_at <= now() FROM mb_cache WHERE key = $1")
-            .bind(key)
-            .fetch_optional(db)
-            .await?;
+    let row: Option<(Value, bool)> = sqlx::query_as(&format!(
+        "WITH hit AS (SELECT key, response, expires_at <= now() AS expired, last_used_at FROM mb_cache WHERE key = $1),
+         {TOUCH}
+         SELECT response, expired FROM hit"
+    ))
+    .bind(key)
+    .fetch_optional(db)
+    .await?;
     Ok(row.map(|(value, expired)| CacheEntry { value, expired }))
 }
 
@@ -37,7 +53,8 @@ pub async fn put(
     sqlx::query(
         "INSERT INTO mb_cache (key, response, expires_at)
          VALUES ($1, $2, now() + make_interval(secs => $3))
-         ON CONFLICT (key) DO UPDATE SET response = EXCLUDED.response, expires_at = EXCLUDED.expires_at",
+         ON CONFLICT (key) DO UPDATE SET response = EXCLUDED.response, expires_at = EXCLUDED.expires_at,
+             last_used_at = now()",
     )
     .bind(key)
     .bind(value)
@@ -52,9 +69,11 @@ pub async fn get_many(
     db: impl PgExecutor<'_>,
     keys: &[String],
 ) -> sqlx::Result<std::collections::HashMap<String, Value>> {
-    let rows: Vec<(String, Value)> = sqlx::query_as(
-        "SELECT key, response FROM mb_cache WHERE key = ANY($1) AND expires_at > now()",
-    )
+    let rows: Vec<(String, Value)> = sqlx::query_as(&format!(
+        "WITH hit AS (SELECT key, response, last_used_at FROM mb_cache WHERE key = ANY($1) AND expires_at > now()),
+         {TOUCH}
+         SELECT key, response FROM hit"
+    ))
     .bind(keys)
     .fetch_all(db)
     .await?;
@@ -75,7 +94,8 @@ pub async fn put_many(
     sqlx::query(
         "INSERT INTO mb_cache (key, response, expires_at)
          SELECT k, v, now() + make_interval(secs => $3) FROM unnest($1::text[], $2::jsonb[]) AS t(k, v)
-         ON CONFLICT (key) DO UPDATE SET response = EXCLUDED.response, expires_at = EXCLUDED.expires_at",
+         ON CONFLICT (key) DO UPDATE SET response = EXCLUDED.response, expires_at = EXCLUDED.expires_at,
+             last_used_at = now()",
     )
     .bind(keys)
     .bind(values)
@@ -83,27 +103,4 @@ pub async fn put_many(
     .execute(db)
     .await?;
     Ok(())
-}
-
-pub async fn delete(db: impl PgExecutor<'_>, key: &str) -> sqlx::Result<()> {
-    sqlx::query("DELETE FROM mb_cache WHERE key = $1")
-        .bind(key)
-        .execute(db)
-        .await?;
-    Ok(())
-}
-
-/// Сколько просроченная запись хранится (её отдают сразу и обновляют в фоне, а при отказе MusicBrainz — вместо
-/// ошибки), прежде чем её удалят: год — повторный поиск не ждёт MusicBrainz, даже если был давно.
-pub const STALE_GRACE: Duration = Duration::from_secs(365 * 24 * 3600);
-
-/// Удаляет записи, просроченные дольше `grace`, возвращает их количество.
-pub async fn purge_expired(db: impl PgExecutor<'_>, grace: Duration) -> sqlx::Result<u64> {
-    Ok(
-        sqlx::query("DELETE FROM mb_cache WHERE expires_at <= now() - make_interval(secs => $1)")
-            .bind(grace.as_secs_f64())
-            .execute(db)
-            .await?
-            .rows_affected(),
-    )
 }

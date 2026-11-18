@@ -483,49 +483,63 @@ async fn mb_cache_ttl(pool: PgPool) {
         mb_cache::get(&pool, "k1").await.unwrap(),
         Some(json!({"a": 2}))
     );
-    // истёкшая запись не отдаётся и удаляется
+    // истёкшая запись не отдаётся как свежая…
     sqlx::query("UPDATE mb_cache SET expires_at = now() - interval '1 second' WHERE key = 'k2'")
         .execute(&pool)
         .await
         .unwrap();
     assert!(mb_cache::get(&pool, "k2").await.unwrap().is_none());
-    // …но остаётся как запасной ответ, пока не прошёл срок хранения
+    // …но хранится всегда (кэш не чистится сам) и отдаётся как устаревшая
     let stale = mb_cache::get_entry(&pool, "k2").await.unwrap().unwrap();
     assert_eq!(stale.value, json!({"b": 2}));
     assert!(stale.expired);
     let fresh = mb_cache::get_entry(&pool, "k1").await.unwrap().unwrap();
     assert!(!fresh.expired);
     assert!(mb_cache::get_entry(&pool, "nope").await.unwrap().is_none());
-    assert_eq!(
-        mb_cache::purge_expired(&pool, mb_cache::STALE_GRACE)
+}
+
+async fn last_used(pool: &PgPool, key: &str) -> f64 {
+    sqlx::query_scalar(
+        "SELECT extract(epoch FROM now() - last_used_at)::float8 FROM mb_cache WHERE key = $1",
+    )
+    .bind(key)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn mb_cache_reads_mark_last_use_at_most_hourly(pool: PgPool) {
+    for k in ["a", "b", "c"] {
+        mb_cache::put(&pool, k, &json!(1), Duration::from_secs(3600))
             .await
-            .unwrap(),
-        0,
-        "свежепросроченное не удаляется"
-    );
-    // Месяц — ещё хранится (год срока хранения), больше года — удаляется.
-    sqlx::query("UPDATE mb_cache SET expires_at = now() - interval '31 days' WHERE key = 'k2'")
+            .unwrap();
+    }
+    let age = |h: i32| format!("UPDATE mb_cache SET last_used_at = now() - interval '{h} hours'");
+    // Использовали 2 часа назад → чтение (любым способом) отмечает «сейчас».
+    sqlx::query(&age(2)).execute(&pool).await.unwrap();
+    mb_cache::get(&pool, "a").await.unwrap();
+    mb_cache::get_entry(&pool, "b").await.unwrap();
+    mb_cache::get_many(&pool, &["c".into()]).await.unwrap();
+    for k in ["a", "b", "c"] {
+        assert!(last_used(&pool, k).await < 60.0, "{k}");
+    }
+    // Использовали полчаса назад → чтение не пишет (не чаще раза в час).
+    sqlx::query("UPDATE mb_cache SET last_used_at = now() - interval '30 minutes'")
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(
-        mb_cache::purge_expired(&pool, mb_cache::STALE_GRACE)
-            .await
-            .unwrap(),
-        0
-    );
-    sqlx::query("UPDATE mb_cache SET expires_at = now() - interval '366 days' WHERE key = 'k2'")
-        .execute(&pool)
+    mb_cache::get(&pool, "a").await.unwrap();
+    assert!(last_used(&pool, "a").await > 1700.0);
+    // Перезапись — тоже использование.
+    sqlx::query(&age(5)).execute(&pool).await.unwrap();
+    mb_cache::put(&pool, "a", &json!(2), Duration::from_secs(3600))
         .await
         .unwrap();
-    assert_eq!(
-        mb_cache::purge_expired(&pool, mb_cache::STALE_GRACE)
-            .await
-            .unwrap(),
-        1
-    );
-    assert!(mb_cache::get_entry(&pool, "k2").await.unwrap().is_none());
-    assert!(mb_cache::get(&pool, "k1").await.unwrap().is_some());
+    mb_cache::put_many(&pool, &[("b".into(), json!(2))], Duration::from_secs(3600))
+        .await
+        .unwrap();
+    assert!(last_used(&pool, "a").await < 60.0 && last_used(&pool, "b").await < 60.0);
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
@@ -1327,7 +1341,7 @@ async fn torrent_upload_accumulates_across_sessions(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
-async fn mb_cache_batch_and_delete(pool: PgPool) {
+async fn mb_cache_batch(pool: PgPool) {
     let rows = vec![("a".to_string(), json!(1)), ("b".to_string(), json!(2))];
     mb_cache::put_many(&pool, &rows, Duration::from_secs(60))
         .await
@@ -1348,6 +1362,32 @@ async fn mb_cache_batch_and_delete(pool: PgPool) {
         .unwrap();
     assert_eq!(got.len(), 2);
     assert_eq!((got["a"].clone(), got["b"].clone()), (json!(1), json!(3)));
-    mb_cache::delete(&pool, "a").await.unwrap();
-    assert!(mb_cache::get(&pool, "a").await.unwrap().is_none());
+}
+
+async fn torrent_age(pool: &PgPool, id: i64) -> f64 {
+    sqlx::query_scalar(
+        "SELECT extract(epoch FROM now() - last_used_at)::float8 FROM torrents WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn torrent_last_use_is_marked_when_found_again_or_played(pool: PgPool) {
+    let t = torrents::upsert_by_info_hash(&pool, &new_torrent(H1))
+        .await
+        .unwrap();
+    let old = "UPDATE torrents SET last_used_at = now() - interval '10 days'";
+    sqlx::query(old).execute(&pool).await.unwrap();
+    // Поиск снова нашёл раздачу.
+    torrents::upsert_by_info_hash(&pool, &new_torrent(H1))
+        .await
+        .unwrap();
+    assert!(torrent_age(&pool, t.id).await < 60.0);
+    // Из неё играли файл.
+    sqlx::query(old).execute(&pool).await.unwrap();
+    downloads::touch_played(&pool, t.id, 0).await.unwrap();
+    assert!(torrent_age(&pool, t.id).await < 60.0);
 }

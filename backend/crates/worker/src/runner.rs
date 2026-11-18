@@ -712,7 +712,7 @@ async fn finalize_stuck_step(ctx: &JobCtx, cfg: &WorkerConfig) {
     }
 }
 
-/// Раз в час: уборка завершённых задач и просроченного кэша MusicBrainz.
+/// Раз в час: уборка завершённых задач.
 async fn purge_step(ctx: &JobCtx, cfg: &WorkerConfig, clock: &mut MaintClock) {
     if clock.purge.elapsed() <= Duration::from_secs(3600) {
         return;
@@ -724,13 +724,8 @@ async fn purge_step(ctx: &JobCtx, cfg: &WorkerConfig, clock: &mut MaintClock) {
     if let Err(e) = jobs::purge_failed(&ctx.db, cfg.failed_retention, &REVIVABLE_KINDS).await {
         tracing::error!(error = %e, "purge_failed failed");
     }
-    // Просроченные ответы MusicBrainz живут ещё `STALE_GRACE` как запасной вариант при отказах.
-    if let Err(e) =
-        nimbus_db::repo::mb_cache::purge_expired(&ctx.db, nimbus_db::repo::mb_cache::STALE_GRACE)
-            .await
-    {
-        tracing::error!(error = %e, "mb_cache purge failed");
-    }
+    // Кэш MusicBrainz не чистится: просроченное отдаётся сразу и обновляется в фоне, а библиотека со временем
+    // «прогревается» (см. `mb_cache`).
 }
 
 /// Сколько артист может быть в библиотеке без альбомов и без задачи импорта, прежде чем

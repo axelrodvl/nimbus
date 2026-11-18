@@ -1226,32 +1226,20 @@ async fn stale_entry_is_not_used_for_not_found_or_without_entry(pool: PgPool) {
     let c = MbClient::with_config(cfg(&server), Some(pool.clone())).unwrap();
     c.artist(uuid(RADIOHEAD)).await.unwrap();
     expire(&pool).await;
-    // 404 при фоновом обновлении — сущность удалена: запись убирается, дальше — «не найдено».
+    // 404 при фоновом обновлении — сущность пропала из MusicBrainz, но кэш не чистится: прежний ответ остаётся.
     server.reset().await;
     Mock::given(path(format!("/ws/2/artist/{RADIOHEAD}")))
         .respond_with(ResponseTemplate::new(404))
         .mount(&server)
         .await;
-    assert!(
-        c.artist(uuid(RADIOHEAD)).await.is_ok(),
-        "сначала — то, что было"
-    );
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM mb_cache")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        if left == 0 {
-            break;
-        }
-        assert!(Instant::now() < deadline, "запись не удалена");
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    assert!(matches!(
-        c.artist(uuid(RADIOHEAD)).await,
-        Err(MbError::NotFound)
-    ));
+    assert!(c.artist(uuid(RADIOHEAD)).await.is_ok());
+    wait_requests(&server, 1).await;
+    assert_eq!(c.artist(uuid(RADIOHEAD)).await.unwrap().name, "Radiohead");
+    let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM mb_cache")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(kept, 1);
     // Нет записи — нет и запасного ответа.
     server.reset().await;
     Mock::given(path("/ws/2/artist/b1392450-e666-3926-a536-22c65f834433"))

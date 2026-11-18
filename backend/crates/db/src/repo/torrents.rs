@@ -24,7 +24,8 @@ pub async fn upsert_by_info_hash(db: impl PgExecutor<'_>, t: &NewTorrent) -> sql
                 ON CONFLICT (info_hash) DO UPDATE SET
                    seeders = COALESCE(EXCLUDED.seeders, torrents.seeders),
                    leechers = COALESCE(EXCLUDED.leechers, torrents.leechers),
-                   title = EXCLUDED.title
+                   title = EXCLUDED.title,
+                   last_used_at = now()
                 RETURNING *)
              SELECT ",
             crate::torrent_cols!(),

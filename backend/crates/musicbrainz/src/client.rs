@@ -797,15 +797,7 @@ impl Inner {
     ) -> Result<Value> {
         let value = match self.fetch(priority, observer, path, query).await {
             Ok(v) => v,
-            Err(MbError::NotFound) => {
-                // Сущность удалена из MusicBrainz: устаревшая запись кэша больше не должна отдаваться.
-                if let Some(pool) = &self.cache {
-                    if let Err(e) = mb_cache::delete(pool, key).await {
-                        tracing::warn!(error = %e, "mb_cache delete failed");
-                    }
-                }
-                return Err(MbError::NotFound);
-            }
+            // Сущность пропала из MusicBrainz: прежний ответ в кэше остаётся (кэш никогда не чистится сам).
             Err(e) => return Err(e),
         };
         if let Some(pool) = &self.cache {

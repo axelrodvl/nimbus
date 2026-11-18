@@ -52,8 +52,10 @@ pub async fn touch_played(
     torrent_id: i64,
     file_index: i32,
 ) -> sqlx::Result<()> {
+    // Заодно — последнее использование раздачи (задел под LRU кэша раздач, см. `torrents.last_used_at`).
     sqlx::query(
-        "UPDATE downloads SET last_played_at = now() WHERE torrent_id = $1 AND file_index = $2",
+        "WITH d AS (UPDATE downloads SET last_played_at = now() WHERE torrent_id = $1 AND file_index = $2)
+         UPDATE torrents SET last_used_at = now() WHERE id = $1",
     )
     .bind(torrent_id)
     .bind(file_index)

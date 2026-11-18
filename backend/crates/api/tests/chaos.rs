@@ -379,7 +379,7 @@ async fn db_snapshot(pool: &PgPool) -> String {
     let parts = [
         "SELECT coalesce(string_agg((to_jsonb(t) - ARRAY['created_at','updated_at','sync_txid'])::text, E'\\n' ORDER BY id), '') FROM tracks t",
         "SELECT coalesce(string_agg((to_jsonb(t) - ARRAY['created_at','updated_at','sync_txid'])::text, E'\\n' ORDER BY id), '') FROM albums t",
-        "SELECT coalesce(string_agg((to_jsonb(t) - ARRAY['created_at','updated_at','last_checked_at','meta_fetched_at'])::text, E'\\n' ORDER BY id), '') FROM torrents t",
+        "SELECT coalesce(string_agg((to_jsonb(t) - ARRAY['created_at','updated_at','last_checked_at','meta_fetched_at','last_used_at'])::text, E'\\n' ORDER BY id), '') FROM torrents t",
         "SELECT count(*)::text FROM torrent_files",
         "SELECT coalesce(string_agg((to_jsonb(t) - ARRAY['created_at','updated_at','verified_at','sync_txid'])::text, E'\\n' ORDER BY album_id, torrent_id), '') FROM album_torrents t",
         "SELECT coalesce(string_agg((to_jsonb(t) - ARRAY['id','created_at','updated_at'])::text, E'\\n' ORDER BY track_id, torrent_id, file_index), '') FROM track_sources t",
