@@ -1,6 +1,6 @@
 # Полный стек Nimbus. Собирать — ./scripts/build.sh, запускать — ./scripts/start.sh, останавливать — ./scripts/stop.sh.
 # Фиксированное имя проекта и образа: не зависят от имени каталога. Сервисы: db и nimbus (бэкенд + SPA);
-# flaresolverr и jackett — опционально, по профилям (см. ниже).
+# flaresolverr — решатель Cloudflare для RuTracker; jackett — опционально, по профилю (см. ниже).
 name: nimbus
 
 services:
@@ -41,6 +41,8 @@ services:
       NIMBUS_BIND: 0.0.0.0:8080
       NIMBUS_DATA_DIR: /data
       NIMBUS_TORRENT_PORT: ${NIMBUS_TORRENT_PORT:-6881}
+      # Не задан в .env (старый .env) — встроенный FlareSolverr; пустое значение — без него.
+      NIMBUS_FLARESOLVERR_URL: ${NIMBUS_FLARESOLVERR_URL-http://flaresolverr:8191}
     volumes:
       - ./data:/data
     ports:
@@ -67,18 +69,18 @@ services:
     #   network_mode: "service:gluetun"
     # (тогда `ports`/`depends_on` перенесите на gluetun).
 
-  # Опционально, по профилям (COMPOSE_PROFILES в .env; см. README, «RuTracker»):
-  #   flaresolverr — решатель Cloudflare-челленджа для RuTracker: NIMBUS_FLARESOLVERR_URL=http://flaresolverr:8191;
-  #   jackett      — Jackett (+ FlareSolverr) как Torznab-источник: NIMBUS_TORZNAB_URL=http://jackett:9117/api/v2.0/indexers/all/results/torznab.
+  # Решатель Cloudflare-челленджа для RuTracker (см. README, «RuTracker»); Nimbus обращается к нему по
+  # NIMBUS_FLARESOLVERR_URL (по умолчанию http://flaresolverr:8191, пустое значение в .env — не использовать).
   # cf_clearance привязан к IP: FlareSolverr должен выходить в сеть так же, как Nimbus (тот же хост/VPN/прокси).
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
-    profiles: ["flaresolverr", "jackett"]
     environment:
       LOG_LEVEL: ${FLARESOLVERR_LOG_LEVEL:-info}
       TZ: ${TZ:-UTC}
     restart: unless-stopped
 
+  # Опционально: Jackett как Torznab-источник, COMPOSE_PROFILES=jackett в .env;
+  # NIMBUS_TORZNAB_URL=http://jackett:9117/api/v2.0/indexers/all/results/torznab.
   jackett:
     image: lscr.io/linuxserver/jackett:latest
     profiles: ["jackett"]

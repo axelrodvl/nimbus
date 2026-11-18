@@ -22,16 +22,24 @@ pub struct SettingsStore {
     pool: PgPool,
     tx: Arc<watch::Sender<Arc<Settings>>>,
     write_lock: Arc<Mutex<()>>,
+    /// Значения из окружения: для полей с «пусто = как в окружении» (`Settings::with_env_fallbacks`).
+    env: Arc<Settings>,
 }
 
 impl SettingsStore {
     /// Хранилище со значениями по умолчанию, без чтения БД (запись при первом `update`).
     pub fn new(pool: PgPool, defaults: Settings) -> Self {
-        let (tx, _) = watch::channel(Arc::new(defaults));
+        Self::with_current(pool, defaults.clone(), defaults)
+    }
+
+    fn with_current(pool: PgPool, current: Settings, env: Settings) -> Self {
+        let current = current.with_env_fallbacks(&env);
+        let (tx, _) = watch::channel(Arc::new(current));
         Self {
             pool,
             tx: Arc::new(tx),
             write_lock: Arc::new(Mutex::new(())),
+            env: Arc::new(env),
         }
     }
 
@@ -46,12 +54,12 @@ impl SettingsStore {
                 // Сохранённое поверх env-дефолтов: сливаем как патч, чтобы пропавшие поля не сбрасывались.
                 merge_patch(&defaults, &v).unwrap_or_else(|e| {
                     tracing::warn!(error = %e, "stored settings are invalid, using defaults");
-                    defaults
+                    defaults.clone()
                 })
             }
-            None => defaults,
+            None => defaults.clone(),
         };
-        Ok(Self::new(pool, settings))
+        Ok(Self::with_current(pool, settings, defaults))
     }
 
     pub fn get(&self) -> Arc<Settings> {
@@ -65,7 +73,9 @@ impl SettingsStore {
     /// Сливает патч, проверяет, сохраняет в БД и публикует новое значение.
     pub async fn update(&self, patch: &Value) -> Result<Arc<Settings>, SettingsError> {
         let _guard = self.write_lock.lock().await;
-        let merged = merge_patch(&self.get(), patch).map_err(SettingsError::Invalid)?;
+        let merged = merge_patch(&self.get(), patch)
+            .map_err(SettingsError::Invalid)?
+            .with_env_fallbacks(&self.env);
         let value = serde_json::to_value(&merged).expect("Settings serializes");
         sqlx::query(
             "INSERT INTO settings (key, value) VALUES ($1, $2)

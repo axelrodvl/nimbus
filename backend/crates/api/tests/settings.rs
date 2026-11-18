@@ -82,6 +82,50 @@ async fn put_merges_masks_secrets_and_persists(pool: PgPool) {
     );
 }
 
+/// Новая машина: настройки сохранены раньше, чем появился FlareSolverr (`rutracker: null` или
+/// `flaresolverr_url: null` в БД), — адрес из окружения всё равно применяется, и при загрузке, и
+/// когда RuTracker настраивают в интерфейсе.
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn flaresolverr_url_from_env_survives_older_stored_settings(pool: PgPool) {
+    let mut env = nimbus_core::Settings::default();
+    env.providers.rutracker = Some(nimbus_core::settings::RutrackerSettings {
+        flaresolverr_url: Some("http://flaresolverr:8191".into()),
+        ..Default::default()
+    });
+    let url = |s: &nimbus_core::Settings| {
+        s.providers
+            .rutracker
+            .as_ref()
+            .and_then(|r| r.flaresolverr_url.clone())
+    };
+
+    // Сохранено до появления переменной: RuTracker не настроен.
+    let old = SettingsStore::new(pool.clone(), nimbus_core::Settings::default());
+    old.update(&json!({"storage": {"cache_limit_gb": 7}}))
+        .await
+        .unwrap();
+    let store = SettingsStore::load(pool.clone(), env.clone())
+        .await
+        .unwrap();
+    assert!(store.get().providers.rutracker.is_none());
+    // Логин в интерфейсе: объект создаётся поверх `null`, адрес берётся из окружения.
+    let s = store
+        .update(&json!({"providers": {"rutracker": {"username": "u", "password": "p"}}}))
+        .await
+        .unwrap();
+    assert_eq!(url(&s).as_deref(), Some("http://flaresolverr:8191"));
+
+    // В БД явный `null` (сохранён старой версией) — после перезапуска адрес снова из окружения.
+    old.update(&json!({"providers": {"rutracker": {"username": "u", "flaresolverr_url": null}}}))
+        .await
+        .unwrap();
+    let store = SettingsStore::load(pool, env).await.unwrap();
+    assert_eq!(
+        url(&store.get()).as_deref(),
+        Some("http://flaresolverr:8191")
+    );
+}
+
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn invalid_settings_are_rejected_and_not_saved(pool: PgPool) {
     let st = state(pool);

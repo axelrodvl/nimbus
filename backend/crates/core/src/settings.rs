@@ -367,6 +367,27 @@ impl Settings {
         }
     }
 
+    /// Поля, у которых пустое значение означает «как в окружении»: сохранённые настройки
+    /// (в том числе `null`, записанный до появления переменной) не отключают их. Сейчас это адрес
+    /// FlareSolverr: без него RuTracker упирается в Cloudflare.
+    pub fn with_env_fallbacks(mut self, env: &Settings) -> Self {
+        let env_solver = env
+            .providers
+            .rutracker
+            .as_ref()
+            .and_then(|r| r.flaresolverr_url.clone())
+            .filter(|u| !u.trim().is_empty());
+        if let (Some(r), Some(url)) = (self.providers.rutracker.as_mut(), env_solver) {
+            if r.flaresolverr_url
+                .as_deref()
+                .is_none_or(|u| u.trim().is_empty())
+            {
+                r.flaresolverr_url = Some(url);
+            }
+        }
+        self
+    }
+
     pub fn cache_limit_bytes(&self) -> u64 {
         self.storage
             .cache_limit_gb
@@ -808,6 +829,48 @@ mod tests {
             Some("http://flaresolverr:8191")
         );
         assert!(r.username.is_none() && r.cookie.is_none());
+    }
+
+    #[test]
+    fn empty_flaresolverr_url_falls_back_to_env() {
+        let mut env = Settings::default();
+        env.providers.rutracker = Some(RutrackerSettings {
+            flaresolverr_url: Some("http://flaresolverr:8191".into()),
+            ..Default::default()
+        });
+        let mut saved = Settings::default();
+        // Нет RuTracker вовсе — ничего не создаём.
+        assert!(saved
+            .clone()
+            .with_env_fallbacks(&env)
+            .providers
+            .rutracker
+            .is_none());
+        for stored in [None, Some(String::new())] {
+            saved.providers.rutracker = Some(RutrackerSettings {
+                username: Some("u".into()),
+                flaresolverr_url: stored,
+                ..Default::default()
+            });
+            let r = saved
+                .clone()
+                .with_env_fallbacks(&env)
+                .providers
+                .rutracker
+                .unwrap();
+            assert_eq!(
+                r.flaresolverr_url.as_deref(),
+                Some("http://flaresolverr:8191")
+            );
+            assert_eq!(r.username.as_deref(), Some("u"));
+        }
+        // Свой адрес не перетирается.
+        saved.providers.rutracker = Some(RutrackerSettings {
+            flaresolverr_url: Some("http://byparr:8191".into()),
+            ..Default::default()
+        });
+        let r = saved.with_env_fallbacks(&env).providers.rutracker.unwrap();
+        assert_eq!(r.flaresolverr_url.as_deref(), Some("http://byparr:8191"));
     }
 
     fn mb(f: impl FnOnce(&mut MusicbrainzSettings)) -> MusicbrainzSettings {

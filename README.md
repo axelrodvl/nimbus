@@ -265,17 +265,17 @@ Configured in `.env` or in the UI (*Settings → Sources*, each has a "Test" but
   `NIMBUS_RUTRACKER_PROXY` (e.g. `socks5://host:1080`).
   - **HTTP 403 / "Cloudflare challenge"** in the connection check means Cloudflare wants a browser check. The easiest
     fix is [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr), a headless browser that passes the check:
-    `.env.example` already enables it (`COMPOSE_PROFILES=flaresolverr`,
-    `NIMBUS_FLARESOLVERR_URL=http://flaresolverr:8191`; for an older `.env`, add these two lines, or set the URL in
-    *Settings → Sources → RuTracker → FlareSolverr*) and restart. When a page hits the challenge, Nimbus opens it in
+    it is part of docker compose and Nimbus uses it by default (`NIMBUS_FLARESOLVERR_URL=http://flaresolverr:8191`;
+    an empty value in `.env` turns it off; an empty field in *Settings → Sources → RuTracker → FlareSolverr* means the
+    same default). When a page hits the challenge, Nimbus opens it in
     FlareSolverr and reuses its `cf_clearance` cookie and User-Agent for the next requests; if Cloudflare still refuses
     direct requests, pages keep going through FlareSolverr (slower, ~2–3 s each) and the login form is posted from its
     browser. FlareSolverr garbles form values outside `A-Z a-z 0-9 _ . - ~`: with such a login or password, paste the
     `bb_session` cookie instead. `cf_clearance` is bound to the IP: FlareSolverr must reach the internet the same way as Nimbus (same
     host; if you use `NIMBUS_RUTRACKER_PROXY`, it is passed to FlareSolverr too). A compatible alternative is
     [Byparr](https://github.com/ThePhaseless/Byparr) — use its URL instead.
-  - **Jackett instead of the built-in provider.** `COMPOSE_PROFILES=jackett` starts
-    [Jackett](https://github.com/Jackett/Jackett) together with FlareSolverr (UI on `http://localhost:9117`, config in
+  - **Jackett instead of the built-in provider.** `COMPOSE_PROFILES=jackett` in `.env` starts
+    [Jackett](https://github.com/Jackett/Jackett) (UI on `http://localhost:9117`, config in
     `./data/jackett`). In Jackett: set *FlareSolverr API URL* to `http://flaresolverr:8191`, add the *RuTracker* indexer
     with your login, copy the API key. In Nimbus set the Torznab URL to
     `http://jackett:9117/api/v2.0/indexers/rutracker/results/torznab` (or `…/indexers/all/…`) and the key. Jackett also
