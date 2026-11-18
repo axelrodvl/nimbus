@@ -201,7 +201,12 @@ pub async fn test_provider(
     let Some(provider) = providers.into_iter().find(|p| p.source() == wanted) else {
         return Err(ApiError::bad_request(
             "not_configured",
-            "provider is not configured (missing URL or credentials)",
+            match req.provider {
+                ProviderName::Rutracker => {
+                    "RuTracker is not configured: enter a login and password, or a cookie"
+                }
+                _ => "provider is not configured (missing URL or credentials)",
+            },
         ));
     };
     let query = SearchQuery::text("Radiohead");

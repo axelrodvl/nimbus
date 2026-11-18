@@ -443,6 +443,21 @@ describe('источники: проверка провайдера', () => {
     expect(screen.getByRole('button', { name: L('settings.testLabel').replace('{name}', 'rutracker') })).toBeDisabled();
     expect(screen.getByRole('button', { name: L('settings.testLabel').replace('{name}', 'torznab') })).toBeDisabled();
   });
+
+  it('RuTracker с одним FlareSolverr (из окружения) без логина и cookie не проверяется', async () => {
+    const rutracker = (r: Record<string, string | null>) => ({
+      ...baseSettings(),
+      providers: { ...baseSettings().providers, rutracker: { flaresolverr_url: 'http://flaresolverr:8191', ...r } },
+    });
+    const button = () => screen.getByRole('button', { name: L('settings.testLabel').replace('{name}', 'rutracker') });
+    const { unmount } = setup('/settings/sources', rutracker({ username: null, password: null, cookie: null }));
+    await screen.findByRole('textbox', { name: L('settings.login') });
+    expect(button()).toBeDisabled();
+    unmount();
+    setup('/settings/sources', rutracker({ username: 'u', password: '••••', cookie: null }));
+    await screen.findByRole('textbox', { name: L('settings.login') });
+    expect(button()).toBeEnabled();
+  });
 });
 
 describe('поиск и сопоставление', () => {

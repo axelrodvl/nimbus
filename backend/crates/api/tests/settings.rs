@@ -154,6 +154,23 @@ async fn provider_test_reports_results_and_missing_config(pool: PgPool) {
         (code, body["error"]["code"].as_str()),
         (400, Some("not_configured"))
     );
+    // Один адрес FlareSolverr (из окружения) RuTracker не настраивает: подсказываем, чего не хватает.
+    let (code, _) = put(
+        app.clone(),
+        json!({"providers": {"rutracker": {"flaresolverr_url": "http://flaresolverr:8191"}}}),
+    )
+    .await;
+    assert_eq!(code, 200);
+    let (code, body) = post_json(
+        app.clone(),
+        "/api/settings/providers/test",
+        json!({"provider": "rutracker"}),
+    )
+    .await;
+    assert_eq!(code, 400);
+    assert!(body["error"]["message"]
+        .as_str()
+        .is_some_and(|m| m.contains("login and password, or a cookie")));
     let (code, _) = post_json(
         app.clone(),
         "/api/settings/providers/test",

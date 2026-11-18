@@ -96,7 +96,11 @@ export function SourcesSection({ settings, readOnly }: SectionProps) {
           path="providers.rutracker.flaresolverr_url"
           placeholder="http://flaresolverr:8191"
         />
-        <ProviderTest enabled={p.rutracker != null} provider="rutracker" />
+        {/* Одного адреса FlareSolverr мало: нужен логин с паролем или cookie. */}
+        <ProviderTest
+          enabled={Boolean((p.rutracker?.username && p.rutracker.password) || p.rutracker?.cookie)}
+          provider="rutracker"
+        />
       </SettingsSection>
     </ServerSectionFrame>
   );
