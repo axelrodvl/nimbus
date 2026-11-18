@@ -1,8 +1,8 @@
-import type { AddInput } from '@/lib/api/search';
 import type { SearchResponse } from '@/lib/api/search-types';
 import type { TFn, MessageKey } from '@/lib/i18n/messages';
 import { normalize, type MbidIndex, type SearchResult } from '@/lib/store/selectors';
 import { formatDuration } from '@/lib/utils';
+import type { AddRequest } from './add';
 
 export const PALETTE_ARTISTS = 3;
 export const PALETTE_ALBUMS = 3;
@@ -20,7 +20,7 @@ export type PaletteItem = {
   /** Enter ведёт сюда (сущность уже в библиотеке). */
   href?: string;
   /** Enter добавляет в библиотеку (результат MusicBrainz, которого в библиотеке ещё нет). */
-  add?: AddInput;
+  add?: AddRequest;
   /** Enter выполняет действие. */
   run?: () => void;
 };
@@ -75,7 +75,7 @@ export function buildPaletteItems(args: {
   if (remote) {
     for (const a of remote.artists.filter(r => !index.artists.has(r.mbid)).slice(0, PALETTE_ARTISTS)) {
       items.push({
-        add: { mbid: a.mbid, type: 'artist' },
+        add: { mbid: a.mbid, preview: { title: a.name }, type: 'artist' },
         avatar: { mbid: a.mbid, name: a.name },
         group: 'artist',
         id: `artist-${a.mbid}`,
@@ -85,7 +85,7 @@ export function buildPaletteItems(args: {
     }
     for (const a of remote.albums.filter(r => !index.albums.has(r.mbid)).slice(0, PALETTE_ALBUMS)) {
       items.push({
-        add: { mbid: a.mbid, type: 'album' },
+        add: { mbid: a.mbid, preview: { artistName: a.artist_name, cover: a.cover_url, title: a.title }, type: 'album' },
         cover: a.cover_url,
         group: 'album',
         id: `album-${a.mbid}`,
@@ -95,7 +95,12 @@ export function buildPaletteItems(args: {
     }
     for (const tr of remote.tracks.filter(r => !index.tracks.has(r.mbid)).slice(0, PALETTE_TRACKS)) {
       items.push({
-        add: { albumMbid: tr.album_mbid, mbid: tr.mbid, type: 'track' },
+        add: {
+          albumMbid: tr.album_mbid,
+          mbid: tr.mbid,
+          preview: { artistName: tr.artist_name, cover: tr.cover_url, title: tr.title },
+          type: 'track',
+        },
         cover: tr.cover_url,
         group: 'track',
         id: `track-${tr.mbid}`,

@@ -81,7 +81,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
-  addingStore.setState({ adding: new Set() });
+  addingStore.setState({ adding: new Map() });
 });
 
 describe('горячие клавиши', () => {

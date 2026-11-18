@@ -76,7 +76,7 @@ test.describe('поиск', () => {
     await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 
-  test('MusicBrainz недоступен: сообщение и «Повторить», локальные результаты видны; повтор работает', async ({
+  test('MusicBrainz недоступен: ошибки нет — статус «повторяем», локальные видны; поиск сам дожидается ответа', async ({
     page,
     request,
   }) => {
@@ -84,11 +84,40 @@ test.describe('поиск', () => {
     await page.goto('/');
     await waitSynced(page);
     await searchFor(page, 'artist');
-    await expect(page.getByText('Поиск не удался')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('MusicBrainz не ответил — повторяем запрос…')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Поиск не удался')).toHaveCount(0);
     await expect(page.getByTestId('search-local')).toContainText('Artist 1');
     await setSearch(request, {});
-    await page.getByRole('button', { name: 'Повторить' }).click();
-    await expect(page.getByTestId('search-results')).toBeVisible();
+    await expect(page.getByTestId('search-results')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('search-progress')).toHaveCount(0);
+  });
+
+  test('новый запрос сразу убирает результаты прежнего', async ({ page, request }) => {
+    await page.goto('/');
+    await waitSynced(page);
+    await searchFor(page, 'radiohead');
+    await expect(page.getByTestId('search-albums')).toBeVisible();
+    await setSearch(request, { delayMs: 3000 });
+    await page.getByRole('searchbox').fill('artist');
+    await expect(page.getByTestId('search-albums')).toHaveCount(0);
+    await expect(page.getByTestId('search-progress')).toContainText('Ищем в MusicBrainz…');
+  });
+
+  test('добавленное сразу видно на главной и в библиотеке, ещё до ответа сервера', async ({ page, request }) => {
+    await setSearch(request, { addDelayMs: 4000 });
+    await page.goto('/');
+    await waitSynced(page);
+    await searchFor(page, 'radiohead');
+    const card = page.getByTestId('remote-album').filter({ hasText: 'OK Computer' });
+    await card.getByRole('button', { name: 'Добавить в библиотеку' }).click();
+    await page.getByTestId('sidebar').getByRole('link', { name: 'Главная' }).click();
+    const pending = page.getByTestId('home-recent').getByTestId('pending-add').filter({ hasText: 'OK Computer' });
+    await expect(pending).toContainText('Добавляется…');
+    await page.getByTestId('sidebar').getByRole('link', { name: 'Библиотека' }).click();
+    await expect(page.getByTestId('pending-strip')).toContainText('OK Computer');
+    // Сервер ответил, дельта принесла альбом — заглушку сменила настоящая карточка.
+    await expect(page.getByTestId('library-albums').getByText('OK Computer')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('pending-strip')).toHaveCount(0);
   });
 
   test('офлайн: только локальные результаты и пояснение', async ({ context, page }) => {

@@ -3,13 +3,12 @@ import { useEffect } from 'react';
 import { Link } from 'react-router';
 import { Spinner } from '@/components/ui/spinner';
 import { useT } from '@/lib/i18n/provider';
-import type { AddInput } from '@/lib/api/search';
-import { addToLibrary, finishAdding, useIsAdding } from '@/lib/search/add';
+import { addToLibrary, finishAdding, useIsAdding, type AddRequest } from '@/lib/search/add';
 import { addToHistory } from '@/lib/search/history';
 import { cn } from '@/lib/utils';
 
 type Props = {
-  input: AddInput;
+  input: AddRequest;
   /** Куда ведёт сущность, если она уже в библиотеке (по `mbid` из store); иначе `null`. */
   libraryHref: string | null;
   /** Запрос, из которого добавляют, — попадёт в историю. */
@@ -63,8 +62,10 @@ export function AddToLibraryButton({ input, libraryHref, query, tabIndex, classN
       aria-busy={adding || undefined}
       aria-label={adding ? t('add.adding') : t('add.toLibrary')}
       className={cn(
-        'border-divider dark:border-divider-dark text-gray focus-visible:ring-accent/40 inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors hover:border-black hover:text-black focus-visible:ring-2 focus-visible:outline-none disabled:cursor-wait dark:hover:border-white dark:hover:text-white',
-        adding && 'border-accent text-accent-fg',
+        'focus-visible:ring-accent/40 inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full px-3.5 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-wait',
+        adding
+          ? 'border-accent text-accent-fg border'
+          : 'bg-accent hover:bg-accent-hover text-white shadow-sm active:scale-95',
         className,
       )}
       disabled={adding}

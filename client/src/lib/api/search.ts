@@ -11,13 +11,21 @@ export type AddInput =
   { type: 'artist' | 'album'; mbid: string } | { type: 'track'; mbid: string; albumMbid?: string | null };
 export type AddResult = Schemas['AddToLibraryResponse'];
 
-/** `GET /api/search`: поиск в MusicBrainz. `signal` отменяет устаревший запрос. */
+/** Секция поиска (параметр `types`). */
+export type SearchKind = 'artist' | 'album' | 'track';
+
+/**
+ * `GET /api/search`: поиск в MusicBrainz. `signal` отменяет устаревший запрос; `types` — только эти секции
+ * (повтор тех, что не успели ответить).
+ */
 export async function searchRemote(
   q: string,
   signal?: AbortSignal,
   client: Client = defaultClient,
+  types?: readonly SearchKind[],
 ): Promise<SearchResponse> {
-  return unwrap(await client.GET('/api/search', { params: { query: { q } }, signal }));
+  const query = types?.length ? { q, types: types.join(',') } : { q };
+  return unwrap(await client.GET('/api/search', { params: { query }, signal }));
 }
 
 /** `POST /api/library`: добавить артиста, альбом (release group) или трек (recording) в библиотеку. */

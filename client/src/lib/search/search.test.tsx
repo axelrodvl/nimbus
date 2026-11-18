@@ -15,7 +15,16 @@ import { seed } from '@/test/seed';
 import { ADDING_TIMEOUT_MS, addErrorMessage, addingStore, addToLibrary } from './add';
 import { addToHistory, clearHistory, HISTORY_KEY, HISTORY_LIMIT, readHistory, useSearchHistory } from './history';
 import { normalizeQuery, SEARCH_DEBOUNCE_MS } from './query';
-import { shouldRetry, useDebounced, useRemoteSearch } from './use-remote-search';
+import {
+  failedKinds,
+  mergeSearch,
+  RETRY_MAX_MS,
+  RETRY_MIN_MS,
+  retryDelay,
+  shouldRetry,
+  useDebounced,
+  useRemoteSearch,
+} from './use-remote-search';
 
 vi.mock('@/lib/api/search', async importOriginal => ({
   ...(await importOriginal<typeof searchApi>()),
@@ -29,6 +38,19 @@ const t = (key: string, params?: Record<string, string | number>) =>
   translate(en as never, 'en', key, params);
 
 const response = (query: string): SearchResponse => ({ albums: [], artists: [], errors: [], query, tracks: [] });
+const artist = { country: null, disambiguation: null, library_id: null, mbid: 'ar', name: 'Radio', score: 100 };
+const album = {
+  artist_mbid: 'ar',
+  artist_name: 'Radio',
+  cover_url: null,
+  library_id: null,
+  mbid: 'rg',
+  primary_type: 'Album',
+  score: 100,
+  secondary_types: [],
+  title: 'Radio',
+  year: 2000,
+} as unknown as SearchResponse['albums'][number];
 
 function wrapper() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -42,7 +64,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
-  addingStore.setState({ adding: new Set() });
+  addingStore.setState({ adding: new Map() });
 });
 
 describe('normalizeQuery', () => {
@@ -53,13 +75,35 @@ describe('normalizeQuery', () => {
 });
 
 describe('shouldRetry', () => {
-  it('4xx не повторяется, сеть и 5xx — один раз', () => {
+  it('4xx не повторяется; сеть и 5xx — сколько угодно раз', () => {
     expect(shouldRetry(0, new ApiError(400, 'bad_query', 'x'))).toBe(false);
     expect(shouldRetry(0, new ApiError(401, 'unauthorized', 'x'))).toBe(false);
     expect(shouldRetry(0, new ApiError(502, 'mb', 'x'))).toBe(true);
     expect(shouldRetry(0, new ApiError(0, 'network', 'x'))).toBe(true);
-    expect(shouldRetry(1, new ApiError(502, 'mb', 'x'))).toBe(false);
+    expect(shouldRetry(50, new ApiError(502, 'mb', 'x'))).toBe(true);
     expect(shouldRetry(0, new Error('boom'))).toBe(true);
+  });
+
+  it('пауза перед повтором растёт и ограничена сверху', () => {
+    expect([0, 1, 2, 3, 10].map(retryDelay)).toEqual([RETRY_MIN_MS, 2000, 4000, RETRY_MAX_MS, RETRY_MAX_MS]);
+  });
+});
+
+describe('частичные ответы', () => {
+  it('failedKinds: секции из `errors`, без дублей; посторонние строки игнорируются', () => {
+    expect(
+      failedKinds({ ...response('q'), errors: ['tracks: timeout', 'artists: timeout', 'artists: library lookup failed', 'weird'] }),
+    ).toEqual(['artist', 'track']);
+    expect(failedKinds(response('q'))).toEqual([]);
+  });
+
+  it('mergeSearch: повтор заменяет только свои секции; снова упавшая секция сохраняет прежнее', () => {
+    const prev: SearchResponse = { ...response('q'), albums: [album], errors: ['artists: timeout', 'tracks: timeout'] };
+    const part: SearchResponse = { ...response('q'), artists: [artist], errors: ['tracks: timeout'] };
+    const merged = mergeSearch(prev, part, ['artist', 'track']);
+    expect(merged.artists).toEqual([artist]);
+    expect(merged.albums).toEqual([album]);
+    expect(merged.errors).toEqual(['tracks: timeout']);
   });
 });
 
@@ -128,7 +172,7 @@ describe('useRemoteSearch', () => {
     expect(result.current.data).toBeUndefined();
   });
 
-  it('устаревший запрос отменяется (signal), прошлый результат помечен «устаревшим»', async () => {
+  it('новый ввод сразу убирает прежний результат: пока идёт новый запрос — только загрузка', async () => {
     vi.useFakeTimers();
     let first: AbortSignal | undefined;
     search.mockImplementationOnce(async (q, signal) => {
@@ -140,15 +184,60 @@ describe('useRemoteSearch', () => {
       wrapper: wrapper(),
     });
     await run(SEARCH_DEBOUNCE_MS);
-    expect(result.current.stale).toBe(false);
-    // Второй запрос не отвечает: пока он идёт, видны результаты первого — приглушённые.
+    expect(result.current.data?.query).toBe('radio');
     search.mockImplementationOnce(() => new Promise(() => undefined));
     rerender({ q: 'radiohead' });
-    expect(result.current.stale).toBe(true);
+    // Ещё до debounce.
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.loading).toBe(true);
     await run(SEARCH_DEBOUNCE_MS);
-    expect(result.current.stale).toBe(true);
-    expect(result.current.data?.query).toBe('radio');
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.loading).toBe(true);
     expect(first).toBeInstanceOf(AbortSignal);
+  });
+
+  it('секции, не успевшие ответить, дозапрашиваются сами до успеха; результат дополняется', async () => {
+    vi.useFakeTimers();
+    search
+      .mockResolvedValueOnce({ ...response('radio'), albums: [album], errors: ['artists: timeout'] })
+      .mockResolvedValueOnce({ ...response('radio'), errors: ['artists: timeout'] })
+      .mockResolvedValueOnce({ ...response('radio'), artists: [artist] });
+    const { result } = renderHook(() => useRemoteSearch('radio'), { wrapper: wrapper() });
+    await run(SEARCH_DEBOUNCE_MS);
+    expect(result.current.retrying).toBe(true);
+    expect(result.current.data?.albums).toEqual([album]);
+    await run(RETRY_MIN_MS);
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(search.mock.calls[1]?.[3]).toEqual(['artist']);
+    expect(result.current.retrying).toBe(true);
+    // Вторая пауза длиннее.
+    await run(RETRY_MIN_MS);
+    expect(search).toHaveBeenCalledTimes(2);
+    await run(RETRY_MIN_MS);
+    expect(search).toHaveBeenCalledTimes(3);
+    expect(result.current.retrying).toBe(false);
+    expect(result.current.data?.artists).toEqual([artist]);
+    expect(result.current.data?.albums).toEqual([album]);
+    expect(result.current.data?.errors).toEqual([]);
+  });
+
+  it('сбой сети при дозапросе — следующая попытка; уход с запроса отменяет повторы', async () => {
+    vi.useFakeTimers();
+    search
+      .mockResolvedValueOnce({ ...response('radio'), errors: ['tracks: timeout'] })
+      .mockRejectedValueOnce(new ApiError(0, 'network', 'x'));
+    const { result, rerender } = renderHook(({ q }) => useRemoteSearch(q), {
+      initialProps: { q: 'radio' },
+      wrapper: wrapper(),
+    });
+    await run(SEARCH_DEBOUNCE_MS);
+    await run(RETRY_MIN_MS);
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(result.current.retrying).toBe(true);
+    rerender({ q: 'r' });
+    await run(RETRY_MAX_MS * 2);
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(result.current.retrying).toBe(false);
   });
 
   it('возврат к прежнему запросу — из кэша, без сети (регистр и пробелы не важны)', async () => {
@@ -193,15 +282,24 @@ describe('useRemoteSearch', () => {
     expect(result.current.error).toBeNull();
   });
 
-  it('5xx повторяется один раз; чужая ошибка оборачивается в ApiError', async () => {
+  it('сбой сети и 5xx: ошибки не показываем, повторяем, пока не ответит', async () => {
     vi.useFakeTimers();
-    search.mockRejectedValue(new Error('boom'));
+    search
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockRejectedValueOnce(new ApiError(502, 'mb', 'x'))
+      .mockRejectedValueOnce(new ApiError(0, 'network', 'x'));
     const { result } = renderHook(() => useRemoteSearch('radio'), { wrapper: wrapper() });
-    await run(SEARCH_DEBOUNCE_MS + 2000);
-    expect(search).toHaveBeenCalledTimes(2);
-    expect(result.current.error).toBeInstanceOf(ApiError);
-    expect(result.current.error?.status).toBe(0);
+    await run(SEARCH_DEBOUNCE_MS);
+    expect(result.current.error).toBeNull();
+    expect(result.current.loading).toBe(true);
+    expect(result.current.retrying).toBe(true);
+    await run(RETRY_MIN_MS + 2000 + 4000);
+    expect(search).toHaveBeenCalledTimes(4);
+    expect(result.current.error).toBeNull();
+    expect(result.current.retrying).toBe(false);
+    expect(result.current.data?.query).toBe('radio');
   });
+
 });
 
 describe('история запросов', () => {
@@ -265,10 +363,30 @@ describe('addToLibrary', () => {
     expect(addingStore.getState().adding.has('mb-1')).toBe(false);
   });
 
+  it('сразу после нажатия — в списке добавляемого с превью и временем; в POST превью не уходит', async () => {
+    let finish: (v: searchApi.AddResult) => void = () => undefined;
+    const slow = vi.fn((_: searchApi.AddInput) => new Promise<searchApi.AddResult>(r => (finish = r)));
+    vi.spyOn(toast, 'success').mockReturnValue(1);
+    const done = addToLibrary({ ...input, preview: { cover: 'c.jpg', title: 'Kid A' } }, t, undefined, {
+      now: () => 42,
+      post: slow,
+      requestSync: sync,
+    });
+    expect(addingStore.getState().adding.get('mb-1')).toEqual({
+      at: 42,
+      mbid: 'mb-1',
+      preview: { cover: 'c.jpg', title: 'Kid A' },
+      type: 'album',
+    });
+    expect(slow).toHaveBeenCalledWith(input);
+    finish({ id: 1, status: 'added', type: 'album' });
+    await done;
+  });
+
   it('тексты по статусу: exists и importing', async () => {
     const success = vi.spyOn(toast, 'success').mockReturnValue(1);
     await addToLibrary(input, t, undefined, { post: async () => ({ id: 1, status: 'exists', type: 'album' }), requestSync: sync });
-    addingStore.setState({ adding: new Set() });
+    addingStore.setState({ adding: new Map() });
     await addToLibrary({ mbid: 'mb-2', type: 'artist' }, t, undefined, {
       post: async () => ({ id: 2, status: 'importing', type: 'artist' }),
       requestSync: sync,

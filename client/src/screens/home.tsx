@@ -2,6 +2,7 @@ import { Search } from 'lucide-react';
 import { Link } from 'react-router';
 import { AlbumCard } from '@/components/library/album-card';
 import { ArtistCard } from '@/components/library/artist-card';
+import { PendingAddCard, usePending } from '@/components/library/pending-add';
 import { PlaylistCardLink } from '@/components/playlists/playlists-tab';
 import { PageLayout } from '@/components/page-layout';
 import { PlayAlbumButton } from '@/components/player/play-buttons';
@@ -42,11 +43,13 @@ export function Home() {
   const playlists = usePlaylistCards().slice(0, HOME_PLAYLISTS);
   const albums = useLibraryList('albums');
   const artists = useLibraryList('artists');
+  // Только что нажатое «Добавить»: видно сразу, до ответа сервера и дельты.
+  const pending = usePending().slice(0, RECENT_ITEMS);
   if (!hydrated) return <HomeSkeleton />;
 
-  const recent = recentItems(albums, artists);
+  const recent = recentItems(albums, artists, RECENT_ITEMS - pending.length);
 
-  if (recent.length === 0 && playlists.length === 0) {
+  if (recent.length === 0 && pending.length === 0 && playlists.length === 0) {
     return (
       <PageLayout brand title={t('page.home.title')}>
         <EmptyState body={t('home.findMusic.body')} title={t('home.findMusic.title')}>
@@ -93,12 +96,17 @@ export function Home() {
             </ul>
           </section>
         ) : null}
-        {recent.length > 0 ? (
+        {recent.length + pending.length > 0 ? (
           <section aria-labelledby="home-recent" data-testid="home-recent">
             <h2 className="mb-4" id="home-recent">
               {t('home.recent')}
             </h2>
             <ul className={GRID}>
+              {pending.map(p => (
+                <li key={`pending:${p.mbid}`}>
+                  <PendingAddCard item={p} />
+                </li>
+              ))}
               {recent.map((r, i) => (
                 <li key={r.key}>
                   {r.album ? (

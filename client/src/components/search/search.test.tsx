@@ -6,6 +6,7 @@ import * as searchApi from '@/lib/api/search';
 import { appData } from '@/lib/app-data';
 import { addingStore } from '@/lib/search/add';
 import { addToHistory, readHistory } from '@/lib/search/history';
+import { SLOW_SEARCH_MS } from '@/components/search/search-results';
 import { SearchScreen } from '@/screens/search';
 import { makeAlbum, makeArtist, makeTrack, resetFactories } from '@/test/factories';
 import { renderRoutes } from '@/test/render';
@@ -48,7 +49,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
-  addingStore.setState({ adding: new Set() });
+  addingStore.setState({ adding: new Map() });
 });
 
 describe('экран поиска', () => {
@@ -163,22 +164,42 @@ describe('экран поиска', () => {
     expect(search).toHaveBeenCalledTimes(2);
   });
 
-  it('MusicBrainz недоступен (все запросы с ошибкой): сообщение и «Повторить», локальное видно', async () => {
-    search.mockResolvedValueOnce(
-      searchFixture({ albums: [], artists: [], errors: ['artists: timeout', 'albums: timeout'], tracks: [] }),
-    );
+  it('MusicBrainz не ответил ни по одной секции: не ошибка, а статус «повторяем» — и сам дозапрашивает', async () => {
+    search
+      .mockResolvedValueOnce(
+        searchFixture({ albums: [], artists: [], errors: ['artists: timeout', 'albums: timeout'], tracks: [] }),
+      )
+      .mockResolvedValueOnce(searchFixture());
     open('radio');
-    expect(await screen.findByText('MusicBrainz недоступен, попробуйте позже')).toBeInTheDocument();
+    expect(await screen.findByText('MusicBrainz не ответил — повторяем запрос…')).toBeInTheDocument();
+    expect(screen.getByTestId('search-progress')).toHaveAttribute('data-retrying', 'true');
+    expect(screen.queryByText('Ничего не найдено')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByText('Radiohead Tribute')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Повторить' }));
-    expect(await screen.findByTestId('search-results')).toBeInTheDocument();
+    // Повтор без участия пользователя: только упавшие секции.
+    expect(await screen.findByTestId('search-results', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(search.mock.calls[1]?.[3]).toEqual(['album', 'artist']);
+    expect(screen.queryByTestId('search-progress')).not.toBeInTheDocument();
   });
 
-  it('часть запросов не удалась — результаты и пометка', async () => {
-    search.mockResolvedValue(searchFixture({ errors: ['tracks: timeout'] }));
+  it('часть секций не ответила — результаты видны, статус «догружаем», без текста ошибки', async () => {
+    search.mockResolvedValueOnce(searchFixture({ errors: ['tracks: timeout'] })).mockReturnValue(new Promise(() => undefined));
     open('radiohead');
-    expect(await screen.findByText('Часть результатов недоступна')).toBeInTheDocument();
+    expect(await screen.findByText(/Часть результатов ещё загружается/)).toBeInTheDocument();
+    expect(screen.queryByText(/timeout/)).not.toBeInTheDocument();
     expect(screen.getByTestId('search-albums')).toBeInTheDocument();
+  });
+
+  it('загрузка: статус словами; через пару секунд — пояснение, что MusicBrainz медленный', () => {
+    vi.useFakeTimers();
+    search.mockReturnValue(new Promise(() => undefined));
+    open('radio');
+    const progress = screen.getByTestId('search-progress');
+    expect(progress).toHaveAttribute('role', 'status');
+    expect(progress).toHaveTextContent('Ищем в MusicBrainz…');
+    expect(progress).not.toHaveTextContent('несколько секунд');
+    act(() => void vi.advanceTimersByTime(SLOW_SEARCH_MS));
+    expect(screen.getByTestId('search-progress')).toHaveTextContent('MusicBrainz может отвечать несколько секунд.');
   });
 
   it('офлайн: только локальные результаты и пояснение, сети нет', () => {
@@ -204,13 +225,14 @@ describe('экран поиска', () => {
     expect(screen.getByText('Ничего не найдено')).toBeInTheDocument();
   });
 
-  it('новый запрос: пока идёт, прежние результаты приглушены', async () => {
+  it('новый запрос: прежние результаты сразу убираются, видна загрузка', async () => {
     const { router } = open('radiohead');
     await screen.findByTestId('search-results');
     search.mockReturnValue(new Promise(() => undefined));
     vi.useFakeTimers();
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'radiohead live' } });
-    expect(screen.getByTestId('search-results')).toHaveAttribute('data-stale', 'true');
+    expect(screen.queryByTestId('search-results')).not.toBeInTheDocument();
+    expect(screen.getByTestId('search-progress')).toBeInTheDocument();
     expect(router.state.location.search).toBe('?q=radiohead+live');
   });
 
@@ -243,6 +265,8 @@ describe('кнопка «Добавить в библиотеку»', () => {
     const card = (await screen.findAllByTestId('remote-album'))[0]!;
     fireEvent.click(within(card).getByRole('button', { name: 'Добавить в библиотеку' }));
     expect(post).toHaveBeenCalledWith({ mbid: OK_COMPUTER, type: 'album' });
+    // Сразу — в списке добавляемого (для «Недавно добавленных» и библиотеки), с данными из поиска.
+    expect(addingStore.getState().adding.get(OK_COMPUTER)?.preview?.title).toBe('OK Computer');
     const adding = await within(card).findByRole('button', { name: 'Добавляется…' });
     expect(adding).toBeDisabled();
     expect(appData().engine.requestSync).toHaveBeenCalledWith('add');
@@ -292,6 +316,7 @@ describe('кнопка «Добавить в библиотеку»', () => {
     const track = (await screen.findAllByTestId('remote-track'))[0]!;
     fireEvent.click(within(track).getByRole('button', { name: 'Добавить в библиотеку' }));
     expect(post).toHaveBeenCalledWith({ albumMbid: OK_COMPUTER, mbid: PARANOID, type: 'track' });
+    expect(addingStore.getState().adding.get(PARANOID)).toMatchObject({ preview: { artistName: 'Radiohead' }, type: 'track' });
     const artist = screen.getAllByTestId('remote-artist')[0]!;
     fireEvent.click(within(artist).getByRole('button', { name: 'Добавить в библиотеку' }));
     expect(post).toHaveBeenCalledWith({ mbid: RADIOHEAD, type: 'artist' });

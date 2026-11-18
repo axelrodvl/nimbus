@@ -1,3 +1,5 @@
+import { AlertTriangle } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { ArtistAvatar } from '@/components/library/artist-avatar';
 import { Cover } from '@/components/library/cover';
@@ -5,12 +7,14 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState } from '@/components/ui/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Spinner } from '@/components/ui/spinner';
 import type { AlbumResult, ArtistResult, TrackResult } from '@/lib/api/search-types';
 import { useT } from '@/lib/i18n/provider';
+import type { AddRequest } from '@/lib/search/add';
 import { addToHistory, clearHistory, useSearchHistory } from '@/lib/search/history';
 import type { RemoteSearch } from '@/lib/search/use-remote-search';
 import type { MbidIndex, SearchResult } from '@/lib/store/selectors';
-import { cn, formatDuration } from '@/lib/utils';
+import { formatDuration } from '@/lib/utils';
 import { AddToLibraryButton, InLibrary } from './add-to-library-button';
 import { albumHref, albumSubtitle, artistHref, pickBestArtist } from './helpers';
 
@@ -24,6 +28,12 @@ type Props = {
 
 const rowLink =
   'hover:bg-card/60 dark:hover:bg-card-dark/60 focus-visible:ring-accent/40 flex min-w-0 flex-1 items-center gap-3 rounded-md p-2 focus-visible:ring-2 focus-visible:outline-none';
+
+const artistInput = (artist: ArtistResult): AddRequest => ({
+  mbid: artist.mbid,
+  preview: { title: artist.name },
+  type: 'artist',
+});
 
 function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
   return (
@@ -102,7 +112,7 @@ function ArtistCard({ artist, index, query }: { artist: ArtistResult; index: Mbi
     <div className="flex flex-col items-center" data-testid="remote-artist">
       <div className="flex flex-col items-center">{body}</div>
       <div className="mt-2">
-        <AddToLibraryButton input={{ mbid: artist.mbid, type: 'artist' }} libraryHref={href} query={query} />
+        <AddToLibraryButton input={artistInput(artist)} libraryHref={href} query={query} />
       </div>
     </div>
   );
@@ -125,7 +135,11 @@ function AlbumCard({ album, index, query }: { album: AlbumResult; index: MbidInd
       </div>
       <div className="mt-3 flex justify-end">
         <AddToLibraryButton
-          input={{ mbid: album.mbid, type: 'album' }}
+          input={{
+            mbid: album.mbid,
+            preview: { artistName: album.artist_name, cover: album.cover_url, title: album.title },
+            type: 'album',
+          }}
           libraryHref={id === undefined ? null : albumHref(id)}
           query={query}
         />
@@ -152,7 +166,12 @@ function TrackRow({ track, index, query }: { track: TrackResult; index: MbidInde
         <span className="text-muted font-mono text-xs">{formatDuration(Math.floor(track.duration_ms / 1000))}</span>
       ) : null}
       <AddToLibraryButton
-        input={{ albumMbid: track.album_mbid, mbid: track.mbid, type: 'track' }}
+        input={{
+          albumMbid: track.album_mbid,
+          mbid: track.mbid,
+          preview: { artistName: track.artist_name, cover: track.cover_url, title: track.title },
+          type: 'track',
+        }}
         libraryHref={own ? albumHref(own.albumId) : null}
         query={query}
       />
@@ -192,7 +211,7 @@ function BestResult({
           </div>
           <div>
             {id === undefined ? (
-              <AddToLibraryButton input={{ mbid: artist.mbid, type: 'artist' }} libraryHref={null} query={query} />
+              <AddToLibraryButton input={artistInput(artist)} libraryHref={null} query={query} />
             ) : (
               <InLibrary href={artistHref(id)} query={query} />
             )}
@@ -244,6 +263,45 @@ function RetryButton({ onRetry }: { onRetry: () => void }) {
   );
 }
 
+/** После этой паузы статус поиска поясняет, что MusicBrainz отвечает не сразу. */
+export const SLOW_SEARCH_MS = 2500;
+
+/**
+ * Что сейчас делает поиск — словами, а не только скелетом: ищем, ищем долго, MusicBrainz не ответил и мы
+ * повторяем запрос сами. Таймер «долго» начинается заново с каждым новым запросом (компонент монтируется заново).
+ */
+export function SearchProgress({ retrying, partial = false }: { retrying: boolean; partial?: boolean }) {
+  const t = useT();
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setSlow(true), SLOW_SEARCH_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  const title = partial ? t('search.partialRetrying') : retrying ? t('search.retrying') : t('search.searching');
+  const body = retrying ? t('search.retryingBody') : slow ? t('search.slowBody') : null;
+  return (
+    <div
+      className="bg-card/50 dark:bg-card-dark/50 flex items-start gap-3 rounded-lg px-4 py-3"
+      data-retrying={retrying || undefined}
+      data-testid="search-progress"
+      role="status"
+    >
+      {retrying ? (
+        <AlertTriangle aria-hidden className="text-warning-fg mt-0.5 size-5 shrink-0" />
+      ) : (
+        <Spinner className="text-accent-fg mt-0.5 size-5 shrink-0" />
+      )}
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <p className="flex items-center gap-2 text-sm font-medium">
+          {title}
+          {retrying ? <Spinner className="text-muted size-3.5" /> : null}
+        </p>
+        {body ? <p className="text-muted text-xs">{body}</p> : null}
+      </div>
+    </div>
+  );
+}
+
 function RemoteResults({ remote, index, query }: { remote: RemoteSearch; index: MbidIndex; query: string }) {
   const t = useT();
   const { data } = remote;
@@ -255,35 +313,27 @@ function RemoteResults({ remote, index, query }: { remote: RemoteSearch; index: 
         </ErrorState>
       );
     }
-    return remote.loading ? <RemoteSkeleton /> : null;
+    return remote.loading ? (
+      <div className="flex flex-col gap-8" key={query}>
+        <SearchProgress retrying={remote.retrying} />
+        <RemoteSkeleton />
+      </div>
+    ) : null;
   }
   const total = data.artists.length + data.albums.length + data.tracks.length;
-  if (total === 0 && data.errors.length > 0) {
-    // Все три запроса к MusicBrainz не удались: сервер отвечает 200, но показывать «ничего не найдено» нечестно.
+  if (total === 0 && remote.retrying) {
+    // MusicBrainz не ответил ни по одной секции: «ничего не найдено» было бы неправдой — ищем дальше.
     return (
-      <ErrorState body={data.errors.join('; ')} title={t('error.mb_unavailable')}>
-        <RetryButton onRetry={remote.retry} />
-      </ErrorState>
+      <div className="flex flex-col gap-8">
+        <SearchProgress retrying />
+        <RemoteSkeleton />
+      </div>
     );
   }
   const best = pickBestArtist(data);
   return (
-    <div
-      aria-busy={remote.stale}
-      className={cn('flex flex-col gap-10 transition-opacity duration-200', remote.stale && 'opacity-50')}
-      data-stale={remote.stale || undefined}
-      data-testid="search-results"
-    >
-      {remote.error ? (
-        <ErrorState body={remote.error.message} compact title={t('search.updateFailed')}>
-          <RetryButton onRetry={remote.retry} />
-        </ErrorState>
-      ) : null}
-      {data.errors.length > 0 ? (
-        <ErrorState body={data.errors.join('; ')} compact title={t('search.partial')}>
-          <RetryButton onRetry={remote.retry} />
-        </ErrorState>
-      ) : null}
+    <div className="flex flex-col gap-10" data-testid="search-results">
+      {remote.retrying ? <SearchProgress partial retrying /> : null}
       {total === 0 ? <EmptyState body={t('search.noneBody', { query: data.query })} title={t('search.none')} /> : null}
       {best && data.tracks.length > 0 ? (
         <BestResult artist={best} index={index} query={query} tracks={data.tracks.slice(0, 4)} />

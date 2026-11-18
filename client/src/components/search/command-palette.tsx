@@ -221,13 +221,13 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
           role="combobox"
           value={query}
         />
-        {remote.loading ? <Spinner className="text-gray size-4 shrink-0" /> : null}
+        {remote.loading || remote.retrying ? <Spinner className="text-gray size-4 shrink-0" /> : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2" data-testid="palette-scroll">
         <ul
           aria-label={t('palette.results')}
-          className={cn('flex flex-col', remote.stale && 'opacity-50')}
+          className="flex flex-col"
           id={listId}
           role="listbox"
         >

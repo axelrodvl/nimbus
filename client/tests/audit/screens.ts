@@ -102,6 +102,27 @@ export const SCREENS: Screen[] = [
     path: '/search',
   },
   {
+    name: 'search-loading',
+    open: async ({ page, request }) => {
+      await setSearch(request, { delayMs: 60_000 });
+      await page.getByRole('searchbox').or(page.getByRole('combobox')).first().fill('artist');
+      await page.waitForTimeout(3200);
+    },
+    path: '/search',
+  },
+  {
+    name: 'home-pending-add',
+    open: async ({ page, request }) => {
+      await setSearch(request, { addDelayMs: 60_000 });
+      await page.getByRole('searchbox').or(page.getByRole('combobox')).first().fill('radiohead');
+      await page.getByTestId('remote-album').first().getByRole('button').click();
+      // Переход внутри приложения (боковая или нижняя панель — что видно в этой вёрстке; язык любой).
+      await page.locator('a[href="/"]').filter({ visible: true }).first().click();
+      await expect(page.getByTestId('pending-add').first()).toBeVisible();
+    },
+    path: '/search',
+  },
+  {
     name: 'search-error',
     open: async ({ page, request }) => {
       await setSearch(request, { failStatus: 502 });
