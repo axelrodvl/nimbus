@@ -232,58 +232,16 @@ impl MbClient {
             }
         }
 
-        let flight = {
-            let mut map = self
-                .inner
-                .inflight
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            match map.get(&key) {
-                Some(f) => f.clone(),
-                None => {
-                    let inner = self.inner.clone();
-                    let priority = self.priority;
-                    let observer = self.observer.clone();
-                    let owned_query: Vec<(String, String)> = query
-                        .iter()
-                        .map(|(k, v)| (k.to_string(), v.to_string()))
-                        .collect();
-                    let (path, k) = (path.to_string(), key.clone());
-                    // Запрос выполняется отдельной задачей, а не «общим будущим», которое двигают
-                    // только ожидающие: если все ожидающие ушли (пользователь закрыл страницу),
-                    // будущее зависло бы в карте вместе с флагом «интерактивный ждёт» в лимитере и
-                    // навсегда заморозило фоновые запросы. Задача ограничена таймаутом HTTP, поэтому
-                    // отслеживать её отдельно не нужно; запись из карты убирает она сама.
-                    let task = tokio::spawn(async move {
-                        let r = inner
-                            .fetch_and_cache(
-                                priority,
-                                observer.as_ref(),
-                                &path,
-                                &owned_query,
-                                ttl,
-                                &k,
-                            )
-                            .await;
-                        inner
-                            .inflight
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .remove(&k);
-                        r.map(Arc::new)
-                    });
-                    let fut = async move {
-                        task.await.unwrap_or_else(|e| {
-                            Err(MbError::Transport(format!("request task failed: {e}")))
-                        })
-                    }
-                    .boxed()
-                    .shared();
-                    map.insert(key, fut.clone());
-                    fut
-                }
+        // Просроченная запись у интерактивного запроса (поиск, экран артиста/альбома): отдаём сразу, а свежий ответ
+        // подтягиваем в фоне — данные MusicBrainz меняются редко, а пользователь не должен ждать. Фоновые запросы
+        // (импорт) по-прежнему ждут свежий ответ.
+        if self.priority == Priority::Interactive {
+            if let Some(v) = stale.take() {
+                drop(self.flight(&key, path, query, ttl, Priority::Background));
+                return Ok(v);
             }
-        };
+        }
+        let flight = self.flight(&key, path, query, ttl, self.priority);
         match flight.await {
             Ok(v) => Ok((*v).clone()),
             Err(e) if is_transient(&e) => match stale {
@@ -295,6 +253,57 @@ impl MbClient {
             },
             Err(e) => Err(e),
         }
+    }
+
+    /// Запрос в полёте по ключу: общий для всех, кто ждёт тот же ответ (single-flight). Сам запрос — отдельная задача,
+    /// поэтому он доводится до конца (и пишет в кэш), даже если ожидающих не осталось.
+    fn flight(
+        &self,
+        key: &str,
+        path: &str,
+        query: &[(&str, &str)],
+        ttl: Duration,
+        priority: Priority,
+    ) -> Flight {
+        let mut map = self
+            .inner
+            .inflight
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(f) = map.get(key) {
+            return f.clone();
+        }
+        let inner = self.inner.clone();
+        let observer = self.observer.clone();
+        let owned_query: Vec<(String, String)> = query
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        let (path, k) = (path.to_string(), key.to_string());
+        // Запрос выполняется отдельной задачей, а не «общим будущим», которое двигают
+        // только ожидающие: если все ожидающие ушли (пользователь закрыл страницу),
+        // будущее зависло бы в карте вместе с флагом «интерактивный ждёт» в лимитере и
+        // навсегда заморозило фоновые запросы. Задача ограничена таймаутом HTTP, поэтому
+        // отслеживать её отдельно не нужно; запись из карты убирает она сама.
+        let task = tokio::spawn(async move {
+            let r = inner
+                .fetch_and_cache(priority, observer.as_ref(), &path, &owned_query, ttl, &k)
+                .await;
+            inner
+                .inflight
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&k);
+            r.map(Arc::new)
+        });
+        let fut = async move {
+            task.await
+                .unwrap_or_else(|e| Err(MbError::Transport(format!("request task failed: {e}"))))
+        }
+        .boxed()
+        .shared();
+        map.insert(key.to_string(), fut.clone());
+        fut
     }
 
     async fn get_typed<T: DeserializeOwned>(
@@ -380,6 +389,8 @@ impl MbClient {
         .await
     }
 
+    /// Популярность с кэшем по каждому MBID (`lb:{path}:{mbid}`, неделя): повторный поиск не ходит в ListenBrainz,
+    /// а пересекающиеся запросы спрашивают только то, чего ещё нет. Записи без прослушиваний кэшируются нулём.
     async fn popularity(
         &self,
         path: &str,
@@ -387,9 +398,60 @@ impl MbClient {
         id_field: &str,
         mbids: &[Uuid],
     ) -> HashMap<Uuid, u64> {
-        let (Some(base), false) = (&self.inner.cfg.lb_base, mbids.is_empty()) else {
+        if self.inner.cfg.lb_base.is_none() || mbids.is_empty() {
             return HashMap::new();
+        }
+        let key = |id: &Uuid| format!("lb:{path}:{id}");
+        let mut out = HashMap::new();
+        if let Some(pool) = &self.inner.cache {
+            let keys: Vec<String> = mbids.iter().map(key).collect();
+            match mb_cache::get_many(pool, &keys).await {
+                Ok(found) => {
+                    for id in mbids {
+                        if let Some(n) = found.get(&key(id)).and_then(Value::as_u64) {
+                            out.insert(*id, n);
+                        }
+                    }
+                }
+                Err(e) => tracing::warn!(error = %e, "mb_cache read failed"),
+            }
+        }
+        let missing: Vec<Uuid> = mbids
+            .iter()
+            .filter(|id| !out.contains_key(id))
+            .copied()
+            .collect();
+        if missing.is_empty() {
+            return out;
+        }
+        let Some(fetched) = self
+            .popularity_fetch(path, req_field, id_field, &missing)
+            .await
+        else {
+            return out;
         };
+        if let Some(pool) = &self.inner.cache {
+            let rows: Vec<(String, Value)> = missing
+                .iter()
+                .map(|id| (key(id), Value::from(fetched.get(id).copied().unwrap_or(0))))
+                .collect();
+            if let Err(e) = mb_cache::put_many(pool, &rows, LOOKUP_TTL).await {
+                tracing::warn!(error = %e, "mb_cache write failed");
+            }
+        }
+        out.extend(fetched);
+        out
+    }
+
+    /// Запрос в ListenBrainz; `None` — ошибка (её не кэшируем).
+    async fn popularity_fetch(
+        &self,
+        path: &str,
+        req_field: &str,
+        id_field: &str,
+        mbids: &[Uuid],
+    ) -> Option<HashMap<Uuid, u64>> {
+        let base = self.inner.cfg.lb_base.as_ref()?;
         let res: std::result::Result<Vec<Value>, String> = async {
             let url = base.join(path).map_err(|e| e.to_string())?;
             let resp = self
@@ -406,16 +468,18 @@ impl MbClient {
         }
         .await;
         match res {
-            Ok(items) => items
-                .iter()
-                .filter_map(|it| {
-                    let id = it.get(id_field)?.as_str()?.parse().ok()?;
-                    Some((id, it.get("total_listen_count")?.as_u64()?))
-                })
-                .collect(),
+            Ok(items) => Some(
+                items
+                    .iter()
+                    .filter_map(|it| {
+                        let id = it.get(id_field)?.as_str()?.parse().ok()?;
+                        Some((id, it.get("total_listen_count")?.as_u64()?))
+                    })
+                    .collect(),
+            ),
             Err(e) => {
                 tracing::warn!(error = %e, "listenbrainz popularity failed");
-                HashMap::new()
+                None
             }
         }
     }
@@ -731,7 +795,19 @@ impl Inner {
         ttl: Duration,
         key: &str,
     ) -> Result<Value> {
-        let value = self.fetch(priority, observer, path, query).await?;
+        let value = match self.fetch(priority, observer, path, query).await {
+            Ok(v) => v,
+            Err(MbError::NotFound) => {
+                // Сущность удалена из MusicBrainz: устаревшая запись кэша больше не должна отдаваться.
+                if let Some(pool) = &self.cache {
+                    if let Err(e) = mb_cache::delete(pool, key).await {
+                        tracing::warn!(error = %e, "mb_cache delete failed");
+                    }
+                }
+                return Err(MbError::NotFound);
+            }
+            Err(e) => return Err(e),
+        };
         if let Some(pool) = &self.cache {
             if let Err(e) = mb_cache::put(pool, key, &value, ttl).await {
                 tracing::warn!(error = %e, "mb_cache write failed");

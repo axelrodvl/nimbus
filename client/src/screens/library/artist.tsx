@@ -41,7 +41,9 @@ export function ArtistScreen() {
   const t = useT();
   const id = parseId(useParams().id);
   const artist = useArtistView(id ?? -1);
-  const albums = useArtistAlbums(id ?? -1);
+  // Только то, что в библиотеке (альбом или хоть один его трек): альбомы, которые лишь открывали в поиске или
+  // слушали, лежат в БД, но в библиотеку не входят.
+  const albums = useArtistAlbums(id ?? -1, true);
   const artistTracks = useArtistTracks(id ?? -1);
   const queryClient = useQueryClient();
   const state = useEntityState(artist !== undefined);

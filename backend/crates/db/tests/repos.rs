@@ -503,7 +503,18 @@ async fn mb_cache_ttl(pool: PgPool) {
         0,
         "свежепросроченное не удаляется"
     );
+    // Месяц — ещё хранится (год срока хранения), больше года — удаляется.
     sqlx::query("UPDATE mb_cache SET expires_at = now() - interval '31 days' WHERE key = 'k2'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        mb_cache::purge_expired(&pool, mb_cache::STALE_GRACE)
+            .await
+            .unwrap(),
+        0
+    );
+    sqlx::query("UPDATE mb_cache SET expires_at = now() - interval '366 days' WHERE key = 'k2'")
         .execute(&pool)
         .await
         .unwrap();
@@ -1313,4 +1324,30 @@ async fn torrent_upload_accumulates_across_sessions(pool: PgPool) {
         ),
         7
     );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn mb_cache_batch_and_delete(pool: PgPool) {
+    let rows = vec![("a".to_string(), json!(1)), ("b".to_string(), json!(2))];
+    mb_cache::put_many(&pool, &rows, Duration::from_secs(60))
+        .await
+        .unwrap();
+    mb_cache::put_many(&pool, &[], Duration::from_secs(60))
+        .await
+        .unwrap();
+    // Повтор обновляет значение.
+    mb_cache::put_many(
+        &pool,
+        &[("b".to_string(), json!(3))],
+        Duration::from_secs(60),
+    )
+    .await
+    .unwrap();
+    let got = mb_cache::get_many(&pool, &["a".into(), "b".into(), "c".into()])
+        .await
+        .unwrap();
+    assert_eq!(got.len(), 2);
+    assert_eq!((got["a"].clone(), got["b"].clone()), (json!(1), json!(3)));
+    mb_cache::delete(&pool, "a").await.unwrap();
+    assert!(mb_cache::get(&pool, "a").await.unwrap().is_none());
 }

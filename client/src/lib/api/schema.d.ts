@@ -1241,7 +1241,7 @@ export interface components {
         };
         CatalogAlbumResponse: {
             album: components["schemas"]["AlbumResult"];
-            /** @description Треклист каноничного релиза группы (тот же, что получит альбом при добавлении). */
+            /** @description Треклист каноничного релиза группы; альбом и треки при этом сохраняются в БД (вне библиотеки). */
             tracks: components["schemas"]["CatalogTrack"][];
         };
         CatalogArtist: {
@@ -2471,7 +2471,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Альбом и его треклист из MusicBrainz */
+            /** @description Альбом и его треклист (из БД, иначе из MusicBrainz с сохранением в БД) */
             200: {
                 headers: {
                     [name: string]: unknown;

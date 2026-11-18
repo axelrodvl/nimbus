@@ -10,7 +10,7 @@ use std::time::Duration;
 use axum::extract::{Path, State};
 use axum::Json;
 use nimbus_core::model::TrackStatus;
-use nimbus_db::repo::{albums, artists, tracks};
+use nimbus_db::repo::{albums, artists};
 use nimbus_library::LibraryError;
 use nimbus_musicbrainz::{cover_url, MbError, ReleaseGroupHit};
 use serde::{Deserialize, Serialize};
@@ -61,7 +61,7 @@ pub struct CatalogTrack {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CatalogAlbumResponse {
     pub album: AlbumResult,
-    /// Треклист каноничного релиза группы (тот же, что получит альбом при добавлении).
+    /// Треклист каноничного релиза группы; альбом и треки при этом сохраняются в БД (вне библиотеки).
     pub tracks: Vec<CatalogTrack>,
 }
 
@@ -159,7 +159,7 @@ pub async fn catalog_artist(
     tag = "search",
     params(("mbid" = String, Path, description = "MBID группы релизов (альбома)")),
     responses(
-        (status = 200, description = "Альбом и его треклист из MusicBrainz", body = CatalogAlbumResponse),
+        (status = 200, description = "Альбом и его треклист (из БД, иначе из MusicBrainz с сохранением в БД)", body = CatalogAlbumResponse),
         (status = 400, description = "mbid — не UUID (bad_mbid)", body = crate::error::ErrorResponse),
         (status = 404, description = "Нет в MusicBrainz (mb_not_found)", body = crate::error::ErrorResponse),
         (status = 503, description = "MusicBrainz недоступен (mb_unavailable)", body = crate::error::ErrorResponse),
@@ -170,37 +170,42 @@ pub async fn catalog_album(
     Path(mbid): Path<String>,
 ) -> Result<Json<CatalogAlbumResponse>, ApiError> {
     let mbid = parse_mbid(&mbid)?;
-    let (group, (_release, tracklist)) = tokio::try_join!(
-        mb_call(state.mb.release_group(mbid)),
-        mb_call(state.mb.canonical_release_with_tracklist(mbid)),
-    )?;
-    let album_id = albums::library_ids_by_rg_mbid(&state.db, &[mbid])
+    // Альбом и треклист сохраняются в БД (вне библиотеки), как при «сыграть»/«добавить»: повторное открытие,
+    // воспроизведение и добавление берут их оттуда, без MusicBrainz. Треклист — тот же, что получат эти действия.
+    let (album, rows) =
+        match tokio::time::timeout(CATALOG_TIMEOUT, state.library.ensure_album(mbid, None)).await {
+            Ok(r) => r?,
+            Err(_) => return Err(LibraryError::MbUnavailable("timeout".into()).into()),
+        };
+    let artist = artists::get(&state.db, album.artist_id)
         .await?
-        .first()
-        .map(|r| r.1);
-    let recordings: Vec<Uuid> = tracklist.tracks.iter().map(|t| t.mbid_recording).collect();
-    let info: HashMap<Uuid, (i64, TrackStatus)> =
-        tracks::library_info_by_recording(&state.db, &recordings)
-            .await?
-            .into_iter()
-            .map(|(rec, id, status, _album)| (rec, (id, status)))
-            .collect();
+        .ok_or_else(ApiError::internal)?;
     Ok(Json(CatalogAlbumResponse {
-        album: album_result(group, album_id),
-        tracks: tracklist
-            .tracks
+        album: AlbumResult {
+            library_id: album.in_library.then_some(album.id),
+            cover_url: album
+                .cover_url
+                .clone()
+                .unwrap_or_else(|| cover_url(album.mbid_release_group, COVER_SIZE)),
+            mbid: album.mbid_release_group,
+            title: album.title,
+            artist_mbid: artist.mbid,
+            artist_name: artist.name,
+            primary_type: album.primary_type,
+            secondary_types: album.secondary_types,
+            year: album.year,
+            score: 100,
+        },
+        tracks: rows
             .into_iter()
-            .map(|t| {
-                let own = info.get(&t.mbid_recording);
-                CatalogTrack {
-                    mbid: t.mbid_recording,
-                    title: t.title,
-                    disc_no: t.disc_no,
-                    position: t.position,
-                    duration_ms: t.duration_ms,
-                    library_id: own.map(|o| o.0),
-                    status: own.map(|o| o.1),
-                }
+            .map(|t| CatalogTrack {
+                library_id: t.in_library.then_some(t.id),
+                status: t.in_library.then_some(t.status),
+                mbid: t.mbid_recording,
+                title: t.title,
+                disc_no: t.disc_no,
+                position: t.position,
+                duration_ms: t.duration_ms.and_then(|d| u32::try_from(d).ok()),
             })
             .collect(),
     }))

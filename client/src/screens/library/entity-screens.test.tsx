@@ -294,6 +294,16 @@ describe('артист', () => {
     ]);
   });
 
+  it('альбом, который только открывали в поиске или слушали (не в библиотеке), не показывается', () => {
+    const data = discography();
+    data.albums.push(makeAlbum({ artist_id: 1, id: 9, in_library: false, title: 'Browsed' }));
+    data.tracks.push(makeTrack({ album_id: 9, artist_id: 1, id: 9, in_library: false }));
+    seed(data);
+    renderRoutes(routes, '/artist/1');
+    expect(screen.getByRole('heading', { level: 1, name: 'Eminem' })).toBeInTheDocument();
+    expect(screen.queryByText('Browsed')).not.toBeInTheDocument();
+  });
+
   it('groupAlbums отбрасывает пустые группы', () => {
     expect(groupAlbums([])).toEqual([]);
   });

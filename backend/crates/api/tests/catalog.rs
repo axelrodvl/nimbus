@@ -286,3 +286,35 @@ async fn play_errors(pool: PgPool) {
     assert_eq!(status, 422, "{v}");
     assert_eq!(v["error"]["code"], "recording_not_in_release");
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn opened_album_is_kept_in_db_and_reopens_without_musicbrainz(pool: PgPool) {
+    let server = mb_server().await;
+    let app = router(state_with_mb(pool.clone(), mb_client(&server)));
+    let (status, _) = get_json(app.clone(), &format!("/api/catalog/albums/{OK_COMPUTER}")).await;
+    assert_eq!(status, 200);
+    // Альбом, треки и артист — в БД, но не в библиотеке.
+    let (albums, tracks, in_library): (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM albums), (SELECT count(*) FROM tracks),
+                (SELECT count(*) FROM tracks WHERE in_library) + (SELECT count(*) FROM albums WHERE in_library)
+                  + (SELECT count(*) FROM artists WHERE in_library)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((albums, tracks, in_library), (1, 4, 0));
+    // MusicBrainz пропал — альбом всё равно открывается (из БД), «сыграть» тоже не ходит в MusicBrainz.
+    server.reset().await;
+    let (status, v) = get_json(app.clone(), &format!("/api/catalog/albums/{OK_COMPUTER}")).await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["tracks"][1]["title"], "Paranoid Android");
+    assert_eq!(v["album"]["artist_name"], "Radiohead");
+    let (status, v) = post_json(
+        app,
+        "/api/play",
+        json!({"type": "track", "mbid": PARANOID, "album_mbid": OK_COMPUTER}),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    assert!(server.received_requests().await.unwrap().is_empty());
+}

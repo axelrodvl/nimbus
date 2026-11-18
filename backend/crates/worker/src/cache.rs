@@ -1,4 +1,5 @@
-//! Учёт места и вытеснение кэша: давно не игравшие файлы удаляются, пока кэш не уменьшится до 90 % лимита.
+//! Учёт места и вытеснение кэша: сначала файлы вне библиотеки, затем давно не игравшие — пока кэш не уменьшится
+//! до 90 % лимита.
 
 use std::path::Path;
 
@@ -120,11 +121,14 @@ pub async fn evict_cache(ctx: &JobCtx, limit_bytes: u64) -> Result<EvictReport, 
     let pinned = pins::protected_files(&ctx.db).await?;
     let mut skipped_pinned = 0usize;
 
-    // Самые давно игравшие первыми; никогда не игравшие — по времени завершения; без обоих — раньше всех.
+    // Сначала то, что не нужно библиотеке (скачано, чтобы просто послушать); внутри — самые давно игравшие первыми,
+    // никогда не игравшие — по времени завершения, без обоих — раньше всех.
+    let library = pins::library_files(&ctx.db).await?;
     let mut order: Vec<usize> = (0..all.len()).collect();
     order.sort_by_key(|&i| {
         let d = &all[i];
         (
+            library.contains(&(d.torrent_id, d.file_index)),
             d.last_played_at.or(d.completed_at),
             d.torrent_id,
             d.file_index,

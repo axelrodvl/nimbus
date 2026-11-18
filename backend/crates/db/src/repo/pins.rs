@@ -275,6 +275,19 @@ pub async fn protected_files(db: impl PgExecutor<'_>) -> sqlx::Result<HashSet<(i
     Ok(rows.into_iter().collect())
 }
 
+/// Файлы, которые служат источником хоть одному треку библиотеки. Остальные (скачанное для «просто послушать»)
+/// вытесняются из кэша первыми.
+pub async fn library_files(db: impl PgExecutor<'_>) -> sqlx::Result<HashSet<(i64, i32)>> {
+    let rows: Vec<(i64, i32)> = sqlx::query_as(
+        "SELECT DISTINCT ts.torrent_id, ts.file_index
+         FROM track_sources ts JOIN tracks t ON t.id = ts.track_id
+         WHERE t.in_library",
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().collect())
+}
+
 /// Нужен ли файл какому-либо закреплённому треку (как primary-источник).
 pub async fn file_is_pinned(
     db: impl PgExecutor<'_>,

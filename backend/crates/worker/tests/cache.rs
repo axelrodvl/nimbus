@@ -198,6 +198,22 @@ async fn evicts_oldest_first_until_ninety_percent(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn files_outside_the_library_are_evicted_first(pool: PgPool) {
+    let root = root();
+    // old — давно игравший трек библиотеки; fresh — только что сыгранный «просто послушать» (вне библиотеки).
+    let old = item(&pool, &root, 1, 1000, 30).await;
+    let fresh = item(&pool, &root, 2, 1000, 0).await;
+    tracks::set_in_library(&pool, old.track_id, true)
+        .await
+        .unwrap();
+    let ctx = ctx(&pool, Activity::default());
+    let r = evict_cache(&ctx, 1500).await.unwrap();
+    assert_eq!(r.evicted, vec![(fresh.torrent_id, 0)]);
+    assert!(old.path.exists() && !fresh.path.exists());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn does_nothing_under_the_limit(pool: PgPool) {
     let root = root();
     let a = item(&pool, &root, 1, 1000, 10).await;

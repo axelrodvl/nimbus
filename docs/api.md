@@ -150,7 +150,8 @@ primary-источником (CUE или формат файла), поэтом�
 
 **Каталог MusicBrainz** (экраны поиска: артист и альбом, которых может не быть в библиотеке).
 - `GET /api/catalog/artists/{mbid}` — артист и его альбомы/EP (новые сверху; совместные, где первым указан другой артист, отсеяны).
-- `GET /api/catalog/albums/{mbid}` — альбом (release group) и треклист каноничного релиза: `mbid` трека — запись (recording)
+- `GET /api/catalog/albums/{mbid}` — альбом (release group) и треклист каноничного релиза; альбом и треки сохраняются в БД
+  (вне библиотеки), повторное открытие, «сыграть» и «добавить» идут без MusicBrainz: `mbid` трека — запись (recording)
   для `POST /api/library` с `type=track`; у добавленного — `library_id` и `status`.
 - `400` `bad_mbid`, `404` `mb_not_found`, `503` `mb_unavailable` (MusicBrainz не ответил за 30 с).
 - `POST /api/play` `{ type: "track" | "album", mbid, album_mbid? }` — сыграть, не добавляя в библиотеку: метаданные альбома

@@ -419,13 +419,122 @@ async fn second_call_is_served_from_mb_cache(pool: PgPool) {
         "ttl = {secs}"
     );
 
-    // истёкшая запись → новый HTTP-запрос
+    // истёкшая запись → отдаётся сразу, а в фоне уходит новый HTTP-запрос
     sqlx::query("UPDATE mb_cache SET expires_at = now() - interval '1 second'")
         .execute(&pool)
         .await
         .unwrap();
     assert_eq!(c.artist(uuid(RADIOHEAD)).await.unwrap().name, "Radiohead");
-    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+    wait_requests(&server, 2).await;
+    wait_fresh(&pool).await;
+}
+
+/// Ждёт, пока мок не получит `n` запросов (фоновое обновление кэша).
+async fn wait_requests(server: &MockServer, n: usize) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while server.received_requests().await.unwrap().len() < n {
+        assert!(Instant::now() < deadline, "ожидали {n} запросов");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+/// Ждёт, пока все записи кэша не станут свежими.
+async fn wait_fresh(pool: &PgPool) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let stale: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM mb_cache WHERE expires_at <= now()")
+                .fetch_one(pool)
+                .await
+                .unwrap();
+        if stale == 0 {
+            return;
+        }
+        assert!(Instant::now() < deadline, "кэш не обновился");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn background_client_waits_for_a_fresh_answer_instead_of_stale(pool: PgPool) {
+    let server = MockServer::start().await;
+    let p = format!("/ws/2/artist/{RADIOHEAD}");
+    Mock::given(path(p.clone()))
+        .respond_with(json("artist"))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    let c = MbClient::with_config(cfg(&server), Some(pool.clone())).unwrap();
+    c.artist(uuid(RADIOHEAD)).await.unwrap();
+    sqlx::query("UPDATE mb_cache SET expires_at = now() - interval '1 second'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    Mock::given(path(p))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": RADIOHEAD, "name": "Radiohead (updated)"
+        })))
+        .mount(&server)
+        .await;
+    // Импорт (фоновый клиент) не довольствуется устаревшим ответом.
+    assert_eq!(
+        c.background().artist(uuid(RADIOHEAD)).await.unwrap().name,
+        "Radiohead (updated)"
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn listenbrainz_popularity_is_cached_per_mbid(pool: PgPool) {
+    let server = MockServer::start().await;
+    let (a, b) = (Uuid::from_u128(1), Uuid::from_u128(2));
+    Mock::given(method("POST"))
+        .and(path("/1/popularity/recording"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+            { "recording_mbid": a.to_string(), "total_listen_count": 42 }
+        ])))
+        .mount(&server)
+        .await;
+    let mut c = cfg(&server);
+    c.lb_base = Some(format!("{}/1/", server.uri()).parse().unwrap());
+    let c = MbClient::with_config(c, Some(pool.clone())).unwrap();
+    let first = c.recording_popularity(&[a, b]).await;
+    assert_eq!(first.get(&a), Some(&42));
+    // Повтор — из кэша, без запроса; у записи без прослушиваний — закэшированный ноль.
+    let again = c.recording_popularity(&[a, b]).await;
+    assert_eq!((again.get(&a), again.get(&b)), (Some(&42), Some(&0)));
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    // Пересекающийся набор: спрашивается только новое.
+    let cc = Uuid::from_u128(3);
+    c.recording_popularity(&[a, cc]).await;
+    let reqs = server.received_requests().await.unwrap();
+    assert_eq!(reqs.len(), 2);
+    let body: serde_json::Value = serde_json::from_slice(&reqs[1].body).unwrap();
+    assert_eq!(body["recording_mbids"], serde_json::json!([cc.to_string()]));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn listenbrainz_failure_is_not_cached(pool: PgPool) {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+    let mut c = cfg(&server);
+    c.lb_base = Some(format!("{}/1/", server.uri()).parse().unwrap());
+    let c = MbClient::with_config(c, Some(pool.clone())).unwrap();
+    assert!(c
+        .recording_popularity(&[Uuid::from_u128(1)])
+        .await
+        .is_empty());
+    assert!(c
+        .release_group_popularity(&[Uuid::from_u128(1)])
+        .await
+        .is_empty());
+    let cached: i64 = sqlx::query_scalar("SELECT count(*) FROM mb_cache")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(cached, 0);
 }
 
 #[tokio::test]
@@ -1076,7 +1185,7 @@ async fn stale_cache_entry_is_served_on_503_and_refreshed_by_a_good_response(poo
         .await;
     assert_eq!(c.artist(uuid(RADIOHEAD)).await.unwrap().name, "Radiohead");
 
-    // Сервис ожил: запись обновляется свежим ответом.
+    // Сервис ожил: просроченная запись отдаётся сразу, а фоновое обновление кладёт свежий ответ.
     server.reset().await;
     Mock::given(path(p))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -1084,15 +1193,12 @@ async fn stale_cache_entry_is_served_on_503_and_refreshed_by_a_good_response(poo
         })))
         .mount(&server)
         .await;
+    assert_eq!(c.artist(uuid(RADIOHEAD)).await.unwrap().name, "Radiohead");
+    wait_fresh(&pool).await;
     assert_eq!(
         c.artist(uuid(RADIOHEAD)).await.unwrap().name,
         "Radiohead (updated)"
     );
-    let fresh: bool = sqlx::query_scalar("SELECT expires_at > now() FROM mb_cache")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert!(fresh);
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
@@ -1120,12 +1226,28 @@ async fn stale_entry_is_not_used_for_not_found_or_without_entry(pool: PgPool) {
     let c = MbClient::with_config(cfg(&server), Some(pool.clone())).unwrap();
     c.artist(uuid(RADIOHEAD)).await.unwrap();
     expire(&pool).await;
-    // 404 — это ответ, а не отказ: запасная запись не подставляется.
+    // 404 при фоновом обновлении — сущность удалена: запись убирается, дальше — «не найдено».
     server.reset().await;
     Mock::given(path(format!("/ws/2/artist/{RADIOHEAD}")))
         .respond_with(ResponseTemplate::new(404))
         .mount(&server)
         .await;
+    assert!(
+        c.artist(uuid(RADIOHEAD)).await.is_ok(),
+        "сначала — то, что было"
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM mb_cache")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        if left == 0 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "запись не удалена");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     assert!(matches!(
         c.artist(uuid(RADIOHEAD)).await,
         Err(MbError::NotFound)
