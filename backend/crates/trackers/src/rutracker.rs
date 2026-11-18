@@ -36,7 +36,7 @@ use scraper::{Html, Selector};
 use serde::Deserialize;
 use tokio::sync::Mutex;
 
-use crate::flaresolverr::{FlareSolverr, Solution, SOLVER_HTTP_TIMEOUT};
+use crate::flaresolverr::{post_safe, FlareSolverr, Solution, SOLVER_HTTP_TIMEOUT};
 use crate::limiter::{Limiter, RUTRACKER_CONCURRENCY, RUTRACKER_INTERVAL};
 use crate::magnet::build_magnet;
 use crate::types::*;
@@ -279,11 +279,25 @@ impl RutrackerProvider {
             .collect()
     }
 
-    /// Открывает `url` через FlareSolverr; его cookie (`cf_clearance`) и User-Agent — для прямых запросов.
-    async fn solve(&self, solver: &FlareSolverr, url: &str) -> Result<Solution, ProviderError> {
+    /// Открывает `url` через FlareSolverr (с формой `form` — POST); его cookie (`cf_clearance`, а после
+    /// входа и `bb_session`) и User-Agent — для следующих запросов.
+    async fn solve(
+        &self,
+        solver: &FlareSolverr,
+        url: &str,
+        form: Option<&str>,
+    ) -> Result<Solution, ProviderError> {
         let _guard = self.solve_lock.lock().await;
-        tracing::info!(url, "rutracker: Cloudflare challenge, asking FlareSolverr");
-        let solution = solver.get(url, &self.site_cookies()).await?;
+        tracing::info!(
+            url,
+            post = form.is_some(),
+            "rutracker: Cloudflare challenge, asking FlareSolverr"
+        );
+        let cookies = self.site_cookies();
+        let solution = match form {
+            Some(form) => solver.post(url, form, &cookies).await?,
+            None => solver.get(url, &cookies).await?,
+        };
         for (name, value) in &solution.cookies {
             self.jar
                 .add_cookie_str(&format!("{name}={value}; Path=/"), &self.base_url);
@@ -325,7 +339,7 @@ impl RutrackerProvider {
             .map_err(blocked_hint)?;
         if let (true, Some(solver)) = (is_challenge(&resp), &self.solver) {
             drop(resp);
-            let solution = self.solve(solver, &url).await?;
+            let solution = self.solve(solver, &url, None).await?;
             if !solution.passed() {
                 return Err(solver_rejected(&format!("HTTP {}", solution.status)));
             }
@@ -360,20 +374,41 @@ impl RutrackerProvider {
                 .send()
         };
         let mut resp = post().await.map_err(blocked_hint)?;
+        let mut via_solver = None;
         if let (true, Some(solver)) = (is_challenge(&resp), &self.solver) {
-            // Форму логина решатель не отправит (cp1251): берём у него `cf_clearance` и повторяем POST сами.
+            // Сначала `cf_clearance` от решателя и прямой POST (форма в cp1251 как есть).
             drop(resp);
-            self.solve(solver, &self.url("login.php")).await?;
+            let login_url = self.url("login.php");
+            self.solve(solver, &login_url, None).await?;
             resp = post().await.map_err(blocked_hint)?;
             if is_challenge(&resp) {
-                return Err(solver_rejected(
-                    "its cf_clearance was not accepted on login",
-                ));
+                // Cloudflare не пускает и с cf_clearance (отличает наш HTTP-клиент от браузера):
+                // отправляем форму из браузера решателя. Он искажает значения с символами вне
+                // `[A-Za-z0-9_.-~]`, поэтому для таких логинов/паролей — только cookie.
+                if !post_safe(user) || !post_safe(pass) {
+                    return Err(ProviderError::Auth(
+                        "Cloudflare only lets the FlareSolverr browser in, and it cannot post a username or password \
+                         with characters other than A-Z, a-z, 0-9, _ . - ~: log in with a browser and paste \
+                         the bb_session cookie into the RuTracker settings"
+                            .into(),
+                    ));
+                }
+                let form = format!("login_username={user}&login_password={pass}&login=1");
+                let solution = self.solve(solver, &login_url, Some(&form)).await?;
+                if !solution.passed() {
+                    return Err(solver_rejected(&format!("login, HTTP {}", solution.status)));
+                }
+                via_solver = Some(solution.html);
             }
         }
-        let resp = check_rutracker(resp)?;
-        let bytes = resp.bytes().await.map_err(blocked_hint)?;
-        let html = decode_cp1251(&bytes);
+        let html = match via_solver {
+            Some(html) => html,
+            None => {
+                let resp = check_rutracker(resp)?;
+                let bytes = resp.bytes().await.map_err(blocked_hint)?;
+                decode_cp1251(&bytes)
+            }
+        };
         if html.contains("cap_sid") || html.to_lowercase().contains("captcha") {
             return Err(ProviderError::Auth(
                 "captcha required: set NIMBUS_RUTRACKER_COOKIE".into(),

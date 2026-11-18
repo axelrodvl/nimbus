@@ -41,15 +41,27 @@ impl Solution {
     }
 }
 
-/// Признаки страницы Cloudflare «Just a moment…».
+/// Признаки страницы Cloudflare «Just a moment…». `challenge-platform` сюда не годится: Cloudflare
+/// вставляет скрипт `/cdn-cgi/challenge-platform/scripts/jsd/…` и в обычные страницы.
 pub fn is_challenge_page(html: &str) -> bool {
-    html.contains("_cf_chl_opt") || html.contains("challenge-platform")
+    html.contains("_cf_chl_opt") || html.contains("<title>Just a moment...</title>")
+}
+
+/// Значение переживёт `request.post` FlareSolverr без искажений. Он вставляет в форму
+/// `quote(unquote(value))`, а браузер кодирует это ещё раз, так что сервер получает исходное значение
+/// только для символов, которые `quote` не трогает.
+pub fn post_safe(value: &str) -> bool {
+    value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "_.-~".contains(c))
 }
 
 #[derive(Serialize)]
 struct Request<'a> {
     cmd: &'static str,
     url: &'a str,
+    #[serde(rename = "postData", skip_serializing_if = "Option::is_none")]
+    post_data: Option<&'a str>,
     #[serde(rename = "maxTimeout")]
     max_timeout: u64,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -124,9 +136,30 @@ impl FlareSolverr {
         url: &str,
         cookies: &[(String, String)],
     ) -> Result<Solution, ProviderError> {
+        self.request("request.get", url, None, cookies).await
+    }
+
+    /// Отправляет форму (`a=b&c=d`) из браузера решателя; значения — только [`post_safe`].
+    pub async fn post(
+        &self,
+        url: &str,
+        form: &str,
+        cookies: &[(String, String)],
+    ) -> Result<Solution, ProviderError> {
+        self.request("request.post", url, Some(form), cookies).await
+    }
+
+    async fn request(
+        &self,
+        cmd: &'static str,
+        url: &str,
+        post_data: Option<&str>,
+        cookies: &[(String, String)],
+    ) -> Result<Solution, ProviderError> {
         let req = Request {
-            cmd: "request.get",
+            cmd,
             url,
+            post_data,
             max_timeout: SOLVE_TIMEOUT.as_millis() as u64,
             cookies: cookies
                 .iter()
@@ -189,6 +222,33 @@ mod tests {
         let b = FlareSolverr::new("http://fs:8191/v1", None).unwrap();
         assert_eq!(b.endpoint, "http://fs:8191/v1");
         assert!(FlareSolverr::new("not a url", None).is_err());
+    }
+
+    #[test]
+    fn regular_page_with_cloudflare_jsd_script_is_passed() {
+        let s = Solution {
+            url: String::new(),
+            status: 200,
+            html: r#"<html><head><title>RuTracker.org</title></head><body>
+                <script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script></body></html>"#
+                .into(),
+            cookies: vec![],
+            user_agent: None,
+        };
+        assert!(s.passed());
+        assert!(!Solution {
+            html: "<html><head><title>Just a moment...</title></head></html>".into(),
+            ..s
+        }
+        .passed());
+    }
+
+    #[test]
+    fn post_safe_values() {
+        assert!(post_safe("user_1.name-x~"));
+        assert!(!post_safe("p@ss"));
+        assert!(!post_safe("пароль"));
+        assert!(!post_safe("a b"));
     }
 
     #[test]

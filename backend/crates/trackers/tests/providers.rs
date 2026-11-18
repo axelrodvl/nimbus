@@ -827,6 +827,113 @@ mod rutracker {
         assert_eq!(p.search(&SearchQuery::text("x")).await.unwrap().len(), 2);
     }
 
+    fn solver_login_provider(server: &MockServer, password: &str) -> RutrackerProvider {
+        RutrackerProvider::new(RutrackerOptions {
+            base_url: Some(format!("{}/forum/", server.uri())),
+            api_url: Some(server.uri()),
+            username: Some("vadim".into()),
+            password: Some(password.into()),
+            flaresolverr_url: Some(server.uri()),
+            min_interval: Some(FAST),
+            ..RutrackerOptions::default()
+        })
+        .unwrap()
+    }
+
+    /// Cloudflare не пускает прямые запросы и с cf_clearance: GET-страница — из решателя (с обычным
+    /// скриптом Cloudflare jsd в HTML), вход — формой из браузера решателя.
+    #[tokio::test]
+    async fn login_is_posted_by_flaresolverr_when_direct_requests_stay_challenged() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/forum/login.php"))
+            .respond_with(challenge())
+            .expect(1..)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/forum/tracker.php"))
+            .respond_with(challenge())
+            .mount(&server)
+            .await;
+        let login_url = format!("{}/forum/login.php", server.uri());
+        let posted = login_url.clone();
+        Mock::given(method("POST"))
+            .and(path("/v1"))
+            .and(move |r: &Request| {
+                let b: serde_json::Value = serde_json::from_slice(&r.body).unwrap_or_default();
+                b["cmd"] == "request.post"
+                    && b["url"] == posted.as_str()
+                    && b["postData"] == "login_username=vadim&login_password=secret_1&login=1"
+                    && b["cookies"]
+                        .as_array()
+                        .is_some_and(|c| c.iter().any(|c| c["name"] == "cf_clearance"))
+            })
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "status": "ok",
+                "message": "",
+                "solution": {
+                    "url": format!("{}/forum/index.php", server.uri()),
+                    "status": 200,
+                    "response": "<html><title>RuTracker.org</title></html>",
+                    "cookies": [{"name": "bb_session", "value": "sess9"}],
+                    "userAgent": SOLVER_UA,
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let jsd = r#"<script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script>"#;
+        let page = format!("{}{jsd}", rutracker_decode(SEARCH));
+        Mock::given(method("POST"))
+            .and(path("/v1"))
+            .and(|r: &Request| {
+                let b: serde_json::Value = serde_json::from_slice(&r.body).unwrap_or_default();
+                b["cmd"] == "request.get"
+                    && b["url"].as_str().is_some_and(|u| u.contains("tracker.php"))
+                    && b["cookies"]
+                        .as_array()
+                        .is_some_and(|c| c.iter().any(|c| c["value"] == "sess9"))
+            })
+            .respond_with(solver_ok("https://rutracker.org/forum/tracker.php", &page))
+            .expect(1)
+            .mount(&server)
+            .await;
+        // Решение для GET login.php (получение cf_clearance перед прямым POST).
+        Mock::given(method("POST"))
+            .and(path("/v1"))
+            .respond_with(solver_ok(&login_url, "<html>login</html>"))
+            .with_priority(10)
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let p = solver_login_provider(&server, "secret_1");
+        assert_eq!(p.search(&SearchQuery::text("x")).await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn password_flaresolverr_cannot_post_asks_for_cookie() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/forum/login.php"))
+            .respond_with(challenge())
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1"))
+            .respond_with(solver_ok("https://x/forum/login.php", "<html>login</html>"))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let p = solver_login_provider(&server, "p@ss word");
+        let err = p.search(&SearchQuery::text("x")).await.unwrap_err();
+        assert!(
+            matches!(&err, ProviderError::Auth(m) if m.contains("bb_session")),
+            "{err}"
+        );
+    }
+
     #[tokio::test]
     async fn flaresolverr_failure_is_blocked() {
         let server = MockServer::start().await;
