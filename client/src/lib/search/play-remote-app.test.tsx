@@ -2,6 +2,7 @@ import { act } from '@testing-library/react';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as catalogApi from '@/lib/api/catalog';
+import * as tracksApi from '@/lib/api/tracks';
 import { appData } from '@/lib/app-data';
 import { en } from '@/lib/i18n/messages/en';
 import type { TFn } from '@/lib/i18n/messages';
@@ -10,12 +11,16 @@ import { resetPlayer, toPlayerTrack } from '@/lib/player';
 import { makeAlbum, makeArtist, makeTrack, resetFactories } from '@/test/factories';
 import { installTestPlayer } from '@/test/player-ui';
 import { seed } from '@/test/seed';
-import { playRemoteApp } from './play-remote';
+import { PENDING_POLL_MS, playRemoteApp } from './play-remote';
 
 vi.mock('@/lib/api/settings', () => ({ loadPrefetchEnabled: async () => true }));
 vi.mock('@/lib/api/catalog', async importOriginal => ({
   ...(await importOriginal<typeof catalogApi>()),
   requestPlay: vi.fn(),
+}));
+vi.mock('@/lib/api/tracks', async importOriginal => ({
+  ...(await importOriginal<typeof tracksApi>()),
+  getTrack: vi.fn(),
 }));
 const post = vi.mocked(catalogApi.requestPlay);
 
@@ -81,6 +86,25 @@ describe('playRemoteApp: связка с библиотекой и плееро�
     act(() => seed(rows('found')));
     expect(env.ctl.state.queue.map(q => q.id)).toEqual([10]);
     expect(playRemoteApp().store.getState().pending).toBeNull();
+  });
+
+  it('сторож приложения: спрашивает сервер о треке напрямую и догоняет store синхронизацией', async () => {
+    vi.useFakeTimers();
+    try {
+      seed({ albums: [], artists: [], tracks: [] });
+      installTestPlayer();
+      post.mockResolvedValue({ album_id: 2, track_ids: [10], tracks: [{ id: 10, status: 'adding' }] });
+      vi.mocked(tracksApi.getTrack).mockResolvedValue({ status: 'found' } as Awaited<ReturnType<typeof tracksApi.getTrack>>);
+      playRemoteApp().playRemote({ albumMbid: 'rg', mbid: 'rec-a', title: 'A' }, t);
+      await act(async () => undefined);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(PENDING_POLL_MS);
+      });
+      expect(tracksApi.getTrack).toHaveBeenCalledWith(10);
+      expect(appData().engine.requestSync).toHaveBeenCalledWith('play-pending');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('пока ждём, пользователь включил другой трек — ожидание снимается', async () => {

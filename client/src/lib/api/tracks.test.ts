@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { errorResponse } from '@/test/factories';
 import { createApiClient } from './client';
-import { getAudioInfo, postPlayed, prefetchTrack } from './tracks';
+import { getAudioInfo, getTrack, postPlayed, prefetchTrack } from './tracks';
 
 describe('postPlayed', () => {
   it('POST /api/tracks/{id}/played → новый счётчик', async () => {
@@ -45,5 +45,17 @@ describe('prefetchTrack / getAudioInfo', () => {
     const client = createApiClient({ baseUrl: 'http://x', fetch });
     expect(await getAudioInfo(4, undefined, client)).toEqual(info);
     expect(new URL((fetch.mock.calls[0]?.[0] as Request).url).pathname).toBe('/api/tracks/4/audio-info');
+  });
+});
+
+describe('getTrack', () => {
+  it('GET /api/tracks/{id}', async () => {
+    const fetch = vi.fn(
+      async (_input: RequestInfo | URL) =>
+        new Response(JSON.stringify({ id: 9, status: 'found' }), { headers: { 'content-type': 'application/json' } }),
+    );
+    const client = createApiClient({ baseUrl: 'http://x', fetch });
+    expect(await getTrack(9, client)).toMatchObject({ id: 9, status: 'found' });
+    expect(new URL((fetch.mock.calls[0]?.[0] as Request).url).pathname).toBe('/api/tracks/9');
   });
 });
