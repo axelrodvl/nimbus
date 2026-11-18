@@ -90,6 +90,12 @@ export function SourcesSection({ settings, readOnly }: SectionProps) {
           placeholder="Accept-Language: ru,en;q=0.9"
         />
         <TextRow description={t('settings.proxyHint')} label={t('settings.proxy')} path="providers.rutracker.proxy" />
+        <TextRow
+          description={t('settings.flaresolverrHint')}
+          label="FlareSolverr"
+          path="providers.rutracker.flaresolverr_url"
+          placeholder="http://flaresolverr:8191"
+        />
         <ProviderTest enabled={p.rutracker != null} provider="rutracker" />
       </SettingsSection>
     </ServerSectionFrame>

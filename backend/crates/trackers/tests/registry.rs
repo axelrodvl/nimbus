@@ -466,6 +466,29 @@ async fn in_flight_failures_do_not_escalate_the_pause() {
     assert_eq!(p.calls(), BREAKER_THRESHOLD as usize + 1);
 }
 
+/// Провайдер, которому нужно дольше общего таймаута (RuTracker через FlareSolverr), получает свой.
+#[tokio::test(start_paused = true)]
+async fn provider_timeout_hint_extends_the_registry_timeout() {
+    struct Patient;
+    #[async_trait]
+    impl TorrentProvider for Patient {
+        fn source(&self) -> TorrentSource {
+            TorrentSource::Rutracker
+        }
+        fn timeout_hint(&self) -> Option<Duration> {
+            Some(Duration::from_secs(90))
+        }
+        async fn search(&self, _q: &SearchQuery) -> Result<Vec<TorrentCandidate>, ProviderError> {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            Ok(vec![])
+        }
+    }
+    let reg = ProviderRegistry::new(vec![Arc::new(Patient)])
+        .with_retries(0)
+        .with_timeout(Duration::from_secs(1));
+    assert!(search(&reg, "q").await.unwrap().is_empty());
+}
+
 /// Отменённый поиск (все ожидающие ушли) доводится до конца сам: запись «в полёте» не зависает
 /// без хозяина вместе с занятым слотом лимитера и «пробным» запросом предохранителя.
 #[tokio::test(start_paused = true)]

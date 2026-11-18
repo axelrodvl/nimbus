@@ -522,6 +522,8 @@ const messages: Messages = {
   'settings.providersHint': 'Sunucunun müzik içeren torrentleri aradığı yerler.',
   'settings.proxy': 'Proxy',
   'settings.proxyHint': 'Örneğin socks5://127.0.0.1:1080',
+  'settings.flaresolverrHint':
+    'Cloudflare doğrulamasını sizin yerinize geçer, örn. http://flaresolverr:8191 — docker-compose\'daki flaresolverr konteyneri.',
   'settings.cookieHint':
     "Tarayıcıdaki Cookie dizesinin tamamını yapıştırın (bb_session=…; cf_clearance=…). Bağlantı testi 403 / Cloudflare diyorsa: rutracker.org'u açın, doğrulamayı geçin ve çerezleri DevTools'tan kopyalayın.",
   'settings.userAgent': 'User-Agent',

@@ -41,6 +41,7 @@
 | `NIMBUS_RUTRACKER_PASSWORD` | пусто | Пароль RuTracker. |
 | `NIMBUS_RUTRACKER_COOKIE` | пусто | Cookie вместо пароля (если нужна капча). |
 | `NIMBUS_RUTRACKER_PROXY` | пусто | Прокси к RuTracker, например `socks5://host:1080`. |
+| `NIMBUS_FLARESOLVERR_URL` | пусто | FlareSolverr для Cloudflare-челленджа RuTracker, например `http://flaresolverr:8191` (контейнер — профиль compose `flaresolverr`). |
 | `NIMBUS_CACHE_LIMIT_GB` | `50` | Лимит кэша торрентов; закреплённое вытеснению не подлежит и может его превышать. |
 | `NIMBUS_SEEDING` | `true` | Раздавать после скачивания. |
 | `NIMBUS_SEED_RATIO` | `1.0` | Лимит раздачи (`0` или `none` — без лимита). |
@@ -51,7 +52,9 @@
 | `NIMBUS_PORT` | `8000` | Только docker compose: порт интерфейса на хосте. |
 | `NIMBUS_VERSION` | `latest` | Только `deploy/docker-compose.release.yml`: версия образов GHCR. |
 
-User-Agent и дополнительные заголовки RuTracker (`providers.rutracker.user_agent`, `providers.rutracker.headers`) задаются только в интерфейсе или через `PUT /api/settings`: вместе с `cf_clearance` в cookie они нужны, чтобы пройти Cloudflare-челлендж (см. README, «RuTracker»).
+User-Agent и дополнительные заголовки RuTracker (`providers.rutracker.user_agent`, `providers.rutracker.headers`) задаются только в интерфейсе или через `PUT /api/settings`: вместе с `cf_clearance` в cookie они нужны, чтобы пройти Cloudflare-челлендж вручную (см. README, «RuTracker»). Проще — FlareSolverr (`providers.rutracker.flaresolverr_url`): на челлендже Nimbus открывает страницу в его браузере, а полученные `cf_clearance` и User-Agent использует для следующих запросов; вход по логину после этого идёт напрямую.
+
+Необязательные контейнеры compose включаются переменной `COMPOSE_PROFILES` в `.env`: `flaresolverr` — только решатель, `jackett` — Jackett (веб-интерфейс на `127.0.0.1:${JACKETT_PORT:-9117}`, конфигурация в `./data/jackett`) вместе с FlareSolverr.
 
 Остальные настройки (источники, лимиты MusicBrainz, производительность, плеер, хранилище) — в интерфейсе («Настройки»)
 или `PUT /api/settings`; они хранятся в БД и накладываются поверх значений из окружения.

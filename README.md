@@ -263,9 +263,22 @@ Configured in `.env` or in the UI (*Settings → Sources*, each has a "Test" but
 - **RuTracker** — `NIMBUS_RUTRACKER_USERNAME` / `NIMBUS_RUTRACKER_PASSWORD`. If a captcha is required, log in with a
   browser and pass the whole cookie in `NIMBUS_RUTRACKER_COOKIE`. If the site is blocked, use
   `NIMBUS_RUTRACKER_PROXY` (e.g. `socks5://host:1080`).
-  - **HTTP 403 / "Cloudflare challenge"** in the connection check means Cloudflare wants a browser check, which the
-    backend cannot pass. Open `rutracker.org` in your browser (from the same machine/IP as Nimbus), pass the check,
-    then in *Settings → Sources → RuTracker* paste the whole `Cookie` string (`bb_session=…; cf_clearance=…`), the
+  - **HTTP 403 / "Cloudflare challenge"** in the connection check means Cloudflare wants a browser check. The easiest
+    fix is [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr), a headless browser that passes the check:
+    add `COMPOSE_PROFILES=flaresolverr` and `NIMBUS_FLARESOLVERR_URL=http://flaresolverr:8191` to `.env` (or set the
+    URL in *Settings → Sources → RuTracker → FlareSolverr*) and restart. When a page hits the challenge, Nimbus opens it
+    in FlareSolverr and reuses its `cf_clearance` cookie and User-Agent for the next requests, so the solver runs only
+    now and then. `cf_clearance` is bound to the IP: FlareSolverr must reach the internet the same way as Nimbus (same
+    host; if you use `NIMBUS_RUTRACKER_PROXY`, it is passed to FlareSolverr too). A compatible alternative is
+    [Byparr](https://github.com/ThePhaseless/Byparr) — use its URL instead.
+  - **Jackett instead of the built-in provider.** `COMPOSE_PROFILES=jackett` starts
+    [Jackett](https://github.com/Jackett/Jackett) together with FlareSolverr (UI on `http://localhost:9117`, config in
+    `./data/jackett`). In Jackett: set *FlareSolverr API URL* to `http://flaresolverr:8191`, add the *RuTracker* indexer
+    with your login, copy the API key. In Nimbus set the Torznab URL to
+    `http://jackett:9117/api/v2.0/indexers/rutracker/results/torznab` (or `…/indexers/all/…`) and the key. Jackett also
+    shows the captcha on login, if RuTracker asks for one.
+  - **Manually, without extra containers:** open `rutracker.org` in your browser (from the same machine/IP as Nimbus),
+    pass the check, then in *Settings → Sources → RuTracker* paste the whole `Cookie` string (`bb_session=…; cf_clearance=…`), the
     browser's exact **User-Agent** and, if needed, extra headers (one `Name: value` per line, e.g. `sec-ch-ua`,
     `Accept-Language`). `cf_clearance` only works from the same IP and with the same User-Agent, and expires after a
     while — repeat when the check starts failing again. `Cookie` and `User-Agent` have their own fields and are not

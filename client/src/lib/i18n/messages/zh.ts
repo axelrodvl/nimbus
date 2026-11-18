@@ -512,6 +512,8 @@ const messages: Messages = {
   'settings.providersHint': '服务器在哪里查找含音乐的种子。',
   'settings.proxy': '代理',
   'settings.proxyHint': '例如 socks5://127.0.0.1:1080',
+  'settings.flaresolverrHint':
+    '替你通过 Cloudflare 验证，例如 http://flaresolverr:8191 —— 使用 docker-compose 中的 flaresolverr 容器。',
   'settings.cookieHint':
     '粘贴浏览器中完整的 Cookie 字符串（bb_session=…; cf_clearance=…）。如果连接测试提示 403 / Cloudflare：打开 rutracker.org，通过验证，然后从 DevTools 复制 Cookie。',
   'settings.userAgent': 'User-Agent',

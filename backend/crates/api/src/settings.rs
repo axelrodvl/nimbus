@@ -205,7 +205,11 @@ pub async fn test_provider(
         ));
     };
     let query = SearchQuery::text("Radiohead");
-    let res = tokio::time::timeout(TEST_TIMEOUT, provider.search(&query)).await;
+    // Через FlareSolverr проверка дольше: решатель проходит челлендж в браузере.
+    let timeout = provider
+        .timeout_hint()
+        .map_or(TEST_TIMEOUT, |hint| hint.max(TEST_TIMEOUT));
+    let res = tokio::time::timeout(timeout, provider.search(&query)).await;
     Ok(Json(match res {
         Ok(Ok(found)) => ProviderTestResponse {
             ok: true,

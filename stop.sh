@@ -11,11 +11,11 @@ compose=(docker compose -f deploy/docker-compose.release.yml --project-directory
 
 case "${1:-}" in
   "")
-    "${compose[@]}" down --remove-orphans
+    "${compose[@]}" --profile '*' down --remove-orphans
     echo "Nimbus stopped. Data is kept (use --purge to also wipe the database)."
     ;;
   --purge)
-    "${compose[@]}" down --remove-orphans -v
+    "${compose[@]}" --profile '*' down --remove-orphans -v
     echo "Nimbus stopped; database volume removed."
     ;;
   *)

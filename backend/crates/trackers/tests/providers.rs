@@ -242,6 +242,29 @@ async fn torznab_falls_back_to_text_search() {
 }
 
 #[tokio::test]
+async fn torznab_falls_back_to_text_search_when_music_search_is_unsupported() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(query_param("t", "music"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            r#"<?xml version="1.0" encoding="UTF-8"?><error code="203" description="Function Not Available: artist"/>"#,
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(query_param("t", "search"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(TZ_MUSIC))
+        .expect(1)
+        .mount(&server)
+        .await;
+    assert_eq!(
+        torznab(&server).search(&music_query()).await.unwrap().len(),
+        3
+    );
+}
+
+#[tokio::test]
 async fn torznab_without_artist_album_uses_text_search_only() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -671,6 +694,260 @@ mod rutracker {
         );
     }
 
+    // ---------------------------------------------------------- FlareSolverr
+
+    const SOLVER_UA: &str = "Mozilla/5.0 SolverBrowser";
+
+    fn challenge() -> ResponseTemplate {
+        ResponseTemplate::new(403)
+            .insert_header("cf-mitigated", "challenge")
+            .set_body_string("<script>window._cf_chl_opt={}</script>")
+    }
+
+    /// Ответ FlareSolverr: страница `html`, `cf_clearance` и User-Agent браузера.
+    fn solver_ok(url: &str, html: &str) -> ResponseTemplate {
+        ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "status": "ok",
+            "message": "Challenge solved!",
+            "solution": {
+                "url": url,
+                "status": 200,
+                "response": html,
+                "cookies": [{"name": "cf_clearance", "value": "solved", "domain": ".rutracker.org"}],
+                "userAgent": SOLVER_UA,
+            }
+        }))
+    }
+
+    fn with_solver(server: &MockServer, user: bool, cookie: Option<&str>) -> RutrackerProvider {
+        RutrackerProvider::new(RutrackerOptions {
+            base_url: Some(format!("{}/forum/", server.uri())),
+            api_url: Some(server.uri()),
+            username: user.then(|| "vadim".to_string()),
+            password: user.then(|| "пароль".to_string()),
+            cookie: cookie.map(str::to_string),
+            flaresolverr_url: Some(format!("{}/", server.uri())),
+            min_interval: Some(FAST),
+            ..RutrackerOptions::default()
+        })
+        .unwrap()
+    }
+
+    /// Прямой запрос прошёл Cloudflare: cookie и User-Agent решателя.
+    fn cleared(r: &Request) -> bool {
+        let h = |k: &str| r.headers.get(k).and_then(|v| v.to_str().ok()).unwrap_or("");
+        h("cookie").contains("cf_clearance=solved") && h("user-agent") == SOLVER_UA
+    }
+
+    #[tokio::test]
+    async fn challenged_search_goes_through_flaresolverr_then_reuses_clearance() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/forum/tracker.php"))
+            .and(cleared)
+            .respond_with(html(SEARCH))
+            .with_priority(1)
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/forum/tracker.php"))
+            .respond_with(challenge())
+            .expect(1)
+            .mount(&server)
+            .await;
+        let search_url = format!("{}/forum/tracker.php?nm=x&o=10&s=2", server.uri());
+        let expected_url = search_url.clone();
+        Mock::given(method("POST"))
+            .and(path("/v1"))
+            // Решатель открывает ту же страницу с нашей сессией.
+            .and(move |r: &Request| {
+                let b: serde_json::Value = serde_json::from_slice(&r.body).unwrap_or_default();
+                b["cmd"] == "request.get"
+                    && b["url"] == expected_url.as_str()
+                    && b["cookies"].as_array().is_some_and(|c| {
+                        c.iter()
+                            .any(|c| c["name"] == "bb_session" && c["value"] == "abc")
+                    })
+                    && b.get("proxy").is_none()
+            })
+            .respond_with(solver_ok(&search_url, &rutracker_decode(SEARCH)))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let p = with_solver(&server, false, Some("bb_session=abc"));
+        // Первый поиск — страница из браузера решателя (уже декодирована из cp1251).
+        let found = p.search(&SearchQuery::text("x")).await.unwrap();
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].title, "Кино - Группа крови (1988) [FLAC]");
+        // Второй — напрямую, с cf_clearance и User-Agent решателя; решатель больше не нужен.
+        assert_eq!(p.search(&SearchQuery::text("x")).await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn challenged_login_gets_clearance_then_posts_form_directly() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/forum/login.php"))
+            .and(cleared)
+            .respond_with(login_ok())
+            .with_priority(1)
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/forum/login.php"))
+            .respond_with(challenge())
+            .expect(1)
+            .mount(&server)
+            .await;
+        let login_url = format!("{}/forum/login.php", server.uri());
+        Mock::given(method("POST"))
+            .and(path("/v1"))
+            .respond_with(solver_ok(&login_url, "<html>login form</html>"))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/forum/tracker.php"))
+            .and(cleared)
+            .and(|r: &Request| {
+                r.headers
+                    .get("cookie")
+                    .and_then(|v| v.to_str().ok())
+                    .is_some_and(|c| c.contains("bb_session=sess1"))
+            })
+            .respond_with(html(SEARCH))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let p = with_solver(&server, true, None);
+        assert_eq!(p.search(&SearchQuery::text("x")).await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn flaresolverr_failure_is_blocked() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/forum/tracker.php"))
+            .respond_with(challenge())
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1"))
+            .respond_with(ResponseTemplate::new(500).set_body_json(serde_json::json!({
+                "status": "error",
+                "message": "Error: Error solving the challenge. Timeout after 60.0 seconds.",
+            })))
+            .mount(&server)
+            .await;
+        let p = with_solver(&server, false, Some("bb_session=abc"));
+        let err = p.search(&SearchQuery::text("x")).await.unwrap_err();
+        assert!(
+            matches!(&err, ProviderError::Blocked(m) if m.contains("FlareSolverr") && m.contains("Timeout")),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn flaresolverr_returning_the_challenge_again_is_blocked() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/forum/tracker.php"))
+            .respond_with(challenge())
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1"))
+            .respond_with(solver_ok(
+                "https://rutracker.org/forum/tracker.php",
+                "<script>window._cf_chl_opt={}</script>",
+            ))
+            .mount(&server)
+            .await;
+        let p = with_solver(&server, false, Some("bb_session=abc"));
+        let err = p.search(&SearchQuery::text("x")).await.unwrap_err();
+        assert!(
+            matches!(&err, ProviderError::Blocked(m) if m.contains("did not get past")),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn unreachable_flaresolverr_is_blocked_with_its_address() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/forum/tracker.php"))
+            .respond_with(challenge())
+            .mount(&server)
+            .await;
+        let p = RutrackerProvider::new(RutrackerOptions {
+            base_url: Some(format!("{}/forum/", server.uri())),
+            cookie: Some("bb_session=abc".into()),
+            flaresolverr_url: Some("http://127.0.0.1:1".into()),
+            min_interval: Some(FAST),
+            ..RutrackerOptions::default()
+        })
+        .unwrap();
+        let err = p.search(&SearchQuery::text("x")).await.unwrap_err();
+        assert!(
+            matches!(&err, ProviderError::Blocked(m) if m.contains("127.0.0.1:1/v1")),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn flaresolverr_gets_the_rutracker_proxy() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1"))
+            .and(|r: &Request| {
+                let b: serde_json::Value = serde_json::from_slice(&r.body).unwrap_or_default();
+                b["proxy"]["url"] == "socks5://vpn:1080"
+            })
+            .respond_with(solver_ok("https://x/", "<html></html>"))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let solver = nimbus_trackers::flaresolverr::FlareSolverr::new(
+            &server.uri(),
+            Some("socks5://vpn:1080".into()),
+        )
+        .unwrap();
+        let s = solver.get("https://x/", &[]).await.unwrap();
+        assert!(s.passed());
+        assert_eq!(s.user_agent.as_deref(), Some(SOLVER_UA));
+        assert_eq!(
+            s.cookies,
+            [("cf_clearance".to_string(), "solved".to_string())]
+        );
+    }
+
+    #[test]
+    fn solver_extends_the_provider_timeout() {
+        let plain = RutrackerProvider::new(RutrackerOptions {
+            cookie: Some("bb_session=1".into()),
+            ..RutrackerOptions::default()
+        })
+        .unwrap();
+        assert!(plain.timeout_hint().is_none());
+        let solved = RutrackerProvider::new(RutrackerOptions {
+            cookie: Some("bb_session=1".into()),
+            flaresolverr_url: Some("http://flaresolverr:8191".into()),
+            ..RutrackerOptions::default()
+        })
+        .unwrap();
+        assert!(solved.timeout_hint().unwrap() > Duration::from_secs(60));
+        let bad = RutrackerProvider::new(RutrackerOptions {
+            cookie: Some("bb_session=1".into()),
+            flaresolverr_url: Some("flaresolverr".into()),
+            ..RutrackerOptions::default()
+        });
+        assert!(matches!(bad, Err(ProviderError::Parse(_))));
+    }
+
     #[tokio::test]
     async fn plain_403_stays_auth_error() {
         let server = MockServer::start().await;
@@ -904,7 +1181,7 @@ mod rutracker {
     }
 
     #[tokio::test]
-    #[ignore = "живой RuTracker: нужны NIMBUS_RUTRACKER_USERNAME/PASSWORD или COOKIE (и, возможно, PROXY)"]
+    #[ignore = "живой RuTracker: нужны NIMBUS_RUTRACKER_USERNAME/PASSWORD или COOKIE (и, возможно, PROXY, FLARESOLVERR_URL)"]
     async fn live_rutracker_search_and_resolve() {
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let p = RutrackerProvider::new(RutrackerOptions {
@@ -912,6 +1189,7 @@ mod rutracker {
             password: env("NIMBUS_RUTRACKER_PASSWORD"),
             cookie: env("NIMBUS_RUTRACKER_COOKIE"),
             proxy: env("NIMBUS_RUTRACKER_PROXY"),
+            flaresolverr_url: env("NIMBUS_FLARESOLVERR_URL"),
             ..RutrackerOptions::default()
         })
         .unwrap();

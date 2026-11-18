@@ -17,9 +17,13 @@
 //! ```
 //!
 //! Страницы приходят в cp1251; запросы и форма логина кодируются в cp1251 вручную.
+//!
+//! Cloudflare: поиск и вход бывают закрыты managed-челленджем (`cf-mitigated: challenge`). Если задан
+//! FlareSolverr ([`crate::flaresolverr`]), страница, упёршаяся в челлендж, берётся из браузера решателя,
+//! а его `cf_clearance` и User-Agent — для следующих прямых запросов (как в Jackett).
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, PoisonError, RwLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -32,6 +36,7 @@ use scraper::{Html, Selector};
 use serde::Deserialize;
 use tokio::sync::Mutex;
 
+use crate::flaresolverr::{FlareSolverr, Solution, SOLVER_HTTP_TIMEOUT};
 use crate::limiter::{Limiter, RUTRACKER_CONCURRENCY, RUTRACKER_INTERVAL};
 use crate::magnet::build_magnet;
 use crate::types::*;
@@ -87,6 +92,8 @@ pub struct RutrackerOptions {
     pub user_agent: Option<String>,
     /// Дополнительные заголовки, по одному `Name: value` в строке.
     pub headers: Option<String>,
+    /// Адрес FlareSolverr (`http://flaresolverr:8191`) для прохождения Cloudflare-челленджа.
+    pub flaresolverr_url: Option<String>,
     pub min_interval: Option<Duration>,
 }
 
@@ -104,6 +111,11 @@ pub struct RutrackerProvider {
     /// Растёт после каждого успешного входа: параллельный запрос, увидевший разлогин, не логинится
     /// повторно, если за время ожидания блокировки вход уже выполнил другой.
     login_gen: AtomicU64,
+    solver: Option<FlareSolverr>,
+    /// Решения идут по одному: браузер решателя тяжёлый, а `cf_clearance` от первого подходит всем.
+    solve_lock: Mutex<()>,
+    /// User-Agent браузера решателя: `cf_clearance` действует только вместе с ним.
+    solved_user_agent: RwLock<Option<String>>,
 }
 
 /// Кодирует строку в cp1251 и percent-кодирует байты.
@@ -116,21 +128,31 @@ fn decode_cp1251(bytes: &[u8]) -> String {
     WINDOWS_1251.decode(bytes).0.into_owned()
 }
 
+fn is_challenge(resp: &reqwest::Response) -> bool {
+    resp.headers()
+        .get("cf-mitigated")
+        .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"challenge"))
+}
+
 /// Как `check_status`, но Cloudflare-челлендж (`cf-mitigated: challenge`, обычно HTTP 403) — это не ошибка
 /// учётных данных, а блокировка клиента: объясняем, что делать.
 fn check_rutracker(resp: reqwest::Response) -> Result<reqwest::Response, ProviderError> {
-    if resp
-        .headers()
-        .get("cf-mitigated")
-        .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"challenge"))
-    {
+    if is_challenge(&resp) {
         return Err(ProviderError::Blocked(format!(
-            "RuTracker is behind a Cloudflare challenge (HTTP {}): open rutracker.org in your browser, pass the check, \
+            "RuTracker is behind a Cloudflare challenge (HTTP {}): set a FlareSolverr URL in the RuTracker settings \
+             (NIMBUS_FLARESOLVERR_URL), or open rutracker.org in your browser, pass the check, \
              then copy its cf_clearance and bb_session cookies and the browser's User-Agent into the RuTracker settings",
             resp.status().as_u16()
         )));
     }
     check_status(resp)
+}
+
+fn solver_rejected(what: &str) -> ProviderError {
+    ProviderError::Blocked(format!(
+        "RuTracker is behind a Cloudflare challenge and FlareSolverr did not get past it ({what}); \
+         make sure FlareSolverr goes out through the same IP/proxy as Nimbus"
+    ))
 }
 
 fn blocked_hint(e: reqwest::Error) -> ProviderError {
@@ -199,6 +221,13 @@ impl RutrackerProvider {
             builder = builder.proxy(proxy);
         }
         let http = builder.build().map_err(ProviderError::from)?;
+        let solver = opts
+            .flaresolverr_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|u| !u.is_empty())
+            .map(|u| FlareSolverr::new(u, opts.proxy.clone()))
+            .transpose()?;
         Ok(Self {
             http,
             jar,
@@ -217,7 +246,55 @@ impl RutrackerProvider {
             ),
             login_lock: Mutex::new(()),
             login_gen: AtomicU64::new(0),
+            solver,
+            solve_lock: Mutex::new(()),
+            solved_user_agent: RwLock::new(None),
         })
+    }
+
+    /// Подставляет User-Agent решателя, если `cf_clearance` получен через него.
+    fn with_ua(&self, rb: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        let ua = self
+            .solved_user_agent
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        match ua {
+            Some(ua) => rb.header(reqwest::header::USER_AGENT, ua),
+            None => rb,
+        }
+    }
+
+    /// Cookie сайта парами `(имя, значение)` — их получит и браузер решателя.
+    fn site_cookies(&self) -> Vec<(String, String)> {
+        let Some(header) = self.jar.cookies(&self.base_url) else {
+            return Vec::new();
+        };
+        header
+            .to_str()
+            .unwrap_or("")
+            .split(';')
+            .filter_map(|p| p.trim().split_once('='))
+            .map(|(n, v)| (n.trim().to_string(), v.trim().to_string()))
+            .collect()
+    }
+
+    /// Открывает `url` через FlareSolverr; его cookie (`cf_clearance`) и User-Agent — для прямых запросов.
+    async fn solve(&self, solver: &FlareSolverr, url: &str) -> Result<Solution, ProviderError> {
+        let _guard = self.solve_lock.lock().await;
+        tracing::info!(url, "rutracker: Cloudflare challenge, asking FlareSolverr");
+        let solution = solver.get(url, &self.site_cookies()).await?;
+        for (name, value) in &solution.cookies {
+            self.jar
+                .add_cookie_str(&format!("{name}={value}; Path=/"), &self.base_url);
+        }
+        if let Some(ua) = &solution.user_agent {
+            *self
+                .solved_user_agent
+                .write()
+                .unwrap_or_else(PoisonError::into_inner) = Some(ua.clone());
+        }
+        Ok(solution)
     }
 
     fn url(&self, rel: &str) -> String {
@@ -240,12 +317,23 @@ impl RutrackerProvider {
 
     async fn get_html(&self, rel: &str) -> Result<(String, reqwest::Url), ProviderError> {
         let _permit = self.limiter.acquire().await;
+        let url = self.url(rel);
         let resp = self
-            .http
-            .get(self.url(rel))
+            .with_ua(self.http.get(&url))
             .send()
             .await
             .map_err(blocked_hint)?;
+        if let (true, Some(solver)) = (is_challenge(&resp), &self.solver) {
+            drop(resp);
+            let solution = self.solve(solver, &url).await?;
+            if !solution.passed() {
+                return Err(solver_rejected(&format!("HTTP {}", solution.status)));
+            }
+            let final_url = reqwest::Url::parse(&solution.url)
+                .or_else(|_| reqwest::Url::parse(&url))
+                .map_err(|e| ProviderError::Parse(e.to_string()))?;
+            return Ok((solution.html, final_url));
+        }
         let resp = check_rutracker(resp)?;
         let final_url = resp.url().clone();
         let bytes = resp.bytes().await.map_err(blocked_hint)?;
@@ -265,14 +353,24 @@ impl RutrackerProvider {
             encode_cp1251(pass),
             encode_cp1251("вход"),
         );
-        let resp = self
-            .http
-            .post(self.url("login.php"))
-            .header("content-type", "application/x-www-form-urlencoded")
-            .body(body)
-            .send()
-            .await
-            .map_err(blocked_hint)?;
+        let post = || {
+            self.with_ua(self.http.post(self.url("login.php")))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(body.clone())
+                .send()
+        };
+        let mut resp = post().await.map_err(blocked_hint)?;
+        if let (true, Some(solver)) = (is_challenge(&resp), &self.solver) {
+            // Форму логина решатель не отправит (cp1251): берём у него `cf_clearance` и повторяем POST сами.
+            drop(resp);
+            self.solve(solver, &self.url("login.php")).await?;
+            resp = post().await.map_err(blocked_hint)?;
+            if is_challenge(&resp) {
+                return Err(solver_rejected(
+                    "its cf_clearance was not accepted on login",
+                ));
+            }
+        }
         let resp = check_rutracker(resp)?;
         let bytes = resp.bytes().await.map_err(blocked_hint)?;
         let html = decode_cp1251(&bytes);
@@ -434,6 +532,13 @@ struct ApiTopic {
 impl TorrentProvider for RutrackerProvider {
     fn source(&self) -> TorrentSource {
         TorrentSource::Rutracker
+    }
+
+    /// С решателем поиск может включать до двух челленджей (страница и вход) по `SOLVER_HTTP_TIMEOUT`.
+    fn timeout_hint(&self) -> Option<Duration> {
+        self.solver
+            .as_ref()
+            .map(|_| SOLVER_HTTP_TIMEOUT * 2 + crate::registry::PROVIDER_TIMEOUT * 3)
     }
 
     async fn search(&self, q: &SearchQuery) -> Result<Vec<TorrentCandidate>, ProviderError> {

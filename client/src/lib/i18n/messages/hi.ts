@@ -515,6 +515,8 @@ const messages: Messages = {
   'settings.providersHint': 'सर्वर संगीत वाले टोरेंट कहाँ खोजता है।',
   'settings.proxy': 'प्रॉक्सी',
   'settings.proxyHint': 'उदाहरण: socks5://127.0.0.1:1080',
+  'settings.flaresolverrHint':
+    'आपकी जगह Cloudflare जाँच पास करता है, जैसे http://flaresolverr:8191 — docker-compose का flaresolverr कंटेनर।',
   'settings.cookieHint':
     'ब्राउज़र की पूरी Cookie स्ट्रिंग चिपकाएँ (bb_session=…; cf_clearance=…)। अगर कनेक्शन जाँच 403 / Cloudflare दिखाए: rutracker.org खोलें, वहाँ जाँच पास करें और DevTools से कुकी कॉपी करें।',
   'settings.userAgent': 'User-Agent',

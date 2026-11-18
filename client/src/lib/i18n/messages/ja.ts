@@ -523,6 +523,8 @@ const messages: Messages = {
   'settings.providersHint': 'サーバーが音楽のトレントを探す場所です。',
   'settings.proxy': 'プロキシ',
   'settings.proxyHint': '例：socks5://127.0.0.1:1080',
+  'settings.flaresolverrHint':
+    'Cloudflare の確認を代わりに通過します。例: http://flaresolverr:8191(docker-compose の flaresolverr コンテナ)。',
   'settings.cookieHint':
     'ブラウザの Cookie 文字列をそのまま貼り付けてください（bb_session=…; cf_clearance=…）。接続テストが 403 / Cloudflare になる場合：rutracker.org を開いて確認を通過し、DevTools から Cookie をコピーします。',
   'settings.userAgent': 'User-Agent',

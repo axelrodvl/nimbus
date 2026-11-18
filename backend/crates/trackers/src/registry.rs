@@ -326,7 +326,10 @@ impl ProviderRegistry {
             if let Some(f) = st.inflight.get(&key) {
                 f.clone()
             } else {
-                let (timeout, retries) = (self.timeout, self.retries);
+                let timeout = provider
+                    .timeout_hint()
+                    .map_or(self.timeout, |hint| hint.max(self.timeout));
+                let retries = self.retries;
                 let allowed = st
                     .breakers
                     .entry(source)
@@ -439,6 +442,7 @@ pub fn build_providers(
                 proxy: r.proxy.clone(),
                 user_agent: r.user_agent.clone(),
                 headers: r.headers.clone(),
+                flaresolverr_url: r.flaresolverr_url.clone(),
                 ..RutrackerOptions::default()
             })?));
         }

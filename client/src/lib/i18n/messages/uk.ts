@@ -528,6 +528,8 @@ const messages: Messages = {
   'settings.providersHint': 'Де сервер шукає торенти з музикою.',
   'settings.proxy': 'Проксі',
   'settings.proxyHint': 'Наприклад, socks5://127.0.0.1:1080',
+  'settings.flaresolverrHint':
+    'Проходить перевірку Cloudflare за вас, наприклад http://flaresolverr:8191 — контейнер flaresolverr з docker-compose.',
   'settings.cookieHint':
     "Вставте весь рядок Cookie з браузера (bb_session=…; cf_clearance=…). Якщо перевірка з'єднання пише 403 / Cloudflare: відкрийте rutracker.org, пройдіть там перевірку й скопіюйте cookie з DevTools.",
   'settings.userAgent': 'User-Agent',

@@ -167,11 +167,18 @@ impl TorrentProvider for TorznabProvider {
 
     async fn search(&self, q: &SearchQuery) -> Result<Vec<TorrentCandidate>, ProviderError> {
         if let (Some(artist), Some(album)) = (&q.artist, &q.album) {
-            let found = self
+            match self
                 .fetch(&[("t", "music"), ("artist", artist), ("album", album)])
-                .await?;
-            if !found.is_empty() {
-                return Ok(found);
+                .await
+            {
+                Ok(found) if !found.is_empty() => return Ok(found),
+                Ok(_) => {}
+                // Индексер без музыкального поиска по полям (например, RuTracker в Jackett) отвечает
+                // ошибкой Torznab 2xx («нет такой функции / параметра») — ищем текстом.
+                Err(ProviderError::Parse(m)) if m.starts_with("torznab error 2") => {
+                    tracing::debug!(error = %m, "torznab music search unsupported, using text search");
+                }
+                Err(e) => return Err(e),
             }
         }
         self.fetch(&[("t", "search"), ("q", &q.text), ("cat", "3000")])

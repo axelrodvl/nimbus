@@ -519,6 +519,8 @@ const messages: Messages = {
   'settings.providersHint': '서버가 음악 토렌트를 찾는 곳입니다.',
   'settings.proxy': '프록시',
   'settings.proxyHint': '예: socks5://127.0.0.1:1080',
+  'settings.flaresolverrHint':
+    'Cloudflare 확인을 대신 통과합니다. 예: http://flaresolverr:8191 — docker-compose의 flaresolverr 컨테이너.',
   'settings.cookieHint':
     '브라우저의 Cookie 문자열 전체를 붙여넣으세요 (bb_session=…; cf_clearance=…). 연결 테스트가 403 / Cloudflare를 표시하면 rutracker.org를 열어 확인을 통과한 뒤 DevTools에서 쿠키를 복사하세요.',
   'settings.userAgent': 'User-Agent',

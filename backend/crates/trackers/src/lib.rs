@@ -1,5 +1,6 @@
-//! Провайдеры торрентов: общий trait, TPB (apibay), Torznab.
+//! Провайдеры торрентов: общий trait, TPB (apibay), Torznab, RuTracker (+ FlareSolverr для Cloudflare).
 
+pub mod flaresolverr;
 pub mod limiter;
 pub mod magnet;
 pub mod query;

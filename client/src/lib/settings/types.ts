@@ -43,6 +43,7 @@ export type Providers = {
     proxy?: string | null;
     user_agent?: string | null;
     headers?: string | null;
+    flaresolverr_url?: string | null;
   } | null;
 };
 

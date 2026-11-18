@@ -520,6 +520,8 @@ export const en = {
   'settings.providersHint': 'Where the server looks for torrents with the music.',
   'settings.proxy': 'Proxy',
   'settings.proxyHint': 'For example socks5://127.0.0.1:1080',
+  'settings.flaresolverrHint':
+    'Solves the Cloudflare check for you, e.g. http://flaresolverr:8191 — run the flaresolverr container from docker-compose.',
   'settings.cookieHint':
     'Paste the whole Cookie string from your browser (bb_session=…; cf_clearance=…). If the connection check says 403 / Cloudflare: open rutracker.org, pass the check there, and copy the cookies from DevTools.',
   'settings.userAgent': 'User-Agent',

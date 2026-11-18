@@ -163,6 +163,8 @@ pub struct RutrackerSettings {
     pub user_agent: Option<String>,
     /// Дополнительные заголовки: по одному `Name: value` в строке (см. `parse_extra_headers`).
     pub headers: Option<String>,
+    /// Адрес FlareSolverr (`http://flaresolverr:8191`): проходит Cloudflare-челлендж вместо браузера.
+    pub flaresolverr_url: Option<String>,
     pub music_forums_regex: Option<String>,
 }
 
@@ -334,7 +336,8 @@ impl Settings {
         let rutracker = (c.rutracker_username.is_some()
             || c.rutracker_password.is_some()
             || c.rutracker_cookie.is_some()
-            || c.rutracker_proxy.is_some())
+            || c.rutracker_proxy.is_some()
+            || c.flaresolverr_url.is_some())
         .then(|| RutrackerSettings {
             username: c.rutracker_username.clone(),
             password: c.rutracker_password.clone(),
@@ -342,6 +345,7 @@ impl Settings {
             proxy: c.rutracker_proxy.clone(),
             user_agent: None,
             headers: None,
+            flaresolverr_url: c.flaresolverr_url.clone(),
             music_forums_regex: None,
         });
         Self {
@@ -443,6 +447,18 @@ impl Settings {
                     return Err("providers.rutracker.headers is too long".into());
                 }
                 parse_extra_headers(h).map_err(|e| format!("providers.rutracker.headers: {e}"))?;
+            }
+            if let Some(u) = r.flaresolverr_url.as_deref().map(str::trim) {
+                let lower = u.to_ascii_lowercase();
+                let valid = u.is_empty()
+                    || (u.len() <= 500
+                        && !u.chars().any(char::is_whitespace)
+                        && (lower.starts_with("http://") || lower.starts_with("https://")));
+                if !valid {
+                    return Err(
+                        "providers.rutracker.flaresolverr_url must be an http(s) URL".into(),
+                    );
+                }
             }
         }
         Ok(())
@@ -562,6 +578,24 @@ mod tests {
             "bad name: v",
         ] {
             assert!(parse_extra_headers(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn validate_checks_flaresolverr_url() {
+        let mut s = Settings::default();
+        for (url, ok) in [
+            ("http://flaresolverr:8191", true),
+            ("https://fs.example/v1", true),
+            ("", true),
+            ("flaresolverr:8191", false),
+            ("http://a b", false),
+        ] {
+            s.providers.rutracker = Some(RutrackerSettings {
+                flaresolverr_url: Some(url.into()),
+                ..Default::default()
+            });
+            assert_eq!(s.validate().is_ok(), ok, "{url}");
         }
     }
 
@@ -761,6 +795,19 @@ mod tests {
         assert_eq!((s.storage.cache_limit_gb, s.storage.seeding), (7, true));
         assert_eq!(s.providers.torznab.unwrap().url, "http://tz");
         assert_eq!(s.providers.rutracker.unwrap().cookie.as_deref(), Some("c"));
+
+        // Один адрес FlareSolverr из окружения: учётные данные потом задаются в интерфейсе.
+        let c = Config::from_map(&std::collections::HashMap::from([
+            ("DATABASE_URL", "postgres://x"),
+            ("NIMBUS_FLARESOLVERR_URL", "http://flaresolverr:8191"),
+        ]))
+        .unwrap();
+        let r = Settings::from_config(&c).providers.rutracker.unwrap();
+        assert_eq!(
+            r.flaresolverr_url.as_deref(),
+            Some("http://flaresolverr:8191")
+        );
+        assert!(r.username.is_none() && r.cookie.is_none());
     }
 
     fn mb(f: impl FnOnce(&mut MusicbrainzSettings)) -> MusicbrainzSettings {

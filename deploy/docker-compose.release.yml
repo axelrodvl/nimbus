@@ -57,5 +57,34 @@ services:
         soft: 65536
         hard: 65536
 
+  # Опционально, по профилям (COMPOSE_PROFILES в .env; см. README, «RuTracker»):
+  #   flaresolverr — решатель Cloudflare-челленджа для RuTracker: NIMBUS_FLARESOLVERR_URL=http://flaresolverr:8191;
+  #   jackett      — Jackett (+ FlareSolverr) как Torznab-источник: NIMBUS_TORZNAB_URL=http://jackett:9117/api/v2.0/indexers/all/results/torznab.
+  # cf_clearance привязан к IP: FlareSolverr должен выходить в сеть так же, как Nimbus (тот же хост/VPN/прокси).
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    profiles: ["flaresolverr", "jackett"]
+    environment:
+      LOG_LEVEL: ${FLARESOLVERR_LOG_LEVEL:-info}
+      TZ: ${TZ:-UTC}
+    restart: unless-stopped
+
+  jackett:
+    image: lscr.io/linuxserver/jackett:latest
+    profiles: ["jackett"]
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+      AUTO_UPDATE: "false"
+    volumes:
+      - ./data/jackett:/config
+    ports:
+      # Веб-интерфейс Jackett (добавить индексер RuTracker, взять API key).
+      - "127.0.0.1:${JACKETT_PORT:-9117}:9117"
+    depends_on:
+      - flaresolverr
+    restart: unless-stopped
+
 volumes:
   pgdata:

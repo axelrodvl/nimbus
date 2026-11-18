@@ -10,11 +10,11 @@ require_docker
 
 case "${1:-}" in
   "")
-    docker compose down --remove-orphans
+    docker compose --profile '*' down --remove-orphans
     echo "Nimbus stopped. Data is kept (use --purge to also wipe the database)."
     ;;
   --purge)
-    docker compose down --remove-orphans -v
+    docker compose --profile '*' down --remove-orphans -v
     echo "Nimbus stopped; database volume removed."
     ;;
   *)

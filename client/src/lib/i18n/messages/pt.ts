@@ -523,6 +523,8 @@ const messages: Messages = {
   'settings.providersHint': 'Onde o servidor procura os torrents com a música.',
   'settings.proxy': 'Proxy',
   'settings.proxyHint': 'Por exemplo socks5://127.0.0.1:1080',
+  'settings.flaresolverrHint':
+    'Passa pela verificação do Cloudflare por você, ex. http://flaresolverr:8191 — contêiner flaresolverr do docker-compose.',
   'settings.cookieHint':
     'Cole a string Cookie inteira do navegador (bb_session=…; cf_clearance=…). Se o teste de conexão indicar 403 / Cloudflare: abra rutracker.org, passe na verificação e copie os cookies das DevTools.',
   'settings.userAgent': 'User-Agent',

@@ -30,6 +30,8 @@ pub struct Config {
     pub rutracker_password: Option<String>,
     pub rutracker_cookie: Option<String>,
     pub rutracker_proxy: Option<String>,
+    /// NIMBUS_FLARESOLVERR_URL: FlareSolverr для Cloudflare-челленджа RuTracker.
+    pub flaresolverr_url: Option<String>,
     pub cache_limit_gb: u64,
     pub seeding: bool,
     /// NIMBUS_SEED_RATIO: лимит раздачи (по умолчанию 1.0; `0`/`none` — без лимита).
@@ -134,6 +136,7 @@ impl Config {
             rutracker_password: opt("NIMBUS_RUTRACKER_PASSWORD"),
             rutracker_cookie: opt("NIMBUS_RUTRACKER_COOKIE"),
             rutracker_proxy: opt("NIMBUS_RUTRACKER_PROXY"),
+            flaresolverr_url: opt("NIMBUS_FLARESOLVERR_URL"),
             cache_limit_gb,
             seeding: parse_bool("NIMBUS_SEEDING", true)?,
             seed_ratio,

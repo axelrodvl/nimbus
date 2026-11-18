@@ -108,6 +108,11 @@ pub(crate) fn check_status(resp: reqwest::Response) -> Result<reqwest::Response,
 pub trait TorrentProvider: Send + Sync {
     fn source(&self) -> TorrentSource;
     async fn search(&self, q: &SearchQuery) -> Result<Vec<TorrentCandidate>, ProviderError>;
+    /// Сколько может занять один `search`, если дольше общего таймаута реестра (например, провайдер
+    /// проходит Cloudflare-челлендж через FlareSolverr). По умолчанию — общий таймаут.
+    fn timeout_hint(&self) -> Option<std::time::Duration> {
+        None
+    }
     /// Дозаполнить info_hash/magnet, если `search` их не вернул. По умолчанию — no-op.
     async fn resolve(&self, c: TorrentCandidate) -> Result<TorrentCandidate, ProviderError> {
         Ok(c)
