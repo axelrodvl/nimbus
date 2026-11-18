@@ -33,6 +33,7 @@ function harness() {
   };
   const deps: PlayRemoteDeps = {
     albumTracks: vi.fn(() => album),
+    albumTracksByMbid: vi.fn(() => album),
     canPlay: v => v.status === 'found' || v.status === 'ready',
     currentTrackId: () => current,
     findTrack: vi.fn((r: { mbid: string; trackId?: number }) =>
@@ -72,6 +73,10 @@ function harness() {
       settle.resolve({ album_id: 7, track_ids: ids, tracks: ids.map(id => ({ id, status })) });
       await flush();
     },
+    respondWith: async (tracks: PlayResponse['tracks']) => {
+      settle.resolve({ album_id: 7, track_ids: tracks.map(x => x.id), tracks });
+      await flush();
+    },
     setAlbum: (list: TrackView[]) => (album = list),
     setCurrent: (id: number | null) => {
       current = id;
@@ -105,7 +110,9 @@ describe('playRemote', () => {
     const h = harness();
     h.setTrack(REC, view());
     h.pr.playRemote(request, t);
-    expect(h.deps.play).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }), [expect.objectContaining({ id: 11 })]);
+    expect(h.deps.play).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }), [
+      expect.objectContaining({ id: 11 }),
+    ]);
     expect(h.deps.request).not.toHaveBeenCalled();
     expect(pending(h)).toBeNull();
     expect(toast.loading).not.toHaveBeenCalled();
@@ -253,12 +260,13 @@ describe('playRemote', () => {
     h.setAlbum([first, second, searching]);
     h.setTrack(REC, first);
     expect(h.deps.albumTracks).toHaveBeenCalledWith(7);
-    expect(vi.mocked(h.deps.play).mock.calls[0]?.[1].map(q => q.id)).toEqual([11, 12]);
+    // Очередь — весь треклист: трек 13 ещё ищется, но подхватится, когда найдётся.
+    expect(vi.mocked(h.deps.play).mock.calls[0]?.[1].map(q => q.id)).toEqual([11, 12, 13]);
   });
 
   it('«Слушать альбом»: первый трек уже доступен — играет сразу, остальным источник ищется в фоне', () => {
     const h = harness();
-    h.setTrack(REC, view());
+    h.setAlbum([view()]);
     h.pr.playRemote({ ...request, context: 'album', wholeAlbum: true }, t);
     expect(h.deps.play).toHaveBeenCalledOnce();
     expect(h.deps.request).toHaveBeenCalledWith({ mbid: 'rg-1', type: 'album' });
@@ -331,6 +339,105 @@ describe('playRemote', () => {
     await vi.advanceTimersByTimeAsync(PENDING_POLL_MS);
     expect(pending(h)).toBeNull();
     expect(toast.error).toHaveBeenCalled();
+  });
+
+  describe('«Слушать альбом»', () => {
+    const album = { ...request, context: 'album' as const, title: 'Album', wholeAlbum: true };
+    const rec = (n: number, status: TrackView['status']) =>
+      view({ id: 10 + n, mbid_recording: `rec-${n}`, position: n, status });
+
+    it('whole_album_plays_first_playable_when_first_track_not_found', async () => {
+      const h = harness();
+      h.pr.playRemote(album, t);
+      await h.respondWith([
+        { id: 11, status: 'adding' },
+        { id: 12, status: 'adding' },
+      ]);
+      h.setAlbum([rec(1, 'adding'), rec(2, 'adding')]);
+      h.setTrack('x', null);
+      // Первый не нашёлся, второй найден — играет второй, без toast об ошибке.
+      h.setAlbum([rec(1, 'not_found'), rec(2, 'found')]);
+      h.setTrack('x', view());
+      expect(h.deps.play).toHaveBeenCalledOnce();
+      expect(vi.mocked(h.deps.play).mock.calls[0]?.[0]).toMatchObject({ id: 12 });
+      expect(vi.mocked(h.deps.play).mock.calls[0]?.[1].map(q => q.id)).toEqual([11, 12]);
+      expect(toast.error).not.toHaveBeenCalled();
+      expect(pending(h)).toBeNull();
+    });
+
+    it('whole_album_plays_available_immediately', async () => {
+      const h = harness();
+      h.setAlbum([rec(1, 'not_found'), rec(2, 'not_found'), rec(3, 'found'), rec(4, 'ready')]);
+      h.pr.playRemote(album, t);
+      // В обработчике клика, без ожидания ответа; запрос на альбом уходит в фоне.
+      expect(vi.mocked(h.deps.play).mock.calls[0]?.[0]).toMatchObject({ id: 13 });
+      expect(h.deps.request).toHaveBeenCalledWith({ mbid: 'rg-1', type: 'album' });
+      expect(pending(h)).toBeNull();
+      expect(toast.loading).not.toHaveBeenCalled();
+    });
+
+    it('whole_album_reports_no_source_only_when_nothing_left', async () => {
+      const h = harness();
+      h.pr.playRemote(album, t);
+      await h.respondWith([
+        { id: 11, status: 'adding' },
+        { id: 12, status: 'adding' },
+      ]);
+      h.setAlbum([rec(1, 'adding'), rec(2, 'adding')]);
+      h.setTrack('x', view());
+      h.setAlbum([rec(1, 'not_found'), rec(2, 'adding')]);
+      h.setTrack('x', view());
+      // Второй ещё ищется — ждём.
+      expect(pending(h)).not.toBeNull();
+      expect(toast.error).not.toHaveBeenCalled();
+      h.setAlbum([rec(1, 'not_found'), rec(2, 'not_found')]);
+      h.setTrack('x', view());
+      expect(pending(h)).toBeNull();
+      expect(toast.error).toHaveBeenCalledOnce();
+    });
+
+    it('прежние not_found в store не считаются итогом, пока события поиска не дошли', async () => {
+      const h = harness();
+      h.setAlbum([rec(1, 'not_found'), rec(2, 'not_found')]);
+      h.pr.playRemote(album, t);
+      await h.respondWith([
+        { id: 11, status: 'adding' },
+        { id: 12, status: 'adding' },
+      ]);
+      h.setTrack('x', view());
+      expect(pending(h)).not.toBeNull();
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    it('album_queue_contains_whole_tracklist: нажатие на трек в контексте альбома — вся очередь', () => {
+      const h = harness();
+      h.setAlbum([rec(1, 'found'), rec(2, 'adding'), rec(3, 'not_found')]);
+      h.setTrack(REC, rec(1, 'found'));
+      h.pr.playRemote({ ...request, context: 'album' }, t);
+      expect(vi.mocked(h.deps.play).mock.calls[0]?.[1].map(q => q.id)).toEqual([11, 12, 13]);
+    });
+
+    it('источник есть, но играть нельзя (нет связи) — подсказка, а не «не найден»', async () => {
+      const h = harness();
+      h.pr.playRemote(album, t);
+      await h.respondWith([{ id: 11, status: 'found' }]);
+      h.deps.canPlay = () => false;
+      h.setAlbum([rec(1, 'found')]);
+      h.setTrack('x', view());
+      expect(pending(h)).toBeNull();
+      expect(toast.info).toHaveBeenCalled();
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    it('сторож альбома: догоняет store дельтой', async () => {
+      vi.useFakeTimers();
+      const h = harness();
+      h.pr.playRemote(album, t);
+      await h.respondWith([{ id: 11, status: 'adding' }]);
+      await vi.advanceTimersByTimeAsync(PENDING_POLL_MS);
+      expect(h.deps.requestSync).toHaveBeenCalled();
+      expect(h.deps.fetchStatus).not.toHaveBeenCalled();
+    });
   });
 
   describe('сторож', () => {

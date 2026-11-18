@@ -85,7 +85,11 @@ export function buildPaletteItems(args: {
     }
     for (const a of remote.albums.filter(r => !index.albums.has(r.mbid)).slice(0, PALETTE_ALBUMS)) {
       items.push({
-        add: { mbid: a.mbid, preview: { artistName: a.artist_name, cover: a.cover_url, title: a.title }, type: 'album' },
+        add: {
+          mbid: a.mbid,
+          preview: { artistName: a.artist_name, cover: a.cover_url, title: a.title },
+          type: 'album',
+        },
         cover: a.cover_url,
         group: 'album',
         id: `album-${a.mbid}`,

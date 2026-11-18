@@ -56,8 +56,24 @@ describe('buildPaletteItems', () => {
       albums: [{ artistName: 'A', cover_url: null, id: 2, title: 'Alb' } as never],
       artists: [{ id: 1, mbid: 'm', name: 'Art' } as never],
       tracks: [
-        { albumTitle: 'Alb', album_id: 2, artistName: 'A', coverUrl: null, duration_ms: null, id: 3, title: 'Tr' } as never,
-        { albumTitle: '', album_id: 2, artistName: '', coverUrl: null, duration_ms: 61_000, id: 4, title: 'Tr2' } as never,
+        {
+          albumTitle: 'Alb',
+          album_id: 2,
+          artistName: 'A',
+          coverUrl: null,
+          duration_ms: null,
+          id: 3,
+          title: 'Tr',
+        } as never,
+        {
+          albumTitle: '',
+          album_id: 2,
+          artistName: '',
+          coverUrl: null,
+          duration_ms: 61_000,
+          id: 4,
+          title: 'Tr2',
+        } as never,
       ],
     };
     const items = buildPaletteItems({ actions: [], index: noIndex, local, query: 'a', remote: undefined, t });

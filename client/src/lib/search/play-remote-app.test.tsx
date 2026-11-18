@@ -94,7 +94,9 @@ describe('playRemoteApp: связка с библиотекой и плееро�
       seed({ albums: [], artists: [], tracks: [] });
       installTestPlayer();
       post.mockResolvedValue({ album_id: 2, track_ids: [10], tracks: [{ id: 10, status: 'adding' }] });
-      vi.mocked(tracksApi.getTrack).mockResolvedValue({ status: 'found' } as Awaited<ReturnType<typeof tracksApi.getTrack>>);
+      vi.mocked(tracksApi.getTrack).mockResolvedValue({ status: 'found' } as Awaited<
+        ReturnType<typeof tracksApi.getTrack>
+      >);
       playRemoteApp().playRemote({ albumMbid: 'rg', mbid: 'rec-a', title: 'A' }, t);
       await act(async () => undefined);
       await act(async () => {
@@ -105,6 +107,24 @@ describe('playRemoteApp: связка с библиотекой и плееро�
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('«Слушать альбом» из store приложения: играет первый доступный трек, очередь — весь треклист', () => {
+    seed(rows('found'));
+    const env = installTestPlayer();
+    post.mockResolvedValue({ album_id: 2, track_ids: [10, 11], tracks: [] });
+    playRemoteApp().playRemote({ albumMbid: 'rg', context: 'album', mbid: 'rec-a', title: 'Alb', wholeAlbum: true }, t);
+    expect(env.ctl.state.queue.map(q => q.id)).toEqual([10, 11]);
+    expect(env.ctl.state.queue[env.ctl.state.index]?.id).toBe(10);
+    expect(post).toHaveBeenCalledWith({ mbid: 'rg', type: 'album' });
+    // Альбома нет в store — играть нечего, ждём ответ сервера.
+    seed({ albums: [], artists: [], tracks: [] });
+    playRemoteApp().cancel();
+    playRemoteApp().playRemote(
+      { albumMbid: 'rg-other', context: 'album', mbid: 'rec-a', title: 'Alb', wholeAlbum: true },
+      t,
+    );
+    expect(playRemoteApp().store.getState().pending).not.toBeNull();
   });
 
   it('пока ждём, пользователь включил другой трек — ожидание снимается', async () => {

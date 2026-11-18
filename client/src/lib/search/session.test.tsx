@@ -8,14 +8,7 @@ import { SearchScreen } from '@/screens/search';
 import { renderRoutes } from '@/test/render';
 import { searchFixture } from '@/test/search';
 import { seed } from '@/test/seed';
-import {
-  rememberQuery,
-  rememberScroll,
-  reloadSearchSession,
-  SESSION_KEY,
-  searchHref,
-  searchSession,
-} from './session';
+import { rememberQuery, rememberScroll, reloadSearchSession, SESSION_KEY, searchHref, searchSession } from './session';
 
 vi.mock('@/lib/api/search', async importOriginal => ({
   ...(await importOriginal<typeof searchApi>()),

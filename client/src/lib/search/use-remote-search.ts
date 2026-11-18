@@ -120,7 +120,8 @@ export function useRemoteSearch(query: string, enabled = true): RemoteSearch {
     };
   }, [missingKey, n, queryClient, settled]);
 
-  const error = !current || !q.error ? null : q.error instanceof ApiError ? q.error : new ApiError(0, 'network', String(q.error));
+  const error =
+    !current || !q.error ? null : q.error instanceof ApiError ? q.error : new ApiError(0, 'network', String(q.error));
   return {
     active: wanted,
     data,

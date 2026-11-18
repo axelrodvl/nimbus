@@ -34,8 +34,7 @@ vi.mock('@/lib/api/search', async importOriginal => ({
 const search = vi.mocked(searchApi.searchRemote);
 const post = vi.mocked(searchApi.addToLibraryRequest);
 
-const t = (key: string, params?: Record<string, string | number>) =>
-  translate(en as never, 'en', key, params);
+const t = (key: string, params?: Record<string, string | number>) => translate(en as never, 'en', key, params);
 
 const response = (query: string): SearchResponse => ({ albums: [], artists: [], errors: [], query, tracks: [] });
 const artist = { country: null, disambiguation: null, library_id: null, mbid: 'ar', name: 'Radio', score: 100 };
@@ -54,7 +53,9 @@ const album = {
 
 function wrapper() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
 }
 
 beforeEach(() => {
@@ -92,7 +93,10 @@ describe('shouldRetry', () => {
 describe('частичные ответы', () => {
   it('failedKinds: секции из `errors`, без дублей; посторонние строки игнорируются', () => {
     expect(
-      failedKinds({ ...response('q'), errors: ['tracks: timeout', 'artists: timeout', 'artists: library lookup failed', 'weird'] }),
+      failedKinds({
+        ...response('q'),
+        errors: ['tracks: timeout', 'artists: timeout', 'artists: library lookup failed', 'weird'],
+      }),
     ).toEqual(['artist', 'track']);
     expect(failedKinds(response('q'))).toEqual([]);
   });
@@ -299,7 +303,6 @@ describe('useRemoteSearch', () => {
     expect(result.current.retrying).toBe(false);
     expect(result.current.data?.query).toBe('radio');
   });
-
 });
 
 describe('история запросов', () => {
@@ -352,7 +355,10 @@ describe('addToLibrary', () => {
   it('POST → requestSync("add"); «добавляется» держится до появления сущности, запрос сохраняется в историю', async () => {
     vi.useFakeTimers();
     vi.spyOn(toast, 'success').mockReturnValue(1);
-    const ok = await addToLibrary(input, t, 'kid a', { post: async () => ({ id: 5, status: 'added', type: 'album' }), requestSync: sync });
+    const ok = await addToLibrary(input, t, 'kid a', {
+      post: async () => ({ id: 5, status: 'added', type: 'album' }),
+      requestSync: sync,
+    });
     expect(ok).toBe(true);
     expect(sync).toHaveBeenCalledWith('add');
     expect(addingStore.getState().adding.has('mb-1')).toBe(true);
@@ -385,7 +391,10 @@ describe('addToLibrary', () => {
 
   it('тексты по статусу: exists и importing', async () => {
     const success = vi.spyOn(toast, 'success').mockReturnValue(1);
-    await addToLibrary(input, t, undefined, { post: async () => ({ id: 1, status: 'exists', type: 'album' }), requestSync: sync });
+    await addToLibrary(input, t, undefined, {
+      post: async () => ({ id: 1, status: 'exists', type: 'album' }),
+      requestSync: sync,
+    });
     addingStore.setState({ adding: new Map() });
     await addToLibrary({ mbid: 'mb-2', type: 'artist' }, t, undefined, {
       post: async () => ({ id: 2, status: 'importing', type: 'artist' }),
@@ -441,7 +450,10 @@ describe('addToLibrary', () => {
 describe('индекс mbid → id', () => {
   it('в индексе только объекты библиотеки; та же ссылка при неизменных данных', () => {
     seed({
-      albums: [makeAlbum({ artist_id: 1, id: 1, mbid: 'rg-1' }), makeAlbum({ artist_id: 1, id: 2, in_library: false, mbid: 'rg-2' })],
+      albums: [
+        makeAlbum({ artist_id: 1, id: 1, mbid: 'rg-1' }),
+        makeAlbum({ artist_id: 1, id: 2, in_library: false, mbid: 'rg-2' }),
+      ],
       artists: [makeArtist({ id: 1, mbid: 'ar-1' }), makeArtist({ id: 2, in_library: false, mbid: 'ar-2' })],
       tracks: [
         makeTrack({ album_id: 1, id: 1, mbid_recording: 'rec-1' }),
