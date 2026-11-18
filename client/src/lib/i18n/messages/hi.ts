@@ -109,6 +109,7 @@ const messages: Messages = {
   'acq.unpin': 'पिन हटाएँ (फ़ाइलें रखें)',
   'add.addShort': 'जोड़ें',
   'add.adding': 'जोड़ा जा रहा है…',
+  'add.albumToLibrary': 'एल्बम को लाइब्रेरी में जोड़ें',
   'add.inLibrary': 'लाइब्रेरी में',
   'add.toLibrary': 'लाइब्रेरी में जोड़ें',
   'album.disc': 'डिस्क {n}',

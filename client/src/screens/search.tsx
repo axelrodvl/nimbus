@@ -10,7 +10,7 @@ import { LOCAL_LIMIT } from '@/lib/search/query';
 import { useRemoteSearch } from '@/lib/search/use-remote-search';
 import { scrollRoot } from '@/lib/nav/scroll-top';
 import { restoreScrollOnce } from '@/lib/nav/use-scroll-restoration';
-import { rememberQuery, rememberScroll, searchSession } from '@/lib/search/session';
+import { flushSearchSession, rememberQuery, rememberScroll, searchSession } from '@/lib/search/session';
 import { useMbidIndex, useSearchLocal } from '@/lib/store/hooks';
 
 /** Настольное устройство с точным указателем: автофокус на телефоне открыл бы клавиатуру поверх результатов. */
@@ -34,11 +34,11 @@ export function SearchScreen() {
   const [prevUrl, setPrevUrl] = useState(urlQuery);
   if (urlQuery !== prevUrl) {
     setPrevUrl(urlQuery);
-    if (urlQuery !== value) {
-      setValue(urlQuery);
-      rememberQuery(urlQuery);
-    }
+    if (urlQuery !== value) setValue(urlQuery);
   }
+  // Запрос в сессии обновляем в эффекте, а не при рендере: это `setState` внешнего store, его подписчики (вкладка
+  // «Поиск» в оболочке) иначе обновлялись бы посреди рендера другого компонента.
+  useEffect(() => rememberQuery(urlQuery), [urlQuery]);
   // Вернулись на поиск вкладкой (переход вперёд на тот же запрос) — прокрутка как была. «Назад» прокрутку
   // восстанавливает оболочка сама. Layout-эффект — раньше эффекта оболочки, который иначе прокрутил бы наверх.
   const navigation = useNavigationType();
@@ -60,7 +60,10 @@ export function SearchScreen() {
       if (input.current?.isConnected) rememberScroll(root.scrollTop);
     };
     root.addEventListener('scroll', onScroll, { passive: true });
-    return () => root.removeEventListener('scroll', onScroll);
+    return () => {
+      root.removeEventListener('scroll', onScroll);
+      flushSearchSession();
+    };
   }, []);
 
   function onChange(next: string) {

@@ -105,6 +105,19 @@ export const START_WATCH_MS = 3000;
 /** Сколько висят короткие toast «Ожидание отменено» и «Играет …». */
 export const NOTICE_TOAST_MS = 3000;
 
+/**
+ * Тот же запрос: запись, режим («Слушать альбом» или трек) и альбом совпадают; точный трек сравнивается, только когда
+ * он известен у обоих (у строки он появляется позже, чем уйдёт запрос на сервер).
+ */
+export function sameRequest(a: PlayRemoteRequest, b: PlayRemoteRequest): boolean {
+  return (
+    a.mbid === b.mbid &&
+    !!a.wholeAlbum === !!b.wholeAlbum &&
+    (a.albumMbid ?? null) === (b.albumMbid ?? null) &&
+    (a.trackId === undefined || b.trackId === undefined || a.trackId === b.trackId)
+  );
+}
+
 const playInput = (r: PlayRemoteRequest): PlayInput =>
   r.wholeAlbum && r.albumMbid
     ? { mbid: r.albumMbid, type: 'album' }
@@ -343,7 +356,7 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
     tRef = t;
     // Повторное нажатие на то же (трек или «Слушать альбом»), что ждёт источника, — передумал: ожидание снимается.
     const current = store.getState().pending?.request;
-    if (current && current.mbid === request.mbid && !!current.wholeAlbum === !!request.wholeAlbum) {
+    if (current && sameRequest(current, request)) {
       userCancel();
       return;
     }
@@ -362,6 +375,9 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
     if (own && deps.canPlay(own)) {
       cancel();
       start(own, request);
+      // Трек, найденный попутно, помечается к воспроизведению (иначе `discover_album` не будет искать для него
+      // источник заново, если этот умрёт); треку библиотеки это не нужно.
+      if (!own.in_library) void deps.request(playInput(request)).catch(() => undefined);
       return;
     }
     if (own && (own.status === 'found' || own.status === 'ready')) {
@@ -503,8 +519,8 @@ function appDeps(): PlayRemoteDeps {
       // Без альбома: копия из библиотеки, иначе любая (её уже просили сыграть).
       const own = selectors.mbidIndex(state).tracks.get(mbid);
       if (own) return selectors.trackView(state, own.id);
-      for (const t of state.tracks.values()) if (t.mbid_recording === mbid) return selectors.trackView(state, t.id);
-      return undefined;
+      const any = selectors.recordingIndex(state).get(mbid)?.[0];
+      return any === undefined ? undefined : selectors.trackView(state, any);
     },
     play: (track, queue) => player().play(track, queue),
     fetchStatus: async id => (await getTrack(id)).status,
@@ -529,8 +545,8 @@ export function playRemoteApp(): PlayRemote {
 }
 
 /** Этот трек (MBID записи) ждёт источника, чтобы заиграть. */
-export function usePlayPending(mbid: string): boolean {
-  return useStore(playRemoteApp().store, s => s.pending?.request.mbid === mbid && !s.pending.request.wholeAlbum);
+export function usePlayPending(request: PlayRemoteRequest): boolean {
+  return useStore(playRemoteApp().store, s => !!s.pending && sameRequest(s.pending.request, request));
 }
 
 /** «Слушать альбом» этого альбома (MBID release group) ждёт источника. */

@@ -409,6 +409,22 @@ export function createSelectors() {
     }) as MbidIndex;
   }
 
+  /**
+   * Индекс `mbid записи → id треков` по ВСЕМ трекам store (в библиотеке или нет): «сыграть» запись без альбома не
+   * перебирает до 60 000 треков на каждое событие. Строится раз на версию `s.tracks`.
+   */
+  function recordingIndex(s: LibraryState): ReadonlyMap<string, readonly number[]> {
+    return lists('recordingIndex', [s.tracks], () => {
+      const index = new Map<string, number[]>();
+      for (const t of s.tracks.values()) {
+        const ids = index.get(t.mbid_recording);
+        if (ids) ids.push(t.id);
+        else index.set(t.mbid_recording, [t.id]);
+      }
+      return index;
+    }) as ReadonlyMap<string, readonly number[]>;
+  }
+
   /** Убрать представления сущностей, которых больше нет в таблицах (после снимка и удалений). */
   function prune(s: LibraryState) {
     trackViews.prune(id => s.tracks.has(id));
@@ -432,6 +448,7 @@ export function createSelectors() {
     playlistTracks,
     playlistsOfTrack,
     prune,
+    recordingIndex,
     recentlyPlayedAlbums,
     searchLocal,
     trackView,

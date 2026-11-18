@@ -112,6 +112,7 @@ const messages: Messages = {
   'acq.unpin': 'Sabitlemeyi kaldır (dosyalar kalsın)',
   'add.addShort': 'Ekle',
   'add.adding': 'Ekleniyor…',
+  'add.albumToLibrary': 'Albümü kitaplığa ekle',
   'add.inLibrary': 'Kitaplıkta',
   'add.toLibrary': 'Kitaplığa ekle',
   'album.disc': 'Disk {n}',

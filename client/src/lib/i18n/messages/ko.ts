@@ -110,6 +110,7 @@ const messages: Messages = {
   'acq.unpin': '고정 해제(파일 유지)',
   'add.addShort': '추가',
   'add.adding': '추가 중…',
+  'add.albumToLibrary': '앨범을 라이브러리에 추가',
   'add.inLibrary': '라이브러리에 있음',
   'add.toLibrary': '라이브러리에 추가',
   'album.disc': '디스크 {n}',

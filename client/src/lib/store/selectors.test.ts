@@ -372,3 +372,24 @@ describe('кэши и точные зависимости', () => {
     expect(selectors.cacheSize()).toMatchObject({ artistViews: 0, trackViews: 0 });
   });
 });
+
+describe('recordingIndex', () => {
+  it('все треки store (в библиотеке или нет) по MBID записи; обновляется при добавлении трека', () => {
+    const { selectors, store, s } = setup({
+      albums: [makeAlbum({ artist_id: 1, id: 1 }), makeAlbum({ artist_id: 1, id: 2 })],
+      artists: [makeArtist({ id: 1 })],
+      tracks: [
+        makeTrack({ album_id: 1, artist_id: 1, id: 1, in_library: false, mbid_recording: 'rec-a' }),
+        makeTrack({ album_id: 2, artist_id: 1, id: 2, in_library: true, mbid_recording: 'rec-a' }),
+      ],
+    });
+    const first = selectors.recordingIndex(s());
+    expect(first.get('rec-a')).toEqual([1, 2]);
+    expect(first.get('rec-b')).toBeUndefined();
+    // Тот же снимок — тот же индекс (не пересобирается).
+    expect(selectors.recordingIndex(s())).toBe(first);
+    store.getState().applyBatch({ tracks: [makeTrack({ album_id: 1, artist_id: 1, id: 3, mbid_recording: 'rec-b' })] });
+    expect(selectors.recordingIndex(s()).get('rec-b')).toEqual([3]);
+    expect(selectors.recordingIndex(s()).get('rec-a')).toEqual([1, 2]);
+  });
+});

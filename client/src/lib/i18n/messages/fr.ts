@@ -114,6 +114,7 @@ const messages: Messages = {
   'acq.unpin': 'Désépingler (garder les fichiers)',
   'add.addShort': 'Ajouter',
   'add.adding': 'Ajout…',
+  'add.albumToLibrary': 'Ajouter l’album à la bibliothèque',
   'add.inLibrary': 'Dans la bibliothèque',
   'add.toLibrary': 'Ajouter à la bibliothèque',
   'album.disc': 'Disque {n}',

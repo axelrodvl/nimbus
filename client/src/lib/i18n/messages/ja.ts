@@ -112,6 +112,7 @@ const messages: Messages = {
   'acq.unpin': '固定解除（ファイルは残す）',
   'add.addShort': '追加',
   'add.adding': '追加中…',
+  'add.albumToLibrary': 'アルバムをライブラリに追加',
   'add.inLibrary': 'ライブラリ内',
   'add.toLibrary': 'ライブラリに追加',
   'album.disc': 'ディスク {n}',

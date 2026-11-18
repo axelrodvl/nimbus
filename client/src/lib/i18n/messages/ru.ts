@@ -112,6 +112,7 @@ const messages: Messages = {
   'acq.unpin': 'Снять закрепление (файлы остаются)',
   'add.addShort': 'Добавить',
   'add.adding': 'Добавляется…',
+  'add.albumToLibrary': 'Добавить альбом в библиотеку',
   'add.inLibrary': 'В библиотеке',
   'add.toLibrary': 'Добавить в библиотеку',
   'album.disc': 'Диск {n}',

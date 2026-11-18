@@ -8,7 +8,7 @@ import type { TFn } from '@/lib/i18n/messages';
 import type { TrackView } from '@/lib/store/selectors';
 import { makeTrack } from '@/test/factories';
 import { retryDelay } from './use-remote-search';
-import { createPlayRemote, PENDING_POLL_MS, START_WATCH_MS, PLAY_TOAST_ID, WAITING_TOAST_MS, type PlayRemoteDeps } from './play-remote';
+import { createPlayRemote, PENDING_POLL_MS, sameRequest, START_WATCH_MS, PLAY_TOAST_ID, WAITING_TOAST_MS, type PlayRemoteDeps } from './play-remote';
 
 const t = ((key: string, params?: Record<string, string | number>) => translate(en as never, 'en', key, params)) as TFn;
 
@@ -121,14 +121,18 @@ afterEach(() => {
 });
 
 describe('playRemote', () => {
-  it('трек уже на сервере и доступен (даже не в библиотеке) — играет сразу, без запроса; очередь — только он', () => {
+  it('трек уже на сервере и доступен (даже не в библиотеке) — играет сразу; очередь — только он; пометка уходит в фоне', () => {
     const h = harness();
     h.setTrack(REC, view());
     h.pr.playRemote(request, t);
     expect(h.deps.play).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }), [
       expect.objectContaining({ id: 11 }),
     ]);
-    expect(h.deps.request).not.toHaveBeenCalled();
+    // play_requested: найденный попутно трек, чтобы поиск не бросил его, если источник умрёт.
+    expect(h.deps.request).toHaveBeenCalledWith({ albumMbid: 'rg-1', mbid: REC, type: 'track' });
+    expect(vi.mocked(h.deps.play).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(h.deps.request).mock.invocationCallOrder[0]!,
+    );
     expect(pending(h)).toBeNull();
     expect(toast.loading).not.toHaveBeenCalled();
   });
@@ -629,6 +633,35 @@ describe('playRemote', () => {
       await vi.advanceTimersByTimeAsync(START_WATCH_MS + 1);
       late.rejectPlayback();
       expect(toast.info).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('мелочи ожидания', () => {
+    it('трек из библиотеки играет без запроса на пометку', () => {
+      const h = harness();
+      h.setTrack(REC, view({ in_library: true }));
+      h.pr.playRemote(request, t);
+      expect(h.deps.play).toHaveBeenCalledOnce();
+      expect(h.deps.request).not.toHaveBeenCalled();
+    });
+
+    it('sameRequest: запись и альбом, точный трек — только если известен у обоих', () => {
+      const base = { albumMbid: 'rg-1', mbid: REC, title: 'S' };
+      expect(sameRequest(base, { ...base })).toBe(true);
+      expect(sameRequest(base, { ...base, albumMbid: 'rg-2' })).toBe(false);
+      expect(sameRequest(base, { ...base, wholeAlbum: true })).toBe(false);
+      expect(sameRequest(base, { ...base, trackId: 5 })).toBe(true);
+      expect(sameRequest({ ...base, trackId: 4 }, { ...base, trackId: 5 })).toBe(false);
+      expect(sameRequest(base, { ...base, albumMbid: null })).toBe(false);
+    });
+
+    it('та же запись из другого альбома не отменяет ожидание, а заменяет его', () => {
+      const h = harness();
+      h.pr.playRemote(request, t);
+      const other = { ...request, albumMbid: 'rg-2' };
+      h.pr.playRemote(other, t);
+      expect(pending(h)?.request).toEqual(other);
+      expect(toast.info).not.toHaveBeenCalledWith('Waiting cancelled', expect.anything());
     });
   });
 

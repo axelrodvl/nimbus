@@ -110,6 +110,7 @@ const messages: Messages = {
   'acq.unpin': 'Desafixar (manter arquivos)',
   'add.addShort': 'Adicionar',
   'add.adding': 'Adicionando…',
+  'add.albumToLibrary': 'Adicionar álbum à biblioteca',
   'add.inLibrary': 'Na biblioteca',
   'add.toLibrary': 'Adicionar à biblioteca',
   'album.disc': 'Disco {n}',

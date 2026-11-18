@@ -109,6 +109,7 @@ const messages: Messages = {
   'acq.unpin': '取消固定（保留文件）',
   'add.addShort': '添加',
   'add.adding': '正在添加…',
+  'add.albumToLibrary': '将专辑添加到资料库',
   'add.inLibrary': '已在音乐库',
   'add.toLibrary': '添加到音乐库',
   'album.disc': '第 {n} 张光盘',

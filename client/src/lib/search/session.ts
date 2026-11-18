@@ -30,13 +30,39 @@ const storage = (): Storage | undefined => {
 
 export const searchSession = createStore<SearchSession>(() => load(storage()));
 
-searchSession.subscribe(s => {
+/** Прокрутка пишется не чаще раза в это время (событий `scroll` — десятки в секунду). */
+export const PERSIST_SCROLL_MS = 250;
+let persisted: SearchSession | null = null;
+let dirty = false;
+let timer: ReturnType<typeof setTimeout> | undefined;
+
+function persist(): void {
+  clearTimeout(timer);
+  timer = undefined;
+  dirty = false;
+  persisted = searchSession.getState();
   try {
-    storage()?.setItem(SESSION_KEY, JSON.stringify(s));
+    storage()?.setItem(SESSION_KEY, JSON.stringify(persisted));
   } catch {
     // Хранилище переполнено или недоступно: поиск просто не переживёт перезагрузку.
   }
+}
+
+/** Записать несохранённое сейчас (уход с экрана, `pagehide`). */
+export function flushSearchSession(): void {
+  if (dirty) persist();
+}
+
+searchSession.subscribe(s => {
+  // Новый запрос — сразу (редкое событие); прокрутка — не чаще `PERSIST_SCROLL_MS`.
+  if (s.query !== persisted?.query) {
+    persist();
+    return;
+  }
+  dirty = true;
+  timer ??= setTimeout(flushSearchSession, PERSIST_SCROLL_MS);
 });
+globalThis.addEventListener?.('pagehide', flushSearchSession);
 
 /** Запрос изменился: прокрутка прежнего к нему не относится. */
 export function rememberQuery(query: string): void {

@@ -112,6 +112,7 @@ const messages: Messages = {
   'acq.unpin': 'Fixierung lösen (Dateien bleiben)',
   'add.addShort': 'Hinzufügen',
   'add.adding': 'Wird hinzugefügt…',
+  'add.albumToLibrary': 'Album zur Bibliothek hinzufügen',
   'add.inLibrary': 'In der Bibliothek',
   'add.toLibrary': 'Zur Bibliothek hinzufügen',
   'album.disc': 'CD {n}',

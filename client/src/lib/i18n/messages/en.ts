@@ -109,6 +109,7 @@ export const en = {
   'acq.unpin': 'Unpin (keep files)',
   'add.addShort': 'Add',
   'add.adding': 'Adding…',
+  'add.albumToLibrary': 'Add album to library',
   'add.inLibrary': 'In library',
   'add.toLibrary': 'Add to library',
   'album.disc': 'Disc {n}',

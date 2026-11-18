@@ -110,6 +110,7 @@ const messages: Messages = {
   'acq.unpin': 'Зняти закріплення (файли лишаються)',
   'add.addShort': 'Додати',
   'add.adding': 'Додається…',
+  'add.albumToLibrary': 'Додати альбом до бібліотеки',
   'add.inLibrary': 'У бібліотеці',
   'add.toLibrary': 'Додати до бібліотеки',
   'album.disc': 'Диск {n}',

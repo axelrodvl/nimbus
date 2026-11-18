@@ -69,9 +69,11 @@ describe('playRemoteApp: связка с библиотекой и плееро�
   it('трек уже на сервере (не в библиотеке) — играет сразу; в контексте альбома очередь — доступные треки альбома', () => {
     seed(rows('found'));
     const env = installTestPlayer();
+    post.mockResolvedValue({ album_id: 2, track_ids: [10], tracks: [{ id: 10, status: 'found' }] });
     playRemoteApp().playRemote({ albumMbid: 'rg', context: 'album', mbid: 'rec-a', title: 'A' }, t);
     expect(env.ctl.state.queue.map(q => q.id)).toEqual([10, 11]);
-    expect(post).not.toHaveBeenCalled();
+    // Трек не в библиотеке: пометка к воспроизведению уходит в фоне.
+    expect(post).toHaveBeenCalledOnce();
   });
 
   it('трека нет — сервер ищет источник (в библиотеку не добавляет); заигрывает, когда синхронизация принесла его найденным', async () => {

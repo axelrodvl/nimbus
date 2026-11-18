@@ -1,7 +1,10 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as searchApi from '@/lib/api/search';
 import { resetPlayer } from '@/lib/player';
+import { makeAlbum, makeArtist, makeTrack } from '@/test/factories';
+import { seed } from '@/test/seed';
 import { toPlayerTrack } from '@/lib/player';
 import { appData } from '@/lib/app-data';
 import { installTestPlayer, seedPlayerLibrary } from '@/test/player-ui';
@@ -38,6 +41,35 @@ const playFirst = (env: ReturnType<typeof mount>) => act(() => env.ctl.play(trac
 
 beforeEach(() => seedPlayerLibrary());
 afterEach(() => resetPlayer(true));
+
+describe('меню «…»: сохранить в библиотеку', () => {
+  it('трек вне библиотеки — «Добавить в библиотеку» и «Добавить альбом» вызывают добавление', async () => {
+    seed({
+      albums: [makeAlbum({ artist_id: 1, id: 2, in_library: false, mbid: 'rg-x', title: 'Alb' })],
+      artists: [makeArtist({ id: 1, name: 'Art' })],
+      tracks: [makeTrack({ album_id: 2, artist_id: 1, id: 10, in_library: false, mbid_recording: 'rec-x', status: 'ready' })],
+    });
+    const post = vi.spyOn(searchApi, 'addToLibraryRequest').mockResolvedValue({ id: 1, status: 'added', type: 'track' });
+    vi.spyOn(appData().engine, 'requestSync').mockImplementation(() => undefined);
+    const env = mount();
+    act(() => env.ctl.play(track(10), [track(10)]));
+    await userEvent.click(within(screen.getByTestId('player-bar')).getByTestId('player-track-menu'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Добавить в библиотеку' }));
+    expect(post).toHaveBeenCalledWith({ albumMbid: 'rg-x', mbid: 'rec-x', type: 'track' });
+    await userEvent.click(within(screen.getByTestId('player-bar')).getByTestId('player-track-menu'));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Добавить альбом в библиотеку' }));
+    expect(post).toHaveBeenLastCalledWith({ mbid: 'rg-x', type: 'album' });
+  });
+
+  it('трек и альбом в библиотеке — этих пунктов нет', async () => {
+    const env = mount();
+    playFirst(env);
+    await userEvent.click(within(screen.getByTestId('player-bar')).getByTestId('player-track-menu'));
+    await screen.findByRole('menuitem', { name: /плейлист/i });
+    expect(screen.queryByRole('menuitem', { name: 'Добавить в библиотеку' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Добавить альбом в библиотеку' })).not.toBeInTheDocument();
+  });
+});
 
 describe('панель плеера', () => {
   it('без трека: подсказка, управление заблокировано, мини-плеера нет', () => {

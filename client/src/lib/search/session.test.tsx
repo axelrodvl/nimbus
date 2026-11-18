@@ -1,5 +1,5 @@
 import { act, fireEvent, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MobileTabBar } from '@/components/mobile-tab-bar';
 import * as searchApi from '@/lib/api/search';
 import { NAV_ITEMS } from '@/lib/nav/items';
@@ -8,7 +8,16 @@ import { SearchScreen } from '@/screens/search';
 import { renderRoutes } from '@/test/render';
 import { searchFixture } from '@/test/search';
 import { seed } from '@/test/seed';
-import { rememberQuery, rememberScroll, reloadSearchSession, SESSION_KEY, searchHref, searchSession } from './session';
+import {
+  flushSearchSession,
+  PERSIST_SCROLL_MS,
+  rememberQuery,
+  rememberScroll,
+  reloadSearchSession,
+  SESSION_KEY,
+  searchHref,
+  searchSession,
+} from './session';
 
 vi.mock('@/lib/api/search', async importOriginal => ({
   ...(await importOriginal<typeof searchApi>()),
@@ -41,6 +50,7 @@ describe('сессия поиска', () => {
   it('переживает перезагрузку (sessionStorage); испорченная запись — пустой поиск', () => {
     rememberQuery('björk');
     rememberScroll(120);
+    flushSearchSession();
     reloadSearchSession();
     expect(searchSession.getState()).toEqual({ query: 'björk', scroll: 120 });
     sessionStorage.setItem(SESSION_KEY, '{oops');
@@ -98,5 +108,61 @@ describe('возврат на поиск', () => {
     root.scrollTop = 640;
     act(() => void root.dispatchEvent(new Event('scroll')));
     expect(searchSession.getState()).toEqual({ query: 'radiohead', scroll: 640 });
+  });
+});
+
+describe('запись сессии поиска', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('100 событий прокрутки за секунду — не больше 5 записей; pagehide дописывает последнее', () => {
+    vi.useFakeTimers();
+    rememberQuery('radiohead');
+    const set = vi.spyOn(Storage.prototype, 'setItem');
+    set.mockClear();
+    for (let i = 1; i <= 100; i++) {
+      rememberScroll(i * 10);
+      vi.advanceTimersByTime(10);
+    }
+    expect(set.mock.calls.length).toBeLessThanOrEqual(5);
+    // Дальше — тишина, но последняя позиция ещё не записана: страницу закрывают.
+    rememberScroll(5000);
+    window.dispatchEvent(new Event('pagehide'));
+    expect(JSON.parse(sessionStorage.getItem(SESSION_KEY)!)).toEqual({ query: 'radiohead', scroll: 5000 });
+    const calls = set.mock.calls.length;
+    vi.advanceTimersByTime(PERSIST_SCROLL_MS * 2);
+    expect(set.mock.calls.length).toBe(calls);
+    set.mockRestore();
+  });
+
+  it('новый запрос записывается сразу', () => {
+    rememberQuery('muse');
+    expect(JSON.parse(sessionStorage.getItem(SESSION_KEY)!).query).toBe('muse');
+  });
+});
+
+describe('экран поиска и сессия', () => {
+  it('запрос в URL меняется снаружи — без предупреждений React (store обновляется в эффекте, не при рендере)', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { router } = renderRoutes(
+      [
+        {
+          element: (
+            <main>
+              <SearchScreen />
+              <MobileTabBar items={NAV_ITEMS} />
+            </main>
+          ),
+          path: '/search',
+        },
+      ],
+      '/search?q=radiohead',
+    );
+    await act(async () => {
+      await router.navigate('/search?q=muse');
+    });
+    expect(screen.getByRole('searchbox')).toHaveValue('muse');
+    expect(screen.getByRole('link', { name: 'Поиск' })).toHaveAttribute('href', '/search?q=muse');
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
   });
 });

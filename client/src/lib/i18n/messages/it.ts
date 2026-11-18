@@ -110,6 +110,7 @@ const messages: Messages = {
   'acq.unpin': 'Rimuovi blocco (mantieni file)',
   'add.addShort': 'Aggiungi',
   'add.adding': 'Aggiunta in corso…',
+  'add.albumToLibrary': 'Aggiungi l’album alla libreria',
   'add.inLibrary': 'Nella libreria',
   'add.toLibrary': 'Aggiungi alla libreria',
   'album.disc': 'Disco {n}',

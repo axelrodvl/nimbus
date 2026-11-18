@@ -8,6 +8,8 @@ import { useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useT } from '@/lib/i18n/provider';
 import { usePlayerActions } from '@/lib/player/hooks';
+import { addToLibrary } from '@/lib/search/add';
+import { useAlbumView, useTrackView } from '@/lib/store/hooks';
 import type { PlayerTrack } from '@/lib/player';
 import { cn } from '@/lib/utils';
 
@@ -22,7 +24,7 @@ type Props = {
   testId?: string;
 };
 
-/** Меню «…» трека в плеере: «В плейлист», «Перейти к альбому», «Перейти к артисту», «Убрать из очереди». */
+/** Меню «…» трека в плеере: «В плейлист», «Добавить в библиотеку» (если трек вне неё), «Перейти к альбому», «Перейти к артисту», «Убрать из очереди». */
 export function TrackMenu({
   track,
   queueIndex,
@@ -35,6 +37,9 @@ export function TrackMenu({
   const navigate = useNavigate();
   const player = usePlayerActions();
   const dialogs = useTrackDialogs();
+  // Трек из поиска играет вне библиотеки: его (и альбом) можно сохранить прямо отсюда.
+  const view = useTrackView(track.id);
+  const album = useAlbumView(track.albumId ?? -1);
   const opener = useRef<HTMLButtonElement>(null);
   const offlineMenu = useTrackOfflineMenu({ albumId: track.albumId, id: track.id, title: track.title }, opener);
   const go = (to: string) => {
@@ -57,6 +62,41 @@ export function TrackMenu({
           <Ariakit.MenuItem className={itemClass} onClick={() => dialogs.addToPlaylist(track.id, opener)}>
             {t('playlist.addTo')}
           </Ariakit.MenuItem>
+          {view && !view.in_library ? (
+            <Ariakit.MenuItem
+              className={itemClass}
+              onClick={() =>
+                void addToLibrary(
+                  {
+                    mbid: view.mbid_recording,
+                    albumMbid: album?.mbid ?? null,
+                    preview: { artistName: track.artist, title: track.title },
+                    type: 'track',
+                  },
+                  t,
+                )
+              }
+            >
+              {t('add.toLibrary')}
+            </Ariakit.MenuItem>
+          ) : null}
+          {album && !album.in_library ? (
+            <Ariakit.MenuItem
+              className={itemClass}
+              onClick={() =>
+                void addToLibrary(
+                  {
+                    mbid: album.mbid,
+                    preview: { artistName: track.artist, cover: album.cover_url, title: album.title },
+                    type: 'album',
+                  },
+                  t,
+                )
+              }
+            >
+              {t('add.albumToLibrary')}
+            </Ariakit.MenuItem>
+          ) : null}
           {offlineMenu.item}
           {track.albumId !== undefined ? (
             <Ariakit.MenuItem className={itemClass} onClick={() => go(`/album/${track.albumId}`)}>

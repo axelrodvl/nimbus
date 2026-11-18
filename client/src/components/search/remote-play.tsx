@@ -38,7 +38,7 @@ function useIsRecordingPlaying(request: PlayRemoteRequest): boolean {
  */
 export function RemotePlayRow({ request, query, leading, children, className }: Props) {
   const t = useT();
-  const pending = usePlayPending(request.mbid);
+  const pending = usePlayPending(request);
   const playing = useIsRecordingPlaying(request);
   return (
     <button
