@@ -21,10 +21,7 @@ describe('useCanPlay', () => {
     expect(result.current(track)).toBe(false);
     const first = result.current;
     act(() => {
-      rt.status.setState({
-        doneRevision: 1,
-        files: new Map([[7, { bytesDone: 1, bytesTotal: 1, error: null, mime: 'a/b', state: 'done' }]]),
-      });
+      rt.status.setState({ doneRevision: 1, files: new Map([[7, { bytesDone: 1, bytesTotal: 1, error: null, mime: 'a/b', state: 'done' }]]) });
     });
     expect(result.current).not.toBe(first);
     expect(result.current(track)).toBe(true);

@@ -168,3 +168,4 @@ describe('перерисовки', () => {
     expect(renders).toBe(before);
   });
 });
+

@@ -139,10 +139,7 @@ describe('экран поиска', () => {
     const play = vi.spyOn(playRemoteApp(), 'playRemote').mockImplementation(() => undefined);
     const { router } = open('radio');
     fireEvent.click(screen.getByRole('button', { name: /Radio Ga Ga/ }));
-    expect(play).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Radio Ga Ga', trackId: 1 }),
-      expect.any(Function),
-    );
+    expect(play).toHaveBeenCalledWith(expect.objectContaining({ title: 'Radio Ga Ga', trackId: 1 }), expect.any(Function));
     expect(router.state.location.pathname).toBe('/search');
     expect(readHistory()).toEqual(['radio']);
   });
@@ -197,9 +194,7 @@ describe('экран поиска', () => {
   });
 
   it('часть секций не ответила — результаты видны, статус «догружаем», без текста ошибки', async () => {
-    search
-      .mockResolvedValueOnce(searchFixture({ errors: ['tracks: timeout'] }))
-      .mockReturnValue(new Promise(() => undefined));
+    search.mockResolvedValueOnce(searchFixture({ errors: ['tracks: timeout'] })).mockReturnValue(new Promise(() => undefined));
     open('radiohead');
     expect(await screen.findByText(/Часть результатов ещё загружается/)).toBeInTheDocument();
     expect(screen.queryByText(/timeout/)).not.toBeInTheDocument();
@@ -332,10 +327,7 @@ describe('кнопка «Добавить в библиотеку»', () => {
     const track = (await screen.findAllByTestId('remote-track'))[0]!;
     fireEvent.click(within(track).getByRole('button', { name: 'Добавить в библиотеку' }));
     expect(post).toHaveBeenCalledWith({ albumMbid: OK_COMPUTER, mbid: PARANOID, type: 'track' });
-    expect(addingStore.getState().adding.get(PARANOID)).toMatchObject({
-      preview: { artistName: 'Radiohead' },
-      type: 'track',
-    });
+    expect(addingStore.getState().adding.get(PARANOID)).toMatchObject({ preview: { artistName: 'Radiohead' }, type: 'track' });
     const artist = screen.getAllByTestId('remote-artist')[0]!;
     fireEvent.click(within(artist).getByRole('button', { name: 'Добавить в библиотеку' }));
     expect(post).toHaveBeenCalledWith({ mbid: RADIOHEAD, type: 'artist' });

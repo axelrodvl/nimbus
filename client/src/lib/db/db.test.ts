@@ -267,10 +267,7 @@ describe('IndexedDB недоступна', () => {
     await db.offlineFilePut(file);
     await db.offlineFilePut({ track_id: 2 } as OfflineFile);
     await db.offlineFileDelete(2);
-    expect(await db.offlineLoad()).toEqual({
-      files: [file],
-      pins: [{ created_at: 1, id: 1, key: 'track:1', kind: 'track' }],
-    });
+    expect(await db.offlineLoad()).toEqual({ files: [file], pins: [{ created_at: 1, id: 1, key: 'track:1', kind: 'track' }] });
     await db.offlineClear();
     expect(await db.offlineLoad()).toEqual({ files: [], pins: [] });
   });

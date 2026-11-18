@@ -81,7 +81,10 @@ function TorrentItem({
   const Chevron = open ? ChevronDown : ChevronRight;
   return (
     <li
-      className={cn('rounded-lg border', inUse ? 'border-accent/60' : 'border-divider dark:border-divider-dark')}
+      className={cn(
+        'rounded-lg border',
+        inUse ? 'border-accent/60' : 'border-divider dark:border-divider-dark',
+      )}
       data-in-use={inUse}
       data-testid="torrent-item"
     >
@@ -104,7 +107,11 @@ function TorrentItem({
         <span className="flex min-w-0 flex-1 items-center gap-2 md:flex-none">
           <span className="min-w-0 truncate text-sm font-medium">{tor.title}</span>
           {inUse ? (
-            <Badge className="shrink-0" data-testid="torrent-in-use" tone="accent">
+            <Badge
+              className="shrink-0"
+              data-testid="torrent-in-use"
+              tone="accent"
+            >
               <span title={t('sources.inUseTitle', { count: item.primary_tracks })}>{t('sources.inUse')}</span>
             </Badge>
           ) : null}

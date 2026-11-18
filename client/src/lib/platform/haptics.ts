@@ -7,9 +7,7 @@ export type Haptics = { impact(kind: HapticKind): void };
 
 const PATTERN: Record<HapticKind, number> = { select: 8, tap: 15 };
 
-export function createWebHaptics(
-  nav: { vibrate?: (p: number) => boolean } | undefined = globalThis.navigator,
-): Haptics {
+export function createWebHaptics(nav: { vibrate?: (p: number) => boolean } | undefined = globalThis.navigator): Haptics {
   return {
     impact(kind) {
       try {

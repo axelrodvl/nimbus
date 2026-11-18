@@ -40,15 +40,7 @@ describe('prefetchTrack / getAudioInfo', () => {
   });
 
   it('GET /api/tracks/{id}/audio-info', async () => {
-    const info = {
-      bit_depth: 16,
-      bitrate_kbps: null,
-      channels: 'stereo',
-      codec: 'flac',
-      ext: 'flac',
-      sample_rate: 44100,
-      transcoded: false,
-    };
+    const info = { bit_depth: 16, bitrate_kbps: null, channels: 'stereo', codec: 'flac', ext: 'flac', sample_rate: 44100, transcoded: false };
     const fetch = vi.fn(async (_input: RequestInfo | URL) => json(info));
     const client = createApiClient({ baseUrl: 'http://x', fetch });
     expect(await getAudioInfo(4, undefined, client)).toEqual(info);

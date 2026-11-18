@@ -55,18 +55,8 @@ describe('edge-swipe', () => {
   });
 
   it('движение влево от края не начинает жест; мелкая дрожь не определяет направление', () => {
-    expect(
-      drag([
-        [20, 300, 0],
-        [0, 300, 30],
-      ]).phase,
-    ).toBe('ignored');
-    expect(
-      drag([
-        [5, 300, 0],
-        [8, 303, 30],
-      ]).phase,
-    ).toBe('pending');
+    expect(drag([[20, 300, 0], [0, 300, 30]]).phase).toBe('ignored');
+    expect(drag([[5, 300, 0], [8, 303, 30]]).phase).toBe('pending');
   });
 
   it('состояние idle/ignored не меняется движением; end без жеста — null', () => {
@@ -76,10 +66,7 @@ describe('edge-swipe', () => {
   });
 
   it('dx не уходит в минус, если палец вернулся назад', () => {
-    let s = drag([
-      [5, 300, 0],
-      [50, 300, 50],
-    ]);
+    let s = drag([[5, 300, 0], [50, 300, 50]]);
     s = swipeMove(s, 2, 300, 100);
     expect(s.phase === 'dragging' && s.dx).toBe(0);
   });
@@ -87,8 +74,7 @@ describe('edge-swipe', () => {
 
 describe('yieldsToOwner', () => {
   it('элемент с data-gesture="own" и ползунок — уступаем; обычный — нет', () => {
-    document.body.innerHTML =
-      '<div data-gesture="own"><span id="a"></span></div><input id="r" type="range"><p id="p"></p>';
+    document.body.innerHTML = '<div data-gesture="own"><span id="a"></span></div><input id="r" type="range"><p id="p"></p>';
     expect(yieldsToOwner(document.getElementById('a'))).toBe(true);
     expect(yieldsToOwner(document.getElementById('r'))).toBe(true);
     expect(yieldsToOwner(document.getElementById('p'))).toBe(false);

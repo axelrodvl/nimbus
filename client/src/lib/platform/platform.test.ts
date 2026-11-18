@@ -23,10 +23,7 @@ describe('адреса бэкенда', () => {
 
   it('пустая база на https даёт wss', () => {
     const original = globalThis.location;
-    Object.defineProperty(globalThis, 'location', {
-      configurable: true,
-      value: { host: 'a.test', protocol: 'https:' },
-    });
+    Object.defineProperty(globalThis, 'location', { configurable: true, value: { host: 'a.test', protocol: 'https:' } });
     try {
       expect(wsUrl('/api/ws')).toBe('wss://a.test/api/ws');
     } finally {

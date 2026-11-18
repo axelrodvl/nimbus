@@ -177,9 +177,7 @@ export class FakeSyncServer {
 
   /** Все текущие строки сущности. */
   all(entity: Entity): ({ id: number } & Record<string, unknown>)[] {
-    return [...this.rows.values()]
-      .filter(r => r.entity === entity)
-      .map(r => r.row as { id: number } & Record<string, unknown>);
+    return [...this.rows.values()].filter(r => r.entity === entity).map(r => r.row as { id: number } & Record<string, unknown>);
   }
 
   count(entity: Entity): number {
@@ -306,15 +304,7 @@ export function makeSmallLibrary(): LibraryRows {
  * Большая библиотека для проверки скорости и виртуализации: `albums` альбомов поровну между `artists` артистами,
  * `tracks` треков поровну между альбомами. Статусы чередуются, `added_at` растёт с id.
  */
-export function makeBigLibrary({
-  artists,
-  albums,
-  tracks,
-}: {
-  artists: number;
-  albums: number;
-  tracks: number;
-}): LibraryRows {
+export function makeBigLibrary({ artists, albums, tracks }: { artists: number; albums: number; tracks: number }): LibraryRows {
   resetFactories();
   const rows: LibraryRows = { albums: [], artists: [], playlistTracks: [], playlists: [], tracks: [] };
   const statuses = ['ready', 'found', 'adding', 'not_found'] as const;

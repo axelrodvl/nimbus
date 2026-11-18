@@ -20,13 +20,7 @@ afterEach(async () => {
 function withOffline(done: number[], downloading: number[] = []): { rt: OfflineRuntime; storage: MemoryStorage } {
   const storage = new MemoryStorage();
   const rt = createOfflineRuntime(storage);
-  const file = (state: 'done' | 'downloading') => ({
-    bytesDone: 1,
-    bytesTotal: 1,
-    error: null,
-    mime: 'audio/flac',
-    state,
-  });
+  const file = (state: 'done' | 'downloading') => ({ bytesDone: 1, bytesTotal: 1, error: null, mime: 'audio/flac', state });
   rt.status.setState({
     files: new Map([
       ...done.map(id => [id, file('done')] as const),
@@ -140,10 +134,7 @@ describe('контроллер и скачанные треки', () => {
 
   it('источник скачанного трека готовится заранее: текущий и следующий', () => {
     const deps = offlineDeps(new Set([1, 2]));
-    const s = setup(
-      deps,
-      [1, 2, 3].map(i => pt(i)),
-    );
+    const s = setup(deps, [1, 2, 3].map(i => pt(i)));
     s.ctl.play(s.library.get(1)!, queue(s));
     expect(deps.prepareOffline.mock.calls.map(c => c[0])).toEqual(expect.arrayContaining([1, 2]));
     deps.prepareOffline.mockClear();

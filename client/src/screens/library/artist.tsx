@@ -32,9 +32,7 @@ const groupOf = (a: AlbumView): GroupId => {
 };
 
 /** Альбомы по группам типа релиза; внутри группы порядок селектора (по году выхода). Пустые группы не показываются. */
-export function groupAlbums(
-  albums: AlbumView[],
-): { id: GroupId; label: (typeof GROUPS)[number]['label']; albums: AlbumView[] }[] {
+export function groupAlbums(albums: AlbumView[]): { id: GroupId; label: (typeof GROUPS)[number]['label']; albums: AlbumView[] }[] {
   return GROUPS.map(g => ({ ...g, albums: albums.filter(a => groupOf(a) === g.id) })).filter(g => g.albums.length > 0);
 }
 
@@ -71,7 +69,7 @@ export function ArtistScreen() {
     <PageLayout documentTitle={artist.name}>
       <header className="mb-8 flex flex-col items-center gap-6 sm:flex-row">
         <ArtistAvatar className="h-40 w-40 text-5xl" mbid={artist.mbid} name={artist.name} />
-        <div className="flex w-full max-w-full min-w-0 flex-col items-center gap-3 sm:w-auto sm:items-start">
+        <div className="flex w-full min-w-0 max-w-full flex-col items-center gap-3 sm:w-auto sm:items-start">
           <span className="text-muted text-xs font-medium tracking-wide uppercase">{t('kind.artist')}</span>
           <h1 className="text-4xl font-bold tracking-tight">{artist.name}</h1>
           {artist.disambiguation ? <p className="text-muted text-sm">{artist.disambiguation}</p> : null}
@@ -93,31 +91,18 @@ export function ArtistScreen() {
       {groups.length === 0 ? (
         <>
           <h2 className="mb-4">{t('artist.albums')}</h2>
-          {importStatus ? (
-            <AlbumGridSkeleton count={5} />
-          ) : (
-            <p className="text-muted text-sm">{t('artist.noAlbums')}</p>
-          )}
+          {importStatus ? <AlbumGridSkeleton count={5} /> : <p className="text-muted text-sm">{t('artist.noAlbums')}</p>}
         </>
       ) : (
         groups.map((g, gi) => (
-          <section
-            aria-labelledby={`artist-group-${g.id}`}
-            className="mb-8"
-            data-testid={`artist-group-${g.id}`}
-            key={g.id}
-          >
+          <section aria-labelledby={`artist-group-${g.id}`} className="mb-8" data-testid={`artist-group-${g.id}`} key={g.id}>
             <h2 className="mb-4" id={`artist-group-${g.id}`}>
               {t(g.label)}
             </h2>
             <ul className={GRID}>
               {g.albums.map((a, i) => (
                 <li key={a.id}>
-                  <AlbumCard
-                    actions={<PlayAlbumButton albumId={a.id} variant="icon" />}
-                    album={a}
-                    priority={gi === 0 && i < 4}
-                  />
+                  <AlbumCard actions={<PlayAlbumButton albumId={a.id} variant="icon" />} album={a} priority={gi === 0 && i < 4} />
                 </li>
               ))}
             </ul>

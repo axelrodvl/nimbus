@@ -49,13 +49,7 @@ export type MediaSessionHandle = {
   dispose(): void;
 };
 
-const noop: MediaSessionHandle = {
-  dispose() {},
-  refresh() {},
-  setMetadata() {},
-  setPlaybackState() {},
-  setPosition() {},
-};
+const noop: MediaSessionHandle = { dispose() {}, refresh() {}, setMetadata() {}, setPlaybackState() {}, setPosition() {} };
 
 /** Подключает Media Session; действия превращаются в команды `onCommand`. Без поддержки браузера — пустая заглушка. */
 export function createMediaSession(
