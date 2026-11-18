@@ -27,12 +27,13 @@ describe('каталог MusicBrainz', () => {
     const fetch = vi.fn(async (req: RequestInfo | URL) => {
       const r = req as Request;
       bodies.push([new URL(r.url).pathname, r.method, await r.json()]);
-      return json({ album_id: 1, track_ids: [5] });
+      return json({ album_id: 1, track_ids: [5], tracks: [{ id: 5, status: 'adding' }] });
     });
     const client = createApiClient({ baseUrl: 'http://x', fetch });
     await expect(requestPlay({ albumMbid: 'rg', mbid: 'rec', type: 'track' }, client)).resolves.toEqual({
       album_id: 1,
       track_ids: [5],
+      tracks: [{ id: 5, status: 'adding' }],
     });
     await requestPlay({ mbid: 'rg', type: 'album' }, client);
     await requestPlay({ mbid: 'rec', type: 'track' }, client);

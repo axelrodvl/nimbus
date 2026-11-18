@@ -236,6 +236,34 @@ async fn play_track_searches_a_source_without_adding_to_library(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn play_returns_statuses_after_marking(pool: PgPool) {
+    let server = mb_server().await;
+    let app = router(state_with_mb(pool.clone(), mb_client(&server)));
+    let body = json!({"type": "track", "mbid": PARANOID, "album_mbid": OK_COMPUTER});
+    let (_, first) = post_json(app.clone(), "/api/play", body.clone()).await;
+    let id = first["track_ids"][0].as_i64().unwrap();
+    assert_eq!(first["tracks"], json!([{"id": id, "status": "adding"}]));
+
+    // Поиск закончился без источника: повторное «сыграть» сбрасывает в `adding` — и отвечает именно так.
+    sqlx::query("UPDATE tracks SET status = 'not_found' WHERE id = $1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (_, again) = post_json(app.clone(), "/api/play", body.clone()).await;
+    assert_eq!(again["tracks"], json!([{"id": id, "status": "adding"}]));
+
+    // Источник уже есть: статус остаётся `found`.
+    sqlx::query("UPDATE tracks SET status = 'found' WHERE id = $1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (_, found) = post_json(app, "/api/play", body).await;
+    assert_eq!(found["tracks"], json!([{"id": id, "status": "found"}]));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn play_album_requests_every_track_in_tracklist_order(pool: PgPool) {
     let server = mb_server().await;
     let app = router(state_with_mb(pool.clone(), mb_client(&server)));

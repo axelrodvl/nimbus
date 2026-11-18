@@ -7,7 +7,7 @@ import { translate } from '@/lib/i18n/translate';
 import type { TFn } from '@/lib/i18n/messages';
 import type { TrackView } from '@/lib/store/selectors';
 import { makeTrack } from '@/test/factories';
-import { createPlayRemote, PLAY_TOAST_ID, WAITING_TOAST_MS, type PlayRemoteDeps } from './play-remote';
+import { createPlayRemote, PENDING_POLL_MS, PLAY_TOAST_ID, WAITING_TOAST_MS, type PlayRemoteDeps } from './play-remote';
 
 const t = ((key: string, params?: Record<string, string | number>) => translate(en as never, 'en', key, params)) as TFn;
 
@@ -42,7 +42,9 @@ function harness() {
       current = track.id;
       playerListeners.forEach(l => l());
     }),
+    fetchStatus: vi.fn(() => Promise.resolve<TrackView['status']>('adding')),
     request: vi.fn(() => new Promise<PlayResponse>((resolve, reject) => (settle = { reject, resolve }))),
+    requestSync: vi.fn(),
     subscribeLibrary: l => {
       libraryListeners.add(l);
       return () => libraryListeners.delete(l);
@@ -66,8 +68,8 @@ function harness() {
     libraryListeners,
     playerListeners,
     pr,
-    respond: async (ids: number[] = [11]) => {
-      settle.resolve({ album_id: 7, track_ids: ids });
+    respond: async (ids: number[] = [11], status: PlayResponse['tracks'][number]['status'] = 'adding') => {
+      settle.resolve({ album_id: 7, track_ids: ids, tracks: ids.map(id => ({ id, status })) });
       await flush();
     },
     setAlbum: (list: TrackView[]) => (album = list),
@@ -93,7 +95,10 @@ beforeEach(() => {
   vi.spyOn(toast, 'info').mockReturnValue(PLAY_TOAST_ID);
   vi.spyOn(toast, 'dismiss').mockReturnValue(PLAY_TOAST_ID);
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe('playRemote', () => {
   it('трек уже на сервере и доступен (даже не в библиотеке) — играет сразу, без запроса; очередь — только он', () => {
@@ -264,5 +269,123 @@ describe('playRemote', () => {
     h.pr.playRemote({ ...request, wholeAlbum: true }, t);
     h.pr.playRemote(request, t);
     expect(pending(h)?.request).toEqual(request);
+  });
+
+  it('server_adding_then_store_not_found_reports_no_source', async () => {
+    const h = harness();
+    h.setTrack(REC, view({ status: 'not_found' }));
+    h.pr.playRemote(request, t);
+    await h.respond([11], 'adding');
+    // Прежняя строка не считается итогом, пока она не сменилась.
+    expect(pending(h)).not.toBeNull();
+    // Промежуточный `adding` потерян (пачка событий / переподключение): сразу итог.
+    h.setTrack(REC, view({ status: 'not_found' }));
+    expect(pending(h)).toBeNull();
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('No source'), { id: PLAY_TOAST_ID });
+  });
+
+  it('track_absent_until_final_state', async () => {
+    const h = harness();
+    h.pr.playRemote(request, t);
+    await h.respond([11], 'adding');
+    expect(pending(h)?.searched).toBe(true);
+    h.setTrack(REC, view({ status: 'not_found' }));
+    expect(pending(h)).toBeNull();
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('No source'), { id: PLAY_TOAST_ID });
+  });
+
+  it('сервер сразу сказал found — играет, когда строка дойдёт до store', async () => {
+    const h = harness();
+    h.pr.playRemote(request, t);
+    await h.respond([11], 'found');
+    expect(h.deps.play).not.toHaveBeenCalled();
+    h.setTrack(REC, view({ status: 'found' }));
+    expect(h.deps.play).toHaveBeenCalledOnce();
+  });
+
+  it('сервер сказал not_found (гонка) — toast без источника', async () => {
+    const h = harness();
+    h.pr.playRemote(request, t);
+    await h.respond([11], 'not_found');
+    expect(pending(h)).toBeNull();
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('No source'), { id: PLAY_TOAST_ID });
+  });
+
+  it('в ответе нет нужного трека — ожидание снимается с ошибкой, а не висит', async () => {
+    const h = harness();
+    h.pr.playRemote(request, t);
+    await h.respond([]);
+    expect(pending(h)).toBeNull();
+    expect(toast.error).toHaveBeenCalled();
+  });
+
+  it('строка пропала из store после prune и не вернулась за круг сторожа — ожидание снимается', async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    h.pr.playRemote(request, t);
+    await h.respond();
+    h.setTrack(REC, view({ status: 'adding' }));
+    h.setTrack(REC, null);
+    // Сразу — ещё нет: пересинхронизация может вернуть строку.
+    expect(pending(h)).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(PENDING_POLL_MS);
+    expect(pending(h)).toBeNull();
+    expect(toast.error).toHaveBeenCalled();
+  });
+
+  describe('сторож', () => {
+    it('watchdog_polls_when_store_is_silent', async () => {
+      vi.useFakeTimers();
+      const h = harness();
+      h.pr.playRemote(request, t);
+      await h.respond();
+      expect(h.deps.fetchStatus).not.toHaveBeenCalled();
+      vi.mocked(h.deps.fetchStatus).mockResolvedValue('found');
+      await vi.advanceTimersByTimeAsync(PENDING_POLL_MS);
+      expect(h.deps.fetchStatus).toHaveBeenCalledWith(11);
+      expect(h.deps.requestSync).toHaveBeenCalledOnce();
+      // Синхронизация догнала store — играет.
+      h.setTrack(REC, view({ status: 'found' }));
+      expect(h.deps.play).toHaveBeenCalledOnce();
+      // Ожидание снято — таймер больше не опрашивает.
+      await vi.advanceTimersByTimeAsync(PENDING_POLL_MS * 2);
+      expect(h.deps.fetchStatus).toHaveBeenCalledOnce();
+    });
+
+    it('сервер говорит not_found, а store молчит — toast без источника', async () => {
+      vi.useFakeTimers();
+      const h = harness();
+      h.pr.playRemote(request, t);
+      await h.respond();
+      vi.mocked(h.deps.fetchStatus).mockResolvedValue('not_found');
+      await vi.advanceTimersByTimeAsync(PENDING_POLL_MS);
+      expect(pending(h)).toBeNull();
+      expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('No source'), { id: PLAY_TOAST_ID });
+    });
+
+    it('всё ещё adding — опрашивает снова; сетевая ошибка не снимает ожидание, 404 снимает', async () => {
+      vi.useFakeTimers();
+      const h = harness();
+      h.pr.playRemote(request, t);
+      await h.respond();
+      await vi.advanceTimersByTimeAsync(PENDING_POLL_MS);
+      vi.mocked(h.deps.fetchStatus).mockRejectedValueOnce(new Error('offline'));
+      await vi.advanceTimersByTimeAsync(PENDING_POLL_MS);
+      expect(h.deps.fetchStatus).toHaveBeenCalledTimes(2);
+      expect(pending(h)).not.toBeNull();
+      vi.mocked(h.deps.fetchStatus).mockRejectedValueOnce(new ApiError(404, 'not_found', 'gone'));
+      await vi.advanceTimersByTimeAsync(PENDING_POLL_MS);
+      expect(pending(h)).toBeNull();
+    });
+
+    it('отмена останавливает сторожа', async () => {
+      vi.useFakeTimers();
+      const h = harness();
+      h.pr.playRemote(request, t);
+      await h.respond();
+      h.pr.cancel();
+      await vi.advanceTimersByTimeAsync(PENDING_POLL_MS * 2);
+      expect(h.deps.fetchStatus).not.toHaveBeenCalled();
+    });
   });
 });

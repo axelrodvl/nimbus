@@ -72,7 +72,7 @@ describe('playRemoteApp: связка с библиотекой и плееро�
   it('трека нет — сервер ищет источник (в библиотеку не добавляет); заигрывает, когда синхронизация принесла его найденным', async () => {
     seed({ albums: [], artists: [], tracks: [] });
     const env = installTestPlayer();
-    post.mockResolvedValue({ album_id: 2, track_ids: [10] });
+    post.mockResolvedValue({ album_id: 2, track_ids: [10], tracks: [{ id: 10, status: 'adding' }] });
     playRemoteApp().playRemote({ albumMbid: 'rg', mbid: 'rec-a', title: 'A' }, t);
     await act(async () => undefined);
     expect(post).toHaveBeenCalledWith({ albumMbid: 'rg', mbid: 'rec-a', type: 'track' });

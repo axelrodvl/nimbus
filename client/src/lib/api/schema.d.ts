@@ -1566,6 +1566,16 @@ export interface components {
             album_id: number;
             /** @description Запрошенные треки в порядке треклиста; их статусы приходят синхронизацией. */
             track_ids: number[];
+            /**
+             * @description Статус каждого запрошенного трека сразу после пометки (в порядке `track_ids`): `adding` — поиск начат
+             *     после этого запроса, итог придёт синхронизацией.
+             */
+            tracks: components["schemas"]["PlayTrack"][];
+        };
+        PlayTrack: {
+            /** Format: int64 */
+            id: number;
+            status: components["schemas"]["TrackStatus"];
         };
         /** @enum {string} */
         PlaybackMode: "direct" | "transcode";

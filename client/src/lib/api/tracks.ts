@@ -28,3 +28,11 @@ export async function getAudioInfo(
 ): Promise<AudioInfoDto> {
   return unwrap(await client.GET('/api/tracks/{id}/audio-info', { params: { path: { id: trackId } }, signal }));
 }
+
+/** `GET /api/tracks/{id}`: трек напрямую (для сторожа ожидания, когда синхронизация молчит). */
+export async function getTrack(
+  trackId: number,
+  client: ReturnType<typeof createApiClient> = defaultClient,
+): Promise<Schemas['TrackDto']> {
+  return unwrap(await client.GET('/api/tracks/{id}', { params: { path: { id: trackId } } }));
+}

@@ -104,6 +104,7 @@ use crate::{library, routes, search, sources};
         crate::catalog::PlayKind,
         crate::catalog::PlayRequest,
         crate::catalog::PlayResponse,
+        crate::catalog::PlayTrack,
         library::StatusCounts,
         library::ArtistDto,
         library::ImportStatusDto,

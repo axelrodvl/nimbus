@@ -76,6 +76,8 @@ impl std::str::FromStr for LibraryType {
 pub struct PlayOutcome {
     pub album_id: i64,
     pub track_ids: Vec<i64>,
+    /// Статус каждого трека сразу после пометки (в порядке `track_ids`).
+    pub statuses: Vec<TrackStatus>,
 }
 
 /// Результат добавления.
@@ -428,9 +430,14 @@ impl LibraryService {
         for id in &ids {
             self.changed(Entity::Track, *id);
         }
+        let statuses = ids
+            .iter()
+            .filter_map(|id| marked.iter().find(|t| t.id == *id).map(|t| t.status))
+            .collect();
         Ok(PlayOutcome {
             album_id,
             track_ids: ids,
+            statuses,
         })
     }
 

@@ -268,10 +268,12 @@ function playRoute(body: { type: string; mbid: string; album_mbid?: string | nul
   const hits = searchFixture.tracks.filter(t => t.album_mbid === albumMbid);
   const wanted = body.type === 'album' ? hits : hits.filter(t => t.mbid === body.mbid);
   if (wanted.length === 0) return null;
+  const statuses: { id: number; status: string }[] = [];
   const ids = wanted.map(hit => {
     const existing = state.server.all('track').find(r => r.mbid_recording === hit.mbid && r.album_id === album.id);
     if (existing) {
       if (existing.status === 'not_found') state.server.upsert('track', { ...existing, status: 'adding' });
+      statuses.push({ id: Number(existing.id), status: existing.status === 'not_found' ? 'adding' : String(existing.status) });
       return Number(existing.id);
     }
     const track = makeTrack({
@@ -286,9 +288,10 @@ function playRoute(body: { type: string; mbid: string; album_mbid?: string | nul
       title: hit.title,
     });
     state.server.upsert('track', track);
+    statuses.push({ id: track.id, status: 'adding' });
     return track.id;
   });
-  return { album_id: album.id, track_ids: ids };
+  return { album_id: album.id, track_ids: ids, tracks: statuses };
 }
 
 /** `GET /api/catalog/{artists|albums}/{mbid}`: каталог MusicBrainz из фикстуры поиска; `null` — такого mbid нет. */

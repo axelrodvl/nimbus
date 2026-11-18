@@ -243,6 +243,15 @@ pub struct PlayResponse {
     pub album_id: i64,
     /// Запрошенные треки в порядке треклиста; их статусы приходят синхронизацией.
     pub track_ids: Vec<i64>,
+    /// Статус каждого запрошенного трека сразу после пометки (в порядке `track_ids`): `adding` — поиск начат
+    /// после этого запроса, итог придёт синхронизацией.
+    pub tracks: Vec<PlayTrack>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PlayTrack {
+    pub id: i64,
+    pub status: TrackStatus,
 }
 
 #[utoipa::path(
@@ -266,9 +275,19 @@ pub async fn play(
         PlayKind::Track => state.library.play_track(req.mbid, req.album_mbid).await?,
         PlayKind::Album => state.library.play_album(req.mbid).await?,
     };
+    let tracks = outcome
+        .track_ids
+        .iter()
+        .zip(&outcome.statuses)
+        .map(|(id, status)| PlayTrack {
+            id: *id,
+            status: *status,
+        })
+        .collect();
     Ok(Json(PlayResponse {
         album_id: outcome.album_id,
         track_ids: outcome.track_ids,
+        tracks,
     }))
 }
 

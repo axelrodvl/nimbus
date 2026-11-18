@@ -4,6 +4,8 @@ import { createStore } from 'zustand/vanilla';
 import { requestPlay, type PlayInput, type PlayResponse } from '@/lib/api/catalog';
 import { apiErrorMessage } from '@/lib/api/error-message';
 import { appData } from '@/lib/app-data';
+import { ApiError } from '@/lib/api/errors';
+import { getTrack } from '@/lib/api/tracks';
 import type { TFn } from '@/lib/i18n/messages';
 import { currentTrack } from '@/lib/player/engine';
 import { player } from '@/lib/player/index';
@@ -29,8 +31,18 @@ type Pending = {
   request: PlayRemoteRequest;
   /** id трека на сервере — известен после ответа `POST /api/play`. */
   trackId: number | null;
-  /** Трек уже видели в `adding`: `not_found` после этого — итог поиска, а не устаревшая строка store. */
+  /**
+   * Поиск гарантированно начат после нажатия (трек видели в `adding` или так сказал сервер): `not_found` после этого —
+   * итог поиска, а не устаревшая строка store.
+   */
   searched: boolean;
+  /** Строка трека уже побывала в store: если она исчезла (`prune`), ожидание не может завершиться. */
+  seen: boolean;
+  /**
+   * Строка `not_found`, лежавшая в store на момент ответа сервера: это прежний итог (событие `adding` ещё в пути).
+   * Итогом считается только другая строка (объект меняется вместе со строкой трека).
+   */
+  stale: TrackView | null;
 };
 
 type State = { pending: Pending | null };
@@ -45,6 +57,10 @@ export type PlayRemoteDeps = {
   play: (track: PlayerTrack, queue: PlayerTrack[]) => void;
   /** `POST /api/play`: сыграть, не добавляя в библиотеку. */
   request: (input: PlayInput) => Promise<PlayResponse>;
+  /** Статус трека на сервере напрямую (сторож, когда синхронизация молчит). */
+  fetchStatus: (trackId: number) => Promise<TrackView['status']>;
+  /** Догнать store до сервера (дельта синхронизации). */
+  requestSync: () => void;
   subscribeLibrary: (listener: () => void) => () => void;
   /** id текущего трека плеера и подписка на его смену. */
   currentTrackId: () => number | null;
@@ -55,6 +71,8 @@ export type PlayRemoteDeps = {
 export const PLAY_TOAST_ID = 'play-remote';
 /** Сколько висит toast ожидания. */
 export const WAITING_TOAST_MS = 8000;
+/** Через сколько после ответа сервера (и далее с тем же шагом) сторож проверяет статус трека напрямую. */
+export const PENDING_POLL_MS = 15_000;
 
 const playInput = (r: PlayRemoteRequest): PlayInput =>
   r.wholeAlbum && r.albumMbid
@@ -73,10 +91,13 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
   let tRef: TFn | null = null;
   // Текущий трек плеера в момент постановки ожидания: смена на любой другой — отмена.
   let playerAtStart: number | null = null;
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
 
   function stopWatching() {
     unsubscribe?.();
     unsubscribe = null;
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = null;
   }
 
   function clear() {
@@ -114,6 +135,7 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
     if (!pending || !tRef) return;
     const view = lookup(pending);
     if (!view) return;
+    if (!pending.seen) store.setState({ pending: { ...pending, seen: true } });
     if (deps.canPlay(view)) {
       clear();
       toast.dismiss(PLAY_TOAST_ID);
@@ -125,14 +147,56 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
       return;
     }
     if (view.status === 'not_found') {
-      // Пока синхронизация не принесла `adding`, это прежний итог: поиск заново ещё не начат.
-      if (!pending.searched) return;
-      clear();
-      toast.error(tRef('play.noSource', { title: pending.request.title }), { id: PLAY_TOAST_ID });
+      // Пока неизвестно, что поиск начат после нажатия, это прежний итог.
+      if (pending.searched && view !== pending.stale) noSource(pending);
       return;
     }
     clear();
     toast.info(tRef('offline.hint.notDownloaded'), { id: PLAY_TOAST_ID });
+  }
+
+  function noSource(pending: Pending) {
+    clear();
+    if (tRef) toast.error(tRef('play.noSource', { title: pending.request.title }), { id: PLAY_TOAST_ID });
+  }
+
+  /**
+   * Сторож: синхронизация могла замолчать (WS закрыт, пачка событий склеила итог). Спросить сервер напрямую:
+   * итог «не найден» — сообщить; источник есть — догнать store, дальше `check()` по подписке.
+   */
+  function poll(pending: Pending) {
+    const trackId = pending.trackId;
+    if (trackId === null) return;
+    // Строка была и пропала (`prune`) и за целый круг не вернулась (пересинхронизация успела бы) — итога уже не будет.
+    if (pending.seen && !lookup(pending)) {
+      noSource(pending);
+      return;
+    }
+    deps.fetchStatus(trackId).then(
+      status => {
+        const now = store.getState().pending;
+        if (now?.request !== pending.request) return;
+        if (status === 'not_found') {
+          if (now.searched) noSource(now);
+        } else if (status !== 'adding') {
+          deps.requestSync();
+        }
+      },
+      (error: unknown) => {
+        const now = store.getState().pending;
+        if (now?.request !== pending.request) return;
+        // Трека на сервере больше нет — ждать нечего; прочие ошибки (сеть) — подождём следующего круга.
+        if (error instanceof ApiError && error.status === 404) noSource(now);
+      },
+    );
+  }
+
+  function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(() => {
+      const pending = store.getState().pending;
+      if (pending) poll(pending);
+    }, PENDING_POLL_MS);
   }
 
   function watch() {
@@ -175,7 +239,7 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
       return;
     }
     stopWatching();
-    store.setState({ pending: { request, searched: own?.status === 'adding', trackId: null } });
+    store.setState({ pending: { request, searched: own?.status === 'adding', seen: !!own, stale: null, trackId: null } });
     watch();
     // Toast не висит всё ожидание (поиск источника может занять минуты): дальше о нём говорит спиннер в строке.
     toast.loading(t('play.waiting', { title: request.title }), {
@@ -188,7 +252,21 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
         const now = store.getState().pending;
         if (now?.request !== request) return;
         // У «Слушать альбом» первый в треклисте — тот, что играет.
-        store.setState({ pending: { ...now, trackId: res.track_ids[0] ?? null } });
+        const trackId = res.track_ids[0];
+        if (trackId === undefined) {
+          noSource(now);
+          return;
+        }
+        const server = res.tracks.find(x => x.id === trackId)?.status;
+        if (server === 'not_found') {
+          noSource(now);
+          return;
+        }
+        // `adding` от сервера: поиск начат после нажатия, любой последующий `not_found` в store — итог.
+        const view = deps.findTrack({ ...now.request, trackId });
+        const stale = server === 'adding' && view?.status === 'not_found' ? view : null;
+        store.setState({ pending: { ...now, searched: now.searched || server === 'adding', stale, trackId } });
+        startPolling();
         check();
       },
       (error: unknown) => {
@@ -230,7 +308,9 @@ function appDeps(): PlayRemoteDeps {
       return undefined;
     },
     play: (track, queue) => player().play(track, queue),
+    fetchStatus: async id => (await getTrack(id)).status,
     request: input => requestPlay(input),
+    requestSync: () => appData().engine.requestSync('play-pending'),
     subscribeLibrary: listener => appData().library.subscribe(listener),
     subscribePlayer: listener => player().store.subscribe(listener),
   };

@@ -4642,7 +4642,8 @@
         "type": "object",
         "required": [
           "album_id",
-          "track_ids"
+          "track_ids",
+          "tracks"
         ],
         "properties": {
           "album_id": {
@@ -4656,6 +4657,29 @@
               "format": "int64"
             },
             "description": "Запрошенные треки в порядке треклиста; их статусы приходят синхронизацией."
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlayTrack"
+            },
+            "description": "Статус каждого запрошенного трека сразу после пометки (в порядке `track_ids`): `adding` — поиск начат\nпосле этого запроса, итог придёт синхронизацией."
+          }
+        }
+      },
+      "PlayTrack": {
+        "type": "object",
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TrackStatus"
           }
         }
       },
