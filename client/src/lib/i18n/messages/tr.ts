@@ -360,9 +360,12 @@ const messages: Messages = {
   'palette.showAll': 'Tüm sonuçları göster',
   'palette.startTyping': 'Aramak için yazmaya başlayın',
   'play.album': 'Albümü çal',
+  'play.cancelled': 'Bekleme iptal edildi',
   'play.noSource': '“{title}” için kaynak bulunamadı',
   'play.none': 'Henüz çalınabilir parça yok',
   'play.pause': 'Duraklat',
+  'play.slowHint': 'Birkaç dakika sürebilir — parça kendiliğinden başlayacak',
+  'play.started': '“{title}” çalıyor',
   'play.playlist': 'Çal',
   'play.waiting': '“{title}” için kaynak aranıyor — bulunur bulunmaz çalmaya başlayacak',
   'play.waitingShort': 'Kaynak aranıyor…',
@@ -544,7 +547,7 @@ const messages: Messages = {
   'settings.proxy': 'Proxy',
   'settings.proxyHint': 'Örneğin socks5://127.0.0.1:1080',
   'settings.flaresolverrHint':
-    'Cloudflare doğrulamasını sizin yerinize geçer, örn. http://flaresolverr:8191 — docker-compose\'daki flaresolverr konteyneri.',
+    "Cloudflare doğrulamasını sizin yerinize geçer, örn. http://flaresolverr:8191 — docker-compose'daki flaresolverr konteyneri.",
   'settings.cookieHint':
     "Tarayıcıdaki Cookie dizesinin tamamını yapıştırın (bb_session=…; cf_clearance=…). Bağlantı testi 403 / Cloudflare diyorsa: rutracker.org'u açın, doğrulamayı geçin ve çerezleri DevTools'tan kopyalayın.",
   'settings.userAgent': 'User-Agent',
@@ -624,7 +627,8 @@ const messages: Messages = {
   'sources.title': 'Kaynaklar',
   'sources.trackFallback': 'parça #{id}',
   'sources.use': 'Bu albüm için kullan',
-  'sources.useConfirmBody': 'Bu torrentte bulunan albüm parçaları buradan çalınacak. Önceki torrentten indirilen kopyalar sunucudan ve bu cihazdan silinecek; sabitlenen parçalar yeniden indirilecek.',
+  'sources.useConfirmBody':
+    'Bu torrentte bulunan albüm parçaları buradan çalınacak. Önceki torrentten indirilen kopyalar sunucudan ve bu cihazdan silinecek; sabitlenen parçalar yeniden indirilecek.',
   'sources.useConfirmTitle': 'Albüm bu torrente geçirilsin mi?',
   'sources.useDoneImage': 'Geçen parça: {count}. Albüm imajı hâlâ iniyor — bitince çalacaklar',
   'sources.useDone': 'Bu torrente geçirilen parçalar: {count}',

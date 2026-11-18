@@ -3,14 +3,7 @@ import { ApiError } from '@/lib/api/errors';
 import { parsePlaylistRef } from '@/lib/api/playlists';
 import { appData } from '@/lib/app-data';
 import { TEMP_ID_BASE } from '@/lib/store/library';
-import {
-  makeAlbum,
-  makeArtist,
-  makePlaylist,
-  makePlaylistTrack,
-  makeTrack,
-  resetFactories,
-} from '@/test/factories';
+import { makeAlbum, makeArtist, makePlaylist, makePlaylistTrack, makeTrack, resetFactories } from '@/test/factories';
 import { seed } from '@/test/seed';
 import {
   addTrackToPlaylist,
@@ -90,7 +83,11 @@ describe('селекторы плейлистов', () => {
     // Дельта сервера: настоящее значение 5 (оптимистичное было 6).
     state().applyBatch({ tracks: [{ ...state().tracks.get(20)!, play_count: 5 }] });
     expect(state().tracks.get(20)?.play_count).toBe(5);
-    expect(appData().selectors.favorites(state()).map(t => t.id)).toEqual([20]);
+    expect(
+      appData()
+        .selectors.favorites(state())
+        .map(t => t.id),
+    ).toEqual([20]);
   });
 
   it('число треков — только имеющиеся в store; обложка — первого трека с обложкой; длительность — сумма', () => {

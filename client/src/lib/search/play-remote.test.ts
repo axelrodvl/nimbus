@@ -25,6 +25,7 @@ function harness() {
   let tracks = new Map<string, TrackView>();
   let album: TrackView[] = [];
   let current: number | null = null;
+  let path = '/search/album/rg-1';
   const libraryListeners = new Set<() => void>();
   const playerListeners = new Set<() => void>();
   let settle: { resolve: (r: PlayResponse) => void; reject: (e: unknown) => void } = {
@@ -46,6 +47,8 @@ function harness() {
     fetchStatus: vi.fn(() => Promise.resolve<TrackView['status']>('adding')),
     request: vi.fn(() => new Promise<PlayResponse>((resolve, reject) => (settle = { reject, resolve }))),
     requestSync: vi.fn(),
+    now: () => Date.now(),
+    pathname: () => path,
     subscribeLibrary: l => {
       libraryListeners.add(l);
       return () => libraryListeners.delete(l);
@@ -78,6 +81,7 @@ function harness() {
       await flush();
     },
     setAlbum: (list: TrackView[]) => (album = list),
+    setPath: (p: string) => (path = p),
     setCurrent: (id: number | null) => {
       current = id;
       playerListeners.forEach(l => l());
@@ -437,6 +441,56 @@ describe('playRemote', () => {
       await vi.advanceTimersByTimeAsync(PENDING_POLL_MS);
       expect(h.deps.requestSync).toHaveBeenCalled();
       expect(h.deps.fetchStatus).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('обратная связь', () => {
+    it('повторное нажатие отменяет не молча: toast «Ожидание отменено»', () => {
+      const h = harness();
+      h.pr.playRemote(request, t);
+      h.pr.playRemote(request, t);
+      expect(pending(h)).toBeNull();
+      expect(toast.info).toHaveBeenCalledWith('Waiting cancelled', expect.objectContaining({ id: PLAY_TOAST_ID }));
+    });
+
+    it('отмена из индикатора (userCancel) и из toast — то же; тихая cancel — без сообщения', () => {
+      const h = harness();
+      h.pr.playRemote(request, t);
+      h.pr.userCancel();
+      expect(pending(h)).toBeNull();
+      expect(toast.info).toHaveBeenCalledTimes(1);
+      h.pr.playRemote(request, t);
+      h.pr.cancel();
+      expect(toast.info).toHaveBeenCalledTimes(1);
+      // Нечего отменять — сообщения нет.
+      h.pr.userCancel();
+      expect(toast.info).toHaveBeenCalledTimes(1);
+    });
+
+    it('заиграло на другом экране — toast «Играет …»; на том же — без него', async () => {
+      const h = harness();
+      h.pr.playRemote(request, t);
+      await h.respond();
+      h.setPath('/library');
+      h.setTrack(REC, view());
+      expect(toast.info).toHaveBeenCalledWith(
+        expect.stringContaining('Song'),
+        expect.objectContaining({ id: PLAY_TOAST_ID }),
+      );
+      vi.mocked(toast.info).mockClear();
+      const other = harness();
+      other.pr.playRemote(request, t);
+      await other.respond();
+      other.setTrack(REC, view());
+      expect(other.deps.play).toHaveBeenCalledOnce();
+      expect(toast.info).not.toHaveBeenCalled();
+    });
+
+    it('ответ сервера запоминает альбом (для стадии поиска)', async () => {
+      const h = harness();
+      h.pr.playRemote(request, t);
+      await h.respond();
+      expect(pending(h)?.albumId).toBe(7);
     });
   });
 

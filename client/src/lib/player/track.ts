@@ -42,7 +42,8 @@ export function toPlayerTrack(t: TrackView): PlayerTrack {
  * (`found`/`ready`). Единая функция для контроллера и кнопок; `id` нужен, чтобы увидеть скачанный файл.
  */
 export const canPlay = (t: { id?: number; status: TrackStatus }): boolean =>
-  (t.id !== undefined && offline().playback.has(t.id)) || ((t.status === 'found' || t.status === 'ready') && isOnlineNow());
+  (t.id !== undefined && offline().playback.has(t.id)) ||
+  ((t.status === 'found' || t.status === 'ready') && isOnlineNow());
 
 export const isTranscoded = (t: Pick<PlayerTrack, 'playback'> | null | undefined): boolean =>
   t?.playback === 'transcode';

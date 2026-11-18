@@ -4,6 +4,7 @@ import { player } from '@/lib/player';
 import { installShortcuts } from '@/lib/player/shortcuts';
 import { FullPlayer } from './full-player';
 import { MiniPlayer } from './mini-player';
+import { PlayPending } from './play-pending';
 import { PlayerBar } from './player-bar';
 import { QueuePanel } from './queue-panel';
 
@@ -18,6 +19,7 @@ export function Player() {
     <>
       <QueuePanel onClose={() => setQueueOpen(false)} open={queueOpen} />
       <FullPlayer onClose={closeFull} onOpenQueue={() => setQueueOpen(true)} open={fullOpen && hasTrack} />
+      <PlayPending />
       <MiniPlayer onOpenFull={() => setFullOpen(true)} onToggleQueue={() => setQueueOpen(o => !o)} />
       <PlayerBar
         onOpenFull={() => hasTrack && setFullOpen(true)}

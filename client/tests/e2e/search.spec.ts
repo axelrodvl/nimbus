@@ -175,7 +175,15 @@ test.describe('поиск', () => {
     await expect(row.getByRole('button', { name: 'Добавить в библиотеку' })).toBeVisible();
     expect((await mockLog(request)).filter(l => l === 'POST /api/library')).toEqual([]);
     await expect(page.getByText(/Ищем источник для «Paranoid Android»/)).toBeVisible();
+    // Глобальный индикатор виден и на другом экране; заигравшее там сопровождается toast.
+    await page.getByTestId('sidebar').getByRole('link', { name: 'Библиотека' }).click();
+    await expect(page).toHaveURL(/\/library/);
+    await expect(page.getByTestId('play-pending')).toContainText('Paranoid Android');
     await mutate(request, { entity: 'track', id, patch: { status: 'found' } });
+    await expect(page.getByText('Играет «Paranoid Android»')).toBeVisible();
+    await expect(page.getByTestId('play-pending')).toHaveCount(0);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/search\/album\/b1392450-/);
     await expect
       .poll(() =>
         page.evaluate(() => {

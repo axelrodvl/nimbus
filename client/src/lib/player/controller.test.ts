@@ -4,7 +4,13 @@ import { createLibraryStore } from '@/lib/store/library';
 import { createMutations } from '@/lib/store/mutations';
 import { makeTrack } from '@/test/factories';
 import type { AudioSource } from './audio/types';
-import { ERROR_ADVANCE_MS, IMAGE_RETRY_MS, PERSIST_INTERVAL_MS, TICK_MS, TRANSCODE_SEEK_DEBOUNCE_MS } from './controller';
+import {
+  ERROR_ADVANCE_MS,
+  IMAGE_RETRY_MS,
+  PERSIST_INTERVAL_MS,
+  TICK_MS,
+  TRANSCODE_SEEK_DEBOUNCE_MS,
+} from './controller';
 import { STORAGE_KEY } from './engine';
 
 const flush = () => vi.advanceTimersByTimeAsync(0);

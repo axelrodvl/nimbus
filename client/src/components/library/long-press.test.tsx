@@ -11,10 +11,11 @@ const touch = (extra: object = {}) => ({ clientX: 10, clientY: 10, isPrimary: tr
 
 beforeEach(() => {
   vi.useFakeTimers();
-  vi.stubGlobal(
-    'matchMedia',
-    (q: string) => ({ addEventListener() {}, matches: q.includes('pointer: coarse'), removeEventListener() {} }),
-  );
+  vi.stubGlobal('matchMedia', (q: string) => ({
+    addEventListener() {},
+    matches: q.includes('pointer: coarse'),
+    removeEventListener() {},
+  }));
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -83,7 +84,9 @@ describe('долгое нажатие', () => {
   });
 
   it('на карточке альбома открывает меню «К альбому / К артисту»', () => {
-    renderWithProviders(<AlbumCard album={{ ...makeAlbum({ id: 3 }), artistName: 'A', statusCounts: {} as never, trackCount: 1 }} />);
+    renderWithProviders(
+      <AlbumCard album={{ ...makeAlbum({ id: 3 }), artistName: 'A', statusCounts: {} as never, trackCount: 1 }} />,
+    );
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     fireEvent.pointerDown(screen.getByTestId('album-card'), touch());
     act(() => void vi.advanceTimersByTime(500));

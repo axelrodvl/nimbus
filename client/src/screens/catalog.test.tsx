@@ -1,4 +1,5 @@
-import { act, fireEvent, screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as catalogApi from '@/lib/api/catalog';
 import type { CatalogAlbumResponse, CatalogArtistResponse } from '@/lib/api/catalog';
@@ -258,6 +259,36 @@ describe('экран альбома', () => {
       expect.objectContaining({ mbid: 'rec-airbag', title: 'OK Computer', wholeAlbum: true }),
       expect.any(Function),
     );
+  });
+
+  it('play_album_button_shows_pending: ожидание альбома — aria-busy; повторное нажатие отменяет с toast', async () => {
+    const info = vi.spyOn(toast, 'info').mockReturnValue(1);
+    vi.spyOn(toast, 'dismiss').mockReturnValue(1);
+    renderRoutes(routes, `/search/album/${OK_COMPUTER}`);
+    const button = await screen.findByTestId('catalog-play-album');
+    expect(button).not.toHaveAttribute('aria-busy');
+    act(() =>
+      playRemoteApp().store.setState({
+        pending: {
+          albumId: 5,
+          origin: '/',
+          request: { albumMbid: OK_COMPUTER, mbid: 'rec-airbag', title: 'OK Computer', wholeAlbum: true },
+          searched: false,
+          searching: new Set(),
+          seen: false,
+          stale: null,
+          staleViews: new Set(),
+          startedAt: 0,
+          trackId: null,
+          trackIds: [],
+        },
+      }),
+    );
+    expect(button).toHaveAttribute('aria-busy', 'true');
+    fireEvent.click(button);
+    expect(playRemoteApp().store.getState().pending).toBeNull();
+    expect(info).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ duration: 3000 }));
+    await waitFor(() => expect(button).not.toHaveAttribute('aria-busy'));
   });
 
   it('альбом и трек в библиотеке — отметки и ссылки; артист — в каталог', async () => {

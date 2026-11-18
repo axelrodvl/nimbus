@@ -12,14 +12,19 @@ describe('разбор ошибок', () => {
   it('тело ошибки бэкенда превращается в ApiError с кодом и сообщением', async () => {
     const fetch = vi.fn(async () => errorResponse(404, 'not_found', 'No such artist'));
     const api = createApiClient({ baseUrl: 'http://x', fetch });
-    const err = await api.GET('/api/health').then(unwrap).catch((e: unknown) => e);
+    const err = await api
+      .GET('/api/health')
+      .then(unwrap)
+      .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err).toMatchObject({ code: 'not_found', message: 'No such artist', status: 404 });
   });
 
   it('ошибка без тела — код unknown и statusText', () => {
     const response = new Response('boom', { status: 502, statusText: 'Bad Gateway' });
-    expect(() => unwrap({ error: 'boom', response })).toThrow(expect.objectContaining({ code: 'unknown', status: 502 }));
+    expect(() => unwrap({ error: 'boom', response })).toThrow(
+      expect.objectContaining({ code: 'unknown', status: 502 }),
+    );
     const bare = new Response(null, { status: 500 });
     expect(() => unwrap({ error: undefined, response: bare })).toThrow(/HTTP 500/);
   });

@@ -15,7 +15,9 @@ export function useListGeometry() {
     const list = ref.current;
     if (!scroll || !list) return;
     const measure = () => {
-      const margin = Math.round(list.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop);
+      const margin = Math.round(
+        list.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop,
+      );
       const width = Math.round(list.clientWidth || list.getBoundingClientRect().width);
       setGeometry(g => (g.margin === margin && g.width === width ? g : { margin, width }));
     };

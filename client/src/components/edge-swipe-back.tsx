@@ -1,6 +1,13 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
-import { idleSwipe, swipeEnd, swipeMove, swipeStart, yieldsToOwner, type EdgeSwipeState } from '@/lib/gestures/edge-swipe';
+import {
+  idleSwipe,
+  swipeEnd,
+  swipeMove,
+  swipeStart,
+  yieldsToOwner,
+  type EdgeSwipeState,
+} from '@/lib/gestures/edge-swipe';
 import { isAppleTouch, isStandalone } from '@/lib/platform/ios';
 import { scrollRoot } from '@/lib/nav/scroll-top';
 

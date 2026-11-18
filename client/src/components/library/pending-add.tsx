@@ -51,7 +51,10 @@ export function usePending(type?: PendingAdd['type']): PendingAdd[] {
 export function PendingStrip({ type }: { type: PendingAdd['type'] }) {
   const pending = usePending(type);
   return pending.length ? (
-    <ul className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5" data-testid="pending-strip">
+    <ul
+      className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
+      data-testid="pending-strip"
+    >
       {pending.map(p => (
         <li key={p.mbid}>
           <PendingAddCard item={p} />

@@ -42,7 +42,11 @@ describe('API плейлистов', () => {
     const { api, last } = client(() =>
       json({ created_at: '2026-01-01T00:00:00Z', id: '12', kind: 'user', name: 'Mix', track_count: 0 }, 201),
     );
-    expect(await createPlaylistRequest('Mix', api)).toEqual({ created_at: '2026-01-01T00:00:00Z', id: 12, name: 'Mix' });
+    expect(await createPlaylistRequest('Mix', api)).toEqual({
+      created_at: '2026-01-01T00:00:00Z',
+      id: 12,
+      name: 'Mix',
+    });
     expect(await last()).toEqual({ body: { name: 'Mix' }, method: 'POST', path: '/api/playlists' });
   });
 
@@ -96,7 +100,11 @@ describe('API источников', () => {
     await retryAlbumRequest(3, api);
     expect((await last()).path).toBe('/api/albums/3/retry');
     await addMagnetRequest(3, 'magnet:?xt=urn:btih:x', api);
-    expect(await last()).toEqual({ body: { magnet: 'magnet:?xt=urn:btih:x' }, method: 'POST', path: '/api/albums/3/torrents' });
+    expect(await last()).toEqual({
+      body: { magnet: 'magnet:?xt=urn:btih:x' },
+      method: 'POST',
+      path: '/api/albums/3/torrents',
+    });
   });
 
   it('ошибка сервера → ApiError', async () => {
@@ -112,7 +120,9 @@ describe('apiErrorMessage', () => {
     expect(apiErrorMessage(new ApiError(502, 'weird_code', 'server says'), t)).toBe('server says');
   });
   it('ошибка без кода → общее сообщение; обычная ошибка и строка — как есть', () => {
-    expect(apiErrorMessage(new ApiError(500, 'unknown', 'Internal Server Error'), t)).toBe(enMessages['common.loadFailed']);
+    expect(apiErrorMessage(new ApiError(500, 'unknown', 'Internal Server Error'), t)).toBe(
+      enMessages['common.loadFailed'],
+    );
     expect(apiErrorMessage(new Error('plain'), t)).toBe('plain');
     expect(apiErrorMessage('str', t)).toBe('str');
   });

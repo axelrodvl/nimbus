@@ -20,10 +20,7 @@ export function removeFromLibrary(type: 'artist' | 'album', id: number): Promise
         type === 'artist'
           ? (s.albumsByArtist.get(id) ?? []).flatMap(a => s.albums.get(a) ?? [])
           : [s.albums.get(id)].filter((a): a is Album => !!a);
-      const trackIds =
-        type === 'artist'
-          ? (s.tracksByArtist.get(id) ?? [])
-          : (s.tracksByAlbum.get(id) ?? []);
+      const trackIds = type === 'artist' ? (s.tracksByArtist.get(id) ?? []) : (s.tracksByAlbum.get(id) ?? []);
       before = {
         albums: albums.filter(a => a.in_library),
         artists: artist?.in_library ? [artist] : [],

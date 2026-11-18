@@ -13,11 +13,19 @@ describe('api/library', () => {
     const fetch = vi.fn(async (_r: RequestInfo | URL) => json({ albums: [], artist: { import: status } }));
     expect(await getArtistImport(5, client(fetch))).toEqual(status);
     expect(new URL((fetch.mock.calls[0]![0] as Request).url).pathname).toBe('/api/artists/5');
-    expect(await getArtistImport(5, client(async () => json({ albums: [], artist: {} })))).toBeNull();
+    expect(
+      await getArtistImport(
+        5,
+        client(async () => json({ albums: [], artist: {} })),
+      ),
+    ).toBeNull();
   });
 
   it('getArtistImport: 404 — ApiError', async () => {
-    const err = await getArtistImport(5, client(async () => errorResponse(404, 'not_found', 'no'))).catch((e: unknown) => e);
+    const err = await getArtistImport(
+      5,
+      client(async () => errorResponse(404, 'not_found', 'no')),
+    ).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err).toMatchObject({ code: 'not_found', status: 404 });
   });
@@ -32,7 +40,11 @@ describe('api/library', () => {
 
   it('removeFromLibraryRequest: 500 — ApiError', async () => {
     await expect(
-      removeFromLibraryRequest('artist', 1, client(async () => errorResponse(500, 'internal', 'boom'))),
+      removeFromLibraryRequest(
+        'artist',
+        1,
+        client(async () => errorResponse(500, 'internal', 'boom')),
+      ),
     ).rejects.toMatchObject({ code: 'internal', status: 500 });
   });
 });

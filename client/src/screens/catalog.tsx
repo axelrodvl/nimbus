@@ -1,4 +1,5 @@
 import { ArrowLeft, Play } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { ArtistAvatar } from '@/components/library/artist-avatar';
 import { Cover } from '@/components/library/cover';
@@ -25,7 +26,7 @@ import {
   type CatalogQuery,
   type DiscographySection,
 } from '@/lib/search/catalog';
-import { playRemoteApp } from '@/lib/search/play-remote';
+import { playRemoteApp, usePlayAlbumPending } from '@/lib/search/play-remote';
 import { useAlbumTracksByMbid, useMbidIndex } from '@/lib/store/hooks';
 import type { MbidIndex } from '@/lib/store/selectors';
 import { formatDuration } from '@/lib/utils';
@@ -206,6 +207,7 @@ function AlbumBody({ data, index }: { data: CatalogAlbumResponse; index: MbidInd
   for (const v of ownTracks) if (!byRecording.has(v.mbid_recording)) byRecording.set(v.mbid_recording, v);
   const multiDisc = new Set(tracks.map(tr => tr.disc_no)).size > 1;
   const first = tracks[0];
+  const albumPending = usePlayAlbumPending(album.mbid);
   const totalMs = tracks.reduce((sum, tr) => sum + (tr.duration_ms ?? 0), 0);
   const request = (tr: (typeof tracks)[number], wholeAlbum = false) => ({
     albumMbid: album.mbid,
@@ -247,11 +249,16 @@ function AlbumBody({ data, index }: { data: CatalogAlbumResponse; index: MbidInd
               <PlayAlbumButton albumId={libraryId} />
             ) : first ? (
               <Button
+                aria-busy={albumPending || undefined}
                 data-testid="catalog-play-album"
                 onClick={() => playRemoteApp().playRemote(request(first, true), t)}
               >
-                <Play aria-hidden className="size-4" fill="currentColor" />
-                {t('play.album')}
+                {albumPending ? (
+                  <Spinner className="size-4" />
+                ) : (
+                  <Play aria-hidden className="size-4" fill="currentColor" />
+                )}
+                {albumPending ? t('play.waitingShort') : t('play.album')}
               </Button>
             ) : null}
             {libraryId === undefined ? (

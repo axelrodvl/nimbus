@@ -164,6 +164,16 @@ export const SCREENS: Screen[] = [
         'data-pending',
         'true',
       );
+      await expect(page.getByTestId('play-pending')).toBeVisible();
+    },
+    path: '/search/album/b1392450-e666-3926-a536-22c65f834433',
+  },
+  {
+    name: 'catalog-album-pending',
+    open: async ({ page }) => {
+      await page.getByTestId('catalog-play-album').click();
+      await expect(page.getByTestId('catalog-play-album')).toHaveAttribute('aria-busy', 'true');
+      await expect(page.getByTestId('play-pending')).toBeVisible();
     },
     path: '/search/album/b1392450-e666-3926-a536-22c65f834433',
   },

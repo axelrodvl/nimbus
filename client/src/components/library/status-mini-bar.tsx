@@ -4,7 +4,15 @@ import type { StatusCounts } from '@/lib/store/selectors';
 import { cn } from '@/lib/utils';
 
 /** Сегментированная полоска статусов треков альбома. */
-export function StatusMiniBar({ counts, total, className }: { counts: StatusCounts; total: number; className?: string }) {
+export function StatusMiniBar({
+  counts,
+  total,
+  className,
+}: {
+  counts: StatusCounts;
+  total: number;
+  className?: string;
+}) {
   const t = useT();
   if (total === 0) return null;
   const summary = statusSummary(counts, t);
