@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 nimbus-core.workspace = true
 nimbus-db.workspace = true
+sqlx.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

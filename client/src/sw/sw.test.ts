@@ -3,6 +3,8 @@ import {
   cacheFirst,
   IMAGE_CACHE,
   isCacheable,
+  isNegativeEntry,
+  NEGATIVE_TTL_MS,
   staleImageCaches,
   staleWhileRevalidate,
   trimCache,
@@ -83,7 +85,7 @@ describe('кэш изображений', () => {
     const cache = fakeCache();
     cache.map.set(imageRequest(1).url, okResponse());
     const fetcher = vi.fn();
-    const res = await cacheFirst(imageRequest(1), cache, fetcher, 10);
+    const res = await cacheFirst(imageRequest(1), cache, fetcher, { max: 10 });
     expect(await res.text()).toBe('img');
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -91,7 +93,7 @@ describe('кэш изображений', () => {
   it('поиск в кэше игнорирует Vary (запрос модуля с Origin и cache.add без него — одна запись)', async () => {
     const cache = fakeCache();
     const match = vi.spyOn(cache, 'match');
-    await cacheFirst(imageRequest(1), cache, async () => okResponse(), 10);
+    await cacheFirst(imageRequest(1), cache, async () => okResponse(), { max: 10 });
     await staleWhileRevalidate(imageRequest(1), cache, async () => okResponse());
     expect(match.mock.calls.every(([, options]) => options?.ignoreVary === true)).toBe(true);
     expect(match).toHaveBeenCalledTimes(2);
@@ -104,7 +106,7 @@ describe('кэш изображений', () => {
       imageRequest(1),
       cache,
       async () => okResponse(),
-      10,
+      { max: 10 },
       p => pending.push(p),
     );
     await Promise.all(pending);
@@ -119,7 +121,7 @@ describe('кэш изображений', () => {
       imageRequest(2),
       cache,
       async () => new Response('', { status: 404 }),
-      10,
+      { max: 10 },
       p => pending.push(p),
     );
     expect(pending).toHaveLength(0);
@@ -127,6 +129,84 @@ describe('кэш изображений', () => {
     const opaque = { clone: () => opaque, ok: false, type: 'opaque' } as unknown as Response;
     expect(isCacheable(opaque)).toBe(false);
     expect(isCacheable(new Response('', { status: 500 }))).toBe(false);
+  });
+
+  it('404 с кодом не no_image не запоминается даже для фото артиста', async () => {
+    const cache = fakeCache();
+    const pending: Promise<unknown>[] = [];
+    await cacheFirst(
+      imageRequest(2),
+      cache,
+      async () => new Response(JSON.stringify({ code: 'mb_not_found' }), { status: 404 }),
+      { negative: true },
+      p => pending.push(p),
+    );
+    expect(pending).toHaveLength(0);
+    expect(cache.map.size).toBe(0);
+  });
+
+  it('404 no_image запоминается на сутки и отдаётся из кэша без сети', async () => {
+    const cache = fakeCache();
+    const pending: Promise<unknown>[] = [];
+    let t = 1_000_000;
+    const noImage = () => new Response(JSON.stringify({ code: 'no_image' }), { status: 404 });
+    const fetcher = vi.fn(async () => noImage());
+    const run = () =>
+      cacheFirst(imageRequest(7), cache, fetcher, { negative: true, now: () => t }, p => pending.push(p));
+
+    const first = await run();
+    await Promise.all(pending);
+    expect(first.status).toBe(404);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    t += NEGATIVE_TTL_MS - 1;
+    const again = await run();
+    expect(again.status).toBe(404);
+    expect((await again.json()).code).toBe('no_image');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    // Срок вышел: запись удаляется, бэкенд спрашивается заново.
+    t += 2;
+    await run();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('просроченный «нет фото» заменяется картинкой, когда она появилась', async () => {
+    const cache = fakeCache();
+    let t = 0;
+    const pending: Promise<unknown>[] = [];
+    await cacheFirst(
+      imageRequest(8),
+      cache,
+      async () => new Response(JSON.stringify({ code: 'no_image' }), { status: 404 }),
+      { negative: true, now: () => t },
+      p => pending.push(p),
+    );
+    await Promise.all(pending);
+    t = NEGATIVE_TTL_MS + 1;
+    const res = await cacheFirst(
+      imageRequest(8),
+      cache,
+      async () => okResponse(),
+      { negative: true, now: () => t },
+      p => pending.push(p),
+    );
+    await Promise.all(pending);
+    expect(res.status).toBe(200);
+    expect(isNegativeEntry(cache.map.get(imageRequest(8).url) as Response)).toBe(false);
+  });
+
+  it('без опции negative 404 no_image не пишется (обложки)', async () => {
+    const cache = fakeCache();
+    const pending: Promise<unknown>[] = [];
+    await cacheFirst(
+      imageRequest(9),
+      cache,
+      async () => new Response(JSON.stringify({ code: 'no_image' }), { status: 404 }),
+      {},
+      p => pending.push(p),
+    );
+    expect(cache.map.size).toBe(0);
   });
 
   it('вытеснение сверх лимита: остаются самые новые', async () => {
@@ -147,7 +227,7 @@ describe('кэш изображений', () => {
       imageRequest(3),
       cache,
       async () => okResponse(),
-      2,
+      { max: 2 },
       p => pending.push(p),
     );
     await Promise.all(pending);

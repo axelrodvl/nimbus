@@ -25,6 +25,11 @@ export function isArtistImagePath(pathname: string): boolean {
   return pathname.startsWith('/api/artist-image/') || pathname.startsWith('/api/covers/');
 }
 
+/** Путь фото артиста (`/api/artist-image/…`): ответ 404 `no_image` service worker запоминает на сутки. */
+export function isArtistPhotoPath(pathname: string): boolean {
+  return pathname.startsWith('/api/artist-image/');
+}
+
 /** HTTP-адрес эндпоинта бэкенда: `apiUrl('/api/health')`. */
 export function apiUrl(path: string): string {
   return `${base}${path}`;

@@ -106,3 +106,56 @@ pub async fn library_ids_by_mbid(
         .fetch_all(db)
         .await
 }
+
+/// Записывает признак фото артиста (`'yes'`/`'no'`); `None` — «ещё не искали». Строка не трогается
+/// (и не попадает в дельту синхронизации), если значение уже такое. Возвращает, изменилась ли строка.
+pub async fn set_image(
+    db: impl PgExecutor<'_>,
+    mbid: Uuid,
+    image: Option<bool>,
+) -> sqlx::Result<bool> {
+    let value = image.map(|y| if y { "yes" } else { "no" });
+    let res =
+        sqlx::query("UPDATE artists SET image = $2 WHERE mbid = $1 AND image IS DISTINCT FROM $2")
+            .bind(mbid)
+            .bind(value)
+            .execute(db)
+            .await?;
+    Ok(res.rows_affected() > 0)
+}
+
+/// Сбрасывает `'no'` в «не искали» у артистов, чей отрицательный ответ в `mb_cache` истёк
+/// (`MISS_TTL`): фото могло появиться. Возвращает число сброшенных.
+pub async fn reset_expired_no_image(db: impl PgExecutor<'_>) -> sqlx::Result<u64> {
+    let res = sqlx::query(
+        "UPDATE artists a SET image = NULL
+         WHERE a.image = 'no'
+           AND EXISTS (SELECT 1 FROM mb_cache m
+                       WHERE m.key = 'artist_image:' || a.mbid AND m.expires_at <= now())",
+    )
+    .execute(db)
+    .await?;
+    Ok(res.rows_affected())
+}
+
+/// Артисты библиотеки, у которых фото ещё не искали и нет ни активной задачи `fetch_artist_image`,
+/// ни недавней (`retry_after` — пауза после упавшей, чтобы постоянный отказ не крутился каждую минуту).
+pub async fn without_image_job(
+    db: impl PgExecutor<'_>,
+    retry_after: std::time::Duration,
+    limit: i64,
+) -> sqlx::Result<Vec<i64>> {
+    sqlx::query_scalar(
+        "SELECT a.id FROM artists a
+         WHERE a.in_library AND a.image IS NULL
+           AND NOT EXISTS (SELECT 1 FROM jobs j
+                           WHERE j.dedup_key = 'fetch_artist_image:' || a.id
+                             AND (j.state IN ('queued', 'running')
+                                  OR j.updated_at > now() - make_interval(secs => $1)))
+         ORDER BY a.id LIMIT $2",
+    )
+    .bind(retry_after.as_secs_f64())
+    .bind(limit)
+    .fetch_all(db)
+    .await
+}

@@ -5215,6 +5215,13 @@
             "type": "integer",
             "format": "int64"
           },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Есть ли фото артиста: `yes` / `no`; `null` — ещё не искали (клиент запросит картинку сам)."
+          },
           "in_library": {
             "type": "boolean"
           },

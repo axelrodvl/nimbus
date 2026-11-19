@@ -98,14 +98,17 @@ describe('запуск', () => {
     expect(server.snapshotRequests).toBe(1);
   });
 
-  it('данные формата 1 (до закреплений в треках, ревью S11) — берётся снимок', async () => {
+  it.each([
+    [1, 'до закреплений в треках, ревью S11'],
+    [2, 'до признака фото артистов, ревью S12'],
+  ])('данные формата %i (%s) — берётся снимок', async schema => {
     const server = new FakeSyncServer().load(makeLibrary({ artists: 1, albumsPerArtist: 1, tracksPerAlbum: 1 }));
-    const dbName = `engine-schema-v1-${++n}`;
-    await createDb({ name: dbName }).applyBatch({ meta: { cursor: '1.e.5', schema: 1 } });
+    const dbName = `engine-schema-v${schema}-${++n}`;
+    await createDb({ name: dbName }).applyBatch({ meta: { cursor: `${schema}.e.5`, schema } });
     const env = makeEnv(server, { dbName });
     await sync(env);
     expect(server.snapshotRequests).toBe(1);
-    expect((await createDb({ name: dbName }).loadMeta()).schema).toBe(2);
+    expect((await createDb({ name: dbName }).loadMeta()).schema).toBe(SYNC_SCHEMA);
   });
 
   it('ошибка чтения базы: старт с чистого листа, данные приходят снимком', async () => {

@@ -329,6 +329,10 @@ const messages: Messages = {
   'offline.settings.persistentRequest': 'Richiedi',
   'offline.settings.wifi': 'Solo Wi-Fi',
   'offline.settings.wifiHint': 'Non scaricare con la rete mobile.',
+  'offline.settings.warm': 'Precarica le miniature',
+  'offline.settings.warmHint':
+    'Scarica in background le copertine e le foto degli artisti della libreria, così le schermate si aprono con le immagini e funzionano offline. Si mette in pausa durante la navigazione e lo streaming, si ferma con il risparmio dati.',
+  'offline.settings.warmProgress': '{warmed} di {total} miniature pronte',
   'offline.short.done': 'Sul dispositivo',
   'offline.short.downloading': 'Download {percent}%',
   'offline.short.failed': 'Errore · riprova',

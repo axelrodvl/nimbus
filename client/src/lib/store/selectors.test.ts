@@ -393,3 +393,22 @@ describe('recordingIndex', () => {
     expect(selectors.recordingIndex(s()).get('rec-a')).toEqual([1, 2]);
   });
 });
+
+describe('artistImage', () => {
+  it('признак фото по mbid: yes / no / не искали / артиста в store нет; индекс не пересобирается без смены артистов', () => {
+    const { s, selectors, store } = setup({
+      artists: [
+        makeArtist({ id: 1, image: 'yes', mbid: 'm1' }),
+        makeArtist({ id: 2, image: 'no', in_library: false, mbid: 'm2' }),
+        makeArtist({ id: 3, mbid: 'm3' }),
+      ],
+    });
+    expect(selectors.artistImage(s(), 'm1')).toBe('yes');
+    expect(selectors.artistImage(s(), 'm2')).toBe('no');
+    expect(selectors.artistImage(s(), 'm3')).toBeNull();
+    expect(selectors.artistImage(s(), 'nope')).toBeUndefined();
+    const size = selectors.cacheSize().lists;
+    selectors.artistImage(store.getState(), 'm1');
+    expect(selectors.cacheSize().lists).toBe(size);
+  });
+});

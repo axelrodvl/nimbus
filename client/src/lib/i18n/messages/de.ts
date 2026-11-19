@@ -332,6 +332,10 @@ const messages: Messages = {
   'offline.settings.persistentRequest': 'Anfordern',
   'offline.settings.wifi': 'Nur per WLAN',
   'offline.settings.wifiHint': 'Nicht über das Mobilfunknetz laden.',
+  'offline.settings.warm': 'Vorschaubilder vorladen',
+  'offline.settings.warmHint':
+    'Cover und Künstlerfotos der Bibliothek im Hintergrund laden, damit Ansichten sofort mit Bildern erscheinen und offline funktionieren. Pausiert beim Navigieren und Streamen, stoppt im Datensparmodus.',
+  'offline.settings.warmProgress': '{warmed} von {total} Vorschaubildern bereit',
   'offline.short.done': 'Auf dem Gerät',
   'offline.short.downloading': 'Lädt {percent} %',
   'offline.short.failed': 'Fehler · wiederholen',

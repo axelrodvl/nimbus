@@ -36,6 +36,9 @@ export const useAlbumServerState = (id: number): AlbumServerState | null =>
   useLibrary(s => appData().selectors.albumServer(s, id));
 export const useArtistView = (id: number): ArtistView | undefined =>
   useLibrary(s => appData().selectors.artistView(s, id));
+/** Признак фото артиста по `mbid` из store: `'yes'`/`'no'`, `null` — не искали, `undefined` — артиста в store нет. */
+export const useArtistImage = (mbid: string): string | null | undefined =>
+  useLibrary(s => appData().selectors.artistImage(s, mbid));
 export const useTrackView = (id: number): TrackView | undefined =>
   useLibrary(s => appData().selectors.trackView(s, id));
 export const useLibraryArtists = (statuses?: readonly TrackStatus[]): ArtistView[] =>

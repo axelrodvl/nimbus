@@ -412,6 +412,19 @@ export function createSelectors() {
     }) as SearchResult;
   }
 
+  /**
+   * Признак фото артиста из синхронизации по `mbid`: `'yes'` / `'no'`, `null` — ещё не искали, `undefined` — артиста
+   * нет в store (поиск, каталог). Индекс по ВСЕМ артистам store строится раз на версию `s.artists`.
+   */
+  function artistImage(s: LibraryState, mbid: string): string | null | undefined {
+    const index = lists('artistImageIndex', [s.artists], () => {
+      const m = new Map<string, string | null>();
+      for (const a of s.artists.values()) m.set(a.mbid, a.image ?? null);
+      return m;
+    }) as Map<string, string | null>;
+    return index.get(mbid);
+  }
+
   /** Индекс `mbid → id` для сопоставления результатов MusicBrainz с библиотекой; строится один раз на версию данных. */
   function mbidIndex(s: LibraryState): MbidIndex {
     return lists('mbidIndex', [s.artists, s.albums, s.tracks], () => {
@@ -460,6 +473,7 @@ export function createSelectors() {
     artistView,
     favorites,
     libraryAlbums,
+    artistImage,
     libraryArtists,
     libraryTracks,
     mbidIndex,

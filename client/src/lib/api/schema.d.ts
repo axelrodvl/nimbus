@@ -1760,6 +1760,8 @@ export interface components {
       disambiguation?: string | null;
       /** Format: int64 */
       id: number;
+      /** @description Есть ли фото артиста: `yes` / `no`; `null` — ещё не искали (клиент запросит картинку сам). */
+      image?: string | null;
       in_library: boolean;
       /** Format: uuid */
       mbid: string;

@@ -149,7 +149,7 @@ export function offlineHarness(
     pins?: OfflinePin[];
     files?: OfflineFile[];
     storage?: Record<string, number>;
-    settings?: Partial<{ concurrency: number; limitBytes: number | null; wifiOnly: boolean }>;
+    settings?: Partial<{ concurrency: number; limitBytes: number | null; warmThumbs: boolean; wifiOnly: boolean }>;
     deps?: Partial<ManagerDeps>;
   } = {},
 ) {

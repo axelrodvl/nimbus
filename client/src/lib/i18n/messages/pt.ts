@@ -328,6 +328,10 @@ const messages: Messages = {
   'offline.settings.persistentRequest': 'Solicitar',
   'offline.settings.wifi': 'Somente Wi-Fi',
   'offline.settings.wifiHint': 'Não baixar pela rede móvel.',
+  'offline.settings.warm': 'Pré-carregar miniaturas',
+  'offline.settings.warmHint':
+    'Baixa em segundo plano as capas e fotos de artistas da biblioteca, para que as telas abram com imagens e funcionem offline. Pausa ao navegar ou ouvir em streaming e para no modo de economia de dados.',
+  'offline.settings.warmProgress': '{warmed} de {total} miniaturas prontas',
   'offline.short.done': 'No dispositivo',
   'offline.short.downloading': 'Baixando {percent}%',
   'offline.short.failed': 'Erro · repetir',

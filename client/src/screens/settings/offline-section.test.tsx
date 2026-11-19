@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetAppData } from '@/lib/app-data';
+import { warmStatus } from '@/lib/library/warm-runtime';
 import { installOffline } from '@/lib/offline';
 import { fileStatus, installOfflineUi, type OfflineUi } from '@/test/offline-ui';
 import { renderRoutes } from '@/test/render';
@@ -96,6 +97,19 @@ describe('раздел «Офлайн на этом устройстве»', () 
     await userEvent.click(sw);
     expect(ui.rt.settings.getState().wifiOnly).toBe(true);
     expect(sw).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('«Прогревать миниатюры»: включено по умолчанию, переключатель сохраняется, индикатор показывает прогресс', async () => {
+    stubStorage(false);
+    open();
+    const sw = screen.getByTestId('offline-warm');
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+    act(() => warmStatus.setState({ state: 'running', total: 40, warmed: 12 }));
+    expect(screen.getByText(/Готово 12 из 40 миниатюр/)).toBeInTheDocument();
+    await userEvent.click(sw);
+    expect(ui.rt.settings.getState().warmThumbs).toBe(false);
+    expect(screen.queryByText(/Готово 12 из 40/)).toBeNull();
+    act(() => warmStatus.setState({ state: 'idle', total: 0, warmed: 0 }));
   });
 
   it('постоянное хранилище: состояние и запрос по кнопке', async () => {

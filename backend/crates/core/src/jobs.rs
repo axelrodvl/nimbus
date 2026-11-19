@@ -39,6 +39,10 @@ pub enum Job {
     EvictCache,
     /// Автоматический повтор поиска для альбомов `missing`/`partial`, у которых подошёл `next_retry_at` (шаг 32).
     RetryMissing,
+    /// Поиск фото артиста во внешних источниках и запись признака `artists.image` (ревью S12).
+    FetchArtistImage {
+        artist_id: i64,
+    },
 }
 
 impl Job {
@@ -49,8 +53,9 @@ impl Job {
     pub const PROCESS_CUE: &'static str = "process_cue";
     pub const EVICT_CACHE: &'static str = "evict_cache";
     pub const RETRY_MISSING: &'static str = "retry_missing";
+    pub const FETCH_ARTIST_IMAGE: &'static str = "fetch_artist_image";
     /// Все виды задач (для проверок «у вида есть обработчик»).
-    pub const ALL_KINDS: [&'static str; 7] = [
+    pub const ALL_KINDS: [&'static str; 8] = [
         Self::DISCOVER_ALBUM,
         Self::DISCOVER_ARTIST,
         Self::IMPORT_ARTIST,
@@ -58,6 +63,7 @@ impl Job {
         Self::PROCESS_CUE,
         Self::EVICT_CACHE,
         Self::RETRY_MISSING,
+        Self::FETCH_ARTIST_IMAGE,
     ];
 
     pub fn kind(&self) -> &'static str {
@@ -69,6 +75,7 @@ impl Job {
             Job::ProcessCue { .. } => Self::PROCESS_CUE,
             Job::EvictCache => Self::EVICT_CACHE,
             Job::RetryMissing => Self::RETRY_MISSING,
+            Job::FetchArtistImage { .. } => Self::FETCH_ARTIST_IMAGE,
         }
     }
 
@@ -89,6 +96,7 @@ impl Job {
             } => format!("process_cue:{torrent_id}:{album_id}:{cue_file_index}"),
             Job::EvictCache => "evict_cache".to_string(),
             Job::RetryMissing => "retry_missing".to_string(),
+            Job::FetchArtistImage { artist_id } => format!("fetch_artist_image:{artist_id}"),
         })
     }
 

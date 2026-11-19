@@ -610,3 +610,17 @@ async fn pin_update_and_track_holder_do_not_deadlock(pool: PgPool) {
         1
     );
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn artist_image_flag_is_in_snapshot_and_delta(pool: PgPool) {
+    seed(&pool).await;
+    let c = cursor_now(&pool).await;
+    exec(&pool, "UPDATE artists SET image = 'no' WHERE id = 1").await;
+    let ch = changes(&pool, &c).await;
+    assert_eq!(ch.artists.len(), 1);
+    assert_eq!(ch.artists[0].image.as_deref(), Some("no"));
+    let (mut tx, _) = sync::begin_snapshot(&pool).await.unwrap();
+    let all: Vec<_> = sync::artists(&mut tx).collect().await;
+    assert_eq!(all[0].as_ref().unwrap().image.as_deref(), Some("no"));
+    tx.rollback().await.unwrap();
+}

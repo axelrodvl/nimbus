@@ -1,5 +1,5 @@
 use nimbus_core::events::{Entity, Event, EventBus};
-use nimbus_core::jobs::{Job, PRIORITY_INTERACTIVE, PRIORITY_NORMAL};
+use nimbus_core::jobs::{Job, PRIORITY_BACKGROUND, PRIORITY_INTERACTIVE, PRIORITY_NORMAL};
 use nimbus_core::model::{Album, Artist, NewAlbum, NewArtist, NewTrack, Track, TrackStatus};
 use nimbus_db::repo::jobs::{EnqueueOpts, ImportPhase, ImportProgress};
 use nimbus_db::repo::{albums, artists, jobs, pins, tracks};
@@ -518,6 +518,7 @@ impl LibraryService {
         let mut tx = self.db.begin().await?;
         artists::set_in_library(&mut *tx, artist.id, true).await?;
         enqueue_import_in(&mut *tx, artist.id).await?;
+        enqueue_artist_image_in(&mut *tx, artist.id).await?;
         tx.commit().await?;
         self.changed(Entity::Artist, artist.id);
         Ok(AddOutcome::Importing { id: artist.id })
@@ -859,6 +860,21 @@ pub async fn enqueue_import_in(db: impl sqlx::PgExecutor<'_>, artist_id: i64) ->
         EnqueueOpts {
             max_attempts: Some(IMPORT_MAX_ATTEMPTS),
             priority: PRIORITY_NORMAL,
+            ..EnqueueOpts::default()
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+/// Ставит фоновый поиск фото артиста (ревью S12): низкий приоритет, активная задача не дублируется.
+pub async fn enqueue_artist_image_in(db: impl sqlx::PgExecutor<'_>, artist_id: i64) -> Result<()> {
+    jobs::enqueue(
+        db,
+        &Job::FetchArtistImage { artist_id },
+        EnqueueOpts {
+            max_attempts: Some(5),
+            priority: PRIORITY_BACKGROUND,
             ..EnqueueOpts::default()
         },
     )

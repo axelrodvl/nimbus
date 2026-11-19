@@ -229,7 +229,7 @@ pub async fn i4_missing_without_schedule(
     Ok(section("I4", "album", rows))
 }
 
-/// I5. Упавшая нефатальная `import_artist` / `discover_artist` — последняя по своему ключу, активной
+/// I5. Упавшая нефатальная `import_artist` / `discover_artist` / `fetch_artist_image` — последняя по своему ключу, активной
 /// такой же нет, а оживления она ждёт дольше самой длинной паузы (`revive_max`) плюс `grace`.
 pub async fn i5_failed_not_revived(
     db: &PgPool,
@@ -241,7 +241,7 @@ pub async fn i5_failed_not_revived(
                 count(*) OVER ()
          FROM jobs j
          WHERE j.state = 'failed' AND NOT j.fatal
-           AND j.kind IN ('import_artist', 'discover_artist')
+           AND j.kind IN ('import_artist', 'discover_artist', 'fetch_artist_image')
            AND j.updated_at < now() - make_interval(secs => $1)
            AND j.id = (SELECT max(x.id) FROM jobs x WHERE x.dedup_key = j.dedup_key)
          ORDER BY j.id LIMIT $2",

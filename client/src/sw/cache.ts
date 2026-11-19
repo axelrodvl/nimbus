@@ -26,22 +26,63 @@ export async function trimCache(cache: CacheLike, max: number): Promise<void> {
   await Promise.all(keys.slice(0, Math.max(0, keys.length - max)).map(k => cache.delete(k)));
 }
 
+/** Сколько живёт запомненный 404 «нет фото» (дальше — снова спрашиваем бэкенд: фото могло появиться). */
+export const NEGATIVE_TTL_MS = 24 * 3600 * 1000;
+/** Метка времени записи 404 в кэше (мс), не заголовок протокола — воркер читает её сам. */
+const NEGATIVE_AT = 'x-nimbus-negative-at';
+
+/** Запись кэша — запомненный «нет фото», а не картинка. */
+export const isNegativeEntry = (response: Response): boolean => response.headers.has(NEGATIVE_AT);
+
+const negativeFresh = (response: Response, now: number): boolean => {
+  const at = Number(response.headers.get(NEGATIVE_AT));
+  return Number.isFinite(at) && now - at < NEGATIVE_TTL_MS;
+};
+
+/** 404 с кодом `no_image` (бэкенд: у артиста нет фото) — единственный ответ об ошибке, который запоминается. */
+async function isNoImage(response: Response): Promise<boolean> {
+  if (response.status !== 404) return false;
+  try {
+    return ((await response.clone().json()) as { code?: unknown } | null)?.code === 'no_image';
+  } catch {
+    return false;
+  }
+}
+
+export type CacheFirstOptions = {
+  /** Предел числа записей (вытесняются самые старые); без него записи хранятся бессрочно. */
+  max?: number;
+  /** Запоминать 404 `no_image` на сутки (фото артистов вне библиотеки, у которых нет строки в store). */
+  negative?: boolean;
+  now?: () => number;
+};
+
 /**
  * Cache-first. Запись идёт в фоне (`after` получает промис — воркер держит себя живым через `waitUntil`).
- * `max` — необязательный предел числа записей (вытесняются самые старые); без него записи хранятся бессрочно.
  */
 export async function cacheFirst(
   request: Request,
   cache: CacheLike,
   fetcher: Fetcher,
-  max: number = Number.POSITIVE_INFINITY,
+  options: CacheFirstOptions = {},
   after: (done: Promise<unknown>) => void = () => undefined,
 ): Promise<Response> {
+  const { max = Number.POSITIVE_INFINITY, negative = false, now = Date.now } = options;
   const hit = await cache.match(request, MATCH);
-  if (hit) return hit;
+  if (hit) {
+    if (!isNegativeEntry(hit)) return hit;
+    if (negativeFresh(hit, now())) return hit;
+    // Срок «нет фото» вышел: запись удаляется, спрашиваем бэкенд заново.
+    await cache.delete(request);
+  }
   const response = await fetcher(request);
   if (isCacheable(response)) {
     after(cache.put(request, response.clone()).then(() => (Number.isFinite(max) ? trimCache(cache, max) : undefined)));
+  } else if (negative && (await isNoImage(response))) {
+    const body = await response.clone().text();
+    const headers = new Headers(response.headers);
+    headers.set(NEGATIVE_AT, String(now()));
+    after(cache.put(request, new Response(body, { headers, status: 404, statusText: response.statusText })));
   }
   return response;
 }

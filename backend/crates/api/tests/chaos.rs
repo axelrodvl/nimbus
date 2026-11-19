@@ -430,6 +430,7 @@ async fn running_any_job_twice_gives_the_same_state_as_running_it_once(pool: PgP
             Job::ProcessCue { .. } => Job::PROCESS_CUE,
             Job::EvictCache => Job::EVICT_CACHE,
             Job::RetryMissing => Job::RETRY_MISSING,
+            Job::FetchArtistImage { .. } => Job::FETCH_ARTIST_IMAGE,
         });
         (job, h)
     };

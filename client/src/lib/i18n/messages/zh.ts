@@ -321,6 +321,10 @@ const messages: Messages = {
   'offline.settings.persistentRequest': '申请',
   'offline.settings.wifi': '仅限 Wi-Fi',
   'offline.settings.wifiHint': '不使用移动网络下载。',
+  'offline.settings.warm': '预加载缩略图',
+  'offline.settings.warmHint':
+    '在后台下载资料库的封面和艺人照片，使页面打开即显示图片，并可离线使用。浏览页面或流式播放时会暂停，开启流量节省模式时停止。',
+  'offline.settings.warmProgress': '{total} 张缩略图中已就绪 {warmed} 张',
   'offline.short.done': '已在设备',
   'offline.short.downloading': '下载中 {percent}%',
   'offline.short.failed': '出错 · 重试',

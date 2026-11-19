@@ -325,6 +325,10 @@ const messages: Messages = {
   'offline.settings.persistentRequest': '요청',
   'offline.settings.wifi': 'Wi-Fi 전용',
   'offline.settings.wifiHint': '모바일 데이터로는 다운로드하지 않습니다.',
+  'offline.settings.warm': '썸네일 미리 받기',
+  'offline.settings.warmHint':
+    '라이브러리의 앨범 커버와 아티스트 사진을 백그라운드에서 받아 화면이 이미지와 함께 바로 열리고 오프라인에서도 작동하게 합니다. 화면 이동과 스트리밍 중에는 일시 중지되고 데이터 절약 모드에서는 중단됩니다.',
+  'offline.settings.warmProgress': '썸네일 {total}개 중 {warmed}개 준비됨',
   'offline.short.done': '기기에 있음',
   'offline.short.downloading': '다운로드 중 {percent}%',
   'offline.short.failed': '오류 · 재시도',

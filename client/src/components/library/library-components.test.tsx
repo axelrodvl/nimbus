@@ -31,10 +31,10 @@ describe('Cover', () => {
 
   it('память показанных картинок ограничена: вытесняются давно показанные, свежие остаются', () => {
     markImageShown('/old');
-    for (let i = 0; i < 5000; i++) markImageShown(`/img/${i}`);
+    for (let i = 0; i < 20000; i++) markImageShown(`/img/${i}`);
     expect(imageLoading('/old').loading).toBe('lazy');
     expect(imageLoading('/img/0').loading).toBe('eager');
-    expect(imageLoading('/img/4999').decoding).toBe('sync');
+    expect(imageLoading('/img/19999').decoding).toBe('sync');
   });
 
   it('не загрузившаяся обложка не считается показанной', () => {
@@ -98,6 +98,21 @@ describe('ArtistAvatar', () => {
     expect(screen.getByText('DP').parentElement).not.toHaveClass('delayed-appear');
     expect(container.querySelector('img')).toBeNull();
     expect(screen.getByText('DP')).toBeInTheDocument();
+  });
+
+  it('image = no: инициалы в первом кадре без задержки, <img> не рендерится', () => {
+    const { container } = render(<ArtistAvatar image="no" mbid="abcd-1234" name="Daft Punk" />);
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByText('DP')).toBeInTheDocument();
+    expect(screen.getByText('DP').parentElement).not.toHaveClass('delayed-appear');
+  });
+
+  it('image = yes и «не искали» (null): запрос фото как раньше', () => {
+    for (const image of ['yes', null] as const) {
+      const { container, unmount } = render(<ArtistAvatar image={image} mbid="abcd-1234" name="Daft Punk" />);
+      expect(container.querySelector('img')?.getAttribute('src')).toBe('/api/artist-image/abcd-1234');
+      unmount();
+    }
   });
 
   it('уже показанное фото при новом монтировании — eager и синхронное декодирование', () => {

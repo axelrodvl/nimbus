@@ -101,3 +101,126 @@ async fn without_import_finds_only_old_library_artists_with_no_albums_and_no_job
     assert_eq!(ids, vec![lost]);
     assert!(!ids.contains(&fresh) && !ids.contains(&hidden.id));
 }
+
+async fn image_of(pool: &PgPool, id: i64) -> Option<String> {
+    sqlx::query_scalar("SELECT image FROM artists WHERE id = $1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn mbid_of(pool: &PgPool, id: i64) -> Uuid {
+    sqlx::query_scalar("SELECT mbid FROM artists WHERE id = $1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn set_image_writes_flag_and_skips_unchanged_rows(pool: PgPool) {
+    let id = library_artist(&pool, "A", 1).await;
+    let mbid = mbid_of(&pool, id).await;
+    assert!(artists::set_image(&pool, mbid, Some(true)).await.unwrap());
+    assert_eq!(image_of(&pool, id).await.as_deref(), Some("yes"));
+    // То же значение: строка не пишется — клиенты не получают пустую дельту.
+    let before: i64 = sqlx::query_scalar("SELECT sync_txid FROM artists WHERE id = $1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(!artists::set_image(&pool, mbid, Some(true)).await.unwrap());
+    let after: i64 = sqlx::query_scalar("SELECT sync_txid FROM artists WHERE id = $1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(before, after);
+    assert!(artists::set_image(&pool, mbid, Some(false)).await.unwrap());
+    assert_eq!(image_of(&pool, id).await.as_deref(), Some("no"));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn reset_expired_no_image_only_touches_expired_misses(pool: PgPool) {
+    let expired = library_artist(&pool, "Expired", 1).await;
+    let fresh = library_artist(&pool, "Fresh", 1).await;
+    let yes = library_artist(&pool, "Yes", 1).await;
+    for (id, flag, ttl) in [
+        (expired, false, -60),
+        (fresh, false, 3600),
+        (yes, true, -60),
+    ] {
+        let mbid = mbid_of(&pool, id).await;
+        artists::set_image(&pool, mbid, Some(flag)).await.unwrap();
+        sqlx::query(
+            "INSERT INTO mb_cache (key, response, expires_at)
+             VALUES ($1, '{}', now() + make_interval(secs => $2))",
+        )
+        .bind(format!("artist_image:{mbid}"))
+        .bind(f64::from(ttl))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    assert_eq!(artists::reset_expired_no_image(&pool).await.unwrap(), 1);
+    assert_eq!(image_of(&pool, expired).await, None);
+    assert_eq!(image_of(&pool, fresh).await.as_deref(), Some("no"));
+    assert_eq!(image_of(&pool, yes).await.as_deref(), Some("yes"));
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn without_image_job_skips_known_flags_active_and_recent_jobs(pool: PgPool) {
+    let lost = library_artist(&pool, "Lost", 1).await;
+    let known = library_artist(&pool, "Known", 1).await;
+    artists::set_image(&pool, mbid_of(&pool, known).await, Some(false))
+        .await
+        .unwrap();
+    let queued = library_artist(&pool, "Queued", 1).await;
+    jobs::enqueue(
+        &pool,
+        &Job::FetchArtistImage { artist_id: queued },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap();
+    let failed_recently = library_artist(&pool, "Failed", 1).await;
+    let job = jobs::enqueue(
+        &pool,
+        &Job::FetchArtistImage {
+            artist_id: failed_recently,
+        },
+        EnqueueOpts::default(),
+    )
+    .await
+    .unwrap();
+    sqlx::query("UPDATE jobs SET state = 'failed' WHERE dedup_key = 'fetch_artist_image:' || $1")
+        .bind(failed_recently)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let _ = job;
+    // Не в библиотеке.
+    sqlx::query("INSERT INTO artists (mbid, name) VALUES (gen_random_uuid(), 'Out')")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let hour = Duration::from_secs(3600);
+    assert_eq!(
+        artists::without_image_job(&pool, hour, 10).await.unwrap(),
+        vec![lost]
+    );
+    // Пауза после упавшей задачи прошла — артист снова кандидат.
+    let both = artists::without_image_job(&pool, Duration::ZERO, 10)
+        .await
+        .unwrap();
+    assert_eq!(both, vec![lost, failed_recently]);
+    assert_eq!(
+        artists::without_image_job(&pool, Duration::ZERO, 1)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}

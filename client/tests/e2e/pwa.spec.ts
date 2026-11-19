@@ -132,6 +132,41 @@ test('изображения (фото артистов) после первой
   expect(MOCK).toContain('localhost');
 });
 
+test('404 «нет фото» артиста запоминается service worker: повторный показ без запроса к серверу', async ({
+  page,
+  request,
+}) => {
+  await page.goto('/library/artists');
+  await waitSynced(page);
+  await swReady(page);
+  const show = () =>
+    page.evaluate(
+      () =>
+        new Promise<void>(resolve => {
+          const img = new Image();
+          img.onload = img.onerror = () => resolve();
+          img.src = '/api/artist-image/nophoto-1';
+        }),
+    );
+  const requests = async () => (await mockLog(request)).filter(l => l.includes('/api/artist-image/nophoto-1')).length;
+  await show();
+  expect(await requests()).toBe(1);
+  // Запись в кэш идёт в фоне воркера.
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        caches
+          .open('nimbus-images-v3')
+          .then(c => c.match('/api/artist-image/nophoto-1'))
+          .then(r => r?.status ?? 0),
+      ),
+    )
+    .toBe(404);
+  await show();
+  await show();
+  expect(await requests()).toBe(1);
+});
+
 test('обновление версии: v1 → v2 → v3, предложение, «Обновить» — перезагрузка, одноразовое «Обновлено до версии X»', async ({
   page,
 }) => {

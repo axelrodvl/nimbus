@@ -329,6 +329,10 @@ const messages: Messages = {
   'offline.settings.persistentRequest': 'Запросити',
   'offline.settings.wifi': 'Лише через Wi-Fi',
   'offline.settings.wifiHint': 'Не завантажувати через мобільну мережу.',
+  'offline.settings.warm': 'Прогрівати мініатюри',
+  'offline.settings.warmHint':
+    'Завантажувати обкладинки та фото артистів бібліотеки у фоні: екрани відкриваються одразу із зображеннями та працюють офлайн. Пауза під час переходів і відтворення зі стріму, зупинка в режимі економії трафіку.',
+  'offline.settings.warmProgress': 'Готово {warmed} із {total} мініатюр',
   'offline.short.done': 'На пристрої',
   'offline.short.downloading': 'Завантажується {percent}%',
   'offline.short.failed': 'Помилка · повторити',

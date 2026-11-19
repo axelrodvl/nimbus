@@ -327,6 +327,10 @@ const messages: Messages = {
   'offline.settings.persistentRequest': 'İste',
   'offline.settings.wifi': 'Yalnızca Wi-Fi',
   'offline.settings.wifiHint': 'Mobil ağ üzerinden indirme.',
+  'offline.settings.warm': 'Küçük resimleri önceden yükle',
+  'offline.settings.warmHint':
+    'Kitaplıktaki kapak ve sanatçı fotoğraflarını arka planda indirir; ekranlar görsellerle açılır ve çevrimdışı çalışır. Gezinirken ve akış sırasında duraklar, veri tasarrufu modunda durur.',
+  'offline.settings.warmProgress': '{total} küçük resmin {warmed} tanesi hazır',
   'offline.short.done': 'Cihazda',
   'offline.short.downloading': 'İndiriliyor %{percent}',
   'offline.short.failed': 'Hata · yeniden dene',

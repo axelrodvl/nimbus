@@ -328,6 +328,10 @@ const messages: Messages = {
   'offline.settings.persistentRequest': 'リクエスト',
   'offline.settings.wifi': 'Wi-Fi のみ',
   'offline.settings.wifiHint': 'モバイル回線ではダウンロードしません。',
+  'offline.settings.warm': 'サムネイルを先読み',
+  'offline.settings.warmHint':
+    'ライブラリのジャケットとアーティスト写真をバックグラウンドで保存し、画面を画像付きですぐ開けてオフラインでも使えるようにします。画面移動やストリーミング中は一時停止し、データセーバー時は停止します。',
+  'offline.settings.warmProgress': 'サムネイル {total} 件中 {warmed} 件が準備完了',
   'offline.short.done': '保存済み',
   'offline.short.downloading': 'ダウンロード中 {percent}%',
   'offline.short.failed': 'エラー · 再試行',

@@ -7,6 +7,7 @@ use nimbus_core::events::{Entity, Event};
 use nimbus_core::jobs::Job;
 use nimbus_core::settings::PerformanceSettings;
 use nimbus_library::{LibraryError, LibraryService};
+use nimbus_musicbrainz::{artist_image, MbError};
 
 use crate::runner::{JobCtx, JobError, JobHandler};
 
@@ -75,6 +76,58 @@ impl JobHandler for ImportArtistHandler {
     }
 }
 
+/// Поиск фото артиста: пишет `artists.image` (клиент узнаёт признак из синхронизации). Низкий
+/// приоритет; временный отказ источников — повтор с растущей паузой, исчерпание попыток оставляет
+/// «не искали» (страховка обслуживания поставит задачу снова не раньше чем через час).
+pub struct FetchArtistImageHandler;
+
+#[async_trait]
+impl JobHandler for FetchArtistImageHandler {
+    fn kinds(&self) -> &'static [&'static str] {
+        &[Job::FETCH_ARTIST_IMAGE]
+    }
+    async fn handle(&self, job: Job, ctx: &JobCtx) -> Result<(), JobError> {
+        let Job::FetchArtistImage { artist_id } = job else {
+            return Err(JobError::Fatal("unexpected job kind".into()));
+        };
+        // Артиста удалили (не в библиотеке и без строки) — искать нечего.
+        let Some(artist) = nimbus_db::repo::artists::get(&ctx.db, artist_id)
+            .await
+            .map_err(|e| JobError::Unexpected(e.to_string()))?
+        else {
+            return Ok(());
+        };
+        let mb = ctx.mb.background();
+        match ctx
+            .run(artist_image::resolve(
+                &ctx.db,
+                &mb,
+                mb.user_agent(),
+                artist.mbid,
+            ))
+            .await?
+        {
+            Ok(found) => {
+                tracing::debug!(artist_id, found = found.is_some(), "artist image resolved");
+                Ok(())
+            }
+            // Артиста нет в MusicBrainz: фото не будет.
+            Err(MbError::NotFound) => {
+                nimbus_db::repo::artists::set_image(&ctx.db, artist.mbid, Some(false))
+                    .await
+                    .map_err(|e| JobError::Unexpected(e.to_string()))?;
+                Ok(())
+            }
+            Err(e) => Err(JobError::Retry {
+                after: std::time::Duration::from_secs(
+                    (60u64 << ctx.attempt.saturating_sub(1).clamp(0, 4)).min(900),
+                ),
+                reason: e.to_string(),
+            }),
+        }
+    }
+}
+
 fn publish_artist_changed(ctx: &JobCtx, artist_id: i64) {
     ctx.events.publish(Event::LibraryChanged {
         entity: Entity::Artist,
@@ -83,7 +136,7 @@ fn publish_artist_changed(ctx: &JobCtx, artist_id: i64) {
 }
 
 /// Обработчики с параллелизмом из настроек (`performance`): discover_* — `discover_workers`,
-/// verify_torrent — `verify_workers`, import_artist — `import_workers`; process_cue — 2, evict_cache и retry_missing — 1.
+/// verify_torrent — `verify_workers`, import_artist — `import_workers`; process_cue — 2, evict_cache, retry_missing и fetch_artist_image — 1.
 pub fn handlers(perf: &PerformanceSettings) -> Vec<(Arc<dyn JobHandler>, usize)> {
     vec![
         (
@@ -101,5 +154,6 @@ pub fn handlers(perf: &PerformanceSettings) -> Vec<(Arc<dyn JobHandler>, usize)>
             Arc::new(ImportArtistHandler),
             usize::from(perf.import_workers),
         ),
+        (Arc::new(FetchArtistImageHandler), 1),
     ]
 }

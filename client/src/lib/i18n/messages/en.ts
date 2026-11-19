@@ -324,6 +324,10 @@ export const en = {
   'offline.settings.persistentRequest': 'Request',
   'offline.settings.wifi': 'Wi-Fi only',
   'offline.settings.wifiHint': 'Do not download over a mobile connection.',
+  'offline.settings.warm': 'Warm up thumbnails',
+  'offline.settings.warmHint':
+    'Download covers and artist photos of your library in the background, so screens open with pictures and work offline. Pauses while you navigate or stream, stops in data saver mode.',
+  'offline.settings.warmProgress': '{warmed} of {total} thumbnails ready',
   'offline.short.done': 'On device',
   'offline.short.downloading': 'Downloading {percent}%',
   'offline.short.failed': 'Error · retry',

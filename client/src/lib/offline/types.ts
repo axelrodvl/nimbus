@@ -72,4 +72,6 @@ export type OfflineSettings = {
   concurrency: number;
   /** Качать только по Wi-Fi (где доступен `navigator.connection`). */
   wifiOnly: boolean;
+  /** Фоновый прогрев миниатюр библиотеки в кэш изображений (по умолчанию включён). */
+  warmThumbs: boolean;
 };

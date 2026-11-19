@@ -16,13 +16,14 @@ const mem = (initial?: string) => {
 describe('настройки офлайна', () => {
   it('по умолчанию: 3 загрузки, лимит автоматический, не только Wi-Fi', () => {
     expect(createOfflineSettings(mem()).getState()).toEqual(DEFAULT_SETTINGS);
-    expect(DEFAULT_SETTINGS).toEqual({ concurrency: 3, limitBytes: null, wifiOnly: false });
+    expect(DEFAULT_SETTINGS).toEqual({ concurrency: 3, limitBytes: null, warmThumbs: true, wifiOnly: false });
   });
 
   it('читаются из localStorage; повреждённое значение — настройки по умолчанию', () => {
     expect(createOfflineSettings(mem('{"concurrency":5,"limitBytes":100,"wifiOnly":true}')).getState()).toEqual({
       concurrency: 5,
       limitBytes: 100,
+      warmThumbs: true,
       wifiOnly: true,
     });
     expect(createOfflineSettings(mem('{oops')).getState()).toEqual(DEFAULT_SETTINGS);
@@ -35,6 +36,12 @@ describe('настройки офлайна', () => {
     expect(normalizeSettings({ concurrency: 2.6 }).concurrency).toBe(3);
     expect(normalizeSettings({ concurrency: 'x', limitBytes: -5, wifiOnly: 'yes' })).toEqual(DEFAULT_SETTINGS);
     expect(normalizeSettings(null)).toEqual(DEFAULT_SETTINGS);
+  });
+
+  it('прогрев миниатюр включён, пока его явно не выключили', () => {
+    expect(normalizeSettings({}).warmThumbs).toBe(true);
+    expect(normalizeSettings({ warmThumbs: false }).warmThumbs).toBe(false);
+    expect(normalizeSettings({ warmThumbs: 'no' }).warmThumbs).toBe(true);
   });
 
   it('update сохраняет значение и уведомляет подписчиков', () => {

@@ -89,7 +89,7 @@
 Шаг 34. Клиент держит всю библиотеку у себя; ему нужны «дай всё» и «дай изменённое с курсора X». Все ответы
 `/api/sync/*` сжимаются (gzip, br — только они, аудиостримы не сжимаются) и требуют токена.
 
-- `GET /api/sync/snapshot` — `application/x-ndjson`, по JSON-объекту в строке: `{"type":"begin","cursor":"…","schema":2}`,
+- `GET /api/sync/snapshot` — `application/x-ndjson`, по JSON-объекту в строке: `{"type":"begin","cursor":"…","schema":3}`,
   затем `artist`, `album`, `track`, `playlist`, `playlist_track` (`{"type":…,"row":{…}}`, именно в этом порядке сущностей),
   в конце `{"type":"end","counts":{artists,albums,tracks,playlists,playlist_tracks}}`. Снимок принят, только если получена
   строка `end`; ошибка БД посреди потока обрывает тело ответа без `end`. Синхронизируются **все** строки этих таблиц
@@ -98,6 +98,10 @@
   `pin` (`queued` | `downloading` | `done` | `waiting_source` | `failed` | `null`) и `pin_error` — закрепление трека на
   сервере (`pinned_tracks`): по ним и статусам треков клиент сам вычисляет состояние альбома на сервере, без
   `GET /api/acquisition` (ревью S11, `schema` 2).
+  У артиста поле `image` (`yes` | `no` | `null`) — есть ли фото (`GET /api/artist-image/{mbid}`): `no` — клиент рисует
+  инициалы сразу, без запроса; `null` — ещё не искали, клиент запросит картинку сам (ревью S12, `schema` 3). Поле
+  пишется поиском фото (фоновая задача `fetch_artist_image` при добавлении артиста в библиотеку или первый запрос
+  картинки) и сбрасывается в `null`, когда ответ «нет фото» протух (сутки).
 - `GET /api/sync/changes?cursor=` → `{ cursor, reset, artists, albums, tracks, playlists, playlist_tracks, deleted: [{entity, id}], more }`.
   Не больше 5000 строк (с надгробиями) по возрастанию `(sync_txid, сущность, id)`; `more: true` — запросите ещё с
   возвращённым `cursor`. `reset: true` (остальное пусто, `cursor` пуст) — курсор не разбирается, чужой `schema`/`epoch`,
@@ -144,7 +148,8 @@ primary-источником (CUE или формат файла), поэтом�
   (`limit` ≤ 200, испорченный курсор — `400`); для сторонних клиентов.
 - `GET /api/artists/{id}`, `GET /api/albums/{id}`, `GET /api/tracks/{id}` — карточки с вложенными данными (`404`).
 - `POST /api/artists/{id}/import` → `202`: повторить импорт дискографии артиста (после ошибки MusicBrainz).
-- `GET /api/artist-image/{mbid}` → `200` картинка артиста (`404 no_image`, если нет; `502 image_unavailable` — источник недоступен).
+- `GET /api/artist-image/{mbid}` → `200` картинка артиста (`404 no_image`, если нет; `502 image_unavailable` — источник недоступен). Результат поиска, в том числе «нет фото»,
+  попадает в `artists.image` и едет клиентам синхронизацией.
 - `GET /api/covers/{kind}/{mbid}/{size}` → `200` обложка Cover Art Archive (`kind` — `release-group`/`release`, `size` — 250 или 500; `404 no_image`).
   Обе ручки скачивают картинку один раз, хранят в `{NIMBUS_DATA_DIR}/images/` и отдают с `Cache-Control: public, max-age=31536000, immutable`
   (отсутствие картинки запоминается на сутки).

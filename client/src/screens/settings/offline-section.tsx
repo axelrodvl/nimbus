@@ -14,6 +14,7 @@ import { useOfflineStatus } from '@/lib/offline/hooks';
 import { effectiveLimit } from '@/lib/offline/settings';
 import { readStorageInfo, requestPersistNow } from '@/lib/pwa/storage';
 import { formatSize } from '@/lib/sources/format';
+import { warmStatus } from '@/lib/library/warm-runtime';
 import { PageHeader } from './section-frame';
 
 const GIB = 2 ** 30;
@@ -33,6 +34,7 @@ export function OfflineSection() {
     return n;
   });
   const fileCount = useOfflineStatus(s => s.files.size);
+  const warm = useStore(warmStatus, s => s);
   const deleteAll = Ariakit.useDialogStore();
   const [persistent, setPersistent] = useState<boolean | null>(null);
   useEffect(() => {
@@ -95,6 +97,20 @@ export function OfflineSection() {
             />
           </SettingsRow>
         ) : null}
+        <SettingsRow
+          description={
+            warm.total > 0 && settings.warmThumbs
+              ? `${t('offline.settings.warmHint')} ${t('offline.settings.warmProgress', { total: warm.total, warmed: warm.warmed })}`
+              : t('offline.settings.warmHint')
+          }
+          label={t('offline.settings.warm')}
+        >
+          <Switch
+            checked={settings.warmThumbs}
+            data-testid="offline-warm"
+            onCheckedChange={v => offline().settings.update({ warmThumbs: v })}
+          />
+        </SettingsRow>
         <SettingsRow description={t('offline.settings.persistentHint')} group label={t('offline.settings.persistent')}>
           <div className="flex items-center gap-3">
             <span className="text-sm" data-testid="offline-persistent">

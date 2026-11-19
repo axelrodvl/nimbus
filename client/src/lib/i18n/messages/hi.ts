@@ -322,6 +322,10 @@ const messages: Messages = {
   'offline.settings.persistentRequest': 'माँगें',
   'offline.settings.wifi': 'केवल वाई-फ़ाई',
   'offline.settings.wifiHint': 'मोबाइल नेटवर्क पर डाउनलोड न करें।',
+  'offline.settings.warm': 'थंबनेल पहले से लोड करें',
+  'offline.settings.warmHint':
+    'लाइब्रेरी के कवर और कलाकारों की तस्वीरें पृष्ठभूमि में डाउनलोड करें, ताकि स्क्रीन चित्रों के साथ खुलें और ऑफ़लाइन काम करें। नेविगेशन और स्ट्रीमिंग के दौरान रुकता है, डेटा सेवर मोड में बंद हो जाता है।',
+  'offline.settings.warmProgress': '{total} में से {warmed} थंबनेल तैयार',
   'offline.short.done': 'डिवाइस पर',
   'offline.short.downloading': 'डाउनलोड {percent}%',
   'offline.short.failed': 'त्रुटि · दोबारा',

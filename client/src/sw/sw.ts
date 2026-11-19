@@ -2,6 +2,7 @@
 import { cleanupOutdatedCaches, matchPrecache, precacheAndRoute } from 'workbox-precaching';
 import { cacheFirst, IMAGE_CACHE, RUNTIME_CACHE, staleImageCaches, staleWhileRevalidate } from './cache';
 import { classifyRequest } from './classify';
+import { isArtistPhotoPath } from '@/lib/platform/urls';
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -54,7 +55,11 @@ self.addEventListener('fetch', event => {
       break;
     case 'image':
       event.respondWith(
-        caches.open(IMAGE_CACHE).then(cache => cacheFirst(request, cache, fetchImage, undefined, after)),
+        caches.open(IMAGE_CACHE).then(cache => {
+          // 404 «нет фото» фото артиста запоминается на сутки: аватар без фото не бьёт в сеть при каждом показе.
+          const negative = isArtistPhotoPath(new URL(request.url).pathname);
+          return cacheFirst(request, cache, fetchImage, { negative }, after);
+        }),
       );
       break;
     case 'dictionary':

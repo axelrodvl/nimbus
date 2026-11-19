@@ -898,7 +898,11 @@ Bun.serve({
       );
 
     // Фото артиста: 1×1 PNG (e2e кэша изображений service worker).
-    if (path.startsWith('/api/artist-image/')) return new Response(PIXEL, { headers: { 'content-type': 'image/png' } });
+    if (path.startsWith('/api/artist-image/')) {
+      // `nophoto-*` — артист без фото: 404 `no_image`, как у бэкенда (e2e запоминания «нет фото» в service worker).
+      if (path.startsWith('/api/artist-image/nophoto')) return json(404, { code: 'no_image', message: 'no artist image' });
+      return new Response(PIXEL, { headers: { 'content-type': 'image/png' } });
+    }
     if (path === '/api/health') return json(200, { db: true, status: 'ok', version: 'mock' });
     if (path === '/api/auth/session') {
       return json(200, { auth_required: state.authRequired, authenticated: authed(req) });

@@ -54,6 +54,8 @@ pub struct SyncArtist {
     pub disambiguation: Option<String>,
     pub in_library: bool,
     pub added_at: Option<DateTime<Utc>>,
+    /// Есть ли фото артиста: `yes` / `no`; `null` — ещё не искали (клиент запросит картинку сам).
+    pub image: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -123,6 +125,7 @@ impl From<sync::SyncArtist> for SyncArtist {
             disambiguation: r.disambiguation,
             in_library: r.in_library,
             added_at: r.added_at,
+            image: r.image,
         }
     }
 }

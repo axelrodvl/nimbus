@@ -1,5 +1,6 @@
 //! Клиент MusicBrainz Web Service v2: лимиты, кэш, single-flight, доменные модели.
 
+pub mod artist_image;
 mod canonical;
 mod client;
 mod error;

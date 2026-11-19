@@ -353,7 +353,13 @@ async fn post_artist_is_accepted_and_import_job_adds_discography(pool: PgPool) {
             .unwrap()
             .in_library
     );
-    let queued = jobs::list(&pool, Some("queued"), 10).await.unwrap();
+    let queued: Vec<_> = jobs::list(&pool, Some("queued"), 10)
+        .await
+        .unwrap()
+        .into_iter()
+        // Фоновый поиск фото артиста (ревью S12) ставится рядом с импортом и проверяется отдельным тестом.
+        .filter(|j| j.kind != Job::FETCH_ARTIST_IMAGE)
+        .collect();
     assert_eq!(queued.len(), 1);
     let job = queued[0].job().unwrap();
     assert_eq!(job, Job::ImportArtist { artist_id });
@@ -375,7 +381,14 @@ async fn post_artist_is_accepted_and_import_job_adds_discography(pool: PgPool) {
     )
     .await;
     assert_eq!(status, 200);
-    assert_eq!(count(&pool, "SELECT count(*) FROM jobs").await, 1);
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT count(*) FROM jobs WHERE kind = 'import_artist'"
+        )
+        .await,
+        1
+    );
 
     // выполняем задачу вручную
     let mut rx = state.events.subscribe();
@@ -896,7 +909,11 @@ async fn artist_import_status_follows_the_job_and_can_be_retried(pool: PgPool) {
         assert_eq!(s, 202);
     }
     assert_eq!(
-        count(&pool, "SELECT count(*) FROM jobs WHERE state = 'queued'").await,
+        count(
+            &pool,
+            "SELECT count(*) FROM jobs WHERE state = 'queued' AND kind = 'import_artist'"
+        )
+        .await,
         1
     );
     assert_eq!(artist_import(router.clone()).await["state"], "queued");
@@ -1339,6 +1356,27 @@ async fn add_artist_is_atomic(pool: PgPool) {
         count(&pool, "SELECT count(*) FROM artists WHERE in_library").await,
         0,
         "артист не должен остаться в библиотеке без импорта"
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn add_artist_queues_background_image_lookup(pool: PgPool) {
+    let server = mb_server().await;
+    let (_, router) = app(&pool, &server);
+    let (status, _) = post_json(
+        router,
+        "/api/library",
+        json!({"type": "artist", "mbid": RADIOHEAD}),
+    )
+    .await;
+    assert!(status < 300, "{status}");
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT count(*) FROM jobs WHERE kind = 'fetch_artist_image' AND priority < 0"
+        )
+        .await,
+        1
     );
 }
 

@@ -3,7 +3,12 @@ import type { OfflineSettings } from './types';
 
 export const SETTINGS_KEY = 'nimbus:offline-settings';
 export const MAX_DEFAULT_LIMIT = 20 * 2 ** 30;
-export const DEFAULT_SETTINGS: OfflineSettings = { concurrency: 3, limitBytes: null, wifiOnly: false };
+export const DEFAULT_SETTINGS: OfflineSettings = {
+  concurrency: 3,
+  limitBytes: null,
+  warmThumbs: true,
+  wifiOnly: false,
+};
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
@@ -13,7 +18,12 @@ export function normalizeSettings(raw: unknown): OfflineSettings {
   const limit =
     typeof o.limitBytes === 'number' && Number.isFinite(o.limitBytes) && o.limitBytes >= 0 ? o.limitBytes : null;
   const conc = typeof o.concurrency === 'number' && Number.isFinite(o.concurrency) ? Math.round(o.concurrency) : 3;
-  return { concurrency: clamp(conc, 1, 6), limitBytes: limit, wifiOnly: o.wifiOnly === true };
+  return {
+    concurrency: clamp(conc, 1, 6),
+    limitBytes: limit,
+    warmThumbs: o.warmThumbs !== false,
+    wifiOnly: o.wifiOnly === true,
+  };
 }
 
 /** Лимит по умолчанию — половина квоты хранилища, но не более 20 ГБ; квота неизвестна — 20 ГБ. */

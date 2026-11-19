@@ -178,6 +178,11 @@ impl MbClient {
         Ok(())
     }
 
+    /// User-Agent клиента (внешним источникам — Wikidata, Deezer — представляемся так же).
+    pub fn user_agent(&self) -> &str {
+        &self.inner.cfg.user_agent
+    }
+
     /// Клон с фоновым приоритетом (для массовых lookup'ов из задач).
     pub fn background(&self) -> Self {
         Self {

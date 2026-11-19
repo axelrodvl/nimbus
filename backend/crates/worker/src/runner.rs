@@ -650,6 +650,7 @@ async fn maintenance_loop(
         guarded("sync_purge", sync_purge_step(&ctx, &cfg, &mut clock)).await;
         guarded("promote_completed", promote_completed_step(&ctx)).await;
         guarded("missing_imports", missing_imports_step(&ctx)).await;
+        guarded("artist_images", artist_images_step(&ctx)).await;
         guarded(
             "enqueue_periodic",
             enqueue_periodic_step(&ctx, &cfg, &mut clock),
@@ -685,8 +686,12 @@ async fn requeue_stale_step(ctx: &JobCtx, handlers: &HandlerMap, cfg: &WorkerCon
 
 /// Виды задач, которые оживляет обслуживание. Остальные упавшие задачи не оживают: у `discover_album`,
 /// `verify_torrent` и `process_cue` повтор идёт на уровне альбома (`on_exhausted` + `RetryMissing`),
-/// а у этих двух другого пути повтора нет.
-const REVIVABLE_KINDS: [&str; 2] = [Job::IMPORT_ARTIST, Job::DISCOVER_ARTIST];
+/// а у этих другого пути повтора нет.
+const REVIVABLE_KINDS: [&str; 3] = [
+    Job::IMPORT_ARTIST,
+    Job::DISCOVER_ARTIST,
+    Job::FETCH_ARTIST_IMAGE,
+];
 
 /// Оживляет упавшие `import_artist` / `discover_artist` после растущей паузы; хуку `on_retry`
 /// сообщает причину `revived` (интерфейс увидит «импорт идёт»).
@@ -749,6 +754,39 @@ async fn missing_imports_step(ctx: &JobCtx) {
         );
         if let Err(e) = nimbus_library::enqueue_import_in(&ctx.db, id).await {
             tracing::error!(artist_id = id, error = %e, "cannot enqueue artist import");
+        }
+    }
+}
+
+/// Пауза перед повторной постановкой поиска фото артиста, если прежняя задача упала.
+const ARTIST_IMAGE_RETRY_AFTER: Duration = Duration::from_secs(3600);
+/// Сколько задач поиска фото ставит один тик (библиотека после миграции — тысячи артистов).
+const ARTIST_IMAGE_BATCH: i64 = 200;
+
+/// Фото артистов: ответ «нет фото» с истёкшим `MISS_TTL` сбрасывается в «не искали», а артисты библиотеки
+/// без признака получают фоновую задачу поиска (старые артисты после обновления, потерянная постановка).
+async fn artist_images_step(ctx: &JobCtx) {
+    match nimbus_db::repo::artists::reset_expired_no_image(&ctx.db).await {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(count = n, "expired «no artist image» answers reset"),
+        Err(e) => tracing::error!(error = %e, "artist image reset failed"),
+    }
+    let ids = match nimbus_db::repo::artists::without_image_job(
+        &ctx.db,
+        ARTIST_IMAGE_RETRY_AFTER,
+        ARTIST_IMAGE_BATCH,
+    )
+    .await
+    {
+        Ok(ids) => ids,
+        Err(e) => {
+            tracing::error!(error = %e, "artists without image lookup failed");
+            return;
+        }
+    };
+    for id in ids {
+        if let Err(e) = nimbus_library::enqueue_artist_image_in(&ctx.db, id).await {
+            tracing::error!(artist_id = id, error = %e, "cannot enqueue artist image lookup");
         }
     }
 }
