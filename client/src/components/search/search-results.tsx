@@ -1,5 +1,4 @@
 import { AlertTriangle } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { ArtistAvatar } from '@/components/library/artist-avatar';
 import { Cover } from '@/components/library/cover';
@@ -294,12 +293,9 @@ function RetryButton({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-/** После этой паузы статус поиска поясняет, что MusicBrainz отвечает не сразу. */
-export const SLOW_SEARCH_MS = 2500;
-
 /**
  * Что сейчас делает поиск — словами, а не только скелетом: ищем, ищем долго, MusicBrainz не ответил и мы
- * повторяем запрос сами. Таймер «долго» начинается заново с каждым новым запросом (компонент монтируется заново).
+ * повторяем запрос сами. Пояснение про медленный MusicBrainz видно сразу: появись оно позже, вёрстка прыгала бы.
  */
 export function SearchProgress({
   retrying,
@@ -312,17 +308,12 @@ export function SearchProgress({
   loadingText?: string;
 }) {
   const t = useT();
-  const [slow, setSlow] = useState(false);
-  useEffect(() => {
-    const timer = setTimeout(() => setSlow(true), SLOW_SEARCH_MS);
-    return () => clearTimeout(timer);
-  }, []);
   const title = partial
     ? t('search.partialRetrying')
     : retrying
       ? t('search.retrying')
       : (loadingText ?? t('search.searching'));
-  const body = retrying ? t('search.retryingBody') : slow ? t('search.slowBody') : null;
+  const body = retrying ? t('search.retryingBody') : t('search.slowBody');
   return (
     <div
       className="bg-card/50 dark:bg-card-dark/50 flex items-start gap-3 rounded-lg px-4 py-3"
@@ -340,7 +331,7 @@ export function SearchProgress({
           {title}
           {retrying ? <Spinner className="text-muted size-3.5" /> : null}
         </p>
-        {body ? <p className="text-muted text-xs">{body}</p> : null}
+        <p className="text-muted text-xs">{body}</p>
       </div>
     </div>
   );

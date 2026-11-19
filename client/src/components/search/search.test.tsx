@@ -7,7 +7,6 @@ import { appData } from '@/lib/app-data';
 import { addingStore } from '@/lib/search/add';
 import { addToHistory, readHistory } from '@/lib/search/history';
 import { playRemoteApp } from '@/lib/search/play-remote';
-import { SLOW_SEARCH_MS } from '@/components/search/search-results';
 import { SearchScreen } from '@/screens/search';
 import { makeAlbum, makeArtist, makeTrack, resetFactories } from '@/test/factories';
 import { renderRoutes } from '@/test/render';
@@ -199,16 +198,13 @@ describe('экран поиска', () => {
     expect(screen.getByTestId('search-albums')).toBeInTheDocument();
   });
 
-  it('загрузка: статус словами; через пару секунд — пояснение, что MusicBrainz медленный', () => {
-    vi.useFakeTimers();
+  it('загрузка: статус словами и сразу пояснение, что MusicBrainz медленный (вёрстка не прыгает)', () => {
     search.mockReturnValue(new Promise(() => undefined));
     open('radio');
     const progress = screen.getByTestId('search-progress');
     expect(progress).toHaveAttribute('role', 'status');
     expect(progress).toHaveTextContent('Ищем в MusicBrainz…');
-    expect(progress).not.toHaveTextContent('несколько секунд');
-    act(() => void vi.advanceTimersByTime(SLOW_SEARCH_MS));
-    expect(screen.getByTestId('search-progress')).toHaveTextContent('MusicBrainz может отвечать несколько секунд.');
+    expect(progress).toHaveTextContent('MusicBrainz может отвечать несколько секунд.');
   });
 
   it('офлайн: только локальные результаты и пояснение, сети нет', () => {
