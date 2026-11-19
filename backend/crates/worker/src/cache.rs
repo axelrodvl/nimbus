@@ -1,5 +1,12 @@
-//! Учёт места и вытеснение кэша: сначала файлы вне библиотеки, затем давно не игравшие — пока кэш не уменьшится
-//! до 90 % лимита.
+//! Учёт места и вытеснение кэша: пока кэш не уменьшится до 90 % лимита, уходят
+//! 1. файлы вне библиотеки, которые не играли и не докачивались последние `RECENT_GRACE` (сутки), — давно игравшие
+//!    первыми;
+//! 2. затем файлы библиотеки и «свежие» (игравшие или докачанные недавно) вне неё — одним ярусом, по давности
+//!    прослушивания: только что слушанный альбом из поиска не вытесняется раньше файла библиотеки, который не
+//!    играли годами (иначе следующий трек и повтор снова качались бы из сети).
+//!
+//! «Нужен библиотеке» — это primary-источник трека библиотеки (`pins::library_files`); резервный файл другой
+//! раздачи таковым не считается. Закреплённое и стримящееся прямо сейчас не вытесняется никогда.
 
 use std::path::Path;
 
@@ -14,6 +21,8 @@ use crate::runner::{JobCtx, JobError, JobHandler};
 
 /// До какой доли лимита вытесняем.
 pub const TARGET_FRACTION: f64 = 0.9;
+/// Файл вне библиотеки, игравший или докачанный моложе этого, вытесняется наравне с файлами библиотеки.
+pub const RECENT_GRACE: chrono::Duration = chrono::Duration::hours(24);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Usage {
@@ -121,18 +130,18 @@ pub async fn evict_cache(ctx: &JobCtx, limit_bytes: u64) -> Result<EvictReport, 
     let pinned = pins::protected_files(&ctx.db).await?;
     let mut skipped_pinned = 0usize;
 
-    // Сначала то, что не нужно библиотеке (скачано, чтобы просто послушать); внутри — самые давно игравшие первыми,
-    // никогда не игравшие — по времени завершения, без обоих — раньше всех.
+    // Сначала то, что не нужно библиотеке и давно не слушали; внутри яруса — самые давно игравшие первыми,
+    // никогда не игравшие — по времени завершения, без обоих — раньше всех. Свежее вне библиотеки — в ярусе
+    // библиотеки (см. модульный комментарий).
     let library = pins::library_files(&ctx.db).await?;
+    let fresh_since = chrono::Utc::now() - RECENT_GRACE;
     let mut order: Vec<usize> = (0..all.len()).collect();
     order.sort_by_key(|&i| {
         let d = &all[i];
-        (
-            library.contains(&(d.torrent_id, d.file_index)),
-            d.last_played_at.or(d.completed_at),
-            d.torrent_id,
-            d.file_index,
-        )
+        let used_at = d.last_played_at.or(d.completed_at);
+        let kept = library.contains(&(d.torrent_id, d.file_index))
+            || used_at.is_some_and(|t| t > fresh_since);
+        (kept, used_at, d.torrent_id, d.file_index)
     });
 
     for i in order {

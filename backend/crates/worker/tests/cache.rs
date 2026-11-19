@@ -197,19 +197,94 @@ async fn evicts_oldest_first_until_ninety_percent(pool: PgPool) {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Переставить время последнего прослушивания файла (SQL-интервал, например `1 hour`).
+async fn played_ago(pool: &PgPool, torrent_id: i64, interval: &str) {
+    sqlx::query(
+        "UPDATE downloads SET last_played_at = now() - $2::interval WHERE torrent_id = $1 AND file_index = 0",
+    )
+    .bind(torrent_id)
+    .bind(interval)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
-async fn files_outside_the_library_are_evicted_first(pool: PgPool) {
+async fn stale_non_library_file_goes_first(pool: PgPool) {
     let root = root();
-    // old — давно игравший трек библиотеки; fresh — только что сыгранный «просто послушать» (вне библиотеки).
+    // old — давно игравший трек библиотеки; stale — «просто послушать» вне библиотеки, игравший 2 дня назад
+    // (за пределами окна `RECENT_GRACE`): вытесняется раньше библиотеки, как и до правила про свежее.
     let old = item(&pool, &root, 1, 1000, 30).await;
-    let fresh = item(&pool, &root, 2, 1000, 0).await;
+    let stale = item(&pool, &root, 2, 1000, 2).await;
     tracks::set_in_library(&pool, old.track_id, true)
         .await
         .unwrap();
     let ctx = ctx(&pool, Activity::default());
     let r = evict_cache(&ctx, 1500).await.unwrap();
-    assert_eq!(r.evicted, vec![(fresh.torrent_id, 0)]);
-    assert!(old.path.exists() && !fresh.path.exists());
+    assert_eq!(r.evicted, vec![(stale.torrent_id, 0)]);
+    assert!(old.path.exists() && !stale.path.exists());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn recently_played_non_library_file_outlives_old_library_file(pool: PgPool) {
+    let root = root();
+    // Слушали час назад (вне библиотеки) против файла библиотеки, не игравшего год: уходит файл библиотеки.
+    let old = item(&pool, &root, 1, 1000, 365).await;
+    let fresh = item(&pool, &root, 2, 1000, 0).await;
+    played_ago(&pool, fresh.torrent_id, "1 hour").await;
+    tracks::set_in_library(&pool, old.track_id, true)
+        .await
+        .unwrap();
+    let ctx = ctx(&pool, Activity::default());
+    let r = evict_cache(&ctx, 1500).await.unwrap();
+    assert_eq!(r.evicted, vec![(old.torrent_id, 0)]);
+    assert!(!old.path.exists() && fresh.path.exists());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn non_primary_library_source_is_not_protected_as_library(pool: PgPool) {
+    let root = root();
+    // `reserve` — резервный (не primary) источник трека библиотеки: библиотеке он не нужен и вытесняется
+    // раньше файла вне библиотеки, который слушают прямо сейчас... но только если он старше окна свежести.
+    let primary = item(&pool, &root, 1, 1000, 30).await;
+    let reserve = item(&pool, &root, 2, 1000, 20).await;
+    let outside = item(&pool, &root, 3, 1000, 10).await;
+    tracks::set_in_library(&pool, primary.track_id, true)
+        .await
+        .unwrap();
+    // У трека библиотеки теперь два источника: primary — первый файл, резервный — второй.
+    let reserve_src = track_sources::insert(
+        &pool,
+        &NewTrackSource {
+            track_id: primary.track_id,
+            torrent_id: reserve.torrent_id,
+            file_index: 0,
+            match_score: 0.5,
+            needs_confirmation: false,
+            cue_start_ms: None,
+            cue_end_ms: None,
+        },
+    )
+    .await
+    .unwrap();
+    let library = pins::library_files(&pool).await.unwrap();
+    assert!(library.contains(&(primary.torrent_id, 0)));
+    assert!(
+        !library.contains(&(reserve.torrent_id, 0)),
+        "резервный источник — не «нужный библиотеке»"
+    );
+    // Запись о резервном источнике осталась (он просто не primary).
+    assert!(reserve_src.id > 0);
+    let ctx = ctx(&pool, Activity::default());
+    // Нужно убрать два файла из трёх: резервный (20 дней) и вне библиотеки (10 дней) старше окна — оба до primary.
+    let r = evict_cache(&ctx, 1500).await.unwrap();
+    assert_eq!(
+        r.evicted,
+        vec![(reserve.torrent_id, 0), (outside.torrent_id, 0)]
+    );
+    assert!(primary.path.exists());
     let _ = std::fs::remove_dir_all(&root);
 }
 
