@@ -261,18 +261,15 @@ function AlbumBody({ data, index }: { data: CatalogAlbumResponse; index: MbidInd
                 {albumPending ? t('play.waitingShort') : t('play.album')}
               </Button>
             ) : null}
-            {libraryId === undefined ? (
-              <AddToLibraryButton
-                input={{
-                  mbid: album.mbid,
-                  preview: { artistName: album.artist_name, cover: album.cover_url, title: album.title },
-                  type: 'album',
-                }}
-                libraryHref={null}
-              />
-            ) : (
-              <InLibrary href={albumHref(libraryId)} />
-            )}
+            <AddToLibraryButton
+              hideOpen
+              input={{
+                mbid: album.mbid,
+                preview: { artistName: album.artist_name, cover: album.cover_url, title: album.title },
+                type: 'album',
+              }}
+              libraryHref={libraryId === undefined ? null : albumHref(libraryId)}
+            />
           </div>
         </div>
       </header>
@@ -308,15 +305,18 @@ function AlbumBody({ data, index }: { data: CatalogAlbumResponse; index: MbidInd
                       {formatDuration(Math.floor(tr.duration_ms / 1000))}
                     </span>
                   ) : null}
-                  <AddToLibraryButton
-                    input={{
-                      albumMbid: album.mbid,
-                      mbid: tr.mbid,
-                      preview: { artistName: album.artist_name, cover: album.cover_url, title: tr.title },
-                      type: 'track',
-                    }}
-                    libraryHref={own?.in_library ? albumHref(own.album_id) : null}
-                  />
+                  {libraryId !== undefined ? null : (
+                    <AddToLibraryButton
+                      hideOpen
+                      input={{
+                        albumMbid: album.mbid,
+                        mbid: tr.mbid,
+                        preview: { artistName: album.artist_name, cover: album.cover_url, title: tr.title },
+                        type: 'track',
+                      }}
+                      libraryHref={own?.in_library ? albumHref(own.album_id) : null}
+                    />
+                  )}
                 </div>
               </li>
             );

@@ -306,12 +306,30 @@ describe('экран альбома', () => {
     renderRoutes(routes, `/search/album/${OK_COMPUTER}`);
     const list = await screen.findByTestId('catalog-tracks');
     const rows = within(list).getAllByTestId('catalog-track');
-    expect(within(rows[1]!).getByRole('link', { name: 'Открыть' })).toHaveAttribute('href', '/album/5');
-    expect(within(rows[0]!).getByRole('button', { name: 'Добавить в библиотеку' })).toBeInTheDocument();
+    // Весь альбом в библиотеке: отметка только сверху, без «Открыть»; на треках ничего.
+    expect(screen.getAllByTestId('in-library')).toHaveLength(1);
+    expect(screen.queryByRole('link', { name: 'Открыть' })).not.toBeInTheDocument();
+    expect(within(list).queryByTestId('in-library')).not.toBeInTheDocument();
+    expect(within(rows[0]!).queryByRole('button', { name: 'Добавить в библиотеку' })).not.toBeInTheDocument();
     expect(screen.getByTestId('catalog-album-artist')).toHaveAttribute('href', `/search/artist/${RADIOHEAD}`);
     // Альбом в библиотеке — «Слушать альбом» как на его экране (доступные треки), без добавления.
     expect(screen.queryByTestId('catalog-play-album')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Слушать альбом' })).toBeInTheDocument();
+  });
+
+  it('добавлен один трек — отметка только на треке, без «Открыть»; у альбома «Добавить»', async () => {
+    seed({
+      albums: [makeAlbum({ artist_id: 1, id: 5, in_library: false, mbid: OK_COMPUTER })],
+      artists: [makeArtist({ id: 1 })],
+      tracks: [makeTrack({ album_id: 5, artist_id: 1, id: 8, mbid_recording: PARANOID })],
+    });
+    renderRoutes(routes, `/search/album/${OK_COMPUTER}`);
+    const list = await screen.findByTestId('catalog-tracks');
+    const rows = within(list).getAllByTestId('catalog-track');
+    expect(within(rows[1]!).getByTestId('in-library')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Открыть' })).not.toBeInTheDocument();
+    expect(within(rows[0]!).getByRole('button', { name: 'Добавить в библиотеку' })).toBeInTheDocument();
+    expect(screen.getAllByTestId('in-library')).toHaveLength(1);
   });
 
   it('несколько дисков — заголовки дисков; пустой треклист — пустое состояние', async () => {
