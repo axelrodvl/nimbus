@@ -4,23 +4,15 @@ import { getArtistImport, type ArtistImport } from '@/lib/api/library';
 import { appData } from '@/lib/app-data';
 import { useLiveEvent } from '@/lib/live/hooks';
 
-/** Сколько после добавления артист считается «новым»: за это время импорт может ещё идти. */
-export const RECENT_ARTIST_MS = 24 * 60 * 60 * 1000;
 /** Пауза между обновлениями статуса по событиям: серия событий — один запрос. */
 export const IMPORT_REFRESH_DEBOUNCE_MS = 1000;
 
 export const artistImportKey = (id: number) => ['artist-import', id] as const;
 
-/** Статус стоит запрашивать, если артист добавлен недавно или в библиотеке у него пока нет альбомов. */
-export function shouldCheckImport(artist: { added_at?: string | null; albumCount: number }, now = Date.now()): boolean {
-  if (artist.albumCount === 0) return true;
-  const at = artist.added_at ? Date.parse(artist.added_at) : Number.NaN;
-  return Number.isFinite(at) && now - at < RECENT_ARTIST_MS;
-}
-
 /**
- * Статус импорта дискографии артиста (`GET /api/artists/{id}`) — единственные данные экрана артиста не из store.
- * Обновляется по событиям `library.changed` (артист) и `job.progress` (его альбомы) с задержкой 1 с.
+ * Подробности импорта дискографии артиста (`GET /api/artists/{id}`: попытка, ошибка, время повтора, прогресс).
+ * Грубое состояние (`artist.import`) приходит из store в первом кадре; запрос идёт только пока импорт не
+ * завершён (`enabled`), иначе экран артиста не обращается к сети. Обновляется по событиям `library.changed` (артист) и `job.progress` (его альбомы) с задержкой 1 с.
  */
 export function useArtistImport(id: number, enabled: boolean): { data: ArtistImport | null | undefined } {
   const queryClient = useQueryClient();

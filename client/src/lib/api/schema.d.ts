@@ -1762,6 +1762,11 @@ export interface components {
       id: number;
       /** @description Есть ли фото артиста: `yes` / `no`; `null` — ещё не искали (клиент запросит картинку сам). */
       image?: string | null;
+      /**
+       * @description Состояние импорта дискографии: `queued` / `importing` / `retrying` / `failed`; `null` — не идёт.
+       *     Меняется только на переходах задачи (не на прогрессе); детали — `GET /api/artists/{id}`.
+       */
+      import?: string | null;
       in_library: boolean;
       /** Format: uuid */
       mbid: string;

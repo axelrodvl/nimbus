@@ -3,14 +3,14 @@ import { useParams } from 'react-router';
 import { toast } from 'sonner';
 import { AlbumCard } from '@/components/library/album-card';
 import { ArtistAvatar } from '@/components/library/artist-avatar';
-import { ArtistImportStatus } from '@/components/library/artist-import-status';
+import { ArtistImportStatus, type CoarseImport } from '@/components/library/artist-import-status';
 import { RemoveFromLibraryButton } from '@/components/library/remove-from-library-button';
 import { PageLayout } from '@/components/page-layout';
 import { PlayAlbumButton, PlayTracksButton } from '@/components/player/play-buttons';
 import { ApiError } from '@/lib/api/errors';
 import { retryArtistImport } from '@/lib/api/library';
 import { useT } from '@/lib/i18n/provider';
-import { artistImportKey, shouldCheckImport, useArtistImport } from '@/lib/library/use-artist-import';
+import { artistImportKey, useArtistImport } from '@/lib/library/use-artist-import';
 import { useArtistAlbums, useArtistTracks, useArtistView } from '@/lib/store/hooks';
 import type { AlbumView } from '@/lib/store/selectors';
 import { ArtistSkeleton, AlbumGridSkeleton } from './skeletons';
@@ -49,7 +49,9 @@ export function ArtistScreen() {
   const artistTracks = useArtistTracks(id ?? -1);
   const queryClient = useQueryClient();
   const state = useEntityState(artist !== undefined);
-  const { data: importStatus } = useArtistImport(id ?? -1, artist !== undefined && shouldCheckImport(artist));
+  // Грубое состояние — из store (первый кадр); подробности — запросом, только пока импорт не завершён.
+  const importing = (artist?.import as CoarseImport | null | undefined) ?? null;
+  const { data: importDetails } = useArtistImport(id ?? -1, importing !== null);
 
   if (id === null) return <ItemNotFound />;
   if (state === 'loading') return <ArtistSkeleton />;
@@ -81,7 +83,7 @@ export function ArtistScreen() {
               tracks: t('count.tracks', { count: artist.trackCount }),
             })}
           </p>
-          {importStatus ? <ArtistImportStatus onRetry={retry} status={importStatus} /> : null}
+          {importing ? <ArtistImportStatus coarse={importing} onRetry={retry} status={importDetails} /> : null}
           <div className="flex flex-wrap items-center gap-3">
             <PlayTracksButton testId="play-artist" tracks={artistTracks} />
             {artist.in_library ? (
@@ -93,11 +95,7 @@ export function ArtistScreen() {
       {groups.length === 0 ? (
         <>
           <h2 className="mb-4">{t('artist.albums')}</h2>
-          {importStatus ? (
-            <AlbumGridSkeleton count={5} />
-          ) : (
-            <p className="text-muted text-sm">{t('artist.noAlbums')}</p>
-          )}
+          {importing ? <AlbumGridSkeleton count={5} /> : <p className="text-muted text-sm">{t('artist.noAlbums')}</p>}
         </>
       ) : (
         groups.map((g, gi) => (

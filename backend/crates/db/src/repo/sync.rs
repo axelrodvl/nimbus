@@ -16,7 +16,7 @@ use sqlx::{FromRow, PgConnection, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 /// Версия формата курсора и снимка; несовпадение у клиента — повод взять снимок заново.
-pub const SYNC_SCHEMA: i32 = 3;
+pub const SYNC_SCHEMA: i32 = 4;
 
 /// Не больше стольких строк (вместе с надгробиями) в одном ответе дельты.
 pub const CHANGES_LIMIT: usize = 5000;
@@ -37,6 +37,8 @@ pub struct SyncArtist {
     pub added_at: Option<DateTime<Utc>>,
     /// Есть ли фото: `'yes'` / `'no'`; `None` — ещё не искали.
     pub image: Option<String>,
+    /// Грубое состояние импорта дискографии: `queued` / `importing` / `retrying` / `failed`; `None` — не идёт.
+    pub import_state: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -263,7 +265,7 @@ pub async fn begin_snapshot(
     Ok((tx, Snapshot { xmin, xmax }))
 }
 
-const ARTIST_SELECT: &str = "SELECT id, sync_txid, mbid, name, sort_name, disambiguation, in_library, added_at, image FROM artists";
+const ARTIST_SELECT: &str = "SELECT id, sync_txid, mbid, name, sort_name, disambiguation, in_library, added_at, image, import_state FROM artists";
 
 const ALBUM_SELECT: &str =
     "SELECT id, sync_txid, mbid_release_group AS mbid, artist_id, title, year, primary_type,
@@ -546,8 +548,8 @@ mod tests {
             base: 42,
             after: None,
         };
-        assert_eq!(plain.encode("e-1"), "3.e-1.42");
-        assert_eq!(SyncCursor::parse("3.e-1.42", "e-1"), Ok(plain));
+        assert_eq!(plain.encode("e-1"), "4.e-1.42");
+        assert_eq!(SyncCursor::parse("4.e-1.42", "e-1"), Ok(plain));
         let cont = SyncCursor {
             base: 42,
             after: Some(Position {
@@ -556,7 +558,7 @@ mod tests {
                 id: 7,
             }),
         };
-        assert_eq!(cont.encode("e-1"), "3.e-1.42.50.2.7");
+        assert_eq!(cont.encode("e-1"), "4.e-1.42.50.2.7");
         assert_eq!(SyncCursor::parse(&cont.encode("e-1"), "e-1"), Ok(cont));
     }
 
@@ -580,7 +582,7 @@ mod tests {
             );
         }
         assert_eq!(
-            SyncCursor::parse("3.other.5", "e"),
+            SyncCursor::parse("4.other.5", "e"),
             Err(CursorError::Foreign)
         );
         assert_eq!(SyncCursor::parse("1.e.5", "e"), Err(CursorError::Foreign));

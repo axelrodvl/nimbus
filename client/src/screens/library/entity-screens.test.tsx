@@ -41,6 +41,14 @@ const imp = (over: Partial<libraryApi.ArtistImport> = {}): libraryApi.ArtistImpo
   ...over,
 });
 
+const loadedStatus = async () => {
+  await waitFor(() => expect(getImport).toHaveBeenCalled());
+  await act(async () => {
+    await new Promise(r => setTimeout(r, 0));
+  });
+  return screen.getByTestId('artist-import');
+};
+
 describe('альбом', () => {
   function discs() {
     const artist = makeArtist({ id: 1, name: 'Radiohead' });
@@ -314,26 +322,46 @@ describe('артист', () => {
     expect(screen.getByText('Нет альбомов в библиотеке.')).toBeInTheDocument();
   });
 
-  it('статус не запрашивается у давно добавленного артиста с альбомами', () => {
-    const rows = discography();
-    rows.artists[0]!.added_at = '2020-01-01T00:00:00Z';
-    seed(rows);
-    renderRoutes(routes, '/artist/1');
-    expect(getImport).not.toHaveBeenCalled();
-  });
-
-  it('статус запрашивается у недавно добавленного артиста', async () => {
+  it('import = null: блока и запроса статуса нет, даже у только что добавленного артиста', () => {
     const rows = discography();
     rows.artists[0]!.added_at = new Date().toISOString();
     seed(rows);
-    getImport.mockResolvedValue(imp({ state: 'importing' }));
     renderRoutes(routes, '/artist/1');
-    expect(await screen.findByTestId('artist-import')).toHaveAttribute('data-state', 'importing');
-    expect(getImport).toHaveBeenCalledWith(1);
+    expect(screen.queryByTestId('artist-import')).not.toBeInTheDocument();
+    expect(getImport).not.toHaveBeenCalled();
+  });
+
+  it('import = importing: блок в первом кадре из store, подробности дорисовываются на месте', async () => {
+    const rows = discography();
+    rows.artists[0]!.import = 'importing';
+    seed(rows);
+    let resolve!: (v: libraryApi.ArtistImport) => void;
+    getImport.mockReturnValue(new Promise(r => (resolve = r)));
+    renderRoutes(routes, '/artist/1');
+    // Первый кадр: блок уже есть, подробностей нет.
+    const block = screen.getByTestId('artist-import');
+    expect(block).toHaveAttribute('data-state', 'importing');
+    const shape = () => Array.from(block.querySelectorAll('[data-step]')).map(e => e.getAttribute('data-step'));
+    const before = shape();
+    const detail = block.querySelector('[data-step-state="active"] .min-h-12');
+    expect(detail).not.toBeNull();
+    expect(screen.getByTestId('artist-group-album')).toBeInTheDocument();
+    // Пришли подробности: тот же элемент, те же шаги, под детали место уже занято.
+    await act(async () =>
+      resolve(
+        imp({ progress: { current: 'page 3', done: 3, imported: 0, log: [], phase: 'groups', skipped: 0, total: 12 } }),
+      ),
+    );
+    expect(await screen.findByTestId('artist-import-live')).toHaveTextContent('page 3');
+    expect(screen.getByTestId('artist-import')).toBe(block);
+    expect(shape()).toEqual(before);
+    expect(block.querySelector('[data-step-state="active"] .min-h-12')).toBe(detail);
+    expect(getImport).toHaveBeenCalledTimes(1);
   });
 
   describe('статус импорта', () => {
-    beforeEach(() => seed({ artists: [makeArtist({ id: 1 })] }));
+    beforeEach(() => seed({ artists: [makeArtist({ id: 1, import: 'importing' })] }));
+    const as = (state: string) => seed({ artists: [makeArtist({ id: 1, import: state })] });
 
     it('importing: степпер — пройденные шаги, текущий с прогрессом, будущие', async () => {
       getImport.mockResolvedValue(
@@ -350,7 +378,7 @@ describe('артист', () => {
         }),
       );
       renderRoutes(routes, '/artist/1');
-      const status = await screen.findByTestId('artist-import');
+      const status = await loadedStatus();
       const step = (name: string) => status.querySelector(`[data-step="${name}"]`);
       expect(step('queue')).toHaveAttribute('data-step-state', 'done');
       expect(step('groups')).toHaveAttribute('data-step-state', 'done');
@@ -369,7 +397,7 @@ describe('артист', () => {
         }),
       );
       renderRoutes(routes, '/artist/1');
-      const status = await screen.findByTestId('artist-import');
+      const status = await loadedStatus();
       expect(status.querySelector('[data-step="groups"]')).toHaveAttribute('data-step-state', 'active');
       expect(status).toHaveTextContent('Список альбомов из MusicBrainz');
       expect(status).toHaveTextContent('1/4');
@@ -379,11 +407,11 @@ describe('артист', () => {
     it('importing без прогресса: попытка > 1 и первая', async () => {
       getImport.mockResolvedValue(imp({ attempt: 2 }));
       const first = renderRoutes(routes, '/artist/1');
-      expect(await screen.findByTestId('artist-import')).toHaveTextContent('попытка 2 из 8');
+      expect(await loadedStatus()).toHaveTextContent('попытка 2 из 8');
       first.unmount();
       getImport.mockResolvedValue(imp());
       renderRoutes(routes, '/artist/1');
-      const status = await screen.findByTestId('artist-import');
+      const status = await loadedStatus();
       expect(status.querySelector('[data-step="groups"]')).toHaveAttribute('data-step-state', 'active');
     });
 
@@ -392,23 +420,25 @@ describe('артист', () => {
         imp({ progress: { done: 0, imported: 7, log: [], phase: 'discover', skipped: 0, total: 0 } }),
       );
       renderRoutes(routes, '/artist/1');
-      expect(await screen.findByTestId('artist-import')).toHaveTextContent('7 альбомов');
+      expect(await loadedStatus()).toHaveTextContent('7 альбомов');
     });
 
     it('queued: ждёт очереди', async () => {
+      as('queued');
       getImport.mockResolvedValue(imp({ state: 'queued' }));
       renderRoutes(routes, '/artist/1');
-      const status = await screen.findByTestId('artist-import');
+      const status = await loadedStatus();
       expect(status).toHaveAttribute('data-state', 'queued');
       expect(status).toHaveTextContent('Ждёт своей очереди на импорт');
     });
 
     it('retrying: попытка и время следующей', async () => {
+      as('retrying');
       getImport.mockResolvedValue(
         imp({ attempt: 2, retry_at: new Date(Date.now() + 3 * 60_000).toISOString(), state: 'retrying' }),
       );
       renderRoutes(routes, '/artist/1');
-      const status = await screen.findByTestId('artist-import');
+      const status = await loadedStatus();
       expect(status).toHaveAttribute('data-state', 'retrying');
       expect(status).toHaveTextContent('MusicBrainz не отвечает');
       expect(status).toHaveTextContent('попытка 2 из 8');
@@ -417,10 +447,11 @@ describe('артист', () => {
 
     it('failed: сообщение и «Повторить» запускает импорт заново', async () => {
       const { toast } = await import('sonner');
+      as('failed');
       getImport.mockResolvedValue(imp({ attempt: 8, error: 'MusicBrainz 503', state: 'failed' }));
       retryRequest.mockResolvedValue();
       renderRoutes(routes, '/artist/1');
-      const status = await screen.findByTestId('artist-import');
+      const status = await loadedStatus();
       expect(status).toHaveAttribute('data-state', 'failed');
       expect(status).toHaveTextContent('Сдались после 8 попыток');
       getImport.mockResolvedValue(imp());
@@ -432,6 +463,7 @@ describe('артист', () => {
 
     it('failed: ошибка повтора — toast, кнопка снова доступна', async () => {
       const { toast } = await import('sonner');
+      as('failed');
       getImport.mockResolvedValue(imp({ state: 'failed' }));
       retryRequest.mockRejectedValue(new ApiError(500, 'internal', 'down'));
       renderRoutes(routes, '/artist/1');
@@ -441,11 +473,11 @@ describe('артист', () => {
       await waitFor(() => expect(screen.getByRole('button', { name: 'Повторить' })).toBeEnabled());
     });
 
-    it('нет импорта — блока статуса нет', async () => {
-      getImport.mockResolvedValue(null);
+    it('failed без подробностей: кнопка «Повторить» на месте, но недоступна', () => {
+      as('failed');
+      getImport.mockReturnValue(new Promise(() => {}));
       renderRoutes(routes, '/artist/1');
-      await waitFor(() => expect(getImport).toHaveBeenCalled());
-      expect(screen.queryByTestId('artist-import')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Повторить' })).toBeDisabled();
     });
   });
 

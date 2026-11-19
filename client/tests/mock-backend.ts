@@ -112,6 +112,15 @@ function wavFrom(startSec: number): Buffer {
 /** Треки, поток которых отдаётся с ошибкой (как настоящий бэкенд): id → [HTTP-статус, код]. */
 const STREAM_ERRORS: Record<number, [number, string]> = { 9034: [503, 'ffmpeg_missing'] };
 
+/** Грубое состояние импорта артиста в синхронизации (как `artists.import_state` на бэкенде): `artist.import`. */
+function syncImportState(id: number) {
+  const row = state.server.get('artist', id);
+  if (!row) return;
+  const status = state.imports.get(id);
+  const coarse = !status ? null : status.state === 'running' ? 'importing' : status.state;
+  state.server.upsert('artist', { ...row, import: coarse });
+}
+
 function reset(opts: { authRequired?: boolean; snapshotDelayMs?: number }) {
   state.authRequired = opts.authRequired ?? false;
   state.snapshotDelayMs = opts.snapshotDelayMs ?? 0;
@@ -261,7 +270,9 @@ function addToLibrary(body: AddBody): { status: number; body: unknown } | null {
 /** `POST /api/play`: как настоящий сервер — метаданные сохраняются, треки ищутся (`adding`), в библиотеку не попадают. */
 function playRoute(body: { type: string; mbid: string; album_mbid?: string | null }): unknown {
   const albumMbid =
-    body.type === 'album' ? body.mbid : (body.album_mbid ?? searchFixture.tracks.find(t => t.mbid === body.mbid)?.album_mbid);
+    body.type === 'album'
+      ? body.mbid
+      : (body.album_mbid ?? searchFixture.tracks.find(t => t.mbid === body.mbid)?.album_mbid);
   if (!albumMbid) return null;
   const album = ensureAlbum(albumMbid, false);
   if (!album) return null;
@@ -273,7 +284,10 @@ function playRoute(body: { type: string; mbid: string; album_mbid?: string | nul
     const existing = state.server.all('track').find(r => r.mbid_recording === hit.mbid && r.album_id === album.id);
     if (existing) {
       if (existing.status === 'not_found') state.server.upsert('track', { ...existing, status: 'adding' });
-      statuses.push({ id: Number(existing.id), status: existing.status === 'not_found' ? 'adding' : String(existing.status) });
+      statuses.push({
+        id: Number(existing.id),
+        status: existing.status === 'not_found' ? 'adding' : String(existing.status),
+      });
       return Number(existing.id);
     }
     const track = makeTrack({
@@ -296,8 +310,7 @@ function playRoute(body: { type: string; mbid: string; album_mbid?: string | nul
 
 /** `GET /api/catalog/{artists|albums}/{mbid}`: каталог MusicBrainz из фикстуры поиска; `null` — такого mbid нет. */
 function catalogRoute(kind: string, mbid: string): unknown {
-  const libraryArtist = (id: string) =>
-    state.server.all('artist').find(a => a.mbid === id && a.in_library)?.id ?? null;
+  const libraryArtist = (id: string) => state.server.all('artist').find(a => a.mbid === id && a.in_library)?.id ?? null;
   const libraryAlbum = (id: string) => state.server.all('album').find(a => a.mbid === id && a.in_library)?.id ?? null;
   if (kind === 'artists') {
     const hit = searchFixture.artists.find(a => a.mbid === mbid);
@@ -458,13 +471,26 @@ function seedPlayerLibrary() {
 function seedOfflineLibrary() {
   const artist = makeArtist({ added_at: now(), id: 920, name: 'Offline Artist' });
   state.server.upsert('artist', artist);
-  for (const [id, title] of [[923, 'Offline Test'], [925, 'Offline Transcode']] as const) {
+  for (const [id, title] of [
+    [923, 'Offline Test'],
+    [925, 'Offline Transcode'],
+  ] as const) {
     state.server.upsert('album', makeAlbum({ added_at: now(), artist_id: artist.id, id, title, year: 2002 }));
   }
   const track = (id: number, albumId: number, position: number, title: string, over: Record<string, unknown> = {}) =>
     state.server.upsert(
       'track',
-      makeTrack({ added_at: now(), album_id: albumId, artist_id: artist.id, duration_ms: 5000, id, position, status: 'ready', title, ...over }),
+      makeTrack({
+        added_at: now(),
+        album_id: albumId,
+        artist_id: artist.id,
+        duration_ms: 5000,
+        id,
+        position,
+        status: 'ready',
+        title,
+        ...over,
+      }),
     );
   track(9231, 923, 1, 'Offline One');
   track(9232, 923, 2, 'Offline Two');
@@ -618,7 +644,8 @@ async function sourcesRoute(req: Request, parts: string[]): Promise<Response | n
     const tracks = state.server.all('track').filter(t => t.album_id === id);
     const switched = before === tor.id ? [] : tracks.map(t => Number(t.id));
     for (const t of tracks) {
-      if (switched.includes(Number(t.id)) && t.status === 'ready') state.server.upsert('track', { ...t, status: 'found' });
+      if (switched.includes(Number(t.id)) && t.status === 'ready')
+        state.server.upsert('track', { ...t, status: 'found' });
     }
     poke();
     return json(200, { matched: tracks.length, switched_track_ids: switched, unmatched: 0 });
@@ -893,14 +920,17 @@ Bun.serve({
     if (!path.startsWith('/__test/'))
       state.log.push(
         `${req.method} ${path}${path.endsWith('/stream') ? new URL(req.url).search : ''}${
-          path.endsWith('/stream') && req.url.includes('download=1') && req.headers.get('range') ? ` ${req.headers.get('range')}` : ''
+          path.endsWith('/stream') && req.url.includes('download=1') && req.headers.get('range')
+            ? ` ${req.headers.get('range')}`
+            : ''
         }`,
       );
 
     // Фото артиста: 1×1 PNG (e2e кэша изображений service worker).
     if (path.startsWith('/api/artist-image/')) {
       // `nophoto-*` — артист без фото: 404 `no_image`, как у бэкенда (e2e запоминания «нет фото» в service worker).
-      if (path.startsWith('/api/artist-image/nophoto')) return json(404, { code: 'no_image', message: 'no artist image' });
+      if (path.startsWith('/api/artist-image/nophoto'))
+        return json(404, { code: 'no_image', message: 'no artist image' });
       return new Response(PIXEL, { headers: { 'content-type': 'image/png' } });
     }
     if (path === '/api/health') return json(200, { db: true, status: 'ok', version: 'mock' });
@@ -1016,6 +1046,7 @@ Bun.serve({
       }
       if (parts[1] === 'artists' && parts[3] === 'import' && req.method === 'POST') {
         state.imports.set(Number(parts[2]), { attempt: 1, max_attempts: 8, state: 'importing' });
+        syncImportState(Number(parts[2]));
         broadcast({ entity: 'artist', id: Number(parts[2]), type: 'library.changed' });
         return new Response(null, { status: 204 });
       }
@@ -1062,6 +1093,7 @@ Bun.serve({
       const body = (await req.json()) as { id: number; status: ImportStatus | null };
       if (body.status) state.imports.set(body.id, body.status);
       else state.imports.delete(body.id);
+      syncImportState(body.id);
       return json(200, { ok: true });
     }
     if (path === '/__test/player') {
@@ -1073,7 +1105,10 @@ Bun.serve({
       return json(200, { ok: true });
     }
     if (path === '/__test/offline') {
-      const body = (await req.json().catch(() => ({}))) as { delayMs?: Record<string, number>; cut?: Record<string, number> };
+      const body = (await req.json().catch(() => ({}))) as {
+        delayMs?: Record<string, number>;
+        cut?: Record<string, number>;
+      };
       seedOfflineLibrary();
       state.streamDelayMs = new Map(Object.entries(body.delayMs ?? {}).map(([id, ms]) => [Number(id), ms]));
       state.streamCut = new Map(Object.entries(body.cut ?? {}).map(([id, n]) => [Number(id), n]));

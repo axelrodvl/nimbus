@@ -56,6 +56,10 @@ pub struct SyncArtist {
     pub added_at: Option<DateTime<Utc>>,
     /// Есть ли фото артиста: `yes` / `no`; `null` — ещё не искали (клиент запросит картинку сам).
     pub image: Option<String>,
+    /// Состояние импорта дискографии: `queued` / `importing` / `retrying` / `failed`; `null` — не идёт.
+    /// Меняется только на переходах задачи (не на прогрессе); детали — `GET /api/artists/{id}`.
+    #[serde(rename = "import")]
+    pub import_state: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -126,6 +130,7 @@ impl From<sync::SyncArtist> for SyncArtist {
             in_library: r.in_library,
             added_at: r.added_at,
             image: r.image,
+            import_state: r.import_state,
         }
     }
 }

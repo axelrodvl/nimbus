@@ -101,6 +101,7 @@ describe('запуск', () => {
   it.each([
     [1, 'до закреплений в треках, ревью S11'],
     [2, 'до признака фото артистов, ревью S12'],
+    [3, 'до состояния импорта артистов, ревью S13'],
   ])('данные формата %i (%s) — берётся снимок', async schema => {
     const server = new FakeSyncServer().load(makeLibrary({ artists: 1, albumsPerArtist: 1, tracksPerAlbum: 1 }));
     const dbName = `engine-schema-v${schema}-${++n}`;

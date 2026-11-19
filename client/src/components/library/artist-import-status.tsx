@@ -58,6 +58,13 @@ function StepDetail({ step, progress, t }: { step: Step; progress: Progress | nu
   return null;
 }
 
+/** Место под текст, которого ещё нет (подробности приходят отдельным запросом): строка нужной высоты. */
+function Pending() {
+  return (
+    <span aria-hidden className="bg-card dark:bg-card-dark inline-block h-4 w-56 max-w-full animate-pulse rounded" />
+  );
+}
+
 function Bar({ pct }: { pct: number }) {
   return (
     <span
@@ -113,7 +120,7 @@ function ImportSteps({ status, t }: { status: ArtistImport; t: TFn }) {
                 {t(`artist.import.steps.${step}`)}
               </p>
               {state === 'active' ? (
-                <div className="text-muted mt-0.5 text-xs">
+                <div className="text-muted mt-0.5 min-h-12 text-xs">
                   <StepDetail progress={progress} step={step} t={t} />
                 </div>
               ) : null}
@@ -125,8 +132,14 @@ function ImportSteps({ status, t }: { status: ArtistImport; t: TFn }) {
   );
 }
 
+/** Грубое состояние импорта из store (`artist.import`) — то, что известно в первом кадре. */
+export type CoarseImport = ArtistImport['state'];
+
 type Props = {
-  status: ArtistImport;
+  /** Грубое состояние из store: блок рисуется сразу, без запроса. */
+  coarse: CoarseImport;
+  /** Подробности с сервера (попытка, ошибка, время повтора, прогресс); `undefined` — ещё не пришли. */
+  status?: ArtistImport | null;
   /** Повторить импорт (кнопка видна при `failed`). Бросает ошибку — её показывает вызывающий. */
   onRetry: () => Promise<void>;
   /** Текущее время (для тестов). */
@@ -134,8 +147,11 @@ type Props = {
 };
 
 /** Статус импорта дискографии: шаги (очередь → MusicBrainz → альбомы → источники) / ждём MusicBrainz (с повтором) / не удалось (с кнопкой «Повторить»). */
-export function ArtistImportStatus({ status, onRetry, now }: Props) {
+export function ArtistImportStatus({ coarse, status: details, onRetry, now }: Props) {
   const t = useT();
+  const loaded = !!details;
+  // Пока подробностей нет, блок тех же размеров рисуется по грубому состоянию; детали заполняют его на месте.
+  const status: ArtistImport = details ?? { attempt: 0, max_attempts: 0, state: coarse };
   const [mountedAt] = useState(Date.now);
   const [pending, setPending] = useState(false);
   const params = { attempt: status.attempt, max: status.max_attempts };
@@ -150,10 +166,10 @@ export function ArtistImportStatus({ status, onRetry, now }: Props) {
       >
         <p className="text-danger-fg flex items-center gap-2 text-sm" title={status.error ?? undefined}>
           <TriangleAlert aria-hidden className="size-4 shrink-0" />
-          {t('artist.import.failed', params)}
+          {loaded ? t('artist.import.failed', params) : <Pending />}
         </p>
         <Button
-          disabled={pending}
+          disabled={pending || !loaded}
           onClick={() => {
             setPending(true);
             void onRetry().finally(() => setPending(false));
@@ -178,7 +194,11 @@ export function ArtistImportStatus({ status, onRetry, now }: Props) {
       >
         <p className="text-muted flex min-w-0 items-center gap-2 text-sm">
           <TriangleAlert aria-hidden className="text-warning-fg size-4 shrink-0" />
-          {t('artist.import.retrying', { ...params, minutes: minutesUntil(status.retry_at, now ?? mountedAt) })}
+          {loaded ? (
+            t('artist.import.retrying', { ...params, minutes: minutesUntil(status.retry_at, now ?? mountedAt) })
+          ) : (
+            <Pending />
+          )}
         </p>
       </div>
     );

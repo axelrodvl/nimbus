@@ -7,7 +7,6 @@ import { formatAudioInfo } from './audio-info';
 import { coverSrc } from './cover';
 import { albumMeta, describeStatus, isPlayable, statusSummary } from './status';
 import { libraryHref, parseStatusFilter, parseTab } from './tabs';
-import { RECENT_ARTIST_MS, shouldCheckImport } from './use-artist-import';
 import { createThrottledSource } from '@/lib/store/throttled';
 import { filterByName } from '@/lib/store/selectors';
 
@@ -78,22 +77,6 @@ describe('вкладки', () => {
     expect(libraryHref('albums', {})).toBe('/library/albums');
     expect(libraryHref('tracks', { q: 'a b', status: 'playable' })).toBe('/library/tracks?status=playable&q=a+b');
     expect(libraryHref('tracks', { status: 'all' })).toBe('/library/tracks');
-  });
-});
-
-describe('shouldCheckImport', () => {
-  const now = Date.parse('2026-06-02T00:00:00Z');
-  it('артист без альбомов — всегда', () => {
-    expect(shouldCheckImport({ added_at: '2020-01-01T00:00:00Z', albumCount: 0 }, now)).toBe(true);
-  });
-  it('недавно добавленный — да, давно — нет', () => {
-    expect(
-      shouldCheckImport({ added_at: new Date(now - RECENT_ARTIST_MS + 1000).toISOString(), albumCount: 3 }, now),
-    ).toBe(true);
-    expect(
-      shouldCheckImport({ added_at: new Date(now - RECENT_ARTIST_MS - 1000).toISOString(), albumCount: 3 }, now),
-    ).toBe(false);
-    expect(shouldCheckImport({ added_at: null, albumCount: 3 }, now)).toBe(false);
   });
 });
 
