@@ -68,13 +68,11 @@ export function Sidebar({ items }: { items: readonly NavItem[] }) {
           <OfflineQueueIndicator />
           <ThemeToggle variant="inline" />
         </div>
-        <div className="flex justify-center lg:justify-start">
+        <div className="flex items-center justify-center lg:justify-between">
           <SyncStatus labelClassName="hidden lg:inline" />
-        </div>
-        <div className="hidden items-center justify-end gap-2 lg:flex">
           <button
             aria-label={t('login.logout')}
-            className="text-gray focus-visible:ring-accent/40 rounded-full p-1.5 hover:text-black focus-visible:ring-2 focus-visible:outline-none dark:hover:text-white"
+            className="text-gray focus-visible:ring-accent/40 hidden rounded-full p-1.5 hover:text-black focus-visible:ring-2 focus-visible:outline-none lg:block dark:hover:text-white"
             onClick={() => void session.logout()}
             title={t('login.logout')}
             type="button"
