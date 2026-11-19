@@ -15,3 +15,29 @@ export function coverSrc(url: string | null | undefined, thumb: CoverThumb): str
   const m = CAA_FRONT.exec(url);
   return m ? coverUrl(m[1], m[2], thumb) : url;
 }
+
+const shown = new Set<string>();
+/** Сколько адресов помним: на 60 000 треков обложек — тысячи, но память под строки ничтожна. */
+const MAX_SHOWN = 5000;
+
+/** Картинка загрузилась и была показана: при следующем монтировании она уже в кэше браузера. */
+export function markImageShown(url: string): void {
+  shown.delete(url); // свежая — в конец, вытесняются давно показанные
+  shown.add(url);
+  if (shown.size > MAX_SHOWN) shown.delete(shown.values().next().value as string);
+}
+
+/**
+ * Атрибуты `<img>` по тому, видели ли картинку в этой сессии. Уже показанная (вернулись «назад» на экран) —
+ * без ленивой загрузки и с синхронным декодированием: из кэша она рисуется в первом же кадре, а не пустой плашкой
+ * на кадр-другой. Новая — лениво и асинхронно, чтобы не тормозить появление экрана.
+ */
+export function imageLoading(url: string, priority = false): { loading: 'eager' | 'lazy'; decoding: 'sync' | 'async' } {
+  if (shown.has(url)) return { decoding: 'sync', loading: 'eager' };
+  return { decoding: 'async', loading: priority ? 'eager' : 'lazy' };
+}
+
+/** Для тестов. */
+export function resetShownImages(): void {
+  shown.clear();
+}

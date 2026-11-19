@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { MusicNote } from '@/components/ui/music-note';
-import { coverSrc, type CoverThumb } from '@/lib/library/cover';
+import { coverSrc, imageLoading, markImageShown, type CoverThumb } from '@/lib/library/cover';
 import { cn } from '@/lib/utils';
 
 type Props = {
@@ -33,17 +33,25 @@ export function Cover({ src, alt, thumb = 250, priority, className }: Props) {
       )}
       data-testid="cover"
     >
+      {/* Подложка без `loading`: она всегда грузится сразу — её задача быть видимой раньше крупной. */}
       {showImage && small && small !== url ? (
-        <img alt="" aria-hidden className="absolute inset-0 size-full object-cover" decoding="async" src={small} />
+        <img
+          alt=""
+          aria-hidden
+          className="absolute inset-0 size-full object-cover"
+          decoding={imageLoading(small).decoding}
+          onLoad={() => markImageShown(small)}
+          src={small}
+        />
       ) : null}
       {showImage ? (
         <img
           alt={alt}
           className="absolute inset-0 size-full object-cover"
-          decoding="async"
           fetchPriority={priority ? 'high' : undefined}
-          loading={priority ? 'eager' : 'lazy'}
+          {...imageLoading(url, priority)}
           onError={() => setFailed(url)}
+          onLoad={() => markImageShown(url)}
           src={url}
         />
       ) : (

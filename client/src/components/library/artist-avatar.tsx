@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { imageLoading, markImageShown } from '@/lib/library/cover';
 import { artistImageUrl } from '@/lib/platform/urls';
 import { cn } from '@/lib/utils';
 
@@ -30,6 +31,7 @@ export function ArtistAvatar({ mbid, name, className }: { mbid: string; name: st
     </span>
   );
   if (failed) return fallback;
+  const src = artistImageUrl(mbid);
   // Под фото — инициалы, но проявляются они с задержкой (`delayed-appear`): фото из кэша (его уже показывал поиск или
   // список) успевает раньше, и вместо вспышки «инициалы → фото» сразу фото.
   return (
@@ -38,10 +40,10 @@ export function ArtistAvatar({ mbid, name, className }: { mbid: string; name: st
       <img
         alt=""
         className="absolute inset-0 size-full rounded-full object-cover"
-        decoding="async"
-        loading="lazy"
+        {...imageLoading(src)}
         onError={() => setFailed(true)}
-        src={artistImageUrl(mbid)}
+        onLoad={() => markImageShown(src)}
+        src={src}
       />
     </span>
   );

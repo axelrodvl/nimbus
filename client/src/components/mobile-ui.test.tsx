@@ -1,6 +1,6 @@
 import * as Ariakit from '@ariakit/react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { createMemoryRouter, RouterProvider } from 'react-router';
+import { createMemoryRouter, Outlet, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Dialog } from '@/components/ui/dialog';
 import { MenuSheet } from '@/components/ui/menu-sheet';
@@ -8,7 +8,7 @@ import { MobileTabBar } from '@/components/mobile-tab-bar';
 import { NAV_ITEMS } from '@/lib/nav/items';
 import { SCROLL_ROOT_ATTR } from '@/lib/nav/scroll-top';
 import { renderWithProviders } from '@/test/render';
-import { EdgeSwipeBack } from './edge-swipe-back';
+import { EdgeSwipeBack, SWIPE_RESET_TIMEOUT_MS } from './edge-swipe-back';
 
 function stubMobile(width = true) {
   vi.stubGlobal('matchMedia', (q: string) => ({
@@ -116,7 +116,12 @@ describe('вкладки', () => {
 });
 
 describe('смахивание назад', () => {
-  function setup(opts: { standalone: boolean }) {
+  function setup(opts: {
+    standalone: boolean;
+    persistent?: boolean;
+    loader?: () => Promise<null>;
+    entries?: string[];
+  }) {
     vi.stubGlobal('navigator', {
       ...globalThis.navigator,
       maxTouchPoints: 5,
@@ -130,13 +135,28 @@ describe('смахивание назад', () => {
     const parent = document.createElement('div');
     parent.append(main);
     document.body.append(parent);
-    const router = createMemoryRouter(
-      [
-        { element: <p>первая</p>, path: '/a' },
-        { element: <EdgeSwipeBack />, path: '/b' },
-      ],
-      { initialEntries: ['/a', '/b'], initialIndex: 1 },
-    );
+    // `persistent` — как в оболочке: жест живёт в макете и переживает смену экрана.
+    const routes = opts.persistent
+      ? [
+          {
+            children: [
+              { element: <p>первая</p>, loader: opts.loader, path: '/a' },
+              { element: <p>вторая</p>, path: '/b' },
+            ],
+            element: (
+              <>
+                <EdgeSwipeBack />
+                <Outlet />
+              </>
+            ),
+          },
+        ]
+      : [
+          { element: <p>первая</p>, path: '/a' },
+          { element: <EdgeSwipeBack />, path: '/b' },
+        ];
+    const entries = opts.entries ?? ['/a', '/b'];
+    const router = createMemoryRouter(routes, { initialEntries: entries, initialIndex: entries.length - 1 });
     render(<RouterProvider router={router} />);
     return { parent, router };
   }
@@ -204,5 +224,79 @@ describe('смахивание назад', () => {
     touch('touchend', 150, 300, 160);
     act(() => void vi.advanceTimersByTime(500));
     expect(router.state.location.pathname).toBe('/b');
+  });
+
+  it('уехавший экран не возвращается на место, пока прежний экран не смонтирован — без кадра со старым экраном', async () => {
+    // Прежний экран грузит данные (как каталог): переход «назад» завершается не сразу.
+    let release = () => {};
+    const loader = () =>
+      new Promise<null>(resolve => {
+        release = () => resolve(null);
+      });
+    const { parent, router } = setup({ loader, persistent: true, standalone: true });
+    await act(async () => {});
+    touch('touchstart', 4, 300, 0);
+    touch('touchmove', 60, 302, 40);
+    touch('touchmove', 140, 304, 80);
+    touch('touchend', 140, 304, 90);
+    // Анимация ухода закончилась, `navigate(-1)` вызван, но переход ещё ждёт loader.
+    await act(async () => void vi.advanceTimersByTime(180));
+    expect(router.state.location.pathname).toBe('/b');
+    expect(screen.getByText('вторая')).toBeInTheDocument();
+    expect(parent.style.translate).toBe(`${window.innerWidth}px 0`);
+    await act(async () => release());
+    expect(router.state.location.pathname).toBe('/a');
+    expect(screen.getByText('первая')).toBeInTheDocument();
+    expect(parent.style.translate).toBe('');
+  });
+
+  it('роутер ещё грузит прежний экран дольше страховочного таймера — экран не возвращается на место', async () => {
+    let release = () => {};
+    const loader = () =>
+      new Promise<null>(resolve => {
+        release = () => resolve(null);
+      });
+    const { parent, router } = setup({ loader, persistent: true, standalone: true });
+    await act(async () => {});
+    touch('touchstart', 4, 300, 0);
+    touch('touchmove', 140, 304, 80);
+    touch('touchend', 140, 304, 90);
+    await act(async () => void vi.advanceTimersByTime(180));
+    await act(async () => void vi.advanceTimersByTime(SWIPE_RESET_TIMEOUT_MS * 2));
+    expect(router.state.navigation.state).toBe('loading');
+    expect(parent.style.translate).toBe(`${window.innerWidth}px 0`);
+    await act(async () => release());
+    expect(router.state.location.pathname).toBe('/a');
+    expect(parent.style.translate).toBe('');
+  });
+
+  it('переход «назад» так и не случился — экран возвращается на место по таймеру', async () => {
+    // Истории «назад» у роутера нет (её перехватили): `navigate(-1)` ничего не делает.
+    const { parent, router } = setup({ entries: ['/b'], persistent: true, standalone: true });
+    touch('touchstart', 4, 300, 0);
+    touch('touchmove', 140, 304, 80);
+    touch('touchend', 140, 304, 90);
+    await act(async () => void vi.advanceTimersByTime(180));
+    expect(parent.style.translate).toBe(`${window.innerWidth}px 0`);
+    await act(async () => void vi.advanceTimersByTime(SWIPE_RESET_TIMEOUT_MS));
+    expect(router.state.location.pathname).toBe('/b');
+    expect(parent.style.translate).toBe('');
+  });
+
+  it('пока первый «назад» в пути, второй жест не начинается — назад ровно на одну запись', async () => {
+    const { parent, router } = setup({ entries: ['/a', '/b', '/b'], persistent: true, standalone: true });
+    touch('touchstart', 4, 300, 0);
+    touch('touchmove', 140, 304, 80);
+    touch('touchend', 140, 304, 90);
+    // Экран ещё уезжает — второй жест.
+    touch('touchstart', 4, 300, 100);
+    touch('touchmove', 60, 302, 140);
+    expect(parent.style.translate).toBe(`${window.innerWidth}px 0`);
+    touch('touchmove', 140, 304, 180);
+    touch('touchend', 140, 304, 190);
+    await act(async () => void vi.advanceTimersByTime(SWIPE_RESET_TIMEOUT_MS * 2));
+    expect(router.state.historyAction).toBe('POP');
+    expect(router.state.location.pathname).toBe('/b');
+    expect(parent.style.translate).toBe('');
   });
 });

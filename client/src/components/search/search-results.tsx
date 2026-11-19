@@ -11,6 +11,7 @@ import { AlbumGridSkeleton, SectionHeadingSkeleton, TrackListSkeleton } from '@/
 import { Spinner } from '@/components/ui/spinner';
 import type { AlbumResult, ArtistResult, TrackResult } from '@/lib/api/search-types';
 import { useT } from '@/lib/i18n/provider';
+import { SCROLL_X_ATTR } from '@/lib/nav/use-scroll-restoration';
 import type { AddRequest } from '@/lib/search/add';
 import { addToHistory, clearHistory, useSearchHistory } from '@/lib/search/history';
 import type { RemoteSearch } from '@/lib/search/use-remote-search';
@@ -383,7 +384,7 @@ function RemoteResults({ remote, index, query }: { remote: RemoteSearch; index: 
       ) : null}
       {data.artists.length > 0 ? (
         <Section id="search-artists" title={t('group.artists')}>
-          <ul className="flex gap-5 overflow-x-auto pb-2">
+          <ul className="flex gap-5 overflow-x-auto pb-2" {...{ [SCROLL_X_ATTR]: 'search-artists' }}>
             {data.artists.map(a => (
               <li className="w-28 shrink-0" key={a.mbid}>
                 <ArtistCard artist={a} index={index} query={query} />

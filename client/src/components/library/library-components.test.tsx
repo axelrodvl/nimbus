@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { imageLoading, markImageShown, resetShownImages } from '@/lib/library/cover';
 import { makeAlbum, makeTrack } from '@/test/factories';
 import { renderWithProviders } from '@/test/render';
 import { AlbumCard } from './album-card';
@@ -13,7 +14,36 @@ import { TrackRow } from './track-row';
 const MBID = '11111111-2222-3333-4444-555555555555';
 const caa = `https://coverartarchive.org/release-group/${MBID}/front-250`;
 
+beforeEach(() => resetShownImages());
+
 describe('Cover', () => {
+  it('уже показанная обложка при новом монтировании («назад») — eager и синхронное декодирование, без пустого кадра', () => {
+    const first = render(<Cover alt="A" src={caa} thumb={500} />);
+    fireEvent.load(screen.getByRole('img', { name: 'A' }));
+    fireEvent.load(screen.getByTestId('cover').querySelector('img[aria-hidden]')!);
+    first.unmount();
+    render(<Cover alt="A" src={caa} thumb={500} />);
+    const img = screen.getByRole('img', { name: 'A' });
+    expect(img).toHaveAttribute('loading', 'eager');
+    expect(img).toHaveAttribute('decoding', 'sync');
+    expect(screen.getByTestId('cover').querySelector('img[aria-hidden]')).toHaveAttribute('decoding', 'sync');
+  });
+
+  it('память показанных картинок ограничена: вытесняются давно показанные, свежие остаются', () => {
+    markImageShown('/old');
+    for (let i = 0; i < 5000; i++) markImageShown(`/img/${i}`);
+    expect(imageLoading('/old').loading).toBe('lazy');
+    expect(imageLoading('/img/0').loading).toBe('eager');
+    expect(imageLoading('/img/4999').decoding).toBe('sync');
+  });
+
+  it('не загрузившаяся обложка не считается показанной', () => {
+    const first = render(<Cover alt="A" src={caa} />);
+    first.unmount();
+    render(<Cover alt="A" src={caa} />);
+    expect(screen.getByRole('img', { name: 'A' })).toHaveAttribute('loading', 'lazy');
+  });
+
   it('ленивая загрузка и миниатюра нужного размера', () => {
     render(<Cover alt="A" src={caa} thumb={500} />);
     const img = screen.getByRole('img', { name: 'A' });
@@ -68,6 +98,16 @@ describe('ArtistAvatar', () => {
     expect(screen.getByText('DP').parentElement).not.toHaveClass('delayed-appear');
     expect(container.querySelector('img')).toBeNull();
     expect(screen.getByText('DP')).toBeInTheDocument();
+  });
+
+  it('уже показанное фото при новом монтировании — eager и синхронное декодирование', () => {
+    const first = render(<ArtistAvatar mbid="abcd-1234" name="Daft Punk" />);
+    expect(first.container.querySelector('img')).toHaveAttribute('loading', 'lazy');
+    fireEvent.load(first.container.querySelector('img')!);
+    first.unmount();
+    const { container } = render(<ArtistAvatar mbid="abcd-1234" name="Daft Punk" />);
+    expect(container.querySelector('img')).toHaveAttribute('loading', 'eager');
+    expect(container.querySelector('img')).toHaveAttribute('decoding', 'sync');
   });
 
   it('инициалы: одно слово, два слова, пусто', () => {
