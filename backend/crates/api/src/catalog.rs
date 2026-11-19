@@ -24,7 +24,7 @@ use crate::state::AppState;
 
 const COVER_SIZE: u16 = 250;
 /// Типы групп в дискографии — как у импорта артиста.
-const DISCOGRAPHY_TYPES: &[&str] = &["album", "ep"];
+pub(crate) const DISCOGRAPHY_TYPES: &[&str] = &["album", "ep"];
 /// Дискография — несколько страниц MusicBrainz под лимитом 1 запрос/с: дольше поиска.
 pub const CATALOG_TIMEOUT: Duration = Duration::from_secs(30);
 

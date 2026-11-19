@@ -306,3 +306,41 @@ async fn openapi_endpoint_and_cli(pool: PgPool) {
     assert!(printed["paths"]["/api/search"].is_object());
     assert_eq!(printed["info"]["title"], "Nimbus API");
 }
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn top_artist_discography_is_added_to_albums(pool: PgPool) {
+    // Текстовый поиск альбомов нашёл только один (по кириллическому artist-credit); остальные — по MBID артиста.
+    let server = MockServer::start().await;
+    for (p, f) in [
+        ("/ws/2/artist", "search_artist"),
+        ("/ws/2/recording", "search_recording"),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(p))
+            .respond_with(json(f))
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/ws/2/release-group"))
+        .and(wiremock::matchers::query_param_is_missing("artist"))
+        .respond_with(json("search_release_group"))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/ws/2/release-group"))
+        .and(wiremock::matchers::query_param("artist", RADIOHEAD))
+        .respond_with(json("artist_release_groups_p1"))
+        .mount(&server)
+        .await;
+    let app = router(state_with_mb(pool, mb_client(&server)));
+    let (status, v) = get_json(app, "/api/search?q=radiohead&types=artist,album&limit=25").await;
+    assert_eq!(status, 200, "{v}");
+    let albums = v["albums"].as_array().unwrap();
+    let ids: Vec<&str> = albums.iter().map(|a| a["mbid"].as_str().unwrap()).collect();
+    assert!(ids.contains(&OK_COMPUTER));
+    let unique: std::collections::HashSet<_> = ids.iter().collect();
+    assert_eq!(unique.len(), ids.len(), "без повторов: {ids:?}");
+    assert!(ids.len() > 2, "дискография дополнила выдачу: {ids:?}");
+    assert!(v["errors"].as_array().unwrap().is_empty(), "{v}");
+}

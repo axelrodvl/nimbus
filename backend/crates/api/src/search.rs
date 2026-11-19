@@ -24,6 +24,8 @@ const MIN_FULL_SEARCH_CHARS: usize = 3;
 const COVER_SIZE: u16 = 250;
 /// Сколько кандидатов брать у MB для переранжирования по популярности (максимум MB).
 const CANDIDATES: u8 = 100;
+/// С какого score MB лучший артист считается уверенным совпадением и приносит свою дискографию.
+const TOP_ARTIST_SCORE: u8 = 90;
 
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
@@ -200,7 +202,25 @@ pub async fn search(
             &mut e_tracks
         ),
     );
-    let mut errors = [e_artists, e_albums, e_tracks].concat();
+    let mut e_discography = Vec::new();
+    let mut album_hits = album_hits;
+    // Текстовый поиск альбомов не знает алиасов артиста («Монатик» → MONATIK): дополняем выдачу дискографией
+    // лучшего артиста по MBID, как это делает экран артиста.
+    if let Some(top) = artist_hits.first().filter(|a| a.score >= TOP_ARTIST_SCORE) {
+        let groups = run(
+            kinds.contains(&Kind::Album),
+            "albums",
+            deadline,
+            mb.artist_release_groups(top.mbid, crate::catalog::DISCOGRAPHY_TYPES),
+            &mut e_discography,
+        )
+        .await;
+        merge_discography(&mut album_hits, groups, top.mbid, top.score);
+    }
+    let mut errors = [e_artists, e_albums, e_tracks, e_discography].concat();
+    // Обрыв «albums» мог случиться и в текстовом поиске, и в дискографии — сообщаем один раз.
+    let mut seen = HashSet::new();
+    errors.retain(|e| seen.insert(e.clone()));
 
     // MB отдаёт десятки записей с одинаковым score 100 (каверы, лайвы) — при равном score
     // выше ставим то, что чаще слушают (ListenBrainz), и только потом обрезаем до limit.
@@ -303,6 +323,23 @@ pub async fn search(
     }))
 }
 
+/// Добавляет к найденным альбомам собственную дискографию артиста (без совместных и без повторов); ей
+/// ставится score артиста, чтобы дальше она ранжировалась по популярности наравне с текстовыми совпадениями.
+fn merge_discography(
+    hits: &mut Vec<nimbus_musicbrainz::ReleaseGroupHit>,
+    groups: Vec<nimbus_musicbrainz::ReleaseGroupHit>,
+    artist: Uuid,
+    score: u8,
+) {
+    let mut seen: HashSet<Uuid> = hits.iter().map(|h| h.mbid).collect();
+    for mut g in groups {
+        if g.artist_mbid == artist && seen.insert(g.mbid) {
+            g.score = score;
+            hits.push(g);
+        }
+    }
+}
+
 /// Стабильная сортировка: score MB ↓, затем прослушивания ↓; обрезка до `limit`.
 fn rank_by_popularity<T>(
     hits: &mut Vec<T>,
@@ -360,5 +397,36 @@ mod tests {
             hits.iter().map(|h| h.0).collect::<Vec<_>>(),
             vec![ids[2], ids[1], ids[0]]
         );
+    }
+}
+
+#[cfg(test)]
+mod discography_tests {
+    use super::*;
+    use nimbus_musicbrainz::ReleaseGroupHit;
+
+    fn rg(id: u128, artist: u128, score: u8) -> ReleaseGroupHit {
+        ReleaseGroupHit {
+            mbid: Uuid::from_u128(id),
+            title: format!("rg{id}"),
+            artist_mbid: Uuid::from_u128(artist),
+            artist_name: "A".into(),
+            primary_type: Some("Album".into()),
+            secondary_types: vec![],
+            year: Some(2020),
+            score,
+        }
+    }
+
+    #[test]
+    fn merge_adds_missing_own_albums_without_duplicates_or_collabs() {
+        // Текстовый поиск нашёл один альбом артиста 1; дискография — три своих, один повтор и один чужой.
+        let mut hits = vec![rg(10, 1, 100)];
+        let groups = vec![rg(10, 1, 0), rg(11, 1, 0), rg(12, 1, 0), rg(13, 2, 0)];
+        merge_discography(&mut hits, groups, Uuid::from_u128(1), 95);
+        let ids: Vec<u128> = hits.iter().map(|h| h.mbid.as_u128()).collect();
+        assert_eq!(ids, vec![10, 11, 12]);
+        assert_eq!(hits[0].score, 100, "найденный текстом не перезаписывается");
+        assert_eq!(hits[1].score, 95);
     }
 }
