@@ -151,3 +151,66 @@ describe('производительность store', () => {
     expect(after).toBeLessThan(before);
   });
 });
+
+// Каталожные строки (S10): альбомы, которые только открывали в каталоге (`in_library = false`, без прослушиваний),
+// синхронизируются всем клиентам и копятся без предела. Замер: библиотека 60 000 треков + 30 000 каталожных
+// (2 500 альбомов по 12 треков) против одной библиотеки; бюджеты те же, что у библиотеки.
+function withCatalog(base: LibraryRows): LibraryRows {
+  const rows: LibraryRows = { ...base, albums: [...base.albums], artists: [...base.artists], tracks: [...base.tracks] };
+  for (let a = 1; a <= 250; a++) rows.artists.push(makeArtist({ id: 100_000 + a, in_library: false }));
+  for (let al = 1; al <= 2500; al++) {
+    rows.albums.push(makeAlbum({ artist_id: 100_000 + 1 + (al % 250), id: 100_000 + al, in_library: false }));
+  }
+  for (let t = 1; t <= 30_000; t++) {
+    const album = 100_000 + 1 + (t % 2500);
+    rows.tracks.push(
+      makeTrack({
+        added_at: null,
+        album_id: album,
+        artist_id: 100_000 + 1 + ((album - 100_000) % 250),
+        id: 100_000 + t,
+        in_library: false,
+        position: 1 + Math.floor(t / 2500),
+      }),
+    );
+  }
+  return rows;
+}
+
+describe('каталожные строки в store: 60 000 библиотеки + 30 000 каталога', () => {
+  const library = bigLibrary();
+  const both = withCatalog(library);
+  const measure = (rows: LibraryRows) => {
+    const store = createLibraryStore();
+    const selectors = createSelectors();
+    const [, hydrate] = timed(() => store.getState().hydrate(rows));
+    const batch = { tracks: rows.tracks.slice(0, 100).map(t => ({ ...t, title: `${t.title} (edited)` })) };
+    const [, apply] = timed(() => store.getState().applyBatch(batch));
+    const [, libraryCold] = timed(() => selectors.libraryTracks(store.getState()));
+    const [, recent] = timed(() => selectors.recentlyPlayedAlbums(store.getState(), 12));
+    const [, favorites] = timed(() => selectors.favorites(store.getState()));
+    const [, search] = timed(() => selectors.searchLocal(store.getState(), 'son', 20));
+    const [, index] = timed(() => selectors.mbidIndex(store.getState()));
+    return { apply, favorites, hydrate, index, libraryCold, recent, search };
+  };
+
+  it('замер: библиотека против библиотеки с каталогом', () => {
+    const only = measure(library);
+    const mixed = measure(both);
+    const line = (name: string, k: keyof typeof only) =>
+      `perf catalog: ${name} library ${only[k].toFixed(1)} ms → with 30k catalog rows ${mixed[k].toFixed(1)} ms\n`;
+    process.stdout.write(
+      line('hydrate', 'hydrate') +
+        line('applyBatch(100)', 'apply') +
+        line('libraryTracks cold', 'libraryCold') +
+        line('recentlyPlayedAlbums', 'recent') +
+        line('favorites', 'favorites') +
+        line('searchLocal', 'search') +
+        line('mbidIndex', 'index'),
+    );
+    // Бюджеты библиотеки (см. выше) держатся и при каталожных строках сверх неё.
+    expect(mixed.hydrate).toBeLessThan(500);
+    expect(mixed.apply).toBeLessThan(10);
+  });
+});
+

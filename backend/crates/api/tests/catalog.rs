@@ -238,6 +238,35 @@ async fn play_track_searches_a_source_without_adding_to_library(pool: PgPool) {
     assert!(track_row(&pool, id).await.0);
 }
 
+/// Версии строк (`xmin`) артистов, альбомов и треков: синхронизация видит изменение именно по ней.
+async fn row_versions(pool: &PgPool) -> Vec<String> {
+    sqlx::query_scalar(
+        "SELECT 'a' || id || ':' || xmin::text FROM artists
+         UNION ALL SELECT 'b' || id || ':' || xmin::text FROM albums
+         UNION ALL SELECT 't' || id || ':' || xmin::text FROM tracks
+         ORDER BY 1",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn catalog_album_reopen_does_not_bump_sync(pool: PgPool) {
+    // Повторное открытие альбома в каталоге ничего не пишет: версии строк (`xmin`, по ним синхронизация строит
+    // дельту) не меняются — даже повторный upsert тех же данных создал бы новую версию. Сам курсор дельты
+    // здесь не сравнивается: `xmin` кластерный, и при параллельных тестах дельта законно шире.
+    let server = mb_server().await;
+    let app = router(state_with_mb(pool.clone(), mb_client(&server)));
+    let (status, _) = get_json(app.clone(), &format!("/api/catalog/albums/{OK_COMPUTER}")).await;
+    assert_eq!(status, 200);
+    let before = row_versions(&pool).await;
+    assert!(before.len() > 3, "альбом сохранён: {before:?}");
+    let (status, _) = get_json(app, &format!("/api/catalog/albums/{OK_COMPUTER}")).await;
+    assert_eq!(status, 200);
+    assert_eq!(row_versions(&pool).await, before);
+}
+
 #[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
 async fn play_returns_statuses_after_marking(pool: PgPool) {
     let server = mb_server().await;
