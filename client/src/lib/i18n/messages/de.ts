@@ -374,7 +374,6 @@ const messages: Messages = {
   'play.tapToPlay': 'Quelle gefunden — zum Hören ▶ drücken',
   'play.started': '„{title}“ wird gespielt',
   'play.playlist': 'Abspielen',
-  'play.waiting': 'Quelle für „{title}“ wird gesucht – die Wiedergabe startet, sobald sie gefunden ist',
   'play.waitingShort': 'Quelle wird gesucht…',
   'player.cancel': 'Abbrechen',
   'player.collapse': 'Player minimieren',

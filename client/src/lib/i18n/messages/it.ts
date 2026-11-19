@@ -371,7 +371,6 @@ const messages: Messages = {
   'play.tapToPlay': 'Fonte trovata: premi ▶ per ascoltare',
   'play.started': 'In riproduzione «{title}»',
   'play.playlist': 'Riproduci',
-  'play.waiting': 'Cerchiamo una fonte per «{title}»: la riproduzione partirà appena trovata',
   'play.waitingShort': 'Ricerca di una fonte…',
   'player.cancel': 'Annulla',
   'player.collapse': 'Riduci il player',

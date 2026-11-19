@@ -367,7 +367,6 @@ export const en = {
   'play.tapToPlay': 'Source found — press ▶ to listen',
   'play.started': 'Playing “{title}”',
   'play.playlist': 'Play',
-  'play.waiting': 'Looking for a source for “{title}” — playback starts as soon as it is found',
   'play.waitingShort': 'Looking for a source…',
   'player.cancel': 'Cancel',
   'player.collapse': 'Collapse player',

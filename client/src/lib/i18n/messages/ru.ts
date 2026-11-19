@@ -374,7 +374,6 @@ const messages: Messages = {
   'play.tapToPlay': 'Источник найден — нажмите ▶, чтобы слушать',
   'play.started': 'Играет «{title}»',
   'play.playlist': 'Слушать',
-  'play.waiting': 'Ищем источник для «{title}» — заиграет, как только найдётся',
   'play.waitingShort': 'Ищем источник…',
   'player.cancel': 'Отменить',
   'player.collapse': 'Свернуть плеер',

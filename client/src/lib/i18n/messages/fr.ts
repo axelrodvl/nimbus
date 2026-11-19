@@ -376,7 +376,6 @@ const messages: Messages = {
   'play.tapToPlay': 'Source trouvée — appuyez sur ▶ pour écouter',
   'play.started': 'Lecture de « {title} »',
   'play.playlist': 'Lire',
-  'play.waiting': 'Recherche d’une source pour « {title} » — la lecture démarrera dès qu’elle sera trouvée',
   'play.waitingShort': 'Recherche d’une source…',
   'player.cancel': 'Annuler',
   'player.collapse': 'Réduire le lecteur',

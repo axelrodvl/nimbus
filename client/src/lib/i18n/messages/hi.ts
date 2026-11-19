@@ -365,7 +365,6 @@ const messages: Messages = {
   'play.tapToPlay': 'स्रोत मिल गया — सुनने के लिए ▶ दबाएँ',
   'play.started': '“{title}” चल रहा है',
   'play.playlist': 'चलाएँ',
-  'play.waiting': '“{title}” के लिए स्रोत खोजा जा रहा है — मिलते ही चलना शुरू होगा',
   'play.waitingShort': 'स्रोत खोजा जा रहा है…',
   'player.cancel': 'रद्द करें',
   'player.collapse': 'प्लेयर छोटा करें',

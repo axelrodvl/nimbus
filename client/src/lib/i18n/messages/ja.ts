@@ -371,7 +371,6 @@ const messages: Messages = {
   'play.tapToPlay': 'ソースが見つかりました — ▶ を押して再生してください',
   'play.started': '「{title}」を再生中',
   'play.playlist': '再生',
-  'play.waiting': '「{title}」のソースを探しています — 見つかり次第再生します',
   'play.waitingShort': 'ソースを探しています…',
   'player.cancel': 'キャンセル',
   'player.collapse': 'プレーヤーを閉じる',

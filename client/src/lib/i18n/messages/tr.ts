@@ -370,7 +370,6 @@ const messages: Messages = {
   'play.tapToPlay': 'Kaynak bulundu — dinlemek için ▶ düğmesine basın',
   'play.started': '“{title}” çalıyor',
   'play.playlist': 'Çal',
-  'play.waiting': '“{title}” için kaynak aranıyor — bulunur bulunmaz çalmaya başlayacak',
   'play.waitingShort': 'Kaynak aranıyor…',
   'player.cancel': 'İptal',
   'player.collapse': 'Oynatıcıyı küçült',

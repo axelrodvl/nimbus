@@ -8,7 +8,7 @@ import type { TFn } from '@/lib/i18n/messages';
 import type { TrackView } from '@/lib/store/selectors';
 import { makeTrack } from '@/test/factories';
 import { retryDelay } from './use-remote-search';
-import { createPlayRemote, PENDING_POLL_MS, sameRequest, START_WATCH_MS, PLAY_TOAST_ID, WAITING_TOAST_MS, type PlayRemoteDeps } from './play-remote';
+import { createPlayRemote, PENDING_POLL_MS, sameRequest, START_WATCH_MS, PLAY_TOAST_ID, type PlayRemoteDeps } from './play-remote';
 
 const t = ((key: string, params?: Record<string, string | number>) => translate(en as never, 'en', key, params)) as TFn;
 
@@ -137,16 +137,14 @@ describe('playRemote', () => {
     expect(toast.loading).not.toHaveBeenCalled();
   });
 
-  it('трека нет: «сыграть» без добавления в библиотеку, toast ожидания; заигрывает, когда стал found', async () => {
+  it('трека нет: «сыграть» без добавления в библиотеку, индикатор вместо toast; заигрывает, когда стал found', async () => {
     vi.useFakeTimers();
     const h = harness();
     h.pr.playRemote(request, t);
     expect(h.deps.request).toHaveBeenCalledWith({ albumMbid: 'rg-1', mbid: REC, type: 'track' }, expect.any(AbortSignal));
     expect(pending(h)?.request).toEqual(request);
-    expect(toast.loading).toHaveBeenCalledWith(
-      expect.stringContaining('Song'),
-      expect.objectContaining({ duration: WAITING_TOAST_MS, id: PLAY_TOAST_ID }),
-    );
+    // Ожидание показывает глобальный индикатор, а не toast.
+    expect(toast.loading).not.toHaveBeenCalled();
     await h.respond([11]);
     expect(pending(h)?.trackId).toBe(11);
     // Синхронизация принесла трек, источник ищется.
@@ -235,15 +233,14 @@ describe('playRemote', () => {
     expect(h.deps.play).not.toHaveBeenCalled();
   });
 
-  it('новый запуск заменяет прежнее ожидание; отмена — из toast; ответ на отменённый игнорируется', async () => {
+  it('новый запуск заменяет прежнее ожидание; отмена — из индикатора; ответ на отменённый игнорируется', async () => {
     const h = harness();
     h.pr.playRemote(request, t);
     const other = { ...request, mbid: 'rec-2', title: 'Other' };
     h.pr.playRemote(other, t);
     expect(pending(h)?.request).toEqual(other);
     expect(h.libraryListeners.size).toBe(1);
-    const opts = vi.mocked(toast.loading).mock.calls[1]?.[1] as unknown as { action: { onClick: () => void } };
-    opts.action.onClick();
+    h.pr.userCancel();
     expect(pending(h)).toBeNull();
     expect(h.libraryListeners.size).toBe(0);
     await h.respond([12]);

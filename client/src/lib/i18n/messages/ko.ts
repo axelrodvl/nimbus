@@ -368,7 +368,6 @@ const messages: Messages = {
   'play.tapToPlay': '소스를 찾았습니다 — ▶를 눌러 들어보세요',
   'play.started': '“{title}” 재생 중',
   'play.playlist': '재생',
-  'play.waiting': '“{title}”의 소스를 찾는 중 — 찾으면 바로 재생됩니다',
   'play.waitingShort': '소스를 찾는 중…',
   'player.cancel': '취소',
   'player.collapse': '플레이어 접기',

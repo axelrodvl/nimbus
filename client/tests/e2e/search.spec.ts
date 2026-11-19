@@ -174,7 +174,7 @@ test.describe('поиск', () => {
     await expect(row.getByTestId('remote-play')).toHaveAttribute('data-pending', 'true');
     await expect(row.getByRole('button', { name: 'Добавить в библиотеку' })).toBeVisible();
     expect((await mockLog(request)).filter(l => l === 'POST /api/library')).toEqual([]);
-    await expect(page.getByText(/Ищем источник для «Paranoid Android»/)).toBeVisible();
+    await expect(page.getByTestId('play-pending')).toContainText('Paranoid Android');
     // Глобальный индикатор виден и на другом экране; заигравшее там сопровождается toast.
     await page.getByTestId('sidebar').getByRole('link', { name: 'Библиотека' }).click();
     await expect(page).toHaveURL(/\/library/);

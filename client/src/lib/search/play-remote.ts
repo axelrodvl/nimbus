@@ -94,8 +94,6 @@ export type PlayRemoteDeps = {
 
 /** Toast ожидания один на всё приложение: новый запуск заменяет прежний. */
 export const PLAY_TOAST_ID = 'play-remote';
-/** Сколько висит toast ожидания. */
-export const WAITING_TOAST_MS = 8000;
 /** Через сколько после ответа сервера (и далее с тем же шагом) сторож проверяет статус трека напрямую. */
 export const PENDING_POLL_MS = 15_000;
 /** Через сколько ожидания индикатор добавляет «это может занять несколько минут». */
@@ -406,12 +404,6 @@ export function createPlayRemote(deps: PlayRemoteDeps) {
     watch();
     // В жесте разблокируем аудио: отложенный старт (источник найдётся позже) на iOS иначе будет отклонён.
     deps.prime();
-    // Toast не висит всё ожидание (поиск источника может занять минуты): дальше о нём говорит спиннер в строке.
-    toast.loading(t('play.waiting', { title: request.title }), {
-      action: { label: t('common.cancel'), onClick: userCancel },
-      duration: WAITING_TOAST_MS,
-      id: PLAY_TOAST_ID,
-    });
     send(request, t);
   }
 

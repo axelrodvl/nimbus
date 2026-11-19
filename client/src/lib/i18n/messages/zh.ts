@@ -364,7 +364,6 @@ const messages: Messages = {
   'play.tapToPlay': '已找到来源 — 点按 ▶ 开始收听',
   'play.started': '正在播放“{title}”',
   'play.playlist': '播放',
-  'play.waiting': '正在为“{title}”查找音源——找到后立即播放',
   'play.waitingShort': '正在查找音源…',
   'player.cancel': '取消',
   'player.collapse': '收起播放器',
