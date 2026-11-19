@@ -317,7 +317,9 @@ describe('ошибки и язык', () => {
 describe('ленивые маршруты', () => {
   it('экраны отдельного чанка (поиск, каталог MusicBrainz, источники) грузятся одним чанком и отдают свой компонент', async () => {
     const lazy = Object.fromEntries(
-      appRoutes.filter(r => typeof r.lazy === 'function').map(r => [r.path, r.lazy as () => Promise<{ Component: unknown }>]),
+      appRoutes
+        .filter(r => typeof r.lazy === 'function')
+        .map(r => [r.path, r.lazy as () => Promise<{ Component: unknown }>]),
     );
     const rare = await import('@/screens/rare-screens');
     expect((await lazy['/album/:id/sources']!()).Component).toBe(rare.SourcesScreen);

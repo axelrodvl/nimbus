@@ -89,13 +89,13 @@ describe('экран поиска', () => {
     // OK Computer — нет в библиотеке; Kid A — есть (по mbid), ведёт на /album/1.
     expect(within(cards[0]!).getByRole('button', { name: 'Добавить в библиотеку' })).toBeInTheDocument();
     expect(within(cards[1]!).getByText('В библиотеке')).toBeInTheDocument();
-    expect(within(cards[1]!).getByRole('link', { name: 'Открыть' })).toHaveAttribute('href', '/album/1');
+    expect(within(cards[1]!).queryByRole('link', { name: 'Открыть' })).not.toBeInTheDocument();
     expect(screen.getByTestId('search-artists')).toBeInTheDocument();
     expect(screen.getByTestId('search-tracks')).toBeInTheDocument();
     expect(screen.getByText('Лучший результат')).toBeInTheDocument();
   });
 
-  it('результат в библиотеке по трекам и артисту ведёт на альбом и страницу артиста', async () => {
+  it('результат в библиотеке — только отметка, без «Открыть»', async () => {
     seed({
       albums: [makeAlbum({ artist_id: 2, id: 5, mbid: OK_COMPUTER })],
       artists: [makeArtist({ id: 2, mbid: RADIOHEAD })],
@@ -103,15 +103,8 @@ describe('экран поиска', () => {
     });
     open('radiohead');
     const tracks = await screen.findByTestId('search-tracks');
-    expect(within(tracks).getAllByRole('link', { name: 'Открыть' })[0]).toHaveAttribute('href', '/album/5');
-    expect(within(screen.getByTestId('search-artists')).getAllByRole('link', { name: 'Открыть' })[0]).toHaveAttribute(
-      'href',
-      '/artist/2',
-    );
-    expect(within(screen.getByTestId('search-albums')).getAllByRole('link', { name: 'Открыть' })[0]).toHaveAttribute(
-      'href',
-      '/album/5',
-    );
+    expect(within(tracks).getAllByText('В библиотеке').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('link', { name: 'Открыть' })).not.toBeInTheDocument();
   });
 
   it('переход по результату запоминает запрос в истории', async () => {
@@ -121,7 +114,7 @@ describe('экран поиска', () => {
     });
     open('radiohead');
     const albums = await screen.findByTestId('search-albums');
-    fireEvent.click(within(albums).getAllByRole('link', { name: 'Открыть' })[0]!);
+    fireEvent.click(within(within(albums).getAllByTestId('remote-album')[0]!).getAllByRole('link')[0]!);
     expect(readHistory()).toEqual(['radiohead']);
     expect(await screen.findByText('album page')).toBeInTheDocument();
   });
@@ -139,7 +132,10 @@ describe('экран поиска', () => {
     const play = vi.spyOn(playRemoteApp(), 'playRemote').mockImplementation(() => undefined);
     const { router } = open('radio');
     fireEvent.click(screen.getByRole('button', { name: /Radio Ga Ga/ }));
-    expect(play).toHaveBeenCalledWith(expect.objectContaining({ title: 'Radio Ga Ga', trackId: 1 }), expect.any(Function));
+    expect(play).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Radio Ga Ga', trackId: 1 }),
+      expect.any(Function),
+    );
     expect(router.state.location.pathname).toBe('/search');
     expect(readHistory()).toEqual(['radio']);
   });
@@ -194,7 +190,9 @@ describe('экран поиска', () => {
   });
 
   it('часть секций не ответила — результаты видны, статус «догружаем», без текста ошибки', async () => {
-    search.mockResolvedValueOnce(searchFixture({ errors: ['tracks: timeout'] })).mockReturnValue(new Promise(() => undefined));
+    search
+      .mockResolvedValueOnce(searchFixture({ errors: ['tracks: timeout'] }))
+      .mockReturnValue(new Promise(() => undefined));
     open('radiohead');
     expect(await screen.findByText(/Часть результатов ещё загружается/)).toBeInTheDocument();
     expect(screen.queryByText(/timeout/)).not.toBeInTheDocument();
@@ -271,7 +269,7 @@ describe('экран поиска', () => {
 });
 
 describe('кнопка «Добавить в библиотеку»', () => {
-  it('цикл: добавить → «добавляется» → сущность появилась → ссылка «Открыть»', async () => {
+  it('цикл: добавить → «добавляется» → сущность появилась → «В библиотеке»', async () => {
     open('radiohead');
     const card = (await screen.findAllByTestId('remote-album'))[0]!;
     fireEvent.click(within(card).getByRole('button', { name: 'Добавить в библиотеку' }));
@@ -288,7 +286,7 @@ describe('кнопка «Добавить в библиотеку»', () => {
         .library.getState()
         .applyBatch({ albums: [makeAlbum({ artist_id: 1, id: 7, mbid: OK_COMPUTER })] }),
     );
-    expect(await within(card).findByRole('link', { name: 'Открыть' })).toHaveAttribute('href', '/album/7');
+    expect(await within(card).findByText('В библиотеке')).toBeInTheDocument();
     expect(addingStore.getState().adding.has(OK_COMPUTER)).toBe(false);
   });
 
@@ -327,7 +325,10 @@ describe('кнопка «Добавить в библиотеку»', () => {
     const track = (await screen.findAllByTestId('remote-track'))[0]!;
     fireEvent.click(within(track).getByRole('button', { name: 'Добавить в библиотеку' }));
     expect(post).toHaveBeenCalledWith({ albumMbid: OK_COMPUTER, mbid: PARANOID, type: 'track' });
-    expect(addingStore.getState().adding.get(PARANOID)).toMatchObject({ preview: { artistName: 'Radiohead' }, type: 'track' });
+    expect(addingStore.getState().adding.get(PARANOID)).toMatchObject({
+      preview: { artistName: 'Radiohead' },
+      type: 'track',
+    });
     const artist = screen.getAllByTestId('remote-artist')[0]!;
     fireEvent.click(within(artist).getByRole('button', { name: 'Добавить в библиотеку' }));
     expect(post).toHaveBeenCalledWith({ mbid: RADIOHEAD, type: 'artist' });

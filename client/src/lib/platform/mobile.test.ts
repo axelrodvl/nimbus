@@ -1,7 +1,15 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { SPLASH_SIZES, SPLASH_THEMES, SPLASH_END, SPLASH_START, splashFile, splashLinks, withSplashLinks } from '../../../scripts/splash';
+import {
+  SPLASH_SIZES,
+  SPLASH_THEMES,
+  SPLASH_END,
+  SPLASH_START,
+  splashFile,
+  splashLinks,
+  withSplashLinks,
+} from '../../../scripts/splash';
 import { sheetOffset, sheetRelease, velocityOf } from '../gestures/sheet-drag';
 import { scrollToTop, scrollRoot, SCROLL_ROOT_ATTR } from '../nav/scroll-top';
 import { isAppleTouch, isStandalone } from './ios';
@@ -24,7 +32,10 @@ describe('клавиатура', () => {
     const props = new Map<string, string>();
     const root = {
       dataset: {} as DOMStringMap,
-      style: { removeProperty: (k: string) => void props.delete(k), setProperty: (k: string, v: string) => void props.set(k, v) },
+      style: {
+        removeProperty: (k: string) => void props.delete(k),
+        setProperty: (k: string, v: string) => void props.set(k, v),
+      },
     };
     const doc = Object.assign(docTarget, { activeElement: { tagName: 'INPUT' } as Element, documentElement: root });
     const win = Object.assign(new EventTarget(), { innerHeight: 800, visualViewport: vv });
@@ -48,7 +59,9 @@ describe('клавиатура', () => {
 
 describe('платформа Apple', () => {
   it('iPhone, iPad и iPadOS под видом Mac — да; Android и настольный Mac — нет', () => {
-    expect(isAppleTouch({ maxTouchPoints: 5, platform: 'iPhone', userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)' })).toBe(true);
+    expect(
+      isAppleTouch({ maxTouchPoints: 5, platform: 'iPhone', userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)' }),
+    ).toBe(true);
     expect(isAppleTouch({ maxTouchPoints: 5, platform: 'MacIntel', userAgent: 'Macintosh' })).toBe(true);
     expect(isAppleTouch({ maxTouchPoints: 0, platform: 'MacIntel', userAgent: 'Macintosh' })).toBe(false);
     expect(isAppleTouch({ maxTouchPoints: 5, platform: 'Linux armv8l', userAgent: 'Android 14; Pixel 7' })).toBe(false);

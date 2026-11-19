@@ -225,12 +225,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2" data-testid="palette-scroll">
-        <ul
-          aria-label={t('palette.results')}
-          className="flex flex-col"
-          id={listId}
-          role="listbox"
-        >
+        <ul aria-label={t('palette.results')} className="flex flex-col" id={listId} role="listbox">
           {items.map((item, i) => {
             const Icon = groupIcon[item.group];
             const first = i === 0 || items[i - 1]?.group !== item.group;

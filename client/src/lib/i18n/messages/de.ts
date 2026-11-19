@@ -198,7 +198,8 @@ const messages: Messages = {
   'error.page.body':
     'Die Daten konnten nicht geladen werden. Prüfe, ob das Backend läuft (just backend), und versuche es erneut.',
   'error.page.title': 'Etwas ist schiefgelaufen',
-  'error.recording_not_in_release': 'Diese Aufnahme hat in MusicBrainz kein Album — für sie lässt sich keine Quelle finden',
+  'error.recording_not_in_release':
+    'Diese Aufnahme hat in MusicBrainz kein Album — für sie lässt sich keine Quelle finden',
   'error.torrent_no_files': 'Die Dateiliste des Torrents ist noch nicht empfangen',
   'error.track_ready': 'Der Titel ist bereits heruntergeladen',
   'filter.adding': 'Wird gesucht',
@@ -458,7 +459,6 @@ const messages: Messages = {
   'search.none': 'Nichts gefunden',
   'search.noneBody': 'Keine Treffer für „{query}“.',
   'search.offline': 'Du bist offline – es werden nur Ergebnisse aus deiner Bibliothek angezeigt.',
-  'search.open': 'Öffnen',
   'search.partialRetrying': 'Einige Ergebnisse laden noch — MusicBrainz ist langsam, neuer Versuch…',
   'search.prompt.body': 'Gib den Namen eines Künstlers, Albums oder Titels ein.',
   'search.prompt.title': 'Was möchtest du hören?',
@@ -637,9 +637,11 @@ const messages: Messages = {
   'sources.title': 'Quellen',
   'sources.trackFallback': 'Titel Nr. {id}',
   'sources.use': 'Für dieses Album verwenden',
-  'sources.useConfirmBody': 'In diesem Torrent gefundene Albumtitel werden daraus abgespielt. Vom bisherigen Torrent geladene Kopien werden vom Server und von diesem Gerät gelöscht; angeheftete Titel werden neu geladen.',
+  'sources.useConfirmBody':
+    'In diesem Torrent gefundene Albumtitel werden daraus abgespielt. Vom bisherigen Torrent geladene Kopien werden vom Server und von diesem Gerät gelöscht; angeheftete Titel werden neu geladen.',
   'sources.useConfirmTitle': 'Album auf diesen Torrent umstellen?',
-  'sources.useDoneImage': 'Titel umgestellt: {count}. Das Album-Image wird noch geladen – sie spielen nach dem Download',
+  'sources.useDoneImage':
+    'Titel umgestellt: {count}. Das Album-Image wird noch geladen – sie spielen nach dem Download',
   'sources.useDone': 'Auf diesen Torrent umgestellte Titel: {count}',
   'sources.useNeedsMeta': 'Dieser Torrent kann gewählt werden, sobald seine Dateiliste empfangen ist.',
   'sources.useUnchanged': 'Das Album spielt bereits aus diesem Torrent',

@@ -213,4 +213,3 @@ describe('каталожные строки в store: 60 000 библиотек�
     expect(mixed.apply).toBeLessThan(10);
   });
 });
-

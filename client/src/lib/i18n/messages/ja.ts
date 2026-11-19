@@ -455,7 +455,6 @@ const messages: Messages = {
   'search.none': '見つかりませんでした',
   'search.noneBody': '「{query}」に一致するものはありません。',
   'search.offline': 'オフラインです — ライブラリ内の結果のみ表示しています。',
-  'search.open': '開く',
   'search.partialRetrying': '一部の結果を読み込み中です — MusicBrainz の応答が遅いため再試行しています…',
   'search.prompt.body': 'アーティスト名、アルバム名、または曲名を入力してください。',
   'search.prompt.title': '何を聴きたいですか？',
@@ -629,7 +628,8 @@ const messages: Messages = {
   'sources.title': 'ソース',
   'sources.trackFallback': '曲 #{id}',
   'sources.use': 'このアルバムに使用',
-  'sources.useConfirmBody': 'このトレントで見つかったアルバムのトラックはここから再生されます。以前のトレントからダウンロードしたコピーはサーバーとこのデバイスから削除され、ピン留めしたトラックは再ダウンロードされます。',
+  'sources.useConfirmBody':
+    'このトレントで見つかったアルバムのトラックはここから再生されます。以前のトレントからダウンロードしたコピーはサーバーとこのデバイスから削除され、ピン留めしたトラックは再ダウンロードされます。',
   'sources.useConfirmTitle': 'アルバムをこのトレントに切り替えますか？',
   'sources.useDoneImage': '切り替えた曲：{count}。アルバムイメージをダウンロード中です。完了すると再生できます',
   'sources.useDone': 'このトレントに切り替えたトラック: {count}',

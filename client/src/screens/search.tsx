@@ -96,7 +96,7 @@ export function SearchScreen() {
         {value ? (
           <button
             aria-label={t('search.historyClear')}
-            className="text-gray hover:text-black dark:hover:text-white absolute top-1/2 right-3 flex size-8 -translate-y-1/2 items-center justify-center rounded-full"
+            className="text-gray absolute top-1/2 right-3 flex size-8 -translate-y-1/2 items-center justify-center rounded-full hover:text-black dark:hover:text-white"
             data-testid="search-clear"
             onClick={() => {
               onChange('');

@@ -200,7 +200,8 @@ const messages: Messages = {
   'error.page.body':
     'Impossible de charger les données. Vérifiez que le backend est lancé (just backend) et réessayez.',
   'error.page.title': 'Une erreur s’est produite',
-  'error.recording_not_in_release': 'Cet enregistrement n’a pas d’album dans MusicBrainz : impossible de lui trouver une source',
+  'error.recording_not_in_release':
+    'Cet enregistrement n’a pas d’album dans MusicBrainz : impossible de lui trouver une source',
   'error.torrent_no_files': 'La liste des fichiers du torrent n’est pas encore reçue',
   'error.track_ready': 'Le morceau est déjà téléchargé',
   'filter.adding': 'En recherche',
@@ -460,7 +461,6 @@ const messages: Messages = {
   'search.none': 'Aucun résultat',
   'search.noneBody': 'Aucun résultat pour « {query} ».',
   'search.offline': 'Hors ligne — seuls les résultats de votre bibliothèque sont affichés.',
-  'search.open': 'Ouvrir',
   'search.partialRetrying': 'Certains résultats se chargent encore — MusicBrainz est lent, nouvel essai…',
   'search.prompt.body': 'Saisissez le nom d’un artiste, d’un album ou d’un morceau.',
   'search.prompt.title': 'Que voulez-vous écouter ?',
@@ -640,9 +640,11 @@ const messages: Messages = {
   'sources.title': 'Sources',
   'sources.trackFallback': 'morceau n° {id}',
   'sources.use': 'Utiliser pour cet album',
-  'sources.useConfirmBody': 'Les pistes de l’album trouvées dans ce torrent seront lues depuis celui-ci. Les copies téléchargées depuis l’ancien torrent seront supprimées du serveur et de cet appareil ; les pistes épinglées seront retéléchargées.',
+  'sources.useConfirmBody':
+    'Les pistes de l’album trouvées dans ce torrent seront lues depuis celui-ci. Les copies téléchargées depuis l’ancien torrent seront supprimées du serveur et de cet appareil ; les pistes épinglées seront retéléchargées.',
   'sources.useConfirmTitle': 'Basculer l’album sur ce torrent ?',
-  'sources.useDoneImage': 'Morceaux basculés : {count}. L’image de l’album est encore en téléchargement — lecture à la fin',
+  'sources.useDoneImage':
+    'Morceaux basculés : {count}. L’image de l’album est encore en téléchargement — lecture à la fin',
   'sources.useDone': 'Pistes basculées sur ce torrent : {count}',
   'sources.useNeedsMeta': 'Vous pourrez choisir ce torrent une fois sa liste de fichiers reçue.',
   'sources.useUnchanged': 'L’album est déjà lu depuis ce torrent',

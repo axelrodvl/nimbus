@@ -453,7 +453,6 @@ const messages: Messages = {
   'search.none': 'Hiçbir şey bulunamadı',
   'search.noneBody': '“{query}” için sonuç yok.',
   'search.offline': 'Çevrimdışısınız — yalnızca kitaplığınızdaki sonuçlar gösteriliyor.',
-  'search.open': 'Aç',
   'search.partialRetrying': 'Bazı sonuçlar hâlâ yükleniyor — MusicBrainz yavaş, yeniden deneniyor…',
   'search.prompt.body': 'Bir sanatçı, albüm veya parça adı girin.',
   'search.prompt.title': 'Ne dinlemek istersiniz?',
@@ -549,7 +548,7 @@ const messages: Messages = {
   'settings.proxy': 'Proxy',
   'settings.proxyHint': 'Örneğin socks5://127.0.0.1:1080',
   'settings.flaresolverrHint':
-    'Cloudflare doğrulamasını sizin yerinize geçer, örn. http://flaresolverr:8191 — docker-compose\'daki flaresolverr konteyneri.',
+    "Cloudflare doğrulamasını sizin yerinize geçer, örn. http://flaresolverr:8191 — docker-compose'daki flaresolverr konteyneri.",
   'settings.cookieHint':
     "Tarayıcıdaki Cookie dizesinin tamamını yapıştırın (bb_session=…; cf_clearance=…). Bağlantı testi 403 / Cloudflare diyorsa: rutracker.org'u açın, doğrulamayı geçin ve çerezleri DevTools'tan kopyalayın.",
   'settings.userAgent': 'User-Agent',
@@ -629,7 +628,8 @@ const messages: Messages = {
   'sources.title': 'Kaynaklar',
   'sources.trackFallback': 'parça #{id}',
   'sources.use': 'Bu albüm için kullan',
-  'sources.useConfirmBody': 'Bu torrentte bulunan albüm parçaları buradan çalınacak. Önceki torrentten indirilen kopyalar sunucudan ve bu cihazdan silinecek; sabitlenen parçalar yeniden indirilecek.',
+  'sources.useConfirmBody':
+    'Bu torrentte bulunan albüm parçaları buradan çalınacak. Önceki torrentten indirilen kopyalar sunucudan ve bu cihazdan silinecek; sabitlenen parçalar yeniden indirilecek.',
   'sources.useConfirmTitle': 'Albüm bu torrente geçirilsin mi?',
   'sources.useDoneImage': 'Geçen parça: {count}. Albüm imajı hâlâ iniyor — bitince çalacaklar',
   'sources.useDone': 'Bu torrente geçirilen parçalar: {count}',

@@ -38,7 +38,8 @@ export function useArtistImport(id: number, enabled: boolean): { data: ArtistImp
     if (e.entity === 'artist' && e.id === id) refresh();
   });
   useLiveEvent<{ type: string; album_id?: number }>('job.progress', e => {
-    if (e.album_id !== undefined && appData().library.getState().albumsByArtist.get(id)?.includes(e.album_id)) refresh();
+    if (e.album_id !== undefined && appData().library.getState().albumsByArtist.get(id)?.includes(e.album_id))
+      refresh();
   });
   useEffect(
     () => () => {

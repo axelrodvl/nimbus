@@ -47,7 +47,16 @@ type Props = {
  * Виртуальная сетка карточек поверх общего контейнера прокрутки. Виртуализируются строки; число колонок
  * задаёт вызывающий код (`useGridColumns`). Ячейки одной строки одинаковой высоты — измерять не нужно.
  */
-export function VirtualGrid({ count, columns, rowHeight, overscan = 3, getKey, renderCell, className, ...rest }: Props) {
+export function VirtualGrid({
+  count,
+  columns,
+  rowHeight,
+  overscan = 3,
+  getKey,
+  renderCell,
+  className,
+  ...rest
+}: Props) {
   'use no memo'; // useVirtualizer возвращает функции, которые нельзя мемоизировать.
   const { margin, ref, scroll, width } = useListGeometry();
   const cellWidth = Math.max(0, (width - GAP * (columns - 1)) / columns);

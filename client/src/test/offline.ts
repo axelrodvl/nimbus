@@ -66,7 +66,10 @@ import { makeAlbum, makeArtist, makePlaylist, makePlaylistTrack, makeTrack } fro
 export class MemOfflineDb implements OfflineDb {
   pins = new Map<string, OfflinePin>();
   files = new Map<number, OfflineFile>();
-  offlineLoad = async () => ({ files: structuredClone([...this.files.values()]), pins: structuredClone([...this.pins.values()]) });
+  offlineLoad = async () => ({
+    files: structuredClone([...this.files.values()]),
+    pins: structuredClone([...this.pins.values()]),
+  });
   offlinePinPut = async (p: OfflinePin) => void this.pins.set(p.key, structuredClone(p));
   offlinePinDelete = async (k: string) => void this.pins.delete(k);
   offlineFilePut = async (f: OfflineFile) => void this.files.set(f.track_id, structuredClone(f));
@@ -127,7 +130,12 @@ export function offlineRows(): LibraryRows {
   };
 }
 
-export type Net = { online: boolean; cellular: boolean; listeners: Set<() => void>; change(p: Partial<Pick<Net, 'online' | 'cellular'>>): void };
+export type Net = {
+  online: boolean;
+  cellular: boolean;
+  listeners: Set<() => void>;
+  change(p: Partial<Pick<Net, 'online' | 'cellular'>>): void;
+};
 
 export type OfflineHarness = ReturnType<typeof offlineHarness>;
 

@@ -452,7 +452,6 @@ const messages: Messages = {
   'search.none': '결과가 없습니다',
   'search.noneBody': '“{query}”에 대한 결과가 없습니다.',
   'search.offline': '오프라인입니다. 내 라이브러리의 결과만 표시됩니다.',
-  'search.open': '열기',
   'search.partialRetrying': '일부 결과를 아직 불러오는 중 — MusicBrainz가 느려 다시 시도하는 중…',
   'search.prompt.body': '아티스트 이름, 앨범 또는 곡 제목을 입력하세요.',
   'search.prompt.title': '무엇을 듣고 싶으세요?',
@@ -625,7 +624,8 @@ const messages: Messages = {
   'sources.title': '소스',
   'sources.trackFallback': '곡 #{id}',
   'sources.use': '이 앨범에 사용',
-  'sources.useConfirmBody': '이 토렌트에서 찾은 앨범 트랙은 여기에서 재생됩니다. 이전 토렌트에서 다운로드한 사본은 서버와 이 기기에서 삭제되며, 고정한 트랙은 다시 다운로드됩니다.',
+  'sources.useConfirmBody':
+    '이 토렌트에서 찾은 앨범 트랙은 여기에서 재생됩니다. 이전 토렌트에서 다운로드한 사본은 서버와 이 기기에서 삭제되며, 고정한 트랙은 다시 다운로드됩니다.',
   'sources.useConfirmTitle': '앨범을 이 토렌트로 전환할까요?',
   'sources.useDoneImage': '전환된 곡: {count}. 앨범 이미지를 아직 다운로드 중이며 완료되면 재생됩니다',
   'sources.useDone': '이 토렌트로 전환된 트랙: {count}',

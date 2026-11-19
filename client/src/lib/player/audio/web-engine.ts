@@ -69,7 +69,8 @@ type Phase = 'idle' | 'loading' | 'waiting' | 'playing' | 'paused';
 export function createWebAudioEngine(deps: WebAudioDeps = {}): AudioEngine {
   const audio = deps.audio ?? createAudioElement();
   // До первого `play()`: звук не глушится переключателем «бесшумно» и продолжается при блокировке экрана.
-  const audioSession = deps.audioSession ?? (globalThis.navigator as { audioSession?: { type: string } } | undefined)?.audioSession;
+  const audioSession =
+    deps.audioSession ?? (globalThis.navigator as { audioSession?: { type: string } } | undefined)?.audioSession;
   if (audioSession) audioSession.type = 'playback';
   const stallMs = deps.stallMs ?? STALL_MS;
   const handlers = new Set<(e: AudioEvent) => void>();
@@ -265,8 +266,8 @@ export function createWebAudioEngine(deps: WebAudioDeps = {}): AudioEngine {
         audio.play().then(
           () => void (unlocked = true),
           (e: unknown) => {
-          // AbortError — загрузку заменили другим треком; иное (NotAllowedError — политика автозапуска) — пауза.
-          if (e instanceof DOMException && e.name === 'AbortError') return;
+            // AbortError — загрузку заменили другим треком; иное (NotAllowedError — политика автозапуска) — пауза.
+            if (e instanceof DOMException && e.name === 'AbortError') return;
             if (isCurrent()) {
               setPhase('paused');
               emit({ type: 'paused' });

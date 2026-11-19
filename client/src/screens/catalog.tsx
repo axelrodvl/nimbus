@@ -6,7 +6,7 @@ import { Cover } from '@/components/library/cover';
 import { PageLayout } from '@/components/page-layout';
 import { PlayAlbumButton } from '@/components/player/play-buttons';
 import { AddToLibraryButton, InLibrary } from '@/components/search/add-to-library-button';
-import { albumHref, albumLink, artistHref, catalogArtistHref } from '@/components/search/helpers';
+import { albumHref, albumLink, catalogArtistHref } from '@/components/search/helpers';
 import { RemotePlayRow } from '@/components/search/remote-play';
 import { SearchProgress } from '@/components/search/search-results';
 import { Button } from '@/components/ui/button';
@@ -139,7 +139,7 @@ function ArtistBody({ data, index }: { data: CatalogArtistResponse; index: MbidI
               libraryHref={null}
             />
           ) : (
-            <InLibrary href={artistHref(libraryId)} />
+            <InLibrary />
           )}
         </div>
       </header>
@@ -262,7 +262,6 @@ function AlbumBody({ data, index }: { data: CatalogAlbumResponse; index: MbidInd
               </Button>
             ) : null}
             <AddToLibraryButton
-              hideOpen
               input={{
                 mbid: album.mbid,
                 preview: { artistName: album.artist_name, cover: album.cover_url, title: album.title },
@@ -307,7 +306,6 @@ function AlbumBody({ data, index }: { data: CatalogAlbumResponse; index: MbidInd
                   ) : null}
                   {libraryId !== undefined ? null : (
                     <AddToLibraryButton
-                      hideOpen
                       input={{
                         albumMbid: album.mbid,
                         mbid: tr.mbid,

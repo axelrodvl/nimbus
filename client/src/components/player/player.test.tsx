@@ -47,9 +47,13 @@ describe('меню «…»: сохранить в библиотеку', () => {
     seed({
       albums: [makeAlbum({ artist_id: 1, id: 2, in_library: false, mbid: 'rg-x', title: 'Alb' })],
       artists: [makeArtist({ id: 1, name: 'Art' })],
-      tracks: [makeTrack({ album_id: 2, artist_id: 1, id: 10, in_library: false, mbid_recording: 'rec-x', status: 'ready' })],
+      tracks: [
+        makeTrack({ album_id: 2, artist_id: 1, id: 10, in_library: false, mbid_recording: 'rec-x', status: 'ready' }),
+      ],
     });
-    const post = vi.spyOn(searchApi, 'addToLibraryRequest').mockResolvedValue({ id: 1, status: 'added', type: 'track' });
+    const post = vi
+      .spyOn(searchApi, 'addToLibraryRequest')
+      .mockResolvedValue({ id: 1, status: 'added', type: 'track' });
     vi.spyOn(appData().engine, 'requestSync').mockImplementation(() => undefined);
     const env = mount();
     act(() => env.ctl.play(track(10), [track(10)]));

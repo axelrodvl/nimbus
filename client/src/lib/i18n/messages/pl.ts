@@ -458,7 +458,6 @@ const messages: Messages = {
   'search.none': 'Nic nie znaleziono',
   'search.noneBody': 'Brak wyników dla „{query}”.',
   'search.offline': 'Brak sieci — widoczne są tylko wyniki z Twojej biblioteki.',
-  'search.open': 'Otwórz',
   'search.partialRetrying': 'Część wyników wciąż się ładuje — MusicBrainz odpowiada wolno, ponawiamy…',
   'search.prompt.body': 'Wpisz nazwę wykonawcy, albumu lub utworu.',
   'search.prompt.title': 'Czego chcesz posłuchać?',
@@ -639,7 +638,8 @@ const messages: Messages = {
   'sources.title': 'Źródła',
   'sources.trackFallback': 'utwór nr {id}',
   'sources.use': 'Użyj dla tego albumu',
-  'sources.useConfirmBody': 'Utwory albumu znalezione w tym torrencie będą z niego odtwarzane. Kopie pobrane z poprzedniego torrenta zostaną usunięte z serwera i z tego urządzenia; przypięte utwory zostaną pobrane ponownie.',
+  'sources.useConfirmBody':
+    'Utwory albumu znalezione w tym torrencie będą z niego odtwarzane. Kopie pobrane z poprzedniego torrenta zostaną usunięte z serwera i z tego urządzenia; przypięte utwory zostaną pobrane ponownie.',
   'sources.useConfirmTitle': 'Przełączyć album na ten torrent?',
   'sources.useDoneImage': 'Przełączono utworów: {count}. Obraz albumu jest jeszcze pobierany — zagrają po zakończeniu',
   'sources.useDone': 'Utwory przełączone na ten torrent: {count}',

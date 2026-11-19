@@ -8,7 +8,14 @@ import type { TFn } from '@/lib/i18n/messages';
 import type { TrackView } from '@/lib/store/selectors';
 import { makeTrack } from '@/test/factories';
 import { retryDelay } from './use-remote-search';
-import { createPlayRemote, PENDING_POLL_MS, sameRequest, START_WATCH_MS, PLAY_TOAST_ID, type PlayRemoteDeps } from './play-remote';
+import {
+  createPlayRemote,
+  PENDING_POLL_MS,
+  sameRequest,
+  START_WATCH_MS,
+  PLAY_TOAST_ID,
+  type PlayRemoteDeps,
+} from './play-remote';
 
 const t = ((key: string, params?: Record<string, string | number>) => translate(en as never, 'en', key, params)) as TFn;
 
@@ -141,7 +148,10 @@ describe('playRemote', () => {
     vi.useFakeTimers();
     const h = harness();
     h.pr.playRemote(request, t);
-    expect(h.deps.request).toHaveBeenCalledWith({ albumMbid: 'rg-1', mbid: REC, type: 'track' }, expect.any(AbortSignal));
+    expect(h.deps.request).toHaveBeenCalledWith(
+      { albumMbid: 'rg-1', mbid: REC, type: 'track' },
+      expect.any(AbortSignal),
+    );
     expect(pending(h)?.request).toEqual(request);
     // Ожидание показывает глобальный индикатор, а не toast.
     expect(toast.loading).not.toHaveBeenCalled();
@@ -559,7 +569,9 @@ describe('playRemote', () => {
       await vi.advanceTimersByTimeAsync(retryDelay(1));
       await h.fail(unavailable());
       expect(pending(h)).toBeNull();
-      const opts = vi.mocked(toast.error).mock.calls[0]?.[1] as unknown as { action: { label: string; onClick: () => void } };
+      const opts = vi.mocked(toast.error).mock.calls[0]?.[1] as unknown as {
+        action: { label: string; onClick: () => void };
+      };
       expect(opts.action.label).toBe('Retry');
       opts.action.onClick();
       expect(h.deps.request).toHaveBeenCalledTimes(3);
@@ -590,7 +602,10 @@ describe('playRemote', () => {
       const h = harness();
       h.pr.playRemote(request, t);
       expect(h.deps.prime).toHaveBeenCalledOnce();
-      const order = [vi.mocked(h.deps.prime).mock.invocationCallOrder[0], vi.mocked(h.deps.request).mock.invocationCallOrder[0]];
+      const order = [
+        vi.mocked(h.deps.prime).mock.invocationCallOrder[0],
+        vi.mocked(h.deps.request).mock.invocationCallOrder[0],
+      ];
       expect(order[0]).toBeLessThan(order[1]!);
       const ready = harness();
       ready.setTrack(REC, view());

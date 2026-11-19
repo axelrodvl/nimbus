@@ -436,7 +436,6 @@ describe('элемент и фабрика', () => {
   });
 });
 
-
 describe('мобильные платформы (шаг 50)', () => {
   function setupWith(extra: Partial<Parameters<typeof createWebAudioEngine>[0]> = {}) {
     const audio = new FakeAudio();
@@ -462,7 +461,10 @@ describe('мобильные платформы (шаг 50)', () => {
     engine.play().catch(() => undefined);
     audio.fire('playing');
     engine.pause();
-    expect(events.filter(e => e.type === 'paused')).toEqual([{ interrupted: true, type: 'paused' }, { type: 'paused' }]);
+    expect(events.filter(e => e.type === 'paused')).toEqual([
+      { interrupted: true, type: 'paused' },
+      { type: 'paused' },
+    ]);
   });
 
   it('пауза уже стоящего на паузе элемента не оставляет флаг взведённым', () => {

@@ -186,10 +186,11 @@ describe('экран артиста', () => {
     expect(screen.getByRole('button', { name: 'Добавить в библиотеку' })).toBeInTheDocument();
   });
 
-  it('артист в библиотеке — отметка и ссылка на его страницу', async () => {
+  it('артист в библиотеке — только отметка', async () => {
     seed({ artists: [makeArtist({ id: 4, mbid: RADIOHEAD })] });
     renderRoutes(routes, `/search/artist/${RADIOHEAD}`);
-    expect(await screen.findByRole('link', { name: 'Открыть' })).toHaveAttribute('href', '/artist/4');
+    expect(await screen.findByTestId('in-library')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Открыть' })).not.toBeInTheDocument();
   });
 
   it('нет альбомов — пустое состояние', async () => {

@@ -196,7 +196,8 @@ const messages: Messages = {
   'error.page.body':
     'Impossibile caricare i dati. Controlla che il backend sia in esecuzione (just backend) e riprova.',
   'error.page.title': 'Qualcosa è andato storto',
-  'error.recording_not_in_release': 'Questa registrazione non ha un album in MusicBrainz, quindi non si può trovare una fonte',
+  'error.recording_not_in_release':
+    'Questa registrazione non ha un album in MusicBrainz, quindi non si può trovare una fonte',
   'error.torrent_no_files': 'L’elenco dei file del torrent non è ancora stato ricevuto',
   'error.track_ready': 'Il brano è già scaricato',
   'filter.adding': 'In ricerca',
@@ -455,7 +456,6 @@ const messages: Messages = {
   'search.none': 'Nessun risultato',
   'search.noneBody': 'Nessun risultato per «{query}».',
   'search.offline': 'Sei offline: vengono mostrati solo i risultati della tua libreria.',
-  'search.open': 'Apri',
   'search.partialRetrying': 'Alcuni risultati si stanno ancora caricando — MusicBrainz è lento, nuovo tentativo…',
   'search.prompt.body': 'Inserisci il nome di un artista, di un album o di un brano.',
   'search.prompt.title': 'Cosa vuoi ascoltare?',
@@ -632,7 +632,8 @@ const messages: Messages = {
   'sources.title': 'Fonti',
   'sources.trackFallback': 'brano n. {id}',
   'sources.use': 'Usa per questo album',
-  'sources.useConfirmBody': 'I brani dell’album trovati in questo torrent verranno riprodotti da esso. Le copie scaricate dal torrent precedente verranno eliminate dal server e da questo dispositivo; i brani fissati verranno scaricati di nuovo.',
+  'sources.useConfirmBody':
+    'I brani dell’album trovati in questo torrent verranno riprodotti da esso. Le copie scaricate dal torrent precedente verranno eliminate dal server e da questo dispositivo; i brani fissati verranno scaricati di nuovo.',
   'sources.useConfirmTitle': 'Passare l’album a questo torrent?',
   'sources.useDoneImage': 'Brani passati: {count}. L’immagine dell’album è ancora in download: partiranno al termine',
   'sources.useDone': 'Brani passati a questo torrent: {count}',

@@ -196,7 +196,8 @@ const messages: Messages = {
   'error.page.body':
     'No se pudieron cargar los datos. Comprueba que el backend esté en marcha (just backend) e inténtalo de nuevo.',
   'error.page.title': 'Algo salió mal',
-  'error.recording_not_in_release': 'Esta grabación no tiene álbum en MusicBrainz, así que no se puede encontrar una fuente',
+  'error.recording_not_in_release':
+    'Esta grabación no tiene álbum en MusicBrainz, así que no se puede encontrar una fuente',
   'error.torrent_no_files': 'Aún no se ha recibido la lista de archivos del torrent',
   'error.track_ready': 'La pista ya está descargada',
   'filter.adding': 'Buscando',
@@ -454,7 +455,6 @@ const messages: Messages = {
   'search.none': 'No se encontró nada',
   'search.noneBody': 'No hay resultados para «{query}».',
   'search.offline': 'Sin conexión: solo se muestran resultados de tu biblioteca.',
-  'search.open': 'Abrir',
   'search.partialRetrying': 'Algunos resultados aún se cargan — MusicBrainz va lento, reintentando…',
   'search.prompt.body': 'Escribe el nombre de un artista, un álbum o una pista.',
   'search.prompt.title': '¿Qué quieres escuchar?',
@@ -633,7 +633,8 @@ const messages: Messages = {
   'sources.title': 'Fuentes',
   'sources.trackFallback': 'pista n.º {id}',
   'sources.use': 'Usar para este álbum',
-  'sources.useConfirmBody': 'Las pistas del álbum encontradas en este torrent sonarán desde él. Las copias descargadas del torrent anterior se eliminarán del servidor y de este dispositivo; las pistas fijadas se descargarán de nuevo.',
+  'sources.useConfirmBody':
+    'Las pistas del álbum encontradas en este torrent sonarán desde él. Las copias descargadas del torrent anterior se eliminarán del servidor y de este dispositivo; las pistas fijadas se descargarán de nuevo.',
   'sources.useConfirmTitle': '¿Cambiar el álbum a este torrent?',
   'sources.useDoneImage': 'Pistas cambiadas: {count}. La imagen del álbum aún se descarga: sonarán cuando termine',
   'sources.useDone': 'Pistas cambiadas a este torrent: {count}',

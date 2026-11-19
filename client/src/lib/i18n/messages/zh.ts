@@ -447,7 +447,6 @@ const messages: Messages = {
   'search.none': '没有找到结果',
   'search.noneBody': '没有找到与“{query}”相关的内容。',
   'search.offline': '你已离线——仅显示资料库中的结果。',
-  'search.open': '打开',
   'search.partialRetrying': '部分结果仍在加载 — MusicBrainz 响应缓慢，正在重试…',
   'search.prompt.body': '输入艺术家名称、专辑或曲目名称。',
   'search.prompt.title': '想听点什么？',
@@ -618,7 +617,8 @@ const messages: Messages = {
   'sources.title': '来源',
   'sources.trackFallback': '曲目 #{id}',
   'sources.use': '用于此专辑',
-  'sources.useConfirmBody': '在此种子中找到的专辑曲目将从它播放。从之前种子下载的副本将从服务器和本设备删除；已固定的曲目将重新下载。',
+  'sources.useConfirmBody':
+    '在此种子中找到的专辑曲目将从它播放。从之前种子下载的副本将从服务器和本设备删除；已固定的曲目将重新下载。',
   'sources.useConfirmTitle': '将专辑切换到此种子？',
   'sources.useDoneImage': '已切换曲目：{count}。专辑镜像仍在下载，完成后即可播放',
   'sources.useDone': '已切换到此种子的曲目：{count}',

@@ -7,7 +7,9 @@ import { ScrollContainerProvider } from '@/components/ui/scroll-container';
  */
 export function mockLayout({ width = 1000, height = 600 }: { width?: number; height?: number } = {}): () => void {
   const props = { clientHeight: height, clientWidth: width, offsetHeight: height, offsetWidth: width } as const;
-  const saved = Object.entries(props).map(([key]) => [key, Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)] as const);
+  const saved = Object.entries(props).map(
+    ([key]) => [key, Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)] as const,
+  );
   for (const [key, value] of Object.entries(props)) {
     Object.defineProperty(HTMLElement.prototype, key, { configurable: true, get: () => value });
   }

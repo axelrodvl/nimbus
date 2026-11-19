@@ -12,8 +12,7 @@ import { createThrottledSource } from '@/lib/store/throttled';
 import { filterByName } from '@/lib/store/selectors';
 
 const tEn: TFn = key => String(enMessages[key]);
-const t = (key: string, params?: Record<string, string | number>) =>
-  translate(enMessages as never, 'en', key, params);
+const t = (key: string, params?: Record<string, string | number>) => translate(enMessages as never, 'en', key, params);
 
 describe('coverSrc', () => {
   const mbid = '11111111-2222-3333-4444-555555555555';
@@ -55,7 +54,12 @@ describe('статусы', () => {
     expect(describeStatus(T, 'not_found', 'other')).toBe(t('status.label.notFound'));
   });
   it('isPlayable и albumMeta', () => {
-    expect(['adding', 'found', 'not_found', 'ready'].map(s => isPlayable(s as 'found'))).toEqual([false, true, false, true]);
+    expect(['adding', 'found', 'not_found', 'ready'].map(s => isPlayable(s as 'found'))).toEqual([
+      false,
+      true,
+      false,
+      true,
+    ]);
     expect(albumMeta({ artistName: 'A', primary_type: 'EP', year: 2001 }, tEn)).toBe('A · 2001 · EP');
     expect(albumMeta({ artistName: 'A', primary_type: null, year: null }, tEn)).toBe('A');
   });
@@ -83,8 +87,12 @@ describe('shouldCheckImport', () => {
     expect(shouldCheckImport({ added_at: '2020-01-01T00:00:00Z', albumCount: 0 }, now)).toBe(true);
   });
   it('недавно добавленный — да, давно — нет', () => {
-    expect(shouldCheckImport({ added_at: new Date(now - RECENT_ARTIST_MS + 1000).toISOString(), albumCount: 3 }, now)).toBe(true);
-    expect(shouldCheckImport({ added_at: new Date(now - RECENT_ARTIST_MS - 1000).toISOString(), albumCount: 3 }, now)).toBe(false);
+    expect(
+      shouldCheckImport({ added_at: new Date(now - RECENT_ARTIST_MS + 1000).toISOString(), albumCount: 3 }, now),
+    ).toBe(true);
+    expect(
+      shouldCheckImport({ added_at: new Date(now - RECENT_ARTIST_MS - 1000).toISOString(), albumCount: 3 }, now),
+    ).toBe(false);
     expect(shouldCheckImport({ added_at: null, albumCount: 3 }, now)).toBe(false);
   });
 });
@@ -92,10 +100,20 @@ describe('shouldCheckImport', () => {
 describe('formatAudioInfo', () => {
   it('собирает параметры потока', () => {
     expect(
-      formatAudioInfo({ bit_depth: 24, bitrate_kbps: 900, channels: 'stereo', codec: 'flac', ext: 'flac', sample_rate: 96000, transcoded: false } as never),
+      formatAudioInfo({
+        bit_depth: 24,
+        bitrate_kbps: 900,
+        channels: 'stereo',
+        codec: 'flac',
+        ext: 'flac',
+        sample_rate: 96000,
+        transcoded: false,
+      } as never),
     ).toBe('FLAC · 24-bit · 96 kHz · stereo · 900 kbps');
     expect(formatAudioInfo({ codec: null, ext: 'wav', transcoded: true } as never)).toBe('WAV → FLAC');
-    expect(formatAudioInfo({ codec: 'pcm_s16le', ext: 'wav', sample_rate: 44100, transcoded: false } as never)).toBe('PCM · 44.1 kHz');
+    expect(formatAudioInfo({ codec: 'pcm_s16le', ext: 'wav', sample_rate: 44100, transcoded: false } as never)).toBe(
+      'PCM · 44.1 kHz',
+    );
   });
 });
 

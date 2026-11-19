@@ -43,7 +43,10 @@ describe('правила линта', () => {
   describe('граница AudioEngine', () => {
     it('HTMLAudioElement и new Audio вне web-engine запрещены (в компонентах и в lib)', async () => {
       for (const file of ['src/components/x.tsx', 'src/lib/x.ts']) {
-        const found = await messages('export const a = new Audio();\nexport const b = (x: unknown) => x instanceof HTMLAudioElement;\n', file);
+        const found = await messages(
+          'export const a = new Audio();\nexport const b = (x: unknown) => x instanceof HTMLAudioElement;\n',
+          file,
+        );
         expect(found.filter(m => m.ruleId === 'no-restricted-globals').length, file).toBeGreaterThanOrEqual(2);
       }
     });
@@ -53,7 +56,9 @@ describe('правила линта', () => {
         'export const m = navigator.mediaSession;\nexport const d = new MediaMetadata({});\n',
         'src/lib/player/x.ts',
       );
-      expect(found.map(m => m.ruleId)).toEqual(expect.arrayContaining(['no-restricted-properties', 'no-restricted-globals']));
+      expect(found.map(m => m.ruleId)).toEqual(
+        expect.arrayContaining(['no-restricted-properties', 'no-restricted-globals']),
+      );
     });
 
     it('в web-engine.ts и media-session.ts разрешены', async () => {

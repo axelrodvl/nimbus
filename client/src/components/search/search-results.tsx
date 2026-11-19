@@ -236,7 +236,7 @@ function BestResult({
             {id === undefined ? (
               <AddToLibraryButton input={artistInput(artist)} libraryHref={null} query={query} />
             ) : (
-              <InLibrary href={artistHref(id)} query={query} />
+              <InLibrary />
             )}
           </div>
         </div>

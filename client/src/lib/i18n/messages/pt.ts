@@ -196,7 +196,8 @@ const messages: Messages = {
   'error.page.body':
     'Não foi possível carregar os dados. Verifique se o backend está em execução (just backend) e tente novamente.',
   'error.page.title': 'Algo deu errado',
-  'error.recording_not_in_release': 'Esta gravação não tem álbum no MusicBrainz, então não é possível encontrar uma fonte',
+  'error.recording_not_in_release':
+    'Esta gravação não tem álbum no MusicBrainz, então não é possível encontrar uma fonte',
   'error.torrent_no_files': 'A lista de arquivos do torrent ainda não foi recebida',
   'error.track_ready': 'A faixa já foi baixada',
   'filter.adding': 'Em busca',
@@ -454,7 +455,6 @@ const messages: Messages = {
   'search.none': 'Nada encontrado',
   'search.noneBody': 'Nada encontrado para “{query}”.',
   'search.offline': 'Você está offline — mostrando apenas resultados da sua biblioteca.',
-  'search.open': 'Abrir',
   'search.partialRetrying': 'Alguns resultados ainda estão carregando — o MusicBrainz está lento, tentando de novo…',
   'search.prompt.body': 'Digite o nome de um artista, álbum ou faixa.',
   'search.prompt.title': 'O que você quer ouvir?',
@@ -631,7 +631,8 @@ const messages: Messages = {
   'sources.title': 'Fontes',
   'sources.trackFallback': 'faixa n.º {id}',
   'sources.use': 'Usar para este álbum',
-  'sources.useConfirmBody': 'As faixas do álbum encontradas neste torrent tocarão a partir dele. As cópias baixadas do torrent anterior serão excluídas do servidor e deste dispositivo; as faixas fixadas serão baixadas novamente.',
+  'sources.useConfirmBody':
+    'As faixas do álbum encontradas neste torrent tocarão a partir dele. As cópias baixadas do torrent anterior serão excluídas do servidor e deste dispositivo; as faixas fixadas serão baixadas novamente.',
   'sources.useConfirmTitle': 'Mudar o álbum para este torrent?',
   'sources.useDoneImage': 'Faixas trocadas: {count}. A imagem do álbum ainda está sendo baixada — tocarão ao terminar',
   'sources.useDone': 'Faixas mudadas para este torrent: {count}',
