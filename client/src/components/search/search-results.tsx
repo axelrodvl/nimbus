@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState } from '@/components/ui/error-state';
 import { Skeleton } from '@/components/ui/skeleton';
+import { AlbumGridSkeleton, SectionHeadingSkeleton, TrackListSkeleton } from '@/screens/library/skeletons';
 import { Spinner } from '@/components/ui/spinner';
 import type { AlbumResult, ArtistResult, TrackResult } from '@/lib/api/search-types';
 import { useT } from '@/lib/i18n/provider';
@@ -255,23 +256,29 @@ function BestResult({
   );
 }
 
+/** Скелет результатов: те же секции (заголовок, артисты, сетка альбомов, треки), что и у готового поиска. */
 export function RemoteSkeleton() {
   return (
-    <div aria-busy className="flex flex-col gap-8" data-testid="search-skeleton">
-      <div className="flex gap-5">
-        {Array.from({ length: 5 }, (_, i) => (
-          <Skeleton className="size-28 shrink-0 rounded-full" key={i} />
-        ))}
+    <div aria-busy className="flex flex-col gap-10" data-testid="search-skeleton">
+      <div>
+        <SectionHeadingSkeleton />
+        <div className="flex gap-5 pb-2">
+          {Array.from({ length: 5 }, (_, i) => (
+            <div className="flex w-28 shrink-0 flex-col items-center" key={i}>
+              <Skeleton className="size-28 rounded-full" />
+              <Skeleton className="mt-3 h-5 w-20" />
+              <Skeleton className="mt-2 h-8 w-20 rounded-full" />
+            </div>
+          ))}
+        </div>
       </div>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        {Array.from({ length: 5 }, (_, i) => (
-          <Skeleton className="aspect-square rounded-lg" key={i} />
-        ))}
+      <div>
+        <SectionHeadingSkeleton />
+        <AlbumGridSkeleton count={5} />
       </div>
-      <div className="flex flex-col gap-2">
-        {Array.from({ length: 4 }, (_, i) => (
-          <Skeleton className="h-12 w-full" key={i} />
-        ))}
+      <div>
+        <SectionHeadingSkeleton />
+        <TrackListSkeleton count={4} />
       </div>
     </div>
   );

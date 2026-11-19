@@ -12,7 +12,6 @@ import { SearchProgress } from '@/components/search/search-results';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState } from '@/components/ui/error-state';
-import { Skeleton } from '@/components/ui/skeleton';
 import type { CatalogAlbumResponse, CatalogArtistResponse } from '@/lib/api/catalog';
 import { ApiError } from '@/lib/api/errors';
 import type { AlbumResult } from '@/lib/api/search-types';
@@ -30,7 +29,13 @@ import { playRemoteApp, usePlayAlbumPending } from '@/lib/search/play-remote';
 import { useAlbumTracksByMbid, useMbidIndex } from '@/lib/store/hooks';
 import type { MbidIndex } from '@/lib/store/selectors';
 import { formatDuration } from '@/lib/utils';
-import { AlbumGridSkeleton, TrackListSkeleton } from './library/skeletons';
+import {
+  AlbumGridSkeleton,
+  AlbumHeaderSkeleton,
+  ArtistHeaderSkeleton,
+  SectionHeadingSkeleton,
+  TrackListSkeleton,
+} from './library/skeletons';
 
 const MBID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const GRID = 'grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5';
@@ -181,11 +186,9 @@ export function CatalogArtistScreen() {
       <CatalogGate
         query={valid ? query : invalidQuery}
         skeleton={
-          <div className="flex flex-col gap-8">
-            <div className="flex items-end gap-5">
-              <Skeleton className="size-40 rounded-full" />
-              <Skeleton className="h-10 w-64" />
-            </div>
+          <div>
+            <ArtistHeaderSkeleton align="end" />
+            <SectionHeadingSkeleton />
             <AlbumGridSkeleton />
           </div>
         }
@@ -347,12 +350,9 @@ export function CatalogAlbumScreen() {
       <CatalogGate
         query={valid ? query : invalidQuery}
         skeleton={
-          <div className="flex flex-col gap-8">
-            <div className="flex items-end gap-6">
-              <Skeleton className="size-48 rounded-md" />
-              <Skeleton className="h-10 w-64" />
-            </div>
-            <TrackListSkeleton />
+          <div>
+            <AlbumHeaderSkeleton />
+            <TrackListSkeleton numbered />
           </div>
         }
       >

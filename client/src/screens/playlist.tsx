@@ -14,7 +14,7 @@ import { useTracksOffline } from '@/lib/offline/hooks';
 import { useFavorites, usePlaylistCard, usePlaylistTracks } from '@/lib/store/hooks';
 import type { TrackView } from '@/lib/store/selectors';
 import { formatLongDuration } from '@/lib/utils';
-import { TrackListSkeleton } from './library/skeletons';
+import { AlbumHeaderSkeleton, TrackListSkeleton } from './library/skeletons';
 import { ItemNotFound, useEntityState } from './library/entity-gate';
 
 function useRefTracks(ref: PlaylistRef | null): TrackView[] {
@@ -36,6 +36,7 @@ export function PlaylistScreen() {
   if (state === 'loading') {
     return (
       <div className="px-5 pt-[34px] pb-6 sm:pt-6" data-testid="screen-skeleton">
+        <AlbumHeaderSkeleton />
         <TrackListSkeleton />
       </div>
     );
