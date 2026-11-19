@@ -14,7 +14,7 @@ async function searchFor(page: Page, query: string) {
 test.describe('поиск', () => {
   test.beforeEach(async ({ request }) => resetMock(request));
 
-  test('radiohead → секции → добавить альбом → «добавляется» → альбом в библиотеке без перезагрузки → ссылка «Открыть»', async ({
+  test('radiohead → секции → добавить альбом → «добавляется» → альбом в библиотеке без перезагрузки → отметка «В библиотеке»', async ({
     page,
     request,
   }) => {
@@ -30,10 +30,9 @@ test.describe('поиск', () => {
     const card = page.getByTestId('remote-album').filter({ hasText: 'OK Computer' });
     await card.getByRole('button', { name: 'Добавить в библиотеку' }).click();
     await expect(card.getByRole('button', { name: 'Добавляется…' })).toBeDisabled();
-    // Дельта принесла альбом: кнопка превратилась в ссылку.
-    const open = card.getByRole('link', { name: 'Открыть' });
-    await expect(open).toBeVisible();
+    // Дельта принесла альбом: кнопка превратилась в отметку «В библиотеке».
     await expect(card.getByText('В библиотеке')).toBeVisible();
+    await expect(card.getByRole('link', { name: 'Открыть' })).toHaveCount(0);
 
     await page.getByTestId('sidebar').getByRole('link', { name: 'Библиотека' }).click();
     await expect(page.getByTestId('tab-albums')).toContainText('9');
@@ -46,7 +45,7 @@ test.describe('поиск', () => {
     await searchFor(page, 'radiohead');
     const artist = page.getByTestId('remote-artist').filter({ hasText: 'Radiohead' }).first();
     await artist.getByRole('button', { name: 'Добавить в библиотеку' }).click();
-    await expect(artist.getByRole('link', { name: 'Открыть' })).toBeVisible();
+    await expect(artist.getByText('В библиотеке')).toBeVisible();
     await page.getByTestId('sidebar').getByRole('link', { name: 'Главная' }).click();
     const card = page.getByTestId('home-recent').getByTestId('artist-card').filter({ hasText: 'Radiohead' });
     await expect(card).toBeVisible();
@@ -139,9 +138,12 @@ test.describe('поиск', () => {
     await searchFor(page, 'radiohead');
     const card = page.getByTestId('remote-album').filter({ hasText: 'OK Computer' });
     await card.getByRole('button', { name: 'Добавить в библиотеку' }).click();
-    await card.getByRole('link', { name: 'Открыть' }).click();
+    await expect(card.getByText('В библиотеке')).toBeVisible();
+    await page.getByTestId('sidebar').getByRole('link', { name: 'Библиотека' }).click();
+    await page.getByTestId('library-albums').getByText('OK Computer').click();
     await expect(page).toHaveURL(/\/album\/\d+$/);
     expect(await searchRequests(request)).toBe(1);
+    await page.goBack();
     await page.goBack();
     await expect(page.getByTestId('search-albums')).toBeVisible();
     await expect(page.getByRole('searchbox')).toHaveValue('radiohead');
