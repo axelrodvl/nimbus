@@ -9,7 +9,15 @@ import { PlayAlbumButton } from '@/components/player/play-buttons';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useT } from '@/lib/i18n/provider';
 import { SEARCH_ENTRY } from '@/lib/nav/items';
-import { useHydrated, useLibraryList, usePlaylistCards, useRecentlyPlayedAlbums } from '@/lib/store/hooks';
+import { currentTrack } from '@/lib/player/engine';
+import { usePlayerState } from '@/lib/player/hooks';
+import {
+  useAlbumView,
+  useHydrated,
+  useLibraryList,
+  usePlaylistCards,
+  useRecentlyPlayedAlbums,
+} from '@/lib/store/hooks';
 import type { AlbumView, ArtistView } from '@/lib/store/selectors';
 import { HomeSkeleton } from './library/skeletons';
 
@@ -39,7 +47,12 @@ export function recentItems(albums: AlbumView[], artists: ArtistView[], limit = 
 export function Home() {
   const t = useT();
   const hydrated = useHydrated();
-  const played = useRecentlyPlayedAlbums(PLAYED_ALBUMS);
+  const playedCounted = useRecentlyPlayedAlbums(PLAYED_ALBUMS);
+  // Прослушивание засчитывается лишь после половины трека, а альбом играющего трека должен появиться сразу.
+  const nowPlaying = useAlbumView(usePlayerState(s => currentTrack(s)?.albumId ?? -1));
+  const played = nowPlaying
+    ? [nowPlaying, ...playedCounted.filter(a => a.id !== nowPlaying.id)].slice(0, PLAYED_ALBUMS)
+    : playedCounted;
   const playlists = usePlaylistCards().slice(0, HOME_PLAYLISTS);
   const albums = useLibraryList('albums');
   const artists = useLibraryList('artists');

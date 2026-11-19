@@ -1,5 +1,8 @@
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { appData } from '@/lib/app-data';
+import { resetPlayer, toPlayerTrack } from '@/lib/player';
+import { installTestPlayer } from '@/test/player-ui';
 import { makeArtist, makeLibrary, makePlaylist, resetFactories } from '@/test/factories';
 import { renderWithProviders } from '@/test/render';
 import { seed, seedNothing } from '@/test/seed';
@@ -13,6 +16,24 @@ const names = (section: HTMLElement) =>
     .map(l => l.textContent ?? '');
 
 describe('Home', () => {
+  it('альбом играющего трека виден в «Недавно прослушанные» сразу, до засчитанного прослушивания', () => {
+    const rows = makeLibrary({ albumsPerArtist: 2, artists: 1, tracksPerAlbum: 2 });
+    rows.tracks.forEach(t => {
+      if (t.album_id === 1) t.last_played_at = '2026-06-01T00:00:00Z';
+    });
+    seed(rows);
+    const env = installTestPlayer();
+    const view = appData().selectors.trackView(
+      appData().library.getState(),
+      rows.tracks.find(t => t.album_id === 2)!.id,
+    )!;
+    act(() => env.ctl.play(toPlayerTrack(view)));
+    renderWithProviders(<Home />);
+    const played = names(screen.getByTestId('home-played')).map(n => n.split('Artist')[0]?.trim());
+    expect(played).toEqual(['Album 2', 'Album 1']);
+    resetPlayer();
+  });
+
   it('до гидратации — skeleton, а не пустое состояние', () => {
     seedNothing();
     renderWithProviders(<Home />);
