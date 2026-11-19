@@ -157,10 +157,15 @@ describe('поиск → каталог', () => {
     );
   });
 
-  it('пока идёт поиск — спиннер в поле ввода', async () => {
+  it('в поле — крестик очистки, спиннера в поле нет; индикатор поиска — под полем', async () => {
     vi.mocked(searchApi.searchRemote).mockReturnValue(new Promise(() => undefined));
     renderRoutes(routes, '/search?q=radiohead');
-    expect(await screen.findByTestId('search-spinner')).toBeInTheDocument();
+    expect(await screen.findByTestId('search-clear')).toBeInTheDocument();
+    expect(screen.queryByTestId('search-spinner')).toBeNull();
+    fireEvent.click(screen.getByTestId('search-clear'));
+    expect(screen.getByRole('searchbox')).toHaveValue('');
+    expect(screen.queryByTestId('search-clear')).toBeNull();
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'radiohead' } });
     expect(screen.getByTestId('search-progress')).toHaveTextContent('Ищем в MusicBrainz…');
   });
 });

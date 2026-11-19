@@ -1,9 +1,8 @@
-import { Search as SearchIcon } from 'lucide-react';
+import { Search as SearchIcon, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigationType, useSearchParams } from 'react-router';
 import { PageLayout } from '@/components/page-layout';
 import { SearchResults } from '@/components/search/search-results';
-import { Spinner } from '@/components/ui/spinner';
 import { useT } from '@/lib/i18n/provider';
 import { useOnline } from '@/lib/live/hooks';
 import { LOCAL_LIMIT } from '@/lib/search/query';
@@ -27,8 +26,6 @@ export function SearchScreen() {
   const local = useSearchLocal(value, LOCAL_LIMIT);
   const remote = useRemoteSearch(value, online);
   const index = useMbidIndex();
-  // Поиск идёт (или повторяется) — спиннер в поле: MusicBrainz может отвечать несколько секунд.
-  const busy = online && value.trim() !== '' && (remote.loading || remote.retrying);
 
   // Ссылка из истории или палитры меняет `?q=` снаружи — поле следует за ней (набор текста URL уже совпадает).
   const [prevUrl, setPrevUrl] = useState(urlQuery);
@@ -87,7 +84,7 @@ export function SearchScreen() {
         <input
           aria-label={t('palette.inputLabel')}
           autoComplete="off"
-          className="border-divider dark:border-divider-dark bg-card/50 dark:bg-card-dark/50 focus-visible:ring-accent/40 w-full rounded-full border py-3 pr-12 pl-12 text-base focus-visible:ring-2 focus-visible:outline-none"
+          className="border-divider dark:border-divider-dark bg-card/50 dark:bg-card-dark/50 focus-visible:ring-accent/40 w-full appearance-none rounded-full border py-3 pr-12 pl-12 text-base focus-visible:ring-2 focus-visible:outline-none [&::-webkit-search-cancel-button]:hidden"
           maxLength={200}
           name="q"
           onChange={e => onChange(e.target.value)}
@@ -96,13 +93,19 @@ export function SearchScreen() {
           type="search"
           value={value}
         />
-        {busy ? (
-          <span
-            className="text-accent-fg pointer-events-none absolute top-1/2 right-4 -translate-y-1/2"
-            data-testid="search-spinner"
+        {value ? (
+          <button
+            aria-label={t('search.historyClear')}
+            className="text-gray hover:text-black dark:hover:text-white absolute top-1/2 right-3 flex size-8 -translate-y-1/2 items-center justify-center rounded-full"
+            data-testid="search-clear"
+            onClick={() => {
+              onChange('');
+              input.current?.focus();
+            }}
+            type="button"
           >
-            <Spinner className="size-5" />
-          </span>
+            <X aria-hidden className="size-5" />
+          </button>
         ) : null}
       </form>
       <SearchResults index={index} local={local} online={online} query={value} remote={remote} />
