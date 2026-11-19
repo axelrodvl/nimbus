@@ -2203,7 +2203,7 @@
         "operationId": "snapshot",
         "responses": {
           "200": {
-            "description": "Весь синхронизируемый набор данных, по JSON-объекту в строке: `{\"type\":\"begin\",\"cursor\":\"…\",\"schema\":1}`, затем строки `artist`, `album`, `track`, `playlist`, `playlist_track` (`{\"type\":…,\"row\":{…}}`, именно в этом порядке сущностей), в конце `{\"type\":\"end\",\"counts\":{…}}`. Снимок принят, только если получена строка `end`; обрыв без неё — ошибка. Ответ сжимается (gzip, br).",
+            "description": "Весь синхронизируемый набор данных, по JSON-объекту в строке: `{\"type\":\"begin\",\"cursor\":\"…\",\"schema\":2}`, затем строки `artist`, `album`, `track`, `playlist`, `playlist_track` (`{\"type\":…,\"row\":{…}}`, именно в этом порядке сущностей), в конце `{\"type\":\"end\",\"counts\":{…}}`. Снимок принят, только если получена строка `end`; обрыв без неё — ошибка. Ответ сжимается (gzip, br).",
             "content": {
               "application/x-ndjson": {
                 "schema": {
@@ -5350,6 +5350,24 @@
           "needs_confirmation": {
             "type": "boolean",
             "description": "Primary-источник сомнительный: его стоит проверить или подтвердить."
+          },
+          "pin": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PinState",
+                "description": "Закрепление трека на сервере (скачать и не вытеснять); `null` — не закреплён."
+              }
+            ]
+          },
+          "pin_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Причина `pin = failed` (например `stalled`)."
           },
           "play_count": {
             "type": "integer",

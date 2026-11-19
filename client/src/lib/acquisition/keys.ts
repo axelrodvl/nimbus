@@ -5,8 +5,6 @@ export const ACQ_ROOT = ['acquisition'] as const;
 export const summaryKey = [...ACQ_ROOT, 'summary'] as const;
 export const listKey = (states: readonly AcquisitionState[]) => [...ACQ_ROOT, 'list', states.join(',')] as const;
 export const LIST_ROOT = [...ACQ_ROOT, 'list'] as const;
-export const albumKey = (albumId: number) => [...ACQ_ROOT, 'album', albumId] as const;
-export const ALBUM_ROOT = [...ACQ_ROOT, 'album'] as const;
 export const downloadsKey = [...ACQ_ROOT, 'downloads'] as const;
 export const jobsKey = [...ACQ_ROOT, 'jobs'] as const;
 export const invariantsKey = [...ACQ_ROOT, 'invariants'] as const;

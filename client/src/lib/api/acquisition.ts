@@ -19,7 +19,7 @@ export type RetryAcquisitionBody = Schemas['RetryAcquisitionRequest'];
 /** Размер страницы списка альбомов. */
 export const ACQUISITION_PAGE = 100;
 
-export type ListQuery = { states?: readonly AcquisitionState[]; albumIds?: readonly number[]; cursor?: string | null };
+export type ListQuery = { states?: readonly AcquisitionState[]; cursor?: string | null };
 
 /** `GET /api/acquisition` (страница по курсору). */
 export async function listAcquisition(
@@ -31,7 +31,6 @@ export async function listAcquisition(
     await client.GET('/api/acquisition', {
       params: {
         query: {
-          album_ids: q.albumIds?.length ? q.albumIds.join(',') : undefined,
           cursor: q.cursor ?? undefined,
           limit: ACQUISITION_PAGE,
           state: q.states?.length ? q.states.join(',') : undefined,

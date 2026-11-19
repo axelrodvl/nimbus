@@ -81,6 +81,7 @@ const messages: Messages = {
   'acq.selectRow': 'Seleziona «{title}»',
   'acq.server.done': 'Sul server',
   'acq.server.download': 'Scarica sul server',
+  'acq.server.downloading': 'Download in corso…',
   'acq.server.progress': 'Download {percent}%',
   'acq.server.queued': 'In coda',
   'acq.server.retry': 'Download fallito: riprova',

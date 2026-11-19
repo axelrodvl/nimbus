@@ -194,7 +194,11 @@ HTTP-запроса): TPB/apibay — 250 мс и 4; Torznab (свой индек
 Шаг 34. Контракт и формат — `docs/api.md` («Синхронизация»). Устройство: миграция `0012_sync.sql` добавляет
 `sync_txid` в пять таблиц (`artists`, `albums`, `tracks`, `playlists`, `playlist_tracks`) с триггером `sync_stamp`
 (`BEFORE INSERT OR UPDATE`, ставит `txid_current()` и шлёт `pg_notify('nimbus_sync')`), таблицу надгробий
-`sync_tombstones` и триггеры уровня оператора на `track_sources`/`track_plays`, «касающиеся» треков (производные поля).
+`sync_tombstones` и триггеры уровня оператора на `track_sources`/`track_plays`, «касающиеся» треков (производные поля);
+`0025_sync_pins.sql` — такие же триггеры на `pinned_tracks` (вставка, удаление, смена `state`/`error`): поля `pin`/`pin_error`
+трека синхронизируются, и клиент сам вычисляет состояние альбома на сервере (`client/src/lib/acquisition/server-state.ts`
+повторяет `state_cte!`; совпадение проверяет общий файл примеров `crates/db/tests/fixtures/album-server-state.json`).
+Экран альбома поэтому не запрашивает `/api/acquisition` (ревью S11); списки экрана «Загрузки» — по-прежнему REST.
 Репозиторий `db::repo::sync` — снимок (`begin_snapshot`, потоковые выборки), дельта (`changes_since`), курсор, чистка
 надгробий; общие SQL-выражения `needs_confirmation`/`transcode` вынесены из `views.rs` макросами и используются и
 старым API, и синхронизацией. `api::sync` — DTO, обработчики и `spawn_sync_poker`: `PgListener` на `nimbus_sync` в

@@ -83,6 +83,7 @@ const messages: Messages = {
   'acq.selectRow': 'Выбрать «{title}»',
   'acq.server.done': 'На сервере',
   'acq.server.download': 'Скачать на сервер',
+  'acq.server.downloading': 'Загрузка…',
   'acq.server.progress': 'Загрузка {percent}%',
   'acq.server.queued': 'В очереди',
   'acq.server.retry': 'Загрузка не удалась — повторить',

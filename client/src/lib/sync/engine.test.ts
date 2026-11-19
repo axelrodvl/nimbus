@@ -5,7 +5,7 @@ import { createDb, type Db } from '@/lib/db';
 import { createLibraryStore } from '@/lib/store/library';
 import { createLiveStore } from '@/lib/store/live';
 import { FakeSyncServer, makeAlbum, makeArtist, makeLibrary, makeTrack, resetFactories } from '@/test/factories';
-import { createSyncEngine, LIVE_FLUSH_MS, SAFETY_POLL_MS, type EngineDeps } from './engine';
+import { createSyncEngine, LIVE_FLUSH_MS, SAFETY_POLL_MS, SYNC_SCHEMA, type EngineDeps } from './engine';
 import { createTabs, type ChannelLike, type LockManagerLike, type Tabs } from './tabs';
 
 let n = 0;
@@ -65,7 +65,7 @@ describe('запуск', () => {
     expect(env.store.getState().hydrated).toBe(true);
     const saved = await env.db.loadAll();
     expect(saved.tracks).toHaveLength(4);
-    expect(saved.meta).toMatchObject({ cursor: server.cursor, schema: 1 });
+    expect(saved.meta).toMatchObject({ cursor: server.cursor, schema: SYNC_SCHEMA });
     expect(env.engine.status.getState().lastSyncedAt).not.toBeNull();
   });
 
@@ -96,6 +96,16 @@ describe('запуск', () => {
     const env = makeEnv(server, { dbName });
     await sync(env);
     expect(server.snapshotRequests).toBe(1);
+  });
+
+  it('данные формата 1 (до закреплений в треках, ревью S11) — берётся снимок', async () => {
+    const server = new FakeSyncServer().load(makeLibrary({ artists: 1, albumsPerArtist: 1, tracksPerAlbum: 1 }));
+    const dbName = `engine-schema-v1-${++n}`;
+    await createDb({ name: dbName }).applyBatch({ meta: { cursor: '1.e.5', schema: 1 } });
+    const env = makeEnv(server, { dbName });
+    await sync(env);
+    expect(server.snapshotRequests).toBe(1);
+    expect((await createDb({ name: dbName }).loadMeta()).schema).toBe(2);
   });
 
   it('ошибка чтения базы: старт с чистого листа, данные приходят снимком', async () => {

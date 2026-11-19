@@ -83,6 +83,7 @@ const messages: Messages = {
   'acq.selectRow': '„{title}“ auswählen',
   'acq.server.done': 'Auf dem Server',
   'acq.server.download': 'Auf Server laden',
+  'acq.server.downloading': 'Wird geladen…',
   'acq.server.progress': 'Lädt {percent} %',
   'acq.server.queued': 'In der Warteschlange',
   'acq.server.retry': 'Laden fehlgeschlagen – erneut versuchen',

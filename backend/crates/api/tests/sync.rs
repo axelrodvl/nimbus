@@ -159,8 +159,8 @@ async fn snapshot_has_begin_rows_in_entity_order_and_end_with_counts(pool: PgPoo
     let s = snapshot(&app).await;
 
     assert_eq!(s.lines[0]["type"], "begin");
-    assert_eq!(s.lines[0]["schema"], 1);
-    assert!(s.cursor.starts_with("1."));
+    assert_eq!(s.lines[0]["schema"], 2);
+    assert!(s.cursor.starts_with("2."));
     let types: Vec<&str> = s
         .lines
         .iter()
@@ -368,9 +368,9 @@ async fn unusable_cursors_ask_for_a_reset(pool: PgPool) {
     let cases = [
         ("мусор".to_string(), "garbage"),
         (String::new(), "empty"),
-        (format!("1.{}.{}", uuid_like(), xmin), "foreign epoch"),
-        (format!("2.{epoch}.{xmin}"), "other schema"),
-        (format!("1.{epoch}.{}", xmin + 1_000_000), "from the future"),
+        (format!("2.{}.{}", uuid_like(), xmin), "foreign epoch"),
+        (format!("1.{epoch}.{xmin}"), "other schema"),
+        (format!("2.{epoch}.{}", xmin + 1_000_000), "from the future"),
     ];
     for (cursor, why) in cases {
         let v = changes(&app, &cursor).await;
@@ -388,7 +388,7 @@ async fn unusable_cursors_ask_for_a_reset(pool: PgPool) {
     nimbus_db::repo::sync::purge_tombstones(&pool, nimbus_db::repo::sync::TOMBSTONE_RETENTION)
         .await
         .unwrap();
-    let v = changes(&app, &format!("1.{epoch}.1")).await;
+    let v = changes(&app, &format!("2.{epoch}.1")).await;
     assert_eq!(v["reset"], true, "xmin ниже floor");
     // а курсор выше floor по-прежнему годится (ждём, пока xmin соседних тестов обгонит floor)
     eventually(Duration::from_secs(10), || async {

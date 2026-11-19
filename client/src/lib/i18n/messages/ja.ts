@@ -83,6 +83,7 @@ const messages: Messages = {
   'acq.selectRow': '「{title}」を選択',
   'acq.server.done': 'サーバー上',
   'acq.server.download': 'サーバーにダウンロード',
+  'acq.server.downloading': 'ダウンロード中…',
   'acq.server.progress': 'ダウンロード {percent}%',
   'acq.server.queued': '待機中',
   'acq.server.retry': 'ダウンロード失敗 — 再試行',

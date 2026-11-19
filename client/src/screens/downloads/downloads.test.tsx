@@ -14,7 +14,9 @@ import { I18nProvider } from '@/lib/i18n/provider';
 import ru from '@/lib/i18n/messages/ru';
 import { createI18nStore } from '@/lib/i18n/store';
 import { NAV_ITEMS } from '@/lib/nav/items';
+import type { Track } from '@/lib/db/types';
 import { item, L, page, summary, torrent } from '@/test/acquisition';
+import { makeAlbum, makeArtist, makeTrack } from '@/test/factories';
 import { mockLayout, ScrollHost } from '@/test/layout';
 import { renderRoutes } from '@/test/render';
 import { JobsSection } from '../settings/jobs-section';
@@ -609,9 +611,21 @@ describe('«Торренты» и фоновые задачи (в настрой
 });
 
 describe('кнопка «Скачать на сервер» на экране альбома', () => {
-  const mount = (row: api.AcquisitionItem | null, online = true) => {
+  type Spec = { status: Track['status']; pin?: api.PinState | null; pin_error?: string | null; in_library?: boolean };
+  /** Треки альбома 1 в store (состояние кнопки вычисляется из них, без запроса). */
+  const seed = (tracks: readonly Spec[]) =>
+    appData()
+      .library.getState()
+      .replaceAll({
+        albums: [makeAlbum({ artist_id: 1, id: 1 })],
+        artists: [makeArtist({ id: 1 })],
+        playlistTracks: [],
+        playlists: [],
+        tracks: tracks.map((t, i) => makeTrack({ album_id: 1, id: 100 + i, position: i + 1, ...t })),
+      });
+  const mount = (tracks: readonly Spec[] | null, online = true) => {
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(online);
-    m.list.mockResolvedValue(page(row ? [row] : []));
+    if (tracks) seed(tracks);
     const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } });
     const router = createMemoryRouter([
       {
@@ -632,66 +646,70 @@ describe('кнопка «Скачать на сервер» на экране а
       </I18nProvider>,
     );
   };
+  beforeEach(() => appData().live.getState().clear());
+  afterEach(() =>
+    appData().library.getState().replaceAll({ albums: [], artists: [], playlistTracks: [], playlists: [], tracks: [] }),
+  );
+
+  it('состояние известно в первом кадре, без запроса к серверу', () => {
+    mount([{ status: 'ready' }, { status: 'ready' }]);
+    expect(screen.getByTestId('server-download-done')).toHaveTextContent(L('acq.server.done'));
+    expect(screen.queryByTestId('server-download-loading')).not.toBeInTheDocument();
+    expect(m.list).not.toHaveBeenCalled();
+  });
+
+  it('дельта синхронизации меняет состояние на месте', () => {
+    mount([{ status: 'found' }]);
+    expect(screen.getByTestId('server-download')).toHaveTextContent(L('acq.server.download'));
+    act(() => appData().library.getState().patchTrack(100, { pin: 'done', status: 'ready' }));
+    expect(screen.getByTestId('server-download-done')).toBeInTheDocument();
+  });
 
   it('нет закрепления → кнопка; нажатие оптимистично показывает «В очереди» и закрепляет', async () => {
     let release!: () => void;
     m.pin.mockReturnValue(new Promise(r => (release = () => r({ pinned: 3 }))));
-    mount(item(1, { state: 'available' }));
-    await userEvent.click(await screen.findByTestId('server-download'));
-    expect(await screen.findByTestId('server-download-progress')).toHaveTextContent(L('acq.server.queued'));
+    mount([{ status: 'found' }, { status: 'ready' }]);
+    await userEvent.click(screen.getByTestId('server-download'));
+    expect(screen.getByTestId('server-download-progress')).toHaveTextContent(L('acq.server.queued'));
     expect(m.pin).toHaveBeenCalledWith(1);
     release();
   });
 
   it('при ошибке закрепления — откат к кнопке и toast', async () => {
     m.pin.mockRejectedValue(new ApiError(500, 'internal', 'boom'));
-    mount(item(1, { state: 'available' }));
-    await userEvent.click(await screen.findByTestId('server-download'));
+    mount([{ status: 'found' }]);
+    await userEvent.click(screen.getByTestId('server-download'));
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(await screen.findByTestId('server-download')).toHaveTextContent(L('acq.server.download'));
+    expect(appData().library.getState().tracks.get(100)?.pin ?? null).toBeNull();
   });
 
-  it('идёт загрузка → проценты из live-store; ждёт источник; отмена снимает закрепление', async () => {
+  it('идёт загрузка → проценты из live-store; отмена снимает закрепление', async () => {
     m.unpin.mockResolvedValue(undefined);
-    mount(item(1, { download: pinned('downloading', { bytes_done: 10, bytes_total: 100 }), state: 'downloading' }));
-    expect(await screen.findByTestId('server-download-progress')).toHaveTextContent(
-      L('acq.server.progress', { percent: 10 }),
-    );
+    mount([{ pin: 'downloading', status: 'found' }, { pin: 'done', status: 'ready' }]);
+    // до первого live-прогресса байты неизвестны — без процентов
+    expect(screen.getByTestId('server-download-progress')).toHaveTextContent(L('acq.server.downloading'));
     act(() =>
       appData().live.getState().setDownloadProgress(1, { bytes_done: 40, bytes_total: 100, down_bps: 1, peers: 1 }),
     );
     expect(screen.getByTestId('server-download-progress')).toHaveTextContent(L('acq.server.progress', { percent: 40 }));
     await userEvent.click(screen.getByTestId('server-download-cancel'));
     await waitFor(() => expect(m.unpin).toHaveBeenCalledWith(1, false));
+    expect(screen.getByTestId('server-download')).toHaveTextContent(L('acq.server.download'));
   });
 
-  it('ждёт источник и ошибка загрузки', async () => {
-    const { unmount } = mount(item(1, { download: pinned('waiting_source'), state: 'available' }));
-    expect(await screen.findByTestId('server-download-progress')).toHaveTextContent(L('acq.server.waiting'));
+  it('ждёт источник и ошибка загрузки', () => {
+    const { unmount } = mount([{ pin: 'waiting_source', status: 'found' }]);
+    expect(screen.getByTestId('server-download-progress')).toHaveTextContent(L('acq.server.waiting'));
     unmount();
-    mount(item(1, { download: pinned('failed', { error: 'stalled' }), state: 'available' }));
-    await waitFor(() => expect(screen.getByTestId('server-download')).toHaveTextContent(L('acq.server.retry')));
-  });
-
-  it('статус запоминается локально: повторное открытие показывает кнопку сразу, без спиннера', async () => {
-    const { unmount } = mount(item(1, { state: 'downloaded' }));
-    expect(await screen.findByTestId('server-download-done')).toBeInTheDocument();
-    unmount();
-    mount(item(1, { state: 'downloaded' }));
-    expect(screen.queryByTestId('server-download-loading')).not.toBeInTheDocument();
-    expect(screen.getByTestId('server-download-done')).toBeInTheDocument();
-  });
-
-  it('пока статус неизвестен — спиннер на месте кнопки', async () => {
-    mount(item(1, { state: 'downloaded' }));
-    expect(screen.getByTestId('server-download-loading')).toBeInTheDocument();
-    expect(await screen.findByTestId('server-download-done')).toBeInTheDocument();
+    mount([{ pin: 'failed', pin_error: 'stalled', status: 'found' }]);
+    expect(screen.getByTestId('server-download')).toHaveTextContent(L('acq.server.retry'));
   });
 
   it('скачан → «На сервере» и меню «Убрать с сервера» (с подтверждением)', async () => {
     m.unpin.mockResolvedValue(undefined);
-    mount(item(1, { download: pinned('done', { bytes_done: 5, bytes_total: 5 }), state: 'downloaded' }));
-    expect(await screen.findByTestId('server-download-done')).toHaveTextContent(L('acq.server.done'));
+    mount([{ pin: 'done', status: 'ready' }]);
+    expect(screen.getByTestId('server-download-done')).toHaveTextContent(L('acq.server.done'));
     await userEvent.click(screen.getByTestId('album-menu'));
     await userEvent.click(await screen.findByTestId('menu-remove'));
     expect(m.unpin).not.toHaveBeenCalled();
@@ -701,19 +719,23 @@ describe('кнопка «Скачать на сервер» на экране а
     await waitFor(() => expect(m.unpin).toHaveBeenCalledWith(1, true));
   });
 
-  it('не показывается: альбом ищется / не найден / сервер его не знает / нет сети', async () => {
-    for (const [row, online] of [
-      [item(1, { state: 'searching' }), true],
-      [item(1, { state: 'missing' }), true],
-      [null, true],
-      [item(1, { state: 'available' }), false],
+  it('нет сети — кнопка на месте, но неактивна', () => {
+    mount([{ status: 'found' }], false);
+    expect(screen.getByTestId('server-download')).toBeDisabled();
+  });
+
+  it('не показывается: альбом ищется / не найден / сервер его не знает', () => {
+    for (const tracks of [
+      [{ status: 'adding' }, { status: 'ready' }],
+      [{ status: 'not_found' }],
+      [{ in_library: false, status: 'ready' }],
+      null,
     ] as const) {
-      const { container, unmount } = mount(row, online);
-      await waitFor(() => expect(m.list.mock.calls.length > 0 || !online).toBe(true));
-      await new Promise(r => setTimeout(r, 20));
+      const { container, unmount } = mount(tracks);
       expect(container.querySelector('[data-testid^="server-download"]')).toBeNull();
       unmount();
     }
+    expect(m.list).not.toHaveBeenCalled();
   });
 });
 

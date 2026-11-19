@@ -2430,6 +2430,7 @@ dependencies = [
  "chrono",
  "futures",
  "nimbus-core",
+ "nimbus-testkit",
  "proptest",
  "serde",
  "serde_json",

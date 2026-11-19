@@ -1,6 +1,7 @@
 import { useMemo, useSyncExternalStore, type DependencyList } from 'react';
 import { useStore } from 'zustand';
 import { appData } from '@/lib/app-data';
+import type { AlbumServerState } from '@/lib/acquisition/server-state';
 import type { LibraryState } from './library';
 import { createThrottledSource } from './throttled';
 import type { LiveState } from './live';
@@ -30,6 +31,9 @@ export const useRowCount = (): number => useLibrary(s => s.artists.size + s.trac
 
 export const useAlbumView = (id: number): AlbumView | undefined =>
   useLibrary(s => appData().selectors.albumView(s, id));
+/** Состояние альбома на сервере (скачан / закреплён / качается) — из store, без запроса; `null` — сервер его не знает. */
+export const useAlbumServerState = (id: number): AlbumServerState | null =>
+  useLibrary(s => appData().selectors.albumServer(s, id));
 export const useArtistView = (id: number): ArtistView | undefined =>
   useLibrary(s => appData().selectors.artistView(s, id));
 export const useTrackView = (id: number): TrackView | undefined =>

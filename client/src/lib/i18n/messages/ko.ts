@@ -81,6 +81,7 @@ const messages: Messages = {
   'acq.selectRow': '‘{title}’ 선택',
   'acq.server.done': '서버에 있음',
   'acq.server.download': '서버에 다운로드',
+  'acq.server.downloading': '다운로드 중…',
   'acq.server.progress': '다운로드 {percent}%',
   'acq.server.queued': '대기 중',
   'acq.server.retry': '다운로드 실패 — 다시 시도',

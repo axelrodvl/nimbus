@@ -1805,6 +1805,9 @@ export interface components {
       mbid_recording: string;
       /** @description Primary-источник сомнительный: его стоит проверить или подтвердить. */
       needs_confirmation: boolean;
+      pin?: null | components['schemas']['PinState'];
+      /** @description Причина `pin = failed` (например `stalled`). */
+      pin_error?: string | null;
       /** Format: int32 */
       play_count: number;
       /** @description Как играть: `direct` или `transcode`. */
@@ -3677,7 +3680,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Весь синхронизируемый набор данных, по JSON-объекту в строке: `{"type":"begin","cursor":"…","schema":1}`, затем строки `artist`, `album`, `track`, `playlist`, `playlist_track` (`{"type":…,"row":{…}}`, именно в этом порядке сущностей), в конце `{"type":"end","counts":{…}}`. Снимок принят, только если получена строка `end`; обрыв без неё — ошибка. Ответ сжимается (gzip, br). */
+      /** @description Весь синхронизируемый набор данных, по JSON-объекту в строке: `{"type":"begin","cursor":"…","schema":2}`, затем строки `artist`, `album`, `track`, `playlist`, `playlist_track` (`{"type":…,"row":{…}}`, именно в этом порядке сущностей), в конце `{"type":"end","counts":{…}}`. Снимок принят, только если получена строка `end`; обрыв без неё — ошибка. Ответ сжимается (gzip, br). */
       200: {
         headers: {
           [name: string]: unknown;

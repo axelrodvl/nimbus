@@ -128,6 +128,22 @@ export function createAcquisitionMock(deps: AcquisitionDeps) {
     }
   };
 
+  /** Закрепление альбома → поля `pin`/`pin_error` его треков в синхронизации (как триггеры `pinned_tracks`). */
+  const syncPins = (albumId: number) => {
+    const pin = pins.get(albumId);
+    for (const t of tracksOf(albumId)) {
+      const state: PinState | null = !pin
+        ? null
+        : pin.state === 'done' || t.status === 'found' || t.status === 'ready'
+          ? pin.state
+          : 'waiting_source';
+      const error = state === 'failed' ? 'stalled' : null;
+      if ((t.pin ?? null) !== state || (t.pin_error ?? null) !== error)
+        deps.server().upsert('track', { ...t, pin: state, pin_error: error });
+    }
+    deps.poke();
+  };
+
   async function route(req: Request, path: string): Promise<Response | null> {
     const url = new URL(req.url);
     const q = url.searchParams;
@@ -169,14 +185,15 @@ export function createAcquisitionMock(deps: AcquisitionDeps) {
         if (pinFail) return err(500, 'internal', 'pin failed');
         const found = tracksOf(id).filter(t => t.status === 'found').length;
         if (!pins.has(id)) pins.set(id, { done: 0, state: found > 0 ? 'queued' : 'waiting_source', total: 100 * MB });
+        syncPins(id);
         changed(id);
         return deps.json(200, { pinned: tracksOf(id).length });
       }
       if (m === 'DELETE') {
         pins.delete(id);
         if (q.get('delete_files') === 'true') setStatus(id, 'ready', 'found');
+        syncPins(id);
         changed(id);
-        deps.poke();
         return deps.json(204);
       }
     }
@@ -284,7 +301,7 @@ export function createAcquisitionMock(deps: AcquisitionDeps) {
       if (pin.done >= pin.total) {
         pin.state = 'done';
         setStatus(b.album_id, 'found', 'ready');
-        deps.poke();
+        syncPins(b.album_id);
         changed(b.album_id);
       } else {
         const was = pin.state;
@@ -297,7 +314,10 @@ export function createAcquisitionMock(deps: AcquisitionDeps) {
           peers: 2,
           type: 'download.progress',
         });
-        if (was !== 'downloading') changed(b.album_id);
+        if (was !== 'downloading') {
+          syncPins(b.album_id);
+          changed(b.album_id);
+        }
       }
       return deps.json(200, { state: pin.state });
     }

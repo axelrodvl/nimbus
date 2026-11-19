@@ -18,7 +18,7 @@ use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
 use nimbus_core::events::{Event, EventBus};
-use nimbus_core::model::TrackStatus;
+use nimbus_core::model::{PinState, TrackStatus};
 use nimbus_db::repo::sync::{
     self, CursorError, Entity, Meta, SyncCursor, CHANGES_LIMIT, SYNC_SCHEMA,
 };
@@ -91,6 +91,10 @@ pub struct SyncTrack {
     pub playback: PlaybackMode,
     pub play_count: i32,
     pub last_played_at: Option<DateTime<Utc>>,
+    /// Закрепление трека на сервере (скачать и не вытеснять); `null` — не закреплён.
+    pub pin: Option<PinState>,
+    /// Причина `pin = failed` (например `stalled`).
+    pub pin_error: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -163,6 +167,8 @@ impl From<sync::SyncTrack> for SyncTrack {
             },
             play_count: r.play_count,
             last_played_at: r.last_played_at,
+            pin: r.pin,
+            pin_error: r.pin_error,
         }
     }
 }
@@ -369,7 +375,7 @@ async fn write_snapshot(
     responses((
         status = 200,
         content_type = "application/x-ndjson",
-        description = "Весь синхронизируемый набор данных, по JSON-объекту в строке: `{\"type\":\"begin\",\"cursor\":\"…\",\"schema\":1}`, затем строки `artist`, `album`, `track`, `playlist`, `playlist_track` (`{\"type\":…,\"row\":{…}}`, именно в этом порядке сущностей), в конце `{\"type\":\"end\",\"counts\":{…}}`. Снимок принят, только если получена строка `end`; обрыв без неё — ошибка. Ответ сжимается (gzip, br).",
+        description = "Весь синхронизируемый набор данных, по JSON-объекту в строке: `{\"type\":\"begin\",\"cursor\":\"…\",\"schema\":2}`, затем строки `artist`, `album`, `track`, `playlist`, `playlist_track` (`{\"type\":…,\"row\":{…}}`, именно в этом порядке сущностей), в конце `{\"type\":\"end\",\"counts\":{…}}`. Снимок принят, только если получена строка `end`; обрыв без неё — ошибка. Ответ сжимается (gzip, br).",
         body = String
     ))
 )]

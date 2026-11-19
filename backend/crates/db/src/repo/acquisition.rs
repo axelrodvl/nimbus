@@ -96,7 +96,7 @@ macro_rules! state_cte {
                         WHEN bool_or(p.state = 'failed') THEN 'failed'
                         WHEN bool_or(p.state = 'waiting_source') THEN 'waiting_source'
                         ELSE 'done' END AS pin_state,
-                   min(p.error) FILTER (WHERE p.state = 'failed') AS pin_error
+                   min(p.error COLLATE \"C\") FILTER (WHERE p.state = 'failed') AS pin_error
             FROM pinned_tracks p JOIN tracks t ON t.id = p.track_id
             WHERE t.in_library GROUP BY t.album_id
          ), st AS (

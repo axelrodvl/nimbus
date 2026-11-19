@@ -201,7 +201,7 @@ export class FakeSyncServer {
 
   private snapshot(): Response {
     this.snapshotRequests++;
-    const lines: string[] = [JSON.stringify({ cursor: this.cursor, schema: 1, type: 'begin' })];
+    const lines: string[] = [JSON.stringify({ cursor: this.cursor, schema: 2, type: 'begin' })];
     const counts: Record<string, number> = {};
     for (const entity of ORDER) {
       const rows = [...this.rows.values()].filter(r => r.entity === entity).sort((a, b) => a.row.id - b.row.id);

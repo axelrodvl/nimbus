@@ -407,3 +407,206 @@ async fn purge_removes_only_old_tombstones_and_raises_floor(pool: PgPool) {
     );
     assert_eq!(sync::meta(&mut conn).await.unwrap().floor, floor);
 }
+
+// ---- закрепления в синхронизации (ревью S11)
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn pin_album_bumps_tracks_in_delta(pool: PgPool) {
+    seed(&pool).await;
+    exec(
+        &pool,
+        "UPDATE tracks SET in_library = TRUE, status = 'found'",
+    )
+    .await;
+    let c = cursor_now(&pool).await;
+    let mut conn = pool.acquire().await.unwrap();
+    nimbus_db::repo::pins::pin_album(&mut conn, 1)
+        .await
+        .unwrap();
+    let ch = changes(&pool, &c).await;
+    let mut got: Vec<_> = ch
+        .tracks
+        .iter()
+        .map(|t| (t.id, t.pin.map(|p| p.to_string()), t.pin_error.clone()))
+        .collect();
+    got.sort();
+    assert_eq!(
+        got,
+        vec![
+            (1, Some("queued".into()), None),
+            (2, Some("queued".into()), None)
+        ]
+    );
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn pin_state_change_bumps_track(pool: PgPool) {
+    seed(&pool).await;
+    exec(
+        &pool,
+        "INSERT INTO pinned_tracks (track_id, state) VALUES (1, 'queued')",
+    )
+    .await;
+    let t2 = txid(&pool, "tracks", 2).await;
+    let c = cursor_now(&pool).await;
+    exec(
+        &pool,
+        "UPDATE pinned_tracks SET state = 'failed', error = 'stalled' WHERE track_id = 1",
+    )
+    .await;
+    let ch = changes(&pool, &c).await;
+    assert_eq!(ch.tracks.len(), 1);
+    assert_eq!(ch.tracks[0].id, 1);
+    assert_eq!(
+        ch.tracks[0].pin.map(|p| p.to_string()).as_deref(),
+        Some("failed")
+    );
+    assert_eq!(ch.tracks[0].pin_error.as_deref(), Some("stalled"));
+    assert_eq!(txid(&pool, "tracks", 2).await, t2, "чужой трек не тронут");
+    // смена только ошибки — тоже видна клиенту
+    let c = cursor_now(&pool).await;
+    exec(
+        &pool,
+        "UPDATE pinned_tracks SET error = 'dead' WHERE track_id = 1",
+    )
+    .await;
+    assert_eq!(changes(&pool, &c).await.tracks.len(), 1);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn pin_retries_only_update_no_delta(pool: PgPool) {
+    seed(&pool).await;
+    exec(
+        &pool,
+        "INSERT INTO pinned_tracks (track_id, state, error) VALUES (1, 'failed', 'stalled')",
+    )
+    .await;
+    let c = cursor_now(&pool).await;
+    nimbus_db::repo::pins::set_retries(&pool, 1, 3)
+        .await
+        .unwrap();
+    nimbus_db::repo::pins::reset_retries(&pool, 1)
+        .await
+        .unwrap();
+    exec(
+        &pool,
+        "UPDATE pinned_tracks SET next_retry_at = now() + interval '1 hour', updated_at = now()",
+    )
+    .await;
+    // повторное закрепление уже закреплённого (не failed) трека меняет только служебные поля
+    exec(
+        &pool,
+        "UPDATE pinned_tracks SET state = 'queued', error = NULL",
+    )
+    .await;
+    let c2 = cursor_now(&pool).await;
+    nimbus_db::repo::pins::pin_tracks(&pool, &[1], true)
+        .await
+        .unwrap();
+    let ch = changes(&pool, &c2).await;
+    assert!(
+        ch.tracks.is_empty(),
+        "служебные поля дельты не дают: {:?}",
+        ch.tracks
+    );
+    // а до c2 была одна видимая смена (failed → queued)
+    assert_eq!(changes(&pool, &c).await.tracks.len(), 1);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn unpin_bumps_track_with_null_pin(pool: PgPool) {
+    seed(&pool).await;
+    exec(
+        &pool,
+        "INSERT INTO pinned_tracks (track_id, state) VALUES (1, 'done'), (2, 'done')",
+    )
+    .await;
+    let c = cursor_now(&pool).await;
+    nimbus_db::repo::pins::unpin_track(&pool, 1).await.unwrap();
+    let ch = changes(&pool, &c).await;
+    assert_eq!(ch.tracks.len(), 1);
+    assert_eq!((ch.tracks[0].id, ch.tracks[0].pin), (1, None));
+    // удаление трека каскадом снимает закрепление без ошибок, трек уходит надгробием
+    let c = cursor_now(&pool).await;
+    exec(&pool, "DELETE FROM tracks WHERE id = 2").await;
+    let ch = changes(&pool, &c).await;
+    assert!(ch.tracks.is_empty());
+    assert_eq!(ch.deleted, vec![(Entity::Track, 2)]);
+}
+
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn snapshot_has_pin_fields(pool: PgPool) {
+    seed(&pool).await;
+    exec(
+        &pool,
+        "INSERT INTO pinned_tracks (track_id, state, error) VALUES (2, 'failed', 'stalled')",
+    )
+    .await;
+    let (mut tx, _) = sync::begin_snapshot(&pool).await.unwrap();
+    let mut rows: Vec<_> = sync::tracks(&mut tx)
+        .map(|r| {
+            let r = r.unwrap();
+            (r.id, r.pin.map(|p| p.to_string()), r.pin_error)
+        })
+        .collect()
+        .await;
+    rows.sort();
+    assert_eq!(
+        rows,
+        vec![
+            (1, None, None),
+            (2, Some("failed".into()), Some("stalled".into()))
+        ]
+    );
+}
+
+/// Порядок блокировок «трек → закрепление» (ревью S11): транзакция, державшая трек (как verify), затем меняет
+/// закрепление; одновременно одиночный `set_state` того же трека. Если бы `set_state` сначала взял строку
+/// закрепления, а триггер потом ждал трек, Postgres прервал бы одну из транзакций (deadlock).
+#[sqlx::test(migrator = "nimbus_db::MIGRATOR")]
+async fn pin_update_and_track_holder_do_not_deadlock(pool: PgPool) {
+    use std::time::Duration;
+    seed(&pool).await;
+    exec(
+        &pool,
+        "INSERT INTO pinned_tracks (track_id, state, error) VALUES (1, 'failed', 'stalled')",
+    )
+    .await;
+
+    let mut holder = pool.begin().await.unwrap();
+    sqlx::query("UPDATE tracks SET title = 'T1*' WHERE id = 1")
+        .execute(&mut *holder)
+        .await
+        .unwrap();
+
+    let p = pool.clone();
+    let waiter = tokio::spawn(async move {
+        nimbus_db::repo::pins::set_state(&p, 1, nimbus_core::model::PinState::Downloading, None)
+            .await
+    });
+    // `set_state` ждёт блокировку (трека — после исправления; до него — уже держа строку закрепления).
+    nimbus_testkit::eventually(Duration::from_secs(10), || async {
+        one(
+            &pool,
+            "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()",
+        )
+        .await
+            == 1
+    })
+    .await;
+
+    // verify: в той же транзакции возвращает закрепление в очередь
+    nimbus_db::repo::pins::requeue_stalled_for_tracks(&mut *holder, &[1])
+        .await
+        .unwrap();
+    holder.commit().await.unwrap();
+    waiter.await.unwrap().unwrap();
+    assert_eq!(
+        one(
+            &pool,
+            "SELECT count(*) FROM pinned_tracks WHERE track_id = 1 AND state = 'downloading'"
+        )
+        .await,
+        1
+    );
+}

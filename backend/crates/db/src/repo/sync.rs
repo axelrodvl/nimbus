@@ -16,7 +16,7 @@ use sqlx::{FromRow, PgConnection, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 /// Версия формата курсора и снимка; несовпадение у клиента — повод взять снимок заново.
-pub const SYNC_SCHEMA: i32 = 1;
+pub const SYNC_SCHEMA: i32 = 2;
 
 /// Не больше стольких строк (вместе с надгробиями) в одном ответе дельты.
 pub const CHANGES_LIMIT: usize = 5000;
@@ -74,6 +74,10 @@ pub struct SyncTrack {
     pub transcode: bool,
     pub play_count: i32,
     pub last_played_at: Option<DateTime<Utc>>,
+    /// Закрепление трека на сервере (`pinned_tracks.state`); `None` — не закреплён.
+    pub pin: Option<nimbus_core::model::PinState>,
+    /// Причина `pin = failed`.
+    pub pin_error: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -273,8 +277,10 @@ const TRACK_SELECT: &str = concat!(
             ",
     super::views::transcode_sql!(),
     " AS transcode,
-            COALESCE(tp.play_count, 0) AS play_count, tp.last_played_at
-     FROM tracks t LEFT JOIN track_plays tp ON tp.track_id = t.id"
+            COALESCE(tp.play_count, 0) AS play_count, tp.last_played_at,
+            pt.state AS pin, pt.error AS pin_error
+     FROM tracks t LEFT JOIN track_plays tp ON tp.track_id = t.id
+                   LEFT JOIN pinned_tracks pt ON pt.track_id = t.id"
 );
 
 const PLAYLIST_SELECT: &str = "SELECT id, sync_txid, name, created_at, last_used_at FROM playlists";
@@ -538,8 +544,8 @@ mod tests {
             base: 42,
             after: None,
         };
-        assert_eq!(plain.encode("e-1"), "1.e-1.42");
-        assert_eq!(SyncCursor::parse("1.e-1.42", "e-1"), Ok(plain));
+        assert_eq!(plain.encode("e-1"), "2.e-1.42");
+        assert_eq!(SyncCursor::parse("2.e-1.42", "e-1"), Ok(plain));
         let cont = SyncCursor {
             base: 42,
             after: Some(Position {
@@ -548,7 +554,7 @@ mod tests {
                 id: 7,
             }),
         };
-        assert_eq!(cont.encode("e-1"), "1.e-1.42.50.2.7");
+        assert_eq!(cont.encode("e-1"), "2.e-1.42.50.2.7");
         assert_eq!(SyncCursor::parse(&cont.encode("e-1"), "e-1"), Ok(cont));
     }
 
@@ -572,10 +578,10 @@ mod tests {
             );
         }
         assert_eq!(
-            SyncCursor::parse("1.other.5", "e"),
+            SyncCursor::parse("2.other.5", "e"),
             Err(CursorError::Foreign)
         );
-        assert_eq!(SyncCursor::parse("2.e.5", "e"), Err(CursorError::Foreign));
+        assert_eq!(SyncCursor::parse("1.e.5", "e"), Err(CursorError::Foreign));
     }
 
     #[test]

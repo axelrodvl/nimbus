@@ -21,6 +21,10 @@ pub struct PinWork {
     pub size_bytes: Option<i64>,
 }
 
+// Порядок блокировок (ревью S11): изменение закрепления «касается» трека триггером (`0025_sync_pins.sql`), то есть
+// блокирует строку `tracks`. Транзакции verify и удаления из библиотеки берут сначала треки, потом закрепления —
+// поэтому и здесь сначала треки (CTE `FOR UPDATE` в порядке id), затем `pinned_tracks`: иначе встречные блокировки.
+
 /// Закрепляет треки (идемпотентно). Начальное состояние — `queued`, если у трека есть источник
 /// (`found`/`ready`), иначе `waiting_source`. Уже закреплённый трек остаётся в своём состоянии,
 /// кроме `failed` (повторное закрепление ставит его в очередь заново). Возвращает число треков.
@@ -33,10 +37,11 @@ pub async fn pin_tracks(
         return Ok(0);
     }
     let r = sqlx::query(
-        "INSERT INTO pinned_tracks (track_id, album_pin, state)
+        "WITH t AS MATERIALIZED (SELECT id, status FROM tracks WHERE id = ANY($1) ORDER BY id FOR UPDATE)
+         INSERT INTO pinned_tracks (track_id, album_pin, state)
          SELECT t.id, $2,
                 CASE WHEN t.status IN ('found','ready') THEN 'queued' ELSE 'waiting_source' END
-         FROM tracks t WHERE t.id = ANY($1)
+         FROM t
          ON CONFLICT (track_id) DO UPDATE SET
             album_pin = pinned_tracks.album_pin OR EXCLUDED.album_pin,
             state = CASE WHEN pinned_tracks.state = 'failed' THEN 'queued' ELSE pinned_tracks.state END,
@@ -65,7 +70,8 @@ pub async fn pin_album(db: &mut PgConnection, album_id: i64) -> sqlx::Result<u64
 /// Снимает закрепление с треков альбома; возвращает id снятых треков.
 pub async fn unpin_album(db: impl PgExecutor<'_>, album_id: i64) -> sqlx::Result<Vec<i64>> {
     sqlx::query_scalar(
-        "DELETE FROM pinned_tracks WHERE track_id IN (SELECT id FROM tracks WHERE album_id = $1)
+        "WITH locked AS MATERIALIZED (SELECT id FROM tracks WHERE album_id = $1 ORDER BY id FOR UPDATE)
+         DELETE FROM pinned_tracks WHERE track_id IN (SELECT id FROM locked)
          RETURNING track_id",
     )
     .bind(album_id)
@@ -75,17 +81,21 @@ pub async fn unpin_album(db: impl PgExecutor<'_>, album_id: i64) -> sqlx::Result
 
 /// Снимает закрепление с трека; `true`, если оно было.
 pub async fn unpin_track(db: impl PgExecutor<'_>, track_id: i64) -> sqlx::Result<bool> {
-    let r = sqlx::query("DELETE FROM pinned_tracks WHERE track_id = $1")
-        .bind(track_id)
-        .execute(db)
-        .await?;
+    let r = sqlx::query(
+        "WITH locked AS MATERIALIZED (SELECT id FROM tracks WHERE id = $1 FOR UPDATE)
+         DELETE FROM pinned_tracks WHERE track_id IN (SELECT id FROM locked)",
+    )
+    .bind(track_id)
+    .execute(db)
+    .await?;
     Ok(r.rows_affected() > 0)
 }
 
 /// Снимает закрепления с треков артиста (удаление артиста из библиотеки).
 pub async fn unpin_artist(db: impl PgExecutor<'_>, artist_id: i64) -> sqlx::Result<u64> {
     let r = sqlx::query(
-        "DELETE FROM pinned_tracks WHERE track_id IN (SELECT id FROM tracks WHERE artist_id = $1)",
+        "WITH locked AS MATERIALIZED (SELECT id FROM tracks WHERE artist_id = $1 ORDER BY id FOR UPDATE)
+         DELETE FROM pinned_tracks WHERE track_id IN (SELECT id FROM locked)",
     )
     .bind(artist_id)
     .execute(db)
@@ -120,7 +130,9 @@ pub async fn set_state(
     error: Option<&str>,
 ) -> sqlx::Result<()> {
     sqlx::query(
-        "UPDATE pinned_tracks SET state = $2, error = $3, updated_at = now() WHERE track_id = $1",
+        "WITH locked AS MATERIALIZED (SELECT id FROM tracks WHERE id = $1 FOR UPDATE)
+         UPDATE pinned_tracks SET state = $2, error = $3, updated_at = now()
+         WHERE track_id IN (SELECT id FROM locked)",
     )
     .bind(track_id)
     .bind(state)
@@ -134,9 +146,10 @@ pub async fn set_state(
 /// расписание обнуляются. Нет закрепления — ничего.
 pub async fn requeue(db: impl PgExecutor<'_>, track_id: i64) -> sqlx::Result<()> {
     sqlx::query(
-        "UPDATE pinned_tracks SET state = 'queued', error = NULL, retries = 0, next_retry_at = NULL,
+        "WITH locked AS MATERIALIZED (SELECT id FROM tracks WHERE id = $1 FOR UPDATE)
+         UPDATE pinned_tracks SET state = 'queued', error = NULL, retries = 0, next_retry_at = NULL,
                 updated_at = now()
-         WHERE track_id = $1 AND state <> 'waiting_source'",
+         WHERE track_id IN (SELECT id FROM locked) AND state <> 'waiting_source'",
     )
     .bind(track_id)
     .execute(db)
@@ -147,7 +160,11 @@ pub async fn requeue(db: impl PgExecutor<'_>, track_id: i64) -> sqlx::Result<()>
 /// Старт процесса: `downloading` → `queued` (движок восстановит торренты, менеджер повторит `ensure_files`).
 pub async fn requeue_downloading(db: impl PgExecutor<'_>) -> sqlx::Result<u64> {
     let r = sqlx::query(
-        "UPDATE pinned_tracks SET state = 'queued', updated_at = now() WHERE state = 'downloading'",
+        "WITH locked AS MATERIALIZED (
+            SELECT t.id FROM tracks t JOIN pinned_tracks p ON p.track_id = t.id
+            WHERE p.state = 'downloading' ORDER BY t.id FOR UPDATE OF t)
+         UPDATE pinned_tracks SET state = 'queued', updated_at = now()
+         WHERE track_id IN (SELECT id FROM locked) AND state = 'downloading'",
     )
     .execute(db)
     .await?;
@@ -164,9 +181,10 @@ pub async fn fail(
     count: bool,
 ) -> sqlx::Result<()> {
     sqlx::query(
-        "UPDATE pinned_tracks
+        "WITH locked AS MATERIALIZED (SELECT id FROM tracks WHERE id = $1 FOR UPDATE)
+         UPDATE pinned_tracks
          SET state = 'failed', error = $2, next_retry_at = $3, retries = retries + $4, updated_at = now()
-         WHERE track_id = $1",
+         WHERE track_id IN (SELECT id FROM locked)",
     )
     .bind(track_id)
     .bind(error)
@@ -181,8 +199,11 @@ pub async fn fail(
 /// это номер ступени расписания; обнуляет его прогресс загрузки ([`reset_retries`]).
 pub async fn retry_failed(db: impl PgExecutor<'_>) -> sqlx::Result<Vec<i64>> {
     sqlx::query_scalar(
-        "UPDATE pinned_tracks SET state = 'queued', error = NULL, next_retry_at = NULL, updated_at = now()
-         WHERE state = 'failed' AND next_retry_at <= now()
+        "WITH locked AS MATERIALIZED (
+            SELECT t.id FROM tracks t JOIN pinned_tracks p ON p.track_id = t.id
+            WHERE p.state = 'failed' AND p.next_retry_at <= now() ORDER BY t.id FOR UPDATE OF t)
+         UPDATE pinned_tracks SET state = 'queued', error = NULL, next_retry_at = NULL, updated_at = now()
+         WHERE track_id IN (SELECT id FROM locked) AND state = 'failed' AND next_retry_at <= now()
          RETURNING track_id",
     )
     .fetch_all(db)
@@ -215,9 +236,10 @@ pub async fn requeue_stalled_for_tracks(
     track_ids: &[i64],
 ) -> sqlx::Result<Vec<i64>> {
     sqlx::query_scalar(
-        "UPDATE pinned_tracks SET state = 'queued', error = NULL, retries = 0, next_retry_at = NULL,
+        "WITH locked AS MATERIALIZED (SELECT id FROM tracks WHERE id = ANY($1) ORDER BY id FOR UPDATE)
+         UPDATE pinned_tracks SET state = 'queued', error = NULL, retries = 0, next_retry_at = NULL,
                 updated_at = now()
-         WHERE track_id = ANY($1) AND state = 'failed' AND error IN ('stalled','dead')
+         WHERE track_id IN (SELECT id FROM locked) AND state = 'failed' AND error IN ('stalled','dead')
          RETURNING track_id",
     )
     .bind(track_ids)

@@ -34,9 +34,13 @@ pub async fn kick(db: &PgPool, max_crashes: i32) -> sqlx::Result<KickReport> {
     let albums = super::acquisition::restart_missing_now(&mut *tx).await?;
 
     let pins = sqlx::query(
-        "UPDATE pinned_tracks SET state = 'queued', error = NULL, retries = 0,
+        // Сначала треки, потом закрепления — порядок блокировок, как в `pins` (ревью S11).
+        "WITH locked AS MATERIALIZED (
+            SELECT t.id FROM tracks t JOIN pinned_tracks p ON p.track_id = t.id
+            WHERE p.state = 'failed' ORDER BY t.id FOR UPDATE OF t)
+         UPDATE pinned_tracks SET state = 'queued', error = NULL, retries = 0,
                 next_retry_at = NULL, updated_at = now()
-         WHERE state = 'failed'",
+         WHERE track_id IN (SELECT id FROM locked) AND state = 'failed'",
     )
     .execute(&mut *tx)
     .await?

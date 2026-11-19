@@ -2,7 +2,9 @@ import { QueryClient } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 import type { AcquisitionItem, DownloadsOverview } from '@/lib/api/acquisition';
 import { ApiError } from '@/lib/api/errors';
+import { createLibraryStore, type LibraryStore } from '@/lib/store/library';
 import { item, L, page, summary } from '@/test/acquisition';
+import { makeAlbum, makeArtist, makeTrack } from '@/test/factories';
 import {
   collectAvailableIds,
   pinAlbum,
@@ -15,8 +17,8 @@ import {
   setAllPaused,
   unpinAlbum,
 } from './actions';
-import { flattenPages, trimLists, updateAlbumRow } from './cache';
-import { albumKey, downloadsKey, jobsKey, listKey, MAX_REFETCH_PAGES } from './keys';
+import { dropLegacyAlbumStore, flattenPages, LEGACY_ALBUM_STORE_KEY, trimLists, updateAlbumRow } from './cache';
+import { downloadsKey, jobsKey, listKey, MAX_REFETCH_PAGES } from './keys';
 import {
   attentionCount,
   defaultTab,
@@ -153,16 +155,21 @@ describe('кэш списков', () => {
     expect([data?.pages.length, data?.pageParams.length]).toEqual([MAX_REFETCH_PAGES, MAX_REFETCH_PAGES]);
   });
 
-  it('updateAlbumRow меняет строку во всех списках и в запросе одного альбома; чужие строки не трогает', () => {
+  it('updateAlbumRow меняет строку во всех списках; чужие строки не трогает', () => {
     const qc = client();
     qc.setQueryData(listKey(['available']), { pageParams: [null], pages: [page([item(1), item(2)])] });
-    qc.setQueryData(albumKey(1), item(1));
-    qc.setQueryData(albumKey(2), item(2));
+    qc.setQueryData(listKey(['missing']), { pageParams: [null], pages: [page([item(1)])] });
     updateAlbumRow(qc, 1, i => ({ ...i, state: 'downloaded' }));
     const list = qc.getQueryData<{ pages: { items: AcquisitionItem[] }[] }>(listKey(['available']));
     expect(list?.pages[0]?.items.map(i => i.state)).toEqual(['downloaded', 'missing']);
-    expect(qc.getQueryData<AcquisitionItem>(albumKey(1))?.state).toBe('downloaded');
-    expect(qc.getQueryData<AcquisitionItem>(albumKey(2))?.state).toBe('missing');
+    const other = qc.getQueryData<{ pages: { items: AcquisitionItem[] }[] }>(listKey(['missing']));
+    expect(other?.pages[0]?.items[0]?.state).toBe('downloaded');
+  });
+
+  it('старый кэш состояний альбомов в localStorage удаляется', () => {
+    localStorage.setItem(LEGACY_ALBUM_STORE_KEY, '{"1":{}}');
+    dropLegacyAlbumStore();
+    expect(localStorage.getItem(LEGACY_ALBUM_STORE_KEY)).toBeNull();
   });
 });
 
@@ -186,18 +193,41 @@ describe('повтор поиска', () => {
 });
 
 describe('закрепление альбома', () => {
+  const row1 = (qc: QueryClient) =>
+    qc.getQueryData<{ pages: { items: AcquisitionItem[] }[] }>(listKey(['available']))?.pages[0]?.items[0];
   const seedRow = (qc: QueryClient, row = item(1, { state: 'available' })) => {
-    qc.setQueryData(albumKey(1), row);
     qc.setQueryData(listKey(['available']), { pageParams: [null], pages: [page([row])] });
   };
+  /** Альбом 1: трек 11 найден, 12 скачан и закреплён «упал», 13 не найден, 14 каталожный (не в библиотеке). */
+  const seedLibrary = (): LibraryStore => {
+    const lib = createLibraryStore();
+    lib.getState().hydrate({
+      albums: [makeAlbum({ artist_id: 1, id: 1 })],
+      artists: [makeArtist({ id: 1 })],
+      playlistTracks: [],
+      playlists: [],
+      tracks: [
+        makeTrack({ album_id: 1, id: 11, status: 'found' }),
+        makeTrack({ album_id: 1, id: 12, pin: 'failed', pin_error: 'stalled', status: 'ready' }),
+        makeTrack({ album_id: 1, id: 13, status: 'not_found' }),
+        makeTrack({ album_id: 1, id: 14, in_library: false, status: 'found' }),
+      ],
+    });
+    return lib;
+  };
+  const pins = (lib: LibraryStore) =>
+    [11, 12, 13, 14].map(id => {
+      const t = lib.getState().tracks.get(id);
+      return [t?.pin ?? null, t?.pin_error ?? null, t?.status];
+    });
 
   it('оптимистично: строка сразу «в очереди»; при ошибке откат и исключение', async () => {
     const qc = client();
     seedRow(qc);
     let release!: () => void;
     const pin = vi.fn().mockReturnValue(new Promise<void>(r => (release = r)));
-    const p = pinAlbum(1, { queryClient: qc, requests: { pinAlbum: pin } });
-    expect(qc.getQueryData<AcquisitionItem>(albumKey(1))?.download).toMatchObject({ pinned: true, state: 'queued' });
+    const p = pinAlbum(1, { library: seedLibrary(), queryClient: qc, requests: { pinAlbum: pin } });
+    expect(row1(qc)?.download).toMatchObject({ pinned: true, state: 'queued' });
     release();
     await p;
     expect(pin).toHaveBeenCalledWith(1);
@@ -206,11 +236,59 @@ describe('закрепление альбома', () => {
     seedRow(failing);
     const err = new ApiError(500, 'internal', 'boom');
     await expect(
-      pinAlbum(1, { queryClient: failing, requests: { pinAlbum: vi.fn().mockRejectedValue(err) } }),
+      pinAlbum(1, { library: seedLibrary(), queryClient: failing, requests: { pinAlbum: vi.fn().mockRejectedValue(err) } }),
     ).rejects.toBe(err);
-    expect(failing.getQueryData<AcquisitionItem>(albumKey(1))?.download).toBeNull();
-    const list = failing.getQueryData<{ pages: { items: AcquisitionItem[] }[] }>(listKey(['available']));
-    expect(list?.pages[0]?.items[0]?.download).toBeNull();
+    expect(row1(failing)?.download).toBeNull();
+  });
+
+  it('закрепление сразу видно в store (как ставит сервер); ошибка — откат', async () => {
+    const lib = seedLibrary();
+    let release!: () => void;
+    const p = pinAlbum(1, {
+      library: lib,
+      queryClient: client(),
+      requests: { pinAlbum: vi.fn().mockReturnValue(new Promise<void>(r => (release = r))) },
+    });
+    expect(pins(lib)).toEqual([
+      ['queued', null, 'found'],
+      ['queued', null, 'ready'],
+      ['waiting_source', null, 'not_found'],
+      [null, null, 'found'],
+    ]);
+    release();
+    await p;
+
+    const failing = seedLibrary();
+    const before = pins(failing);
+    await expect(
+      pinAlbum(1, { library: failing, queryClient: client(), requests: { pinAlbum: vi.fn().mockRejectedValue(new Error('x')) } }),
+    ).rejects.toThrow('x');
+    expect(pins(failing)).toEqual(before);
+  });
+
+  it('откат не затирает то, что пришло за время запроса', async () => {
+    const lib = seedLibrary();
+    let fail!: (e: Error) => void;
+    const p = pinAlbum(1, {
+      library: lib,
+      queryClient: client(),
+      requests: { pinAlbum: vi.fn().mockReturnValue(new Promise<void>((_, r) => (fail = r))) },
+    });
+    // дельта: трек 11 уже качается, у 13 сменился статус
+    lib.getState().patchTracks(
+      new Map([
+        [11, { pin: 'downloading' as const }],
+        [13, { status: 'found' as const }],
+      ]),
+    );
+    fail(new Error('x'));
+    await expect(p).rejects.toThrow('x');
+    expect(pins(lib)).toEqual([
+      ['downloading', null, 'found'],
+      ['failed', 'stalled', 'ready'],
+      [null, null, 'found'],
+      [null, null, 'found'],
+    ]);
   });
 
   it('снятие закрепления: deleteFiles возвращает «скачан» в «доступен»; ошибка — откат', async () => {
@@ -220,27 +298,32 @@ describe('закрепление альбома', () => {
       state: 'downloaded',
     });
     seedRow(qc, row);
+    const lib = seedLibrary();
     const unpin = vi.fn().mockResolvedValue(undefined);
-    await unpinAlbum(1, { deleteFiles: true }, { queryClient: qc, requests: { unpinAlbum: unpin } });
+    await unpinAlbum(1, { deleteFiles: true }, { library: lib, queryClient: qc, requests: { unpinAlbum: unpin } });
     expect(unpin).toHaveBeenCalledWith(1, true);
-    expect(qc.getQueryData<AcquisitionItem>(albumKey(1))).toMatchObject({
-      download: { pinned: false },
-      state: 'available',
-    });
+    expect(row1(qc)).toMatchObject({ download: { pinned: false }, state: 'available' });
+    // закрепление снято; статусы файлов не тронуты — их принесёт дельта (сервер удаляет не всё)
+    expect(pins(lib)).toEqual([
+      [null, null, 'found'],
+      [null, null, 'ready'],
+      [null, null, 'not_found'],
+      [null, null, 'found'],
+    ]);
 
     const failing = client();
     seedRow(failing, row);
+    const failingLib = seedLibrary();
+    const before = pins(failingLib);
     await expect(
       unpinAlbum(
         1,
         { deleteFiles: false },
-        { queryClient: failing, requests: { unpinAlbum: vi.fn().mockRejectedValue(new Error('x')) } },
+        { library: failingLib, queryClient: failing, requests: { unpinAlbum: vi.fn().mockRejectedValue(new Error('x')) } },
       ),
     ).rejects.toThrow('x');
-    expect(failing.getQueryData<AcquisitionItem>(albumKey(1))).toMatchObject({
-      download: { pinned: true },
-      state: 'downloaded',
-    });
+    expect(row1(failing)).toMatchObject({ download: { pinned: true }, state: 'downloaded' });
+    expect(pins(failingLib)).toEqual(before);
   });
 });
 

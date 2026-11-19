@@ -80,6 +80,7 @@ export const en = {
   'acq.selectRow': 'Select {title}',
   'acq.server.done': 'On the server',
   'acq.server.download': 'Download to server',
+  'acq.server.downloading': 'Downloading…',
   'acq.server.progress': 'Downloading {percent}%',
   'acq.server.queued': 'In queue',
   'acq.server.retry': 'Download failed — retry',

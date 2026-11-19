@@ -14,7 +14,6 @@ import { flattenPages, trimLists, updateAlbumRow } from './cache';
 import {
   ACQ_REFRESH_DEBOUNCE_MS,
   ACQ_ROOT,
-  albumKey,
   downloadsKey,
   ENGINE_POLL_MS,
   invariantsKey,
@@ -78,54 +77,6 @@ export const useJobInvariants = (enabled = true) =>
     queryFn: ({ signal }) => getJobInvariants(signal),
     queryKey: invariantsKey,
     staleTime: 30_000,
-  });
-
-const ALBUM_STORE_KEY = 'nimbus.acquisition.albums';
-const ALBUM_STORE_MAX = 200;
-
-type AlbumItem = Awaited<ReturnType<typeof listAcquisition>>['items'][number];
-
-function readAlbumStore(): Record<string, AlbumItem> {
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(ALBUM_STORE_KEY) ?? '{}');
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, AlbumItem>) : {};
-  } catch {
-    return {};
-  }
-}
-
-/** Последнее известное состояние альбома на сервере — переживает выгрузку кэша и перезапуск, чтобы экран не мигал. */
-function loadAlbumItem(albumId: number): AlbumItem | undefined {
-  return readAlbumStore()[albumId];
-}
-
-function saveAlbumItem(albumId: number, item: AlbumItem | null): void {
-  try {
-    const entries = Object.entries(readAlbumStore()).filter(([k]) => k !== String(albumId));
-    if (item) entries.push([String(albumId), item]);
-    localStorage.setItem(ALBUM_STORE_KEY, JSON.stringify(Object.fromEntries(entries.slice(-ALBUM_STORE_MAX))));
-  } catch {
-    /* хранилище недоступно — состояние просто не запоминается */
-  }
-}
-
-/**
- * Состояние одного альбома на сервере (скачан / закреплён / прогресс) — запрос списка с фильтром `album_ids`.
- * `null` — сервер альбом не знает. Последний ответ запоминается локально и показывается сразу (устаревшим —
- * с фоновым перезапросом), пока свежий не пришёл.
- */
-export const useAlbumAcquisition = (albumId: number, enabled = true) =>
-  useQuery({
-    enabled,
-    initialData: () => loadAlbumItem(albumId),
-    initialDataUpdatedAt: 0,
-    queryFn: async ({ signal }) => {
-      const item = (await listAcquisition({ albumIds: [albumId] }, signal)).items[0] ?? null;
-      saveAlbumItem(albumId, item);
-      return item;
-    },
-    queryKey: albumKey(albumId),
-    staleTime: 15_000,
   });
 
 /**

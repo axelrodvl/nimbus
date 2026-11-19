@@ -5,21 +5,21 @@ import type { MenuAction } from '@/components/downloads/action-menu';
 import * as Ariakit from '@ariakit/react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { pinAlbum, unpinAlbum } from '@/lib/acquisition/actions';
-import { useAlbumAcquisition } from '@/lib/acquisition/hooks';
-import { isActiveDownload, percent } from '@/lib/acquisition/model';
+import { percent } from '@/lib/acquisition/model';
+import { isActiveServerDownload } from '@/lib/acquisition/server-state';
 import { apiErrorMessage } from '@/lib/api/error-message';
 import { useT } from '@/lib/i18n/provider';
 import { useOnline } from '@/lib/live/hooks';
-import { useDownloadProgress } from '@/lib/store/hooks';
+import { useAlbumServerState, useDownloadProgress } from '@/lib/store/hooks';
 import { cn } from '@/lib/utils';
 
 /**
  * «Скачать на сервер» на экране альбома: нет → в очереди → прогресс → «На сервере» (с меню «Убрать с сервера»).
- * Состояние берётся с сервера (`GET /api/acquisition?album_ids=`) и живёт на событиях; без сети и для альбомов,
- * которые ещё ищутся или не найдены, кнопки нет. Не путать со скачиванием на устройство (шаг 47).
+ * Состояние вычисляется из синхронизированных треков (`useAlbumServerState`, ревью S11) — известно в первом кадре,
+ * без запроса; прогресс — из live-событий. Для альбомов, которые ещё ищутся или не найдены, кнопки нет; без сети она
+ * остаётся на месте неактивной. Не путать со скачиванием на устройство (шаг 47).
  */
 /** Размер и вид «таблетки» кнопок шапки альбома — общие для «Слушать», «На сервере» и «На устройстве». */
 export const HEADER_PILL =
@@ -34,11 +34,11 @@ export function useServerMenu(albumId: number, title: string) {
   const t = useT();
   const online = useOnline();
   const queryClient = useQueryClient();
-  const item = useAlbumAcquisition(albumId, online).data;
+  const server = useAlbumServerState(albumId);
   const confirm = Ariakit.useDialogStore();
   const ctx = { queryClient };
   const actions: MenuAction[] = [];
-  if (online && item?.state === 'downloaded') {
+  if (online && server?.state === 'downloaded') {
     actions.push({ danger: true, id: 'remove', label: t('acq.deleteFiles'), onClick: confirm.show });
   }
   const dialog = (
@@ -65,19 +65,10 @@ export function ServerDownloadButton({ albumId }: { albumId: number }) {
   const t = useT();
   const online = useOnline();
   const queryClient = useQueryClient();
-  const query = useAlbumAcquisition(albumId, online);
+  const server = useAlbumServerState(albumId);
   const live = useDownloadProgress(albumId);
   const [pending, setPending] = useState(false);
-  const item = query.data;
-  // Статус ещё неизвестен — место под кнопку занято спиннером, чтобы вёрстка не прыгала.
-  if (online && item === undefined) {
-    return (
-      <span aria-hidden className={cn(HEADER_PILL, SECONDARY_PILL, 'w-36')} data-testid="server-download-loading">
-        <Spinner />
-      </span>
-    );
-  }
-  if (!online || !item || item.state === 'searching' || item.state === 'missing') return null;
+  if (!server || server.state === 'searching' || server.state === 'missing') return null;
   const ctx = { queryClient };
 
   async function run(action: () => Promise<unknown>) {
@@ -91,12 +82,10 @@ export function ServerDownloadButton({ albumId }: { albumId: number }) {
     }
   }
 
-  const d = item.download;
-  const active = isActiveDownload(item);
-  const done = live?.bytes_done ?? d?.bytes_done ?? 0;
-  const total = live?.bytes_total ?? d?.bytes_total ?? 0;
+  const done = live?.bytes_done ?? 0;
+  const total = live?.bytes_total ?? 0;
 
-  if (item.state === 'downloaded') {
+  if (server.state === 'downloaded') {
     return (
       <span className={cn(HEADER_PILL, SECONDARY_PILL)} data-testid="server-download-done">
         <HardDrive aria-hidden className="size-4" />
@@ -105,13 +94,16 @@ export function ServerDownloadButton({ albumId }: { albumId: number }) {
     );
   }
 
-  if (active && d?.state !== 'failed') {
+  if (isActiveServerDownload(server) && server.pin !== 'failed') {
+    // Байты знает только live-прогресс: до первого `download.progress` (после перезапуска) — без процентов.
     const label =
-      d?.state === 'waiting_source'
+      server.pin === 'waiting_source'
         ? t('acq.server.waiting')
-        : d?.state === 'queued' && done === 0
+        : server.pin === 'queued' && done === 0
           ? t('acq.server.queued')
-          : t('acq.server.progress', { percent: percent(done, total) });
+          : live
+            ? t('acq.server.progress', { percent: percent(done, total) })
+            : t('acq.server.downloading');
     return (
       <div className="flex items-center gap-1" data-testid="server-download">
         <span
@@ -125,6 +117,7 @@ export function ServerDownloadButton({ albumId }: { albumId: number }) {
         <Button
           aria-label={t('acq.cancel')}
           data-testid="server-download-cancel"
+          disabled={!online}
           onClick={() => void run(() => unpinAlbum(albumId, { deleteFiles: false }, ctx))}
           pending={pending}
           size="sm"
@@ -140,12 +133,13 @@ export function ServerDownloadButton({ albumId }: { albumId: number }) {
     <Button
       data-testid="server-download"
       className={cn(HEADER_PILL, 'px-4 font-medium')}
+      disabled={!online}
       onClick={() => void run(() => pinAlbum(albumId, ctx))}
       pending={pending}
       variant="secondary"
     >
       {pending ? null : <CloudDownload aria-hidden className="size-4" />}
-      {d?.state === 'failed' ? t('acq.server.retry') : t('acq.server.download')}
+      {server.pin === 'failed' ? t('acq.server.retry') : t('acq.server.download')}
     </Button>
   );
 }

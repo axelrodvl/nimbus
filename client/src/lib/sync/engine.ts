@@ -9,7 +9,7 @@ import { createSyncStatusStore, type SyncState, type SyncStatusStore } from './s
 import type { Tabs, TabMessage } from './tabs';
 
 /** Версия формата синхронизации, с которой работает клиент (`SYNC_SCHEMA` бэкенда). */
-export const SYNC_SCHEMA = 1;
+export const SYNC_SCHEMA = 2;
 export const BACKOFF_MIN_MS = 1000;
 export const BACKOFF_MAX_MS = 30_000;
 export const SAFETY_POLL_MS = 5 * 60_000;

@@ -89,12 +89,15 @@
 Шаг 34. Клиент держит всю библиотеку у себя; ему нужны «дай всё» и «дай изменённое с курсора X». Все ответы
 `/api/sync/*` сжимаются (gzip, br — только они, аудиостримы не сжимаются) и требуют токена.
 
-- `GET /api/sync/snapshot` — `application/x-ndjson`, по JSON-объекту в строке: `{"type":"begin","cursor":"…","schema":1}`,
+- `GET /api/sync/snapshot` — `application/x-ndjson`, по JSON-объекту в строке: `{"type":"begin","cursor":"…","schema":2}`,
   затем `artist`, `album`, `track`, `playlist`, `playlist_track` (`{"type":…,"row":{…}}`, именно в этом порядке сущностей),
   в конце `{"type":"end","counts":{artists,albums,tracks,playlists,playlist_tracks}}`. Снимок принят, только если получена
   строка `end`; ошибка БД посреди потока обрывает тело ответа без `end`. Синхронизируются **все** строки этих таблиц
   (страница артиста показывает всю дискографию, не только библиотеку). Строки нормализованы: у трека нет имён альбома и
   артиста, а `playback` (`direct` | `transcode`) и `needs_confirmation` считаются тем же SQL-выражением, что в старом API.
+  `pin` (`queued` | `downloading` | `done` | `waiting_source` | `failed` | `null`) и `pin_error` — закрепление трека на
+  сервере (`pinned_tracks`): по ним и статусам треков клиент сам вычисляет состояние альбома на сервере, без
+  `GET /api/acquisition` (ревью S11, `schema` 2).
 - `GET /api/sync/changes?cursor=` → `{ cursor, reset, artists, albums, tracks, playlists, playlist_tracks, deleted: [{entity, id}], more }`.
   Не больше 5000 строк (с надгробиями) по возрастанию `(sync_txid, сущность, id)`; `more: true` — запросите ещё с
   возвращённым `cursor`. `reset: true` (остальное пусто, `cursor` пуст) — курсор не разбирается, чужой `schema`/`epoch`,
@@ -113,8 +116,9 @@
 дельты повторяют одни и те же строки, пока она открыта, — это корректно. Удаления — таблица `sync_tombstones`
 (триггеры `AFTER DELETE`, в том числе каскадные); надгробия старше 30 дней чистит `maintenance_loop` раз в сутки и поднимает
 `floor` (`settings.sync`), после чего старые курсоры получают `reset`. Производные поля трека (`needs_confirmation`,
-`playback`, счётчик прослушиваний) живут в `track_sources` и `track_plays`: их изменения «касаются» треков триггерами
-уровня оператора.
+`playback`, счётчик прослушиваний, `pin`/`pin_error`) живут в `track_sources`, `track_plays` и `pinned_tracks`: их
+изменения «касаются» треков триггерами уровня оператора (у `pinned_tracks` — только вставка, удаление и смена
+`state`/`error`; служебные `retries`/`next_retry_at` дельты не дают).
 
 **Курсор** — непрозрачная строка. Формат: `<schema>.<epoch>.<xmin>` (`schema` — версия формата, `epoch` — случайный
 идентификатор базы) или, посреди постраничной выдачи, `<schema>.<epoch>.<xmin>.<txid>.<rank>.<id>`. Хвост нужен потому,

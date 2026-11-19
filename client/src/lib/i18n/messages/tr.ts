@@ -83,6 +83,7 @@ const messages: Messages = {
   'acq.selectRow': '“{title}” seç',
   'acq.server.done': 'Sunucuda',
   'acq.server.download': 'Sunucuya indir',
+  'acq.server.downloading': 'İndiriliyor…',
   'acq.server.progress': 'İndiriliyor %{percent}',
   'acq.server.queued': 'Sırada',
   'acq.server.retry': 'İndirme başarısız — yeniden dene',

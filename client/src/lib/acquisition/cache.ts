@@ -1,10 +1,10 @@
 import type { InfiniteData, QueryClient } from '@tanstack/react-query';
 import type { AcquisitionItem, AcquisitionPage } from '@/lib/api/acquisition';
-import { ALBUM_ROOT, LIST_ROOT, MAX_REFETCH_PAGES } from './keys';
+import { LIST_ROOT, MAX_REFETCH_PAGES } from './keys';
 
 type Pages = InfiniteData<AcquisitionPage, string | null>;
 
-/** Применяет `fn` к строке альбома во всех открытых списках и в запросе «состояние одного альбома». */
+/** Применяет `fn` к строке альбома во всех открытых списках. */
 export function updateAlbumRow(qc: QueryClient, albumId: number, fn: (item: AcquisitionItem) => AcquisitionItem): void {
   qc.setQueriesData<Pages>({ queryKey: LIST_ROOT }, data => {
     if (!data) return data;
@@ -16,17 +16,11 @@ export function updateAlbumRow(qc: QueryClient, albumId: number, fn: (item: Acqu
     });
     return changed ? { ...data, pages } : data;
   });
-  qc.setQueriesData<AcquisitionItem | null>({ queryKey: ALBUM_ROOT }, item =>
-    item && item.album.id === albumId ? fn(item) : item,
-  );
 }
 
 /** Снимок кэша строк альбома для отката оптимистичного изменения. */
 export function snapshotRows(qc: QueryClient) {
-  return [
-    ...qc.getQueriesData<Pages>({ queryKey: LIST_ROOT }),
-    ...qc.getQueriesData<AcquisitionItem | null>({ queryKey: ALBUM_ROOT }),
-  ];
+  return qc.getQueriesData<Pages>({ queryKey: LIST_ROOT });
 }
 
 export function restoreRows(qc: QueryClient, snapshot: ReturnType<typeof snapshotRows>): void {
@@ -57,4 +51,15 @@ export function flattenPages(data: Pages | undefined): AcquisitionItem[] {
     }
   }
   return out;
+}
+
+/** Кэш состояний альбомов в `localStorage` до ревью S11 (состояние теперь в синхронизации) — удаляется при старте. */
+export const LEGACY_ALBUM_STORE_KEY = 'nimbus.acquisition.albums';
+
+export function dropLegacyAlbumStore(): void {
+  try {
+    localStorage.removeItem(LEGACY_ALBUM_STORE_KEY);
+  } catch {
+    /* хранилище недоступно — удалять нечего */
+  }
 }

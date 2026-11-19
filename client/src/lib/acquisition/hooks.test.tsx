@@ -8,10 +8,9 @@ import {
   useAcquisitionList,
   useAcquisitionLiveSync,
   useAcquisitionSummary,
-  useAlbumAcquisition,
   useEngineTorrents,
 } from './hooks';
-import { ACQ_REFRESH_DEBOUNCE_MS, albumKey, ENGINE_POLL_MS, listKey } from './keys';
+import { ACQ_REFRESH_DEBOUNCE_MS, ENGINE_POLL_MS, listKey } from './keys';
 
 vi.mock('@/lib/api/acquisition', async importOriginal => ({
   ...(await importOriginal<typeof api>()),
@@ -94,20 +93,19 @@ describe('живые обновления', () => {
       state: 'downloading',
     });
     qc.setQueryData(listKey(['downloading']), { pageParams: [null], pages: [page([row])] });
-    qc.setQueryData(albumKey(5), row);
     emit({ album_id: 5, bytes_done: 7, bytes_total: 10, down_bps: 2048, peers: 3, type: 'download.progress' });
-    expect(qc.getQueryData<api.AcquisitionItem>(albumKey(5))?.download).toMatchObject({
+    const row5 = () =>
+      qc.getQueryData<{ pages: { items: api.AcquisitionItem[] }[] }>(listKey(['downloading']))?.pages[0]?.items[0];
+    expect(row5()?.download).toMatchObject({
       bytes_done: 7,
       down_bps: 2048,
       peers: 3,
       pinned: true,
       state: 'downloading',
     });
-    const list = qc.getQueryData<{ pages: { items: api.AcquisitionItem[] }[] }>(listKey(['downloading']));
-    expect(list?.pages[0]?.items[0]?.download?.bytes_done).toBe(7);
     // Прогресс другого альбома строку не трогает; запросов не было.
     emit({ album_id: 6, bytes_done: 9, bytes_total: 10, down_bps: 1, peers: 1, type: 'download.progress' });
-    expect(qc.getQueryData<api.AcquisitionItem>(albumKey(5))?.download?.bytes_done).toBe(7);
+    expect(row5()?.download?.bytes_done).toBe(7);
     expect(m.summary).toHaveBeenCalledTimes(1);
     expect(m.list).not.toHaveBeenCalled();
     // …и попал в live-store для кнопки на экране альбома.
@@ -189,18 +187,5 @@ describe('опрос торрентов движка', () => {
     const stopped = m.downloads.mock.calls.length;
     await settle(ENGINE_POLL_MS * 3);
     expect(m.downloads).toHaveBeenCalledTimes(stopped);
-  });
-});
-
-describe('состояние одного альбома', () => {
-  function One() {
-    const q = useAlbumAcquisition(7);
-    return <p data-testid="state">{q.data === undefined ? 'loading' : (q.data?.state ?? 'null')}</p>;
-  }
-  it('запрос с фильтром album_ids; пустой ответ — null', async () => {
-    m.list.mockResolvedValue(page([]));
-    render(wrap(<One />));
-    expect(await screen.findByText('null')).toBeInTheDocument();
-    expect(m.list.mock.calls[0]?.[0]).toEqual({ albumIds: [7] });
   });
 });

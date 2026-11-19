@@ -1,4 +1,5 @@
 import type { Schemas } from '@/lib/api/client';
+import { albumServerState, type AlbumServerState } from '@/lib/acquisition/server-state';
 import type { Album, Artist, PlaylistTrack, Track } from '@/lib/db/types';
 import type { LibraryState } from './library';
 
@@ -98,6 +99,7 @@ export function createSelectors() {
   const trackViews = memoByKey<number, TrackView>();
   const albumViews = memoByKey<number, AlbumView>();
   const artistViews = memoByKey<number, ArtistView>();
+  const albumServers = memoByKey<number, AlbumServerState | null>();
   const lists = memoByKey<string, unknown>(LISTS_CACHE_LIMIT);
 
   function trackView(s: LibraryState, id: number): TrackView | undefined {
@@ -126,6 +128,22 @@ export function createSelectors() {
       for (const t of rows) if (t) statusCounts[t.status] += 1;
       return { ...a, artistName: artist?.name ?? '', statusCounts, trackCount: rows.length };
     });
+  }
+
+  /**
+   * Состояние альбома на сервере из его треков (ревью S11): без запроса, в первом кадре. Пересчёт — только при смене
+   * строк треков альбома; равное по значению состояние возвращается прежней ссылкой (подписчики не перерисовываются).
+   */
+  function albumServer(s: LibraryState, id: number): AlbumServerState | null {
+    const rows = (s.tracksByAlbum.get(id) ?? []).map(t => s.tracks.get(t));
+    return albumServers(
+      id,
+      rows,
+      () => albumServerState(rows),
+      (a, b) =>
+        a === b ||
+        (!!a && !!b && a.state === b.state && a.pin === b.pin && a.pinError === b.pinError && a.pinned === b.pinned),
+    );
   }
 
   const inLibraryTracks = (s: LibraryState, ids: number[] | undefined) =>
@@ -429,10 +447,12 @@ export function createSelectors() {
   function prune(s: LibraryState) {
     trackViews.prune(id => s.tracks.has(id));
     albumViews.prune(id => s.albums.has(id));
+    albumServers.prune(id => s.albums.has(id));
     artistViews.prune(id => s.artists.has(id));
   }
 
   return {
+    albumServer,
     albumTracks,
     albumView,
     artistAlbums,

@@ -1,0 +1,426 @@
+{
+  "_comment": "Состояние альбома на сервере (ревью S11): эталон для state_cte! (db/tests/album_server_state.rs) и клиентского albumServerState (client/src/lib/acquisition/server-state.test.ts). У трека с pin = downloading бэкенд-тест создаёт активную загрузку его primary-файла — так это выглядит в работе.",
+  "cases": [
+    {
+      "name": "все треки скачаны",
+      "tracks": [
+        {
+          "status": "ready",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        },
+        {
+          "status": "ready",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        }
+      ],
+      "expected": {
+        "state": "downloaded",
+        "pinned": false,
+        "pin": null,
+        "pin_error": null
+      }
+    },
+    {
+      "name": "есть файлы, не всё скачано",
+      "tracks": [
+        {
+          "status": "ready",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        },
+        {
+          "status": "found",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        }
+      ],
+      "expected": {
+        "state": "available",
+        "pinned": false,
+        "pin": null,
+        "pin_error": null
+      }
+    },
+    {
+      "name": "только найдено",
+      "tracks": [
+        {
+          "status": "found",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        },
+        {
+          "status": "found",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        }
+      ],
+      "expected": {
+        "state": "available",
+        "pinned": false,
+        "pin": null,
+        "pin_error": null
+      }
+    },
+    {
+      "name": "ищется — важнее всего",
+      "tracks": [
+        {
+          "status": "adding",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        },
+        {
+          "status": "not_found",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        },
+        {
+          "status": "found",
+          "in_library": true,
+          "pin": "downloading",
+          "pin_error": null
+        }
+      ],
+      "expected": {
+        "state": "searching",
+        "pinned": true,
+        "pin": "downloading",
+        "pin_error": null
+      }
+    },
+    {
+      "name": "частично найден",
+      "tracks": [
+        {
+          "status": "found",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        },
+        {
+          "status": "not_found",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        }
+      ],
+      "expected": {
+        "state": "partial",
+        "pinned": false,
+        "pin": null,
+        "pin_error": null
+      }
+    },
+    {
+      "name": "частично: скачанный и ненайденный",
+      "tracks": [
+        {
+          "status": "ready",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        },
+        {
+          "status": "not_found",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        }
+      ],
+      "expected": {
+        "state": "partial",
+        "pinned": false,
+        "pin": null,
+        "pin_error": null
+      }
+    },
+    {
+      "name": "ничего не найдено",
+      "tracks": [
+        {
+          "status": "not_found",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        },
+        {
+          "status": "not_found",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        }
+      ],
+      "expected": {
+        "state": "missing",
+        "pinned": false,
+        "pin": null,
+        "pin_error": null
+      }
+    },
+    {
+      "name": "каталожные треки не считаются",
+      "tracks": [
+        {
+          "status": "ready",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        },
+        {
+          "status": "not_found",
+          "in_library": false,
+          "pin": null,
+          "pin_error": null
+        },
+        {
+          "status": "adding",
+          "in_library": false,
+          "pin": null,
+          "pin_error": null
+        }
+      ],
+      "expected": {
+        "state": "downloaded",
+        "pinned": false,
+        "pin": null,
+        "pin_error": null
+      }
+    },
+    {
+      "name": "каталожное закрепление не считается",
+      "tracks": [
+        {
+          "status": "found",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        },
+        {
+          "status": "found",
+          "in_library": false,
+          "pin": "failed",
+          "pin_error": "stalled"
+        }
+      ],
+      "expected": {
+        "state": "available",
+        "pinned": false,
+        "pin": null,
+        "pin_error": null
+      }
+    },
+    {
+      "name": "альбом без треков библиотеки",
+      "tracks": [
+        {
+          "status": "ready",
+          "in_library": false,
+          "pin": null,
+          "pin_error": null
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "закреплён и качается",
+      "tracks": [
+        {
+          "status": "found",
+          "in_library": true,
+          "pin": "downloading",
+          "pin_error": null
+        },
+        {
+          "status": "found",
+          "in_library": true,
+          "pin": "queued",
+          "pin_error": null
+        }
+      ],
+      "expected": {
+        "state": "downloading",
+        "pinned": true,
+        "pin": "downloading",
+        "pin_error": null
+      }
+    },
+    {
+      "name": "закреплён, в очереди",
+      "tracks": [
+        {
+          "status": "found",
+          "in_library": true,
+          "pin": "queued",
+          "pin_error": null
+        },
+        {
+          "status": "ready",
+          "in_library": true,
+          "pin": "done",
+          "pin_error": null
+        }
+      ],
+      "expected": {
+        "state": "available",
+        "pinned": true,
+        "pin": "queued",
+        "pin_error": null
+      }
+    },
+    {
+      "name": "закреплён, упал",
+      "tracks": [
+        {
+          "status": "found",
+          "in_library": true,
+          "pin": "failed",
+          "pin_error": "stalled"
+        },
+        {
+          "status": "ready",
+          "in_library": true,
+          "pin": "done",
+          "pin_error": null
+        },
+        {
+          "status": "found",
+          "in_library": true,
+          "pin": "waiting_source",
+          "pin_error": null
+        }
+      ],
+      "expected": {
+        "state": "available",
+        "pinned": true,
+        "pin": "failed",
+        "pin_error": "stalled"
+      }
+    },
+    {
+      "name": "закреплён, ждёт источник",
+      "tracks": [
+        {
+          "status": "not_found",
+          "in_library": true,
+          "pin": "waiting_source",
+          "pin_error": null
+        },
+        {
+          "status": "ready",
+          "in_library": true,
+          "pin": "done",
+          "pin_error": null
+        }
+      ],
+      "expected": {
+        "state": "partial",
+        "pinned": true,
+        "pin": "waiting_source",
+        "pin_error": null
+      }
+    },
+    {
+      "name": "закреплён и скачан",
+      "tracks": [
+        {
+          "status": "ready",
+          "in_library": true,
+          "pin": "done",
+          "pin_error": null
+        },
+        {
+          "status": "ready",
+          "in_library": true,
+          "pin": "done",
+          "pin_error": null
+        }
+      ],
+      "expected": {
+        "state": "downloaded",
+        "pinned": true,
+        "pin": "done",
+        "pin_error": null
+      }
+    },
+    {
+      "name": "закреплена часть треков",
+      "tracks": [
+        {
+          "status": "ready",
+          "in_library": true,
+          "pin": "done",
+          "pin_error": null
+        },
+        {
+          "status": "ready",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        }
+      ],
+      "expected": {
+        "state": "downloaded",
+        "pinned": true,
+        "pin": "done",
+        "pin_error": null
+      }
+    },
+    {
+      "name": "качается важнее частичного",
+      "tracks": [
+        {
+          "status": "found",
+          "in_library": true,
+          "pin": "downloading",
+          "pin_error": null
+        },
+        {
+          "status": "not_found",
+          "in_library": true,
+          "pin": null,
+          "pin_error": null
+        }
+      ],
+      "expected": {
+        "state": "downloading",
+        "pinned": true,
+        "pin": "downloading",
+        "pin_error": null
+      }
+    },
+    {
+      "name": "две ошибки: выбирается первая по кодам символов",
+      "tracks": [
+        {
+          "status": "found",
+          "in_library": true,
+          "pin": "failed",
+          "pin_error": "dead"
+        },
+        {
+          "status": "found",
+          "in_library": true,
+          "pin": "failed",
+          "pin_error": "Stalled"
+        }
+      ],
+      "expected": {
+        "state": "available",
+        "pinned": true,
+        "pin": "failed",
+        "pin_error": "Stalled"
+      }
+    }
+  ]
+}

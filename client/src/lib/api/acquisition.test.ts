@@ -37,13 +37,13 @@ function client(response: () => Response) {
 }
 
 describe('API приобретения и загрузок', () => {
-  it('список: состояния и album_ids — через запятую, курсор и размер страницы 100', async () => {
+  it('список: состояния через запятую, курсор и размер страницы 100', async () => {
     const { api, last } = client(() => json({ items: [], next_cursor: null }));
-    await listAcquisition({ albumIds: [3, 4], cursor: 'c1', states: ['missing', 'partial'] }, undefined, api);
+    await listAcquisition({ cursor: 'c1', states: ['missing', 'partial'] }, undefined, api);
     expect(await last()).toMatchObject({
       method: 'GET',
       path: '/api/acquisition',
-      query: '?album_ids=3%2C4&cursor=c1&limit=100&state=missing%2Cpartial',
+      query: '?cursor=c1&limit=100&state=missing%2Cpartial',
     });
     await listAcquisition({}, undefined, api);
     expect((await last()).query).toBe('?limit=100');

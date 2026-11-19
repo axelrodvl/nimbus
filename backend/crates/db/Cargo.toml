@@ -17,6 +17,7 @@ futures.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+nimbus-testkit.workspace = true
 tokio.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

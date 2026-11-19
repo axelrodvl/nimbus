@@ -80,6 +80,7 @@ const messages: Messages = {
   'acq.selectRow': '“{title}” चुनें',
   'acq.server.done': 'सर्वर पर',
   'acq.server.download': 'सर्वर पर डाउनलोड करें',
+  'acq.server.downloading': 'डाउनलोड हो रहा है…',
   'acq.server.progress': 'डाउनलोड {percent}%',
   'acq.server.queued': 'कतार में',
   'acq.server.retry': 'डाउनलोड विफल — दोबारा करें',

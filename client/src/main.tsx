@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { dropLegacyAlbumStore } from '@/lib/acquisition/cache';
 import { setUnauthorizedHandler } from '@/lib/app-data';
 import { session } from '@/lib/auth';
 import { startAppLifecycle } from '@/lib/platform/app-lifecycle';
@@ -10,6 +11,7 @@ import { App } from './app';
 import './styles/index.css';
 
 applyTheme(readTheme());
+dropLegacyAlbumStore();
 // До загрузки словаря показывается en; язык переключится сам.
 const i18nReady = initI18n();
 

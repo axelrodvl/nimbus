@@ -10,6 +10,9 @@ import {
   type AcquisitionItem,
   type DownloadsOverview,
 } from '@/lib/api/acquisition';
+import { appData } from '@/lib/app-data';
+import type { Track } from '@/lib/db/types';
+import type { LibraryStore, TrackPatch } from '@/lib/store/library';
 import { restoreRows, snapshotRows, updateAlbumRow } from './cache';
 import { ACQ_ROOT, downloadsKey, jobsKey, summaryKey } from './keys';
 import { isActiveDownload } from './model';
@@ -35,7 +38,8 @@ const defaults: AcqRequests = {
   unpinAlbum: unpinAlbumRequest,
 };
 
-type Ctx = { queryClient: QueryClient; requests?: Partial<AcqRequests> };
+/** `library` — store библиотеки (по умолчанию — приложения): закрепление сразу видно экрану альбома. */
+type Ctx = { queryClient: QueryClient; requests?: Partial<AcqRequests>; library?: LibraryStore };
 const req = (ctx: Ctx): AcqRequests => ({ ...defaults, ...ctx.requests });
 
 /** Сколько альбомов принимает один запрос повтора (ограничение сервера). */
@@ -80,14 +84,59 @@ const pinned = (item: AcquisitionItem): AcquisitionItem => ({
   },
 });
 
+/**
+ * Оптимистично меняет поля закрепления треков альбома в store (`fn` возвращает патч или `null` — трек не трогать);
+ * возвращает откат. Откат возвращает только изменённые поля и только там, где они всё ещё равны оптимистичным:
+ * событие или дельта, пришедшие за время запроса, не затираются. Настоящие значения затем приносит дельта.
+ */
+function patchAlbumTracks(ctx: Ctx, albumId: number, fn: (t: Track) => PinPatch | null): () => void {
+  const lib = ctx.library ?? appData().library;
+  const { tracks, tracksByAlbum } = lib.getState();
+  const forward = new Map<number, PinPatch>();
+  const back = new Map<number, PinPatch>();
+  for (const id of tracksByAlbum.get(albumId) ?? []) {
+    const t = tracks.get(id);
+    const patch = t && fn(t);
+    if (!t || !patch) continue;
+    forward.set(id, patch);
+    back.set(id, { pin: t.pin ?? null, pin_error: t.pin_error ?? null });
+  }
+  if (forward.size) lib.getState().patchTracks(forward);
+  return () => {
+    const current = lib.getState().tracks;
+    const undo = new Map<number, TrackPatch>();
+    for (const [id, patch] of forward) {
+      const t = current.get(id);
+      const was = back.get(id);
+      if (!t || !was) continue;
+      const fields: TrackPatch = {};
+      if (patch.pin !== undefined && (t.pin ?? null) === patch.pin) fields.pin = was.pin;
+      if (patch.pin_error !== undefined && (t.pin_error ?? null) === patch.pin_error) fields.pin_error = was.pin_error;
+      if (Object.keys(fields).length) undo.set(id, fields);
+    }
+    if (undo.size) lib.getState().patchTracks(undo);
+  };
+}
+
+type PinPatch = Pick<TrackPatch, 'pin' | 'pin_error'>;
+
+/** Закрепление трека, как его ставит сервер (`pins::pin_tracks`): новое — по наличию источника, `failed` — заново в очередь. */
+function pinPatch(t: Track): PinPatch | null {
+  if (!t.in_library) return null;
+  if (!t.pin) return { pin: t.status === 'found' || t.status === 'ready' ? 'queued' : 'waiting_source' };
+  return t.pin === 'failed' ? { pin: 'queued', pin_error: null } : null;
+}
+
 /** Скачать альбом на сервер (закрепить). Оптимистично: строка сразу «в очереди»; при ошибке откат и повтор исключения. */
 export async function pinAlbum(albumId: number, ctx: Ctx): Promise<void> {
   const snapshot = snapshotRows(ctx.queryClient);
   updateAlbumRow(ctx.queryClient, albumId, pinned);
+  const rollback = patchAlbumTracks(ctx, albumId, pinPatch);
   try {
     await req(ctx).pinAlbum(albumId);
   } catch (e) {
     restoreRows(ctx.queryClient, snapshot);
+    rollback();
     throw e;
   }
   refresh(ctx.queryClient);
@@ -101,10 +150,14 @@ export async function unpinAlbum(albumId: number, opts: { deleteFiles: boolean }
     download: item.download ? { ...item.download, pinned: false, state: null } : item.download,
     ...(opts.deleteFiles && item.state === 'downloaded' ? { state: 'available' as const } : {}),
   }));
+  // Сервер снимает закрепления со всех треков альбома. Статусы файлов (`ready` → `found` при удалении) не трогаем:
+  // сервер удаляет не всё (файл нужен другому закреплению или играет) — точный итог принесёт дельта.
+  const rollback = patchAlbumTracks(ctx, albumId, t => (t.pin ? { pin: null, pin_error: null } : null));
   try {
     await req(ctx).unpinAlbum(albumId, opts.deleteFiles);
   } catch (e) {
     restoreRows(ctx.queryClient, snapshot);
+    rollback();
     throw e;
   }
   refresh(ctx.queryClient);

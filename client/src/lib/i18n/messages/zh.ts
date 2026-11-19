@@ -80,6 +80,7 @@ const messages: Messages = {
   'acq.selectRow': '选择《{title}》',
   'acq.server.done': '已在服务器',
   'acq.server.download': '下载到服务器',
+  'acq.server.downloading': '正在下载…',
   'acq.server.progress': '下载 {percent}%',
   'acq.server.queued': '排队中',
   'acq.server.retry': '下载失败——重试',
