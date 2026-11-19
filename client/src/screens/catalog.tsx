@@ -295,7 +295,7 @@ function AlbumBody({ data, index }: { data: CatalogAlbumResponse; index: MbidInd
                 >
                   <RemotePlayRow
                     leading={
-                      <span className="text-muted flex size-8 items-center justify-center font-mono text-xs">
+                      <span className="text-muted flex size-8 items-center justify-center font-mono text-xs group-hover:invisible group-focus-visible:invisible group-data-[pending]:invisible group-data-[playing]:invisible">
                         {tr.position}
                       </span>
                     }
