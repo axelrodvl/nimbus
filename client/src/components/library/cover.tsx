@@ -15,20 +15,27 @@ type Props = {
 
 /**
  * Обложка с фиксированным соотношением сторон 1:1 — вёрстка не прыгает, пока картинка грузится.
- * Нет адреса или картинка не загрузилась — заглушка с нотой.
+ * Нет адреса или картинка не загрузилась — заглушка с нотой на градиенте. Пока картинка грузится — нейтральный фон,
+ * а под крупной миниатюрой ещё и малая (обычно уже в кэше: её показывали карточка или строка, с которой открыли
+ * экран), — без вспышки «градиент → обложка».
  */
 export function Cover({ src, alt, thumb = 250, priority, className }: Props) {
   const url = coverSrc(src, thumb);
   const [failed, setFailed] = useState<string | null>(null);
   const showImage = url !== null && failed !== url;
+  const small = thumb === 250 ? null : coverSrc(src, 250);
   return (
     <div
       className={cn(
-        'relative flex aspect-square shrink-0 items-center justify-center overflow-hidden rounded-md bg-gradient-to-br from-violet-500 to-purple-700',
+        'relative flex aspect-square shrink-0 items-center justify-center overflow-hidden rounded-md',
+        showImage ? 'bg-card dark:bg-card-dark' : 'bg-gradient-to-br from-violet-500 to-purple-700',
         className,
       )}
       data-testid="cover"
     >
+      {showImage && small && small !== url ? (
+        <img alt="" aria-hidden className="absolute inset-0 size-full object-cover" decoding="async" src={small} />
+      ) : null}
       {showImage ? (
         <img
           alt={alt}

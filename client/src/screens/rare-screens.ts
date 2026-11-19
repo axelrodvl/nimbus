@@ -5,3 +5,4 @@
 export { SourcesScreen } from './library/sources';
 export { SearchScreen } from './search';
 export { CatalogAlbumScreen, CatalogArtistScreen } from './catalog';
+export { preloadCatalog } from '@/lib/search/catalog';

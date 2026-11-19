@@ -1,13 +1,12 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from 'react-router';
 import { Toaster } from 'sonner';
 import { CrashScreen } from '@/components/crash-screen';
 import { IosViewportHeal } from '@/components/ios-viewport-heal';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { I18nProvider } from '@/lib/i18n/provider';
+import { queryClient } from '@/lib/query/client';
 import { router } from './router';
-
-const queryClient = new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1 } } });
 
 export function App() {
   return (

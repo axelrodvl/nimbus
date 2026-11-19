@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { queryOptions, useQuery, type QueryClient } from '@tanstack/react-query';
 import {
   fetchCatalogAlbum,
   fetchCatalogArtist,
@@ -19,9 +19,8 @@ export type CatalogQuery<T> = {
   retry: () => void;
 };
 
-function useCatalog<T>(key: readonly unknown[], fetch: (signal: AbortSignal) => Promise<T>, enabled: boolean) {
-  const q = useQuery({
-    enabled,
+function catalogOptions<T>(key: readonly unknown[], fetch: (signal: AbortSignal) => Promise<T>) {
+  return queryOptions({
     gcTime: SEARCH_STALE_MS * 2,
     queryFn: ({ signal }) => fetch(signal),
     queryKey: key,
@@ -29,6 +28,15 @@ function useCatalog<T>(key: readonly unknown[], fetch: (signal: AbortSignal) => 
     retryDelay,
     staleTime: SEARCH_STALE_MS,
   });
+}
+
+const artistOptions = (mbid: string) =>
+  catalogOptions(['catalog', 'artist', mbid], signal => fetchCatalogArtist(mbid, signal));
+const albumOptions = (mbid: string) =>
+  catalogOptions(['catalog', 'album', mbid], signal => fetchCatalogAlbum(mbid, signal));
+
+function useCatalog<T>(options: ReturnType<typeof catalogOptions<T>>, enabled: boolean) {
+  const q = useQuery({ ...options, enabled });
   const error = !q.error ? null : q.error instanceof ApiError ? q.error : new ApiError(0, 'network', String(q.error));
   return {
     data: q.data,
@@ -40,11 +48,46 @@ function useCatalog<T>(key: readonly unknown[], fetch: (signal: AbortSignal) => 
 
 /** Артист и его альбомы из MusicBrainz (`/search/artist/:mbid`). */
 export const useCatalogArtist = (mbid: string, enabled = true): CatalogQuery<CatalogArtistResponse> =>
-  useCatalog(['catalog', 'artist', mbid], signal => fetchCatalogArtist(mbid, signal), enabled);
+  useCatalog(artistOptions(mbid), enabled);
 
 /** Альбом и треклист из MusicBrainz (`/search/album/:mbid`). */
 export const useCatalogAlbum = (mbid: string, enabled = true): CatalogQuery<CatalogAlbumResponse> =>
-  useCatalog(['catalog', 'album', mbid], signal => fetchCatalogAlbum(mbid, signal), enabled);
+  useCatalog(albumOptions(mbid), enabled);
+
+/**
+ * Сколько переход на экран каталога ждёт ответа: роутер держит прежний экран, и если ответ успел (кэш бэкенда —
+ * десятки миллисекунд), экран открывается сразу целиком, без вспышки skeleton. Дольше — экран со skeleton.
+ */
+export const CATALOG_NAV_WAIT_MS = 800;
+
+/**
+ * Загрузка экрана каталога до перехода (loader маршрута). Данные уже в кэше — не ждёт (свежесть проверит сам экран);
+ * иначе запрос начинается сразу и переход ждёт его не дольше `waitMs`, дальше запрос идёт в фоне — экран его
+ * подхватит. Без сети не ждёт: экран покажет «нет сети».
+ */
+export async function preloadCatalog(
+  client: QueryClient,
+  kind: 'artist' | 'album',
+  mbid: string,
+  waitMs = CATALOG_NAV_WAIT_MS,
+): Promise<void> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  const cached =
+    kind === 'artist'
+      ? client.getQueryData(artistOptions(mbid).queryKey)
+      : client.getQueryData(albumOptions(mbid).queryKey);
+  if (cached !== undefined) return;
+  const loaded =
+    kind === 'artist' ? client.prefetchQuery(artistOptions(mbid)) : client.prefetchQuery(albumOptions(mbid));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    loaded,
+    new Promise<void>(resolve => {
+      timer = setTimeout(resolve, waitMs);
+    }),
+  ]);
+  clearTimeout(timer);
+}
 
 export type DiscographySection = 'albums' | 'eps' | 'live' | 'compilations' | 'other';
 

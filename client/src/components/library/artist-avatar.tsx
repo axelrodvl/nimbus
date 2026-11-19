@@ -30,9 +30,11 @@ export function ArtistAvatar({ mbid, name, className }: { mbid: string; name: st
     </span>
   );
   if (failed) return fallback;
+  // Под фото — инициалы, но проявляются они с задержкой (`delayed-appear`): фото из кэша (его уже показывал поиск или
+  // список) успевает раньше, и вместо вспышки «инициалы → фото» сразу фото.
   return (
-    <span className={cn('relative block shrink-0 overflow-hidden rounded-full', size)}>
-      <span className="absolute inset-0">{fallback}</span>
+    <span className={cn('bg-card dark:bg-card-dark relative block shrink-0 overflow-hidden rounded-full', size)}>
+      <span className="delayed-appear absolute inset-0">{fallback}</span>
       <img
         alt=""
         className="absolute inset-0 size-full rounded-full object-cover"

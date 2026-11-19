@@ -1,3 +1,8 @@
+:root {
+  /* Через сколько проявляется skeleton (см. `.skeleton-animation`). */
+  --skeleton-delay: 250ms;
+}
+
 @keyframes pending {
   0%,
   100% {
@@ -17,17 +22,35 @@
     rgba(150, 150, 150, 0.15) 33%
   );
   background-size: 800px 100px;
-  animation: wave-lines 2s infinite ease-out;
+  /* Skeleton проявляется не сразу: быстрый ответ (сервер в сети, кэш) приходит раньше — и вместо вспышки
+     skeleton → контент на экране сразу контент. Задержка без движения, поэтому остаётся и при reduced motion. */
+  animation:
+    skeleton-appear 1ms var(--skeleton-delay) both,
+    wave-lines 2s infinite ease-out;
 }
 
 .skeleton-animation.skeleton-subtle {
   background: rgba(150, 150, 150, 0.12);
   background-size: unset;
-  animation: none;
+  animation: skeleton-appear 1ms var(--skeleton-delay) both;
 }
 
 .skeleton-animation:not([class*='rounded-']) {
   border-radius: var(--radius-sm);
+}
+
+/* Заглушка под картинкой (инициалы артиста): проявляется, только если картинка не успела. */
+.delayed-appear {
+  animation: skeleton-appear 1ms var(--skeleton-delay) both;
+}
+
+@keyframes skeleton-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes wave-lines {

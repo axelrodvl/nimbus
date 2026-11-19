@@ -1,5 +1,6 @@
 import type { RouteObject } from 'react-router';
 import { DownloadsScreen, LegacyDownloadsRedirect } from '@/screens/downloads/downloads-screen';
+import { queryClient } from '@/lib/query/client';
 import { Home } from '@/screens/home';
 import { AlbumScreen } from '@/screens/library/album';
 import { ArtistScreen } from '@/screens/library/artist';
@@ -12,6 +13,18 @@ import { SettingsScreen } from '@/screens/settings/settings-screen';
  * Целевая таблица: `/library[/:tab]`, `/artist/:id`, `/album/:id` (39), `/search` (40, готов),
  * `/album/:id/sources`, `/playlist/:id` (42, готово), `/settings[/:section]` (43, готово), `/downloads[/:tab]` (44, готово).
  */
+const MBID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Loader экрана каталога: неверный `:mbid` не запрашивается (экран покажет «нет в MusicBrainz»). */
+async function preload(
+  fn: (client: typeof queryClient, kind: 'artist' | 'album', mbid: string) => Promise<void>,
+  kind: 'artist' | 'album',
+  mbid: string | undefined,
+): Promise<null> {
+  if (mbid && MBID.test(mbid)) await fn(queryClient, kind, mbid);
+  return null;
+}
+
 const galleryEnabled = import.meta.env.DEV || import.meta.env.VITE_UI_GALLERY === '1';
 
 export const appRoutes: RouteObject[] = [
@@ -30,12 +43,26 @@ export const appRoutes: RouteObject[] = [
   { lazy: async () => ({ Component: (await import('@/screens/rare-screens')).SearchScreen }), path: '/search' },
   // Каталог MusicBrainz: артист и альбом из поиска, которых может не быть в библиотеке.
   // Тем же отдельным чанком: открывается по нажатию на результат поиска, и только при сети.
+  // Loader начинает запрос до перехода и коротко его ждёт (`preloadCatalog`): прежний экран остаётся на месте, пока
+  // ответ не пришёл, — новый открывается сразу с данными, без вспышки skeleton.
   {
-    lazy: async () => ({ Component: (await import('@/screens/rare-screens')).CatalogArtistScreen }),
+    lazy: async () => {
+      const m = await import('@/screens/rare-screens');
+      return {
+        Component: m.CatalogArtistScreen,
+        loader: async ({ params }) => preload(m.preloadCatalog, 'artist', params.mbid),
+      };
+    },
     path: '/search/artist/:mbid',
   },
   {
-    lazy: async () => ({ Component: (await import('@/screens/rare-screens')).CatalogAlbumScreen }),
+    lazy: async () => {
+      const m = await import('@/screens/rare-screens');
+      return {
+        Component: m.CatalogAlbumScreen,
+        loader: async ({ params }) => preload(m.preloadCatalog, 'album', params.mbid),
+      };
+    },
     path: '/search/album/:mbid',
   },
   { element: <DownloadsScreen />, path: '/downloads/:tab?' },

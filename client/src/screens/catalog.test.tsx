@@ -8,12 +8,12 @@ import * as searchApi from '@/lib/api/search';
 import type { AlbumResult } from '@/lib/api/search-types';
 import { appData } from '@/lib/app-data';
 import { resetPlayer, toPlayerTrack } from '@/lib/player';
-import { groupDiscography } from '@/lib/search/catalog';
+import { groupDiscography, preloadCatalog } from '@/lib/search/catalog';
 import { installTestPlayer } from '@/test/player-ui';
 import { playRemoteApp } from '@/lib/search/play-remote';
 import { SearchScreen } from '@/screens/search';
 import { makeAlbum, makeArtist, makeTrack, resetFactories } from '@/test/factories';
-import { renderRoutes } from '@/test/render';
+import { renderRoutes, testQueryClient } from '@/test/render';
 import { OK_COMPUTER, PARANOID, RADIOHEAD, searchFixture } from '@/test/search';
 import { seed } from '@/test/seed';
 import { CatalogAlbumScreen, CatalogArtistScreen } from './catalog';
@@ -240,6 +240,82 @@ describe('экран артиста', () => {
     await screen.findByText('GB · 3 альбома');
     fireEvent.click(screen.getByTestId('catalog-back'));
     await vi.waitFor(() => expect(router.state.location.pathname).toBe('/search'));
+  });
+});
+
+describe('переход в каталог без вспышки skeleton', () => {
+  // Маршруты как в приложении: loader начинает запрос до перехода и коротко его ждёт.
+  const withLoaders = (client: ReturnType<typeof testQueryClient>, waitMs?: number) => [
+    { element: <SearchScreen />, path: '/search' },
+    {
+      element: <CatalogArtistScreen />,
+      loader: async ({ params }: { params: { mbid?: string } }) => {
+        await preloadCatalog(client, 'artist', params.mbid!, waitMs);
+        return null;
+      },
+      path: '/search/artist/:mbid',
+    },
+  ];
+
+  it('быстрый ответ: поиск остаётся на экране, пока данные не пришли, затем артист сразу целиком', async () => {
+    let resolve!: (v: CatalogArtistResponse) => void;
+    fetchArtist.mockReturnValue(new Promise(r => (resolve = r)));
+    const client = testQueryClient();
+    const { router } = renderRoutes(withLoaders(client), '/search?q=radiohead', client);
+    const artists = await screen.findByTestId('search-artists');
+    fireEvent.click(within(artists).getAllByRole('link', { name: /Radiohead/ })[0]!);
+    // Переход ждёт ответа: прежний экран на месте, skeleton каталога не рисуется.
+    await vi.waitFor(() => expect(router.state.navigation.state).toBe('loading'));
+    expect(router.state.location.pathname).toBe('/search');
+    expect(screen.getByTestId('search-artists')).toBeInTheDocument();
+    expect(screen.queryByTestId('catalog-loading')).not.toBeInTheDocument();
+    await act(async () => resolve(artistResponse()));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Radiohead' })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(`/search/artist/${RADIOHEAD}`);
+    expect(screen.queryByTestId('catalog-loading')).not.toBeInTheDocument();
+    expect(fetchArtist).toHaveBeenCalledTimes(1);
+  });
+
+  it('медленный ответ: переход не ждёт дольше лимита — экран со skeleton, данные подхватываются без второго запроса', async () => {
+    let resolve!: (v: CatalogArtistResponse) => void;
+    fetchArtist.mockReturnValue(new Promise(r => (resolve = r)));
+    const client = testQueryClient();
+    const { router } = renderRoutes(withLoaders(client, 20), '/search?q=radiohead', client);
+    fireEvent.click(
+      within(await screen.findByTestId('search-artists')).getAllByRole('link', { name: /Radiohead/ })[0]!,
+    );
+    expect(await screen.findByTestId('catalog-loading')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(`/search/artist/${RADIOHEAD}`);
+    await act(async () => resolve(artistResponse()));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Radiohead' })).toBeInTheDocument();
+    expect(fetchArtist).toHaveBeenCalledTimes(1);
+  });
+
+  it('уже загруженный артист открывается без ожидания и без нового запроса', async () => {
+    const client = testQueryClient();
+    await preloadCatalog(client, 'artist', RADIOHEAD);
+    expect(fetchArtist).toHaveBeenCalledTimes(1);
+    fetchArtist.mockReturnValue(new Promise(() => undefined));
+    const started = Date.now();
+    await preloadCatalog(client, 'artist', RADIOHEAD, 5_000);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(fetchArtist).toHaveBeenCalledTimes(1);
+  });
+
+  it('в таблице маршрутов приложения у экранов каталога есть loader', async () => {
+    const { appRoutes } = await import('@/app-routes');
+    for (const path of ['/search/artist/:mbid', '/search/album/:mbid']) {
+      const route = appRoutes.find(r => r.path === path)!;
+      const lazy = route.lazy as () => Promise<{ loader?: unknown }>;
+      expect(typeof (await lazy()).loader).toBe('function');
+    }
+  });
+
+  it('без сети loader не ждёт и не запрашивает', async () => {
+    vi.spyOn(globalThis.navigator, 'onLine', 'get').mockReturnValue(false);
+    const client = testQueryClient();
+    await preloadCatalog(client, 'album', OK_COMPUTER, 5_000);
+    expect(fetchAlbum).not.toHaveBeenCalled();
   });
 });
 

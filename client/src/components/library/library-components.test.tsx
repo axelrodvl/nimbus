@@ -23,6 +23,20 @@ describe('Cover', () => {
     expect(screen.getByTestId('cover')).toHaveClass('aspect-square');
   });
 
+  it('пока крупная грузится — под ней малая миниатюра на нейтральном фоне, а не градиент заглушки', () => {
+    render(<Cover alt="A" src={caa} thumb={500} />);
+    const cover = screen.getByTestId('cover');
+    const small = cover.querySelector('img[aria-hidden]');
+    expect(small).toHaveAttribute('src', `/api/covers/release-group/${MBID}/250`);
+    expect(cover).toHaveClass('bg-card');
+    expect(cover.className).not.toContain('from-violet-500');
+  });
+
+  it('малая миниатюра сама по себе — без подложки', () => {
+    render(<Cover alt="A" src={caa} />);
+    expect(screen.getByTestId('cover').querySelectorAll('img')).toHaveLength(1);
+  });
+
   it('над сгибом: eager и высокий приоритет', () => {
     render(<Cover alt="A" priority src={caa} />);
     const img = screen.getByRole('img', { name: 'A' });
@@ -48,7 +62,10 @@ describe('ArtistAvatar', () => {
     const img = container.querySelector('img');
     expect(img?.getAttribute('src')).toBe('/api/artist-image/abcd-1234');
     expect(screen.getByText('DP')).toBeInTheDocument();
+    // Под фото инициалы проявляются с задержкой — фото из кэша успевает раньше, без вспышки.
+    expect(screen.getByText('DP').parentElement).toHaveClass('delayed-appear');
     fireEvent.error(img!);
+    expect(screen.getByText('DP').parentElement).not.toHaveClass('delayed-appear');
     expect(container.querySelector('img')).toBeNull();
     expect(screen.getByText('DP')).toBeInTheDocument();
   });

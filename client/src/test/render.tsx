@@ -9,9 +9,11 @@ import ru from '@/lib/i18n/messages/ru';
 
 type Options = { route?: string; path?: string };
 
-const providers = (router: ReturnType<typeof createMemoryRouter>) => {
+export const testQueryClient = () =>
+  new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } });
+
+const providers = (router: ReturnType<typeof createMemoryRouter>, queryClient = testQueryClient()) => {
   const store = createI18nStore({ locale: 'ru', messages: ru });
-  const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } });
   return (
     <I18nProvider store={store}>
       <QueryClientProvider client={queryClient}>
@@ -29,8 +31,11 @@ export function renderWithProviders(ui: ReactElement, { route = '/', path = '*' 
   return render(providers(router));
 }
 
-/** Рендер целой таблицы маршрутов; роутер возвращается для навигации в тесте. */
-export function renderRoutes(routes: RouteObject[], route = '/') {
+/**
+ * Рендер целой таблицы маршрутов; роутер возвращается для навигации в тесте. `queryClient` — свой, если loader-ам
+ * маршрутов нужен тот же кэш, что и экранам.
+ */
+export function renderRoutes(routes: RouteObject[], route = '/', queryClient?: QueryClient) {
   const router = createMemoryRouter(routes, { initialEntries: [route] });
-  return { router, ...render(providers(router)) };
+  return { router, ...render(providers(router, queryClient)) };
 }
