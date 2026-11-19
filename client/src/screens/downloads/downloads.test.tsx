@@ -670,7 +670,22 @@ describe('кнопка «Скачать на сервер» на экране а
     expect(await screen.findByTestId('server-download-progress')).toHaveTextContent(L('acq.server.waiting'));
     unmount();
     mount(item(1, { download: pinned('failed', { error: 'stalled' }), state: 'available' }));
-    expect(await screen.findByTestId('server-download')).toHaveTextContent(L('acq.server.retry'));
+    await waitFor(() => expect(screen.getByTestId('server-download')).toHaveTextContent(L('acq.server.retry')));
+  });
+
+  it('статус запоминается локально: повторное открытие показывает кнопку сразу, без спиннера', async () => {
+    const { unmount } = mount(item(1, { state: 'downloaded' }));
+    expect(await screen.findByTestId('server-download-done')).toBeInTheDocument();
+    unmount();
+    mount(item(1, { state: 'downloaded' }));
+    expect(screen.queryByTestId('server-download-loading')).not.toBeInTheDocument();
+    expect(screen.getByTestId('server-download-done')).toBeInTheDocument();
+  });
+
+  it('пока статус неизвестен — спиннер на месте кнопки', async () => {
+    mount(item(1, { state: 'downloaded' }));
+    expect(screen.getByTestId('server-download-loading')).toBeInTheDocument();
+    expect(await screen.findByTestId('server-download-done')).toBeInTheDocument();
   });
 
   it('скачан → «На сервере» и меню «Убрать с сервера» (с подтверждением)', async () => {

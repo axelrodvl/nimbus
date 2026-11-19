@@ -5,6 +5,7 @@ import type { MenuAction } from '@/components/downloads/action-menu';
 import * as Ariakit from '@ariakit/react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { pinAlbum, unpinAlbum } from '@/lib/acquisition/actions';
 import { useAlbumAcquisition } from '@/lib/acquisition/hooks';
@@ -68,6 +69,14 @@ export function ServerDownloadButton({ albumId }: { albumId: number }) {
   const live = useDownloadProgress(albumId);
   const [pending, setPending] = useState(false);
   const item = query.data;
+  // Статус ещё неизвестен — место под кнопку занято спиннером, чтобы вёрстка не прыгала.
+  if (online && item === undefined) {
+    return (
+      <span aria-hidden className={cn(HEADER_PILL, SECONDARY_PILL, 'w-36')} data-testid="server-download-loading">
+        <Spinner />
+      </span>
+    );
+  }
   if (!online || !item || item.state === 'searching' || item.state === 'missing') return null;
   const ctx = { queryClient };
 
