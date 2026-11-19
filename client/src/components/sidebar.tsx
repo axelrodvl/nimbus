@@ -60,16 +60,8 @@ export function Sidebar({ items }: { items: readonly NavItem[] }) {
             </AppNavLink>
           ))}
         </nav>
-      </div>
-
-      <div className="bg-card dark:bg-card-dark mt-auto flex flex-col gap-3 rounded-lg p-3 lg:px-4">
-        <div className="flex flex-col items-center gap-2 lg:flex-row lg:justify-between">
-          <ConnectionIndicator labelClassName="hidden lg:inline" showLabel />
-          <OfflineQueueIndicator />
+        <div className="mt-3 flex flex-col items-center gap-2 border-t border-white/10 pt-3 lg:flex-row lg:justify-between lg:px-1">
           <ThemeToggle variant="inline" />
-        </div>
-        <div className="flex items-center justify-center lg:justify-between">
-          <SyncStatus labelClassName="hidden lg:inline" />
           <button
             aria-label={t('login.logout')}
             className="text-gray focus-visible:ring-accent/40 hidden rounded-full p-1.5 hover:text-black focus-visible:ring-2 focus-visible:outline-none lg:block dark:hover:text-white"
@@ -79,6 +71,16 @@ export function Sidebar({ items }: { items: readonly NavItem[] }) {
           >
             <LogOut className="size-4" />
           </button>
+        </div>
+      </div>
+
+      <div className="bg-card dark:bg-card-dark mt-auto flex flex-col gap-3 rounded-lg p-3 lg:px-4">
+        <div className="flex flex-col items-center gap-2 lg:flex-row lg:justify-between">
+          <ConnectionIndicator labelClassName="hidden lg:inline" showLabel />
+          <OfflineQueueIndicator />
+        </div>
+        <div className="flex justify-center lg:justify-start">
+          <SyncStatus labelClassName="hidden lg:inline" />
         </div>
       </div>
     </aside>
