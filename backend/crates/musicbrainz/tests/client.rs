@@ -1193,8 +1193,22 @@ async fn stale_cache_entry_is_served_on_503_and_refreshed_by_a_good_response(poo
         })))
         .mount(&server)
         .await;
-    assert_eq!(c.artist(uuid(RADIOHEAD)).await.unwrap().name, "Radiohead");
-    wait_fresh(&pool).await;
+    // Фоновое обновление с 503 могло ещё висеть в single-flight и подхватить этот вызов, поэтому
+    // повторяем запрос, пока свежий ответ не ляжет в кэш.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        c.artist(uuid(RADIOHEAD)).await.unwrap();
+        let stale: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM mb_cache WHERE expires_at <= now()")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        if stale == 0 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "кэш не обновился");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     assert_eq!(
         c.artist(uuid(RADIOHEAD)).await.unwrap().name,
         "Radiohead (updated)"
