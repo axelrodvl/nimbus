@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '@/lib/api/errors';
 import { searchRemote, type SearchKind, type SearchResponse } from '@/lib/api/search';
 import { MIN_QUERY_LENGTH, normalizeQuery, SEARCH_DEBOUNCE_MS, SEARCH_STALE_MS } from './query';
@@ -54,6 +54,22 @@ export function mergeSearch(prev: SearchResponse, part: SearchResponse, kinds: r
   return next;
 }
 
+/** Запросы в пути по нормализованной строке: отменяются, только когда ввод сменился. */
+const inflight = new Map<string, AbortController>();
+
+/**
+ * Запрос со своим `AbortController`, а не `signal` React Query: тот отменяет запрос, как только у него не осталось
+ * подписчиков, — уход с экрана (открыли артиста, пока MusicBrainz отвечал) выбрасывал почти готовый ответ, и «назад»
+ * начинал поиск заново со skeleton. Свой контроллер отменяется только новым вводом (`cancelSearch`).
+ */
+function fetchSearch(query: string): Promise<SearchResponse> {
+  const controller = new AbortController();
+  inflight.set(query, controller);
+  return searchRemote(query, controller.signal).finally(() => {
+    if (inflight.get(query) === controller) inflight.delete(query);
+  });
+}
+
 export type RemoteSearch = {
   /** Результат именно текущего запроса: прошлый на экране не остаётся. */
   data: SearchResponse | undefined;
@@ -81,12 +97,21 @@ export function useRemoteSearch(query: string, enabled = true): RemoteSearch {
   const q = useQuery({
     enabled: active,
     gcTime: SEARCH_STALE_MS * 2,
-    queryFn: ({ signal }) => searchRemote(settled, signal),
+    queryFn: () => fetchSearch(settled),
     queryKey: ['search', settled],
     retry: shouldRetry,
     retryDelay,
     staleTime: SEARCH_STALE_MS,
   });
+  // Ввод сменился — запрос прежнего больше не нужен: сначала React Query (откат состояния, без повторов), затем сеть.
+  const previous = useRef(settled);
+  useEffect(() => {
+    const prev = previous.current;
+    previous.current = settled;
+    if (prev === settled) return;
+    void queryClient.cancelQueries({ exact: true, queryKey: ['search', prev] });
+    inflight.get(prev)?.abort();
+  }, [settled, queryClient]);
   const wanted = enabled && typed.length >= MIN_QUERY_LENGTH;
   // Ввод изменился — результаты прежнего запроса сразу убираются, даже пока ждём debounce.
   const current = wanted && settled === typed;

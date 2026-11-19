@@ -244,6 +244,52 @@ describe('useRemoteSearch', () => {
     expect(result.current.retrying).toBe(false);
   });
 
+  it('ушли с экрана до ответа — запрос не отменяется, «назад» сразу показывает результат без нового запроса', async () => {
+    vi.useFakeTimers();
+    let resolve: (r: SearchResponse) => void = () => {};
+    let signal: AbortSignal | undefined;
+    search.mockImplementationOnce((_q, s) => {
+      signal = s;
+      return new Promise(r => {
+        resolve = r;
+      });
+    });
+    const w = wrapper();
+    const first = renderHook(() => useRemoteSearch('macklemore'), { wrapper: w });
+    await run(SEARCH_DEBOUNCE_MS);
+    expect(search).toHaveBeenCalledTimes(1);
+    // Открыли артиста из «В библиотеке», пока MusicBrainz ещё отвечал.
+    first.unmount();
+    expect(signal?.aborted).toBe(false);
+    await act(async () => resolve(response('macklemore')));
+    const back = renderHook(() => useRemoteSearch('macklemore'), { wrapper: w });
+    expect(back.result.current.data?.query).toBe('macklemore');
+    expect(back.result.current.loading).toBe(false);
+    expect(search).toHaveBeenCalledTimes(1);
+  });
+
+  it('новый ввод отменяет запрос прежнего, ещё не ответившего, — без повторов в фоне', async () => {
+    vi.useFakeTimers();
+    let first: AbortSignal | undefined;
+    search.mockImplementationOnce(
+      (_q, s) =>
+        new Promise((_, reject) => {
+          first = s;
+          s?.addEventListener('abort', () => reject(new ApiError(0, 'network', 'aborted')));
+        }),
+    );
+    const { rerender } = renderHook(({ q }) => useRemoteSearch(q), {
+      initialProps: { q: 'mack' },
+      wrapper: wrapper(),
+    });
+    await run(SEARCH_DEBOUNCE_MS);
+    rerender({ q: 'macklemore' });
+    await run(SEARCH_DEBOUNCE_MS);
+    expect(first?.aborted).toBe(true);
+    await run(RETRY_MAX_MS * 2);
+    expect(search.mock.calls.map(c => c[0])).toEqual(['mack', 'macklemore']);
+  });
+
   it('возврат к прежнему запросу — из кэша, без сети (регистр и пробелы не важны)', async () => {
     vi.useFakeTimers();
     const { result, rerender } = renderHook(({ q }) => useRemoteSearch(q), {
