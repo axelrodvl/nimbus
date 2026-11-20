@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { emit, mockLog, mutate, resetMock, seedPlayer } from './mock';
+import { emit, mockLog, mutate, resetMock, seedMock, seedPlayer } from './mock';
 
 // Мок бэкенда отдаёт 5-секундный WAV с поддержкой Range.
 // Альбом 903: Song One → Broken Format (503 ffmpeg_missing) → Song Two → Song Three (ready) → Not Yet (adding).
@@ -427,4 +427,35 @@ test.describe('мобильный размер', () => {
     await expect(full).toHaveAttribute('aria-hidden', 'true');
     await expect(mini).toBeVisible();
   });
+});
+
+test('очередь из длинного списка: в DOM только видимые строки; после прокрутки клик по строке играет её', async ({
+  page,
+  request,
+}) => {
+  await resetMock(request);
+  await seedMock(request, { albums: 100, artists: 20, tracks: 1000 });
+  await page.goto('/library/tracks');
+  await expect(page.getByTestId('library-tracks').getByTestId('track-row').first()).toBeVisible();
+  await page
+    .getByTestId('library-tracks')
+    .getByTestId('track-row')
+    .first()
+    .getByRole('button', { name: /Играть/ })
+    .click();
+  await expect.poll(async () => (await state(page)).paused).toBe(false);
+  await page.getByTestId('player-queue').click();
+  const panel = page.getByTestId('queue-panel');
+  const rows = panel.getByTestId('queue-row');
+  await expect(rows.first()).toBeVisible();
+  expect(await rows.count()).toBeLessThanOrEqual(60);
+  // прокрутка вниз: строки заменяются, их по-прежнему немного
+  await panel.locator('div.overflow-y-auto').evaluate(el => (el.scrollTop = 20_000));
+  await expect.poll(() => rows.count()).toBeLessThanOrEqual(60);
+  const target = rows.nth(3);
+  const id = await target.getAttribute('data-track-id');
+  await target.getByRole('button').first().click();
+  await expect(page.locator('[data-testid=player-track]:visible').first()).toBeVisible();
+  const queued = await page.evaluate(() => document.querySelector('[data-testid=player-audio]')?.getAttribute('src'));
+  expect(queued).toContain(`/api/tracks/${id}/stream`);
 });

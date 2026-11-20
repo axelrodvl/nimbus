@@ -210,3 +210,37 @@ test('память: прирост кучи после 50 переходов < 2
   );
   expect(growth).toBeLessThan(0.2);
 });
+
+test('«Слушать» во вкладке «Треки»: в DOM ≤ 60 строк очереди, за 3 с воспроизведения нет задач > 100 мс', async ({
+  page,
+}) => {
+  await warm(page);
+  await page.goto('/library/tracks');
+  const list = page.getByTestId('library-tracks');
+  await expect(list.getByTestId('track-row').first()).toBeVisible();
+  await page.evaluate(() => {
+    const w = window as unknown as { __tasks: number[] };
+    w.__tasks = [];
+    new PerformanceObserver(l => l.getEntries().forEach(e => w.__tasks.push(e.duration))).observe({
+      type: 'longtask',
+      buffered: false,
+    });
+  });
+  await list
+    .getByTestId('track-row')
+    .first()
+    .getByRole('button', { name: /Play|Играть/ })
+    .click();
+  await page.getByTestId('player-queue').click();
+  await expect(page.getByTestId('queue-panel').getByTestId('queue-row').first()).toBeVisible();
+  await page.waitForTimeout(3000);
+  const rows = await page.locator('[data-testid=queue-row]').count();
+  const tasks = await page.evaluate(() => (window as unknown as { __tasks: number[] }).__tasks);
+  const longest = Math.max(0, ...tasks);
+  report(
+    'очередь 60 000 треков',
+    `queue-row в DOM: ${rows}; длинных задач за 3 с: ${tasks.length}, самая длинная ${Math.round(longest)} мс`,
+  );
+  expect(rows).toBeLessThanOrEqual(60);
+  expect(longest).toBeLessThan(100 * slack);
+});

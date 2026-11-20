@@ -8,6 +8,7 @@ import { seed } from '@/test/seed';
 import { toPlayerTrack } from '@/lib/player';
 import { appData } from '@/lib/app-data';
 import { installTestPlayer, seedPlayerLibrary } from '@/test/player-ui';
+import { mockLayout } from '@/test/layout';
 import { renderWithProviders } from '@/test/render';
 import type * as TracksApi from '@/lib/api/tracks';
 import { Player } from './player';
@@ -240,6 +241,9 @@ describe('статус под полосой', () => {
 });
 
 describe('очередь', () => {
+  let restore: () => void;
+  beforeEach(() => (restore = mockLayout({ height: 600, width: 320 })));
+  afterEach(() => restore());
   const open = async () => {
     const env = mount();
     playFirst(env);
@@ -295,6 +299,71 @@ describe('очередь', () => {
     act(() => env.ctl.play(track(10), [track(10)]));
     await userEvent.click(within(screen.getByTestId('player-bar')).getByTestId('player-queue'));
     expect(screen.getByText('Больше треков в очереди нет')).toBeInTheDocument();
+  });
+});
+
+describe('очередь: виртуализация', () => {
+  const N = 5000;
+  const long = () => Array.from({ length: N }, (_, k) => ({ ...track(10), id: 1000 + k, title: `Long ${k}` }));
+  let restore: () => void;
+  beforeEach(() => (restore = mockLayout({ height: 600, width: 320 })));
+  afterEach(() => restore());
+  const rowIds = (panel: HTMLElement) =>
+    within(panel)
+      .queryAllByTestId('queue-row')
+      .map(r => Number(r.getAttribute('data-track-id')));
+  const openLong = async () => {
+    const env = mount();
+    const queue = long();
+    act(() => env.ctl.play(queue[0], queue));
+    const panel = screen.getByTestId('queue-panel');
+    return { ...env, panel, queue };
+  };
+  const openPanel = () => userEvent.click(within(screen.getByTestId('player-bar')).getByTestId('player-queue'));
+
+  it('закрытая панель не содержит строк; открытая — не больше видимых и overscan', async () => {
+    const { panel } = await openLong();
+    expect(rowIds(panel)).toHaveLength(0);
+    await openPanel();
+    const ids = rowIds(panel);
+    expect(ids.length).toBeGreaterThan(1);
+    expect(ids.length).toBeLessThanOrEqual(60);
+    expect(ids[0]).toBe(1000); // текущий трек
+    expect(ids[1]).toBe(1001);
+  });
+
+  it('после смены трека строк по-прежнему не больше 60, первая в «Далее» — следующий трек', async () => {
+    const { panel, ctl, queue } = await openLong();
+    await openPanel();
+    act(() => ctl.playIndex(2000));
+    await waitFor(() => expect(rowIds(panel)[0]).toBe(queue[2000].id));
+    const ids = rowIds(panel);
+    expect(ids.length).toBeLessThanOrEqual(60);
+    expect(ids[1]).toBe(queue[2001].id);
+  });
+
+  it('строки снимаются после закрытия панели', async () => {
+    const { panel } = await openLong();
+    await openPanel();
+    await userEvent.click(within(panel).getByRole('button', { name: 'Закрыть очередь' }));
+    await waitFor(() => expect(rowIds(panel)).toHaveLength(0));
+  });
+
+  it('перестановка и удаление работают по индексам очереди, а не строк', async () => {
+    const { panel, ctl, queue } = await openLong();
+    await openPanel();
+    act(() => ctl.playIndex(2000));
+    await waitFor(() => expect(rowIds(panel)[1]).toBe(queue[2001].id));
+    // третья строка «Далее» — queue[2003]
+    await userEvent.click(within(panel).getByRole('button', { name: `Выше: Long 2003` }));
+    expect(ctl.state.queue.slice(2001, 2003).map(t => t.id)).toEqual([queue[2001].id, queue[2003].id]);
+    await userEvent.click(within(panel).getByRole('button', { name: 'Ниже: Long 2001' }));
+    expect(ctl.state.queue.slice(2001, 2003).map(t => t.id)).toEqual([queue[2003].id, queue[2001].id]);
+    await userEvent.click(within(panel).getByRole('button', { name: 'Убрать из очереди: Long 2003' }));
+    expect(ctl.state.queue).toHaveLength(N - 1);
+    expect(ctl.state.queue[2001].id).toBe(queue[2001].id);
+    await userEvent.click(within(panel).getAllByTestId('queue-row')[2].querySelector('button')!);
+    expect(ctl.state.queue[ctl.state.index].id).toBe(queue[2002].id);
   });
 });
 

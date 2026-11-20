@@ -1,13 +1,20 @@
 import { haptics } from '@/lib/platform/haptics';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { Cover } from '@/components/library/cover';
+import { ScrollContainerProvider } from '@/components/ui/scroll-container';
+import { VirtualList } from '@/components/ui/virtual-list';
 import { useT } from '@/lib/i18n/provider';
 import { useCanPlay, usePlayerActions, usePlayerState } from '@/lib/player/hooks';
 import type { PlayerTrack } from '@/lib/player';
 import { useTrackView } from '@/lib/store/hooks';
 import { cn, formatDuration } from '@/lib/utils';
+
+/** Высота строки «Далее»: `py-1.5` (12) + обложка `size-8` (32). */
+const ROW_HEIGHT = 44;
+/** Через сколько после закрытия снимаются строки (`duration-200` выезда панели + запас). */
+const UNMOUNT_DELAY_MS = 250;
 
 const rowButton =
   'text-muted rounded p-1 opacity-0 hover:text-black focus:opacity-100 focus-visible:ring-accent/40 focus-visible:ring-2 focus-visible:outline-none group-hover/q:opacity-100 disabled:hidden dark:hover:text-white';
@@ -16,11 +23,30 @@ const rowButton =
 export function QueuePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useT();
   const player = usePlayerActions();
-  const moveInQueue = (from: number, to: number) => {
-    haptics().impact('select');
-    player.moveInQueue(from, to);
-  };
   const { queue, index } = usePlayerState(useShallow(s => ({ index: s.index, queue: s.queue })));
+  const [scroll, setScroll] = useState<HTMLElement | null>(null);
+  // Строки монтируются только у открытой панели и снимаются после выезда, чтобы она не пустела на глазах.
+  const [mounted, setMounted] = useState(open);
+  if (open && !mounted) setMounted(true);
+  useEffect(() => {
+    if (open) return;
+    const timer = setTimeout(() => {
+      setMounted(false);
+      if (scroll) scroll.scrollTop = 0; // при следующем открытии — снова начало «Далее»
+    }, UNMOUNT_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [open, scroll]);
+
+  const { playIndex, removeFromQueue, moveInQueue: move } = player;
+  const onPlay = useCallback((i: number) => playIndex(i), [playIndex]);
+  const onRemove = useCallback((i: number) => removeFromQueue(i), [removeFromQueue]);
+  const onMove = useCallback(
+    (from: number, to: number) => {
+      haptics().impact('select');
+      move(from, to);
+    },
+    [move],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -30,7 +56,7 @@ export function QueuePanel({ open, onClose }: { open: boolean; onClose: () => vo
   }, [open, onClose]);
 
   const current = queue[index];
-  const upcoming = queue.map((track, i) => ({ i, track })).filter(({ i }) => i > index);
+  const upcomingCount = Math.max(0, queue.length - index - 1);
 
   return (
     <aside
@@ -55,29 +81,46 @@ export function QueuePanel({ open, onClose }: { open: boolean; onClose: () => vo
           <X className="size-4" />
         </button>
       </header>
-      <div className="flex-1 overflow-y-auto px-2 py-3">
+      <div className="flex-1 overflow-y-auto px-2 py-3" ref={setScroll}>
         {current ? (
-          <>
-            <p className="text-muted px-2 pb-1 text-xs font-medium tracking-wide uppercase">{t('queue.nowPlaying')}</p>
-            <QueueRow current onPlay={() => player.playIndex(index)} track={current} />
-            <p className="text-muted px-2 pt-4 pb-1 text-xs font-medium tracking-wide uppercase">{t('queue.next')}</p>
-            {upcoming.length === 0 ? (
-              <p className="text-muted px-2 py-2 text-xs">{t('queue.noMore')}</p>
-            ) : (
-              upcoming.map(({ i, track }) => (
-                <QueueRow
-                  canDown={i < queue.length - 1}
-                  canUp={i > index + 1}
-                  key={`${track.id}-${i}`}
-                  onDown={() => moveInQueue(i, i + 1)}
-                  onPlay={() => player.playIndex(i)}
-                  onRemove={() => player.removeFromQueue(i)}
-                  onUp={() => moveInQueue(i, i - 1)}
-                  track={track}
-                />
-              ))
-            )}
-          </>
+          mounted ? (
+            <>
+              <p className="text-muted px-2 pb-1 text-xs font-medium tracking-wide uppercase">
+                {t('queue.nowPlaying')}
+              </p>
+              <QueueRow current i={index} onPlay={onPlay} track={current} />
+              <p className="text-muted px-2 pt-4 pb-1 text-xs font-medium tracking-wide uppercase">{t('queue.next')}</p>
+              {upcomingCount === 0 ? (
+                <p className="text-muted px-2 py-2 text-xs">{t('queue.noMore')}</p>
+              ) : (
+                <ScrollContainerProvider value={scroll}>
+                  <VirtualList
+                    count={upcomingCount}
+                    getKey={k => `${queue[index + 1 + k]?.id}-${index + 1 + k}`}
+                    overscan={6}
+                    renderRow={k => {
+                      const i = index + 1 + k;
+                      const row = queue[i];
+                      return (
+                        row && (
+                          <QueueRow
+                            canDown={i < queue.length - 1}
+                            canUp={i > index + 1}
+                            i={i}
+                            onMove={onMove}
+                            onPlay={onPlay}
+                            onRemove={onRemove}
+                            track={row}
+                          />
+                        )
+                      );
+                    }}
+                    rowHeight={ROW_HEIGHT}
+                  />
+                </ScrollContainerProvider>
+              )}
+            </>
+          ) : null
         ) : (
           <p className="text-muted px-2 py-2 text-sm">{t('queue.empty')}</p>
         )}
@@ -88,20 +131,21 @@ export function QueuePanel({ open, onClose }: { open: boolean; onClose: () => vo
 
 function QueueRow({
   track,
+  i,
   current,
   onPlay,
   onRemove,
-  onUp,
-  onDown,
+  onMove,
   canUp,
   canDown,
 }: {
   track: PlayerTrack;
+  /** Индекс трека в очереди — аргумент стабильных колбэков. */
+  i: number;
   current?: boolean;
-  onPlay: () => void;
-  onRemove?: () => void;
-  onUp?: () => void;
-  onDown?: () => void;
+  onPlay: (i: number) => void;
+  onRemove?: (i: number) => void;
+  onMove?: (from: number, to: number) => void;
   canUp?: boolean;
   canDown?: boolean;
 }) {
@@ -123,7 +167,7 @@ function QueueRow({
       <button
         className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-not-allowed"
         disabled={!playable}
-        onClick={onPlay}
+        onClick={() => onPlay(i)}
         type="button"
       >
         <Cover alt={track.title} className="size-8 rounded" src={track.coverUrl} />
@@ -135,23 +179,23 @@ function QueueRow({
       {track.durationMs ? (
         <span className="text-muted font-mono text-xs">{formatDuration(Math.floor(track.durationMs / 1000))}</span>
       ) : null}
-      {onUp ? (
+      {onMove ? (
         <button
           aria-label={t('queue.moveUp', { title: track.title })}
           className={rowButton}
           disabled={!canUp}
-          onClick={onUp}
+          onClick={() => onMove?.(i, i - 1)}
           type="button"
         >
           <ChevronUp className="size-3.5" />
         </button>
       ) : null}
-      {onDown ? (
+      {onMove ? (
         <button
           aria-label={t('queue.moveDown', { title: track.title })}
           className={rowButton}
           disabled={!canDown}
-          onClick={onDown}
+          onClick={() => onMove?.(i, i + 1)}
           type="button"
         >
           <ChevronDown className="size-3.5" />
@@ -161,7 +205,7 @@ function QueueRow({
         <button
           aria-label={t('queue.remove', { title: track.title })}
           className={rowButton}
-          onClick={onRemove}
+          onClick={() => onRemove?.(i)}
           type="button"
         >
           <X className="size-3.5" />
