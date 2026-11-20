@@ -1,5 +1,6 @@
 import { ListMusic } from 'lucide-react';
 import { Cover } from '@/components/library/cover';
+import { useIsWideWidth } from '@/components/ui/use-media-query';
 import { useT } from '@/lib/i18n/provider';
 import { usePlayerState } from '@/lib/player/hooks';
 import { currentTrack } from '@/lib/player/engine';
@@ -20,6 +21,7 @@ export function PlayerBar({
   onToggleQueue: () => void;
   onOpenFull: () => void;
 }) {
+  const wide = useIsWideWidth();
   const t = useT();
   const track = usePlayerState(currentTrack);
   return (
@@ -66,7 +68,7 @@ export function PlayerBar({
         </div>
         <div className="flex w-full flex-col items-center gap-1">
           <Transport />
-          <ProgressRow disabled={!track} testIds={{ elapsed: 'player-elapsed', seek: 'player-seek' }} />
+          <ProgressRow disabled={!track} paused={!wide} testIds={{ elapsed: 'player-elapsed', seek: 'player-seek' }} />
           <DownloadInfo />
         </div>
         <div className="hidden items-center justify-end gap-2 lg:flex">

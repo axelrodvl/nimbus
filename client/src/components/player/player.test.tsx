@@ -160,6 +160,45 @@ describe('панель плеера', () => {
     expect(bar.getByRole('slider', { name: 'Громкость' })).toHaveValue('0');
   });
 
+  describe('прогресс видит только видимая полоса', () => {
+    const seekValue = (testId: string) =>
+      (within(screen.getByTestId(testId)).getByRole('slider', { hidden: true, name: 'Перемотка' }) as HTMLInputElement)
+        .value;
+    const full = () => screen.getByTestId('full-player');
+    const moveTo = (env: ReturnType<typeof mount>, sec: number) => {
+      env.engine.setPosition(sec, 10, [[0, 4]]);
+      act(() => env.ctl.seekTo(sec));
+    };
+
+    it('десктоп: обновляется полоса панели; мини-плеер и закрытый полноэкранный — нет, открытый — с актуальной позиции', async () => {
+      const env = mount();
+      playFirst(env);
+      moveTo(env, 3);
+      await waitFor(() => expect(seekValue('player-bar')).toBe('3'));
+      expect(seekValue('mini-player')).toBe('0');
+      expect(within(full()).getByRole('slider', { hidden: true, name: 'Перемотка' })).toHaveValue('0');
+      await userEvent.click(
+        within(screen.getByTestId('player-bar')).getAllByRole('button', { name: 'Развернуть плеер' }).at(-1)!,
+      );
+      await waitFor(() => expect(within(full()).getByRole('slider', { name: 'Перемотка' })).toHaveValue('3'));
+      moveTo(env, 5);
+      await waitFor(() => expect(within(full()).getByRole('slider', { name: 'Перемотка' })).toHaveValue('5'));
+    });
+
+    it('мобильный вьюпорт: обновляется мини-плеер, полоса панели — нет', async () => {
+      vi.stubGlobal('matchMedia', () => ({ addEventListener() {}, matches: false, removeEventListener() {} }));
+      try {
+        const env = mount();
+        playFirst(env);
+        moveTo(env, 3);
+        await waitFor(() => expect(seekValue('mini-player')).toBe('3'));
+        expect(seekValue('player-bar')).toBe('0');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
+
   it('мини-плеер (мобильный): трек, управление, очередь', async () => {
     const env = mount();
     playFirst(env);

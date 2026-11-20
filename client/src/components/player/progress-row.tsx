@@ -9,13 +9,15 @@ type Props = {
   /** `bar` — «время — полоса — время» в одну строку; `full` — полоса, под ней времена по краям. */
   layout?: 'bar' | 'full';
   testIds?: { elapsed?: string; seek?: string };
+  /** Нет подписки на позицию (плеер закрыт или скрыт брейкпоинтом): показан последний снимок. */
+  paused?: boolean;
 };
 
 /** Полоса прогресса со временами. Позиция читается из движка (`useProgress`), не из общего store. */
-export function ProgressRow({ disabled, className, layout = 'bar', testIds }: Props) {
+export function ProgressRow({ disabled, className, layout = 'bar', testIds, paused }: Props) {
   const t = useT();
   const player = usePlayerActions();
-  const { current, duration, buffered } = useProgress();
+  const { current, duration, buffered } = useProgress(!paused);
   const elapsed = formatDuration(Math.floor(current));
   const total = formatDuration(Math.floor(duration));
   const bar = (

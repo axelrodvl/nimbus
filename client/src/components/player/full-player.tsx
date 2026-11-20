@@ -191,7 +191,7 @@ export function FullPlayer({
         </div>
 
         <div className="pt-5">
-          <ProgressRow layout="full" />
+          <ProgressRow layout="full" paused={!open} />
           <div className="mt-1 flex h-4 items-center justify-center">
             {open ? <DownloadInfo className="text-black/70! dark:text-white/75!" /> : null}
           </div>

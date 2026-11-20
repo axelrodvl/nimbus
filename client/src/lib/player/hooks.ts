@@ -7,7 +7,7 @@ import type { AudioPosition } from './audio/types';
 import type { PlayerController } from './controller';
 import { currentTrack, type PlayerState } from './engine';
 import { player } from './index';
-import { createProgressSource } from './progress';
+import { progressSourceFor } from './progress';
 import { canPlay } from './track';
 
 /** Срез состояния плеера; перерисовывается только при изменении выбранного значения. */
@@ -28,11 +28,12 @@ export const useIsTrackPlaying = (id: number): boolean =>
   usePlayerState(s => s.isPlaying && currentTrack(s)?.id === id);
 
 /** Позиция воспроизведения (обновляется вне общего store — см. `createProgressSource`). */
-export function useProgress(): AudioPosition {
-  const ctl = player();
-  const source = useMemo(() => createProgressSource(ctl), [ctl]);
-  return useSyncExternalStore(source.subscribe, source.getSnapshot);
+export function useProgress(enabled = true): AudioPosition {
+  const source = progressSourceFor(player());
+  // Выключенный хук не подписан: показывает последний снимок и не будит компонент (закрытый полноэкранный плеер).
+  return useSyncExternalStore(enabled ? source.subscribe : noSubscribe, source.getSnapshot);
 }
+const noSubscribe = () => () => undefined;
 
 /**
  * Есть ли доступный трек после текущего. Зависит и от очереди, и от статусов треков в библиотеке (следующий трек

@@ -19,7 +19,7 @@ import {
 import { PlayerController } from './controller';
 import { appPlayerDeps, installPlayer, player, resetPlayer } from './index';
 import { notifyPlayerError } from './notify';
-import { createProgressSource, PROGRESS_INTERVAL_MS } from './progress';
+import { createProgressSource, PROGRESS_INTERVAL_MS, progressSourceFor } from './progress';
 import { playableQueue, queueFromIds } from './queues';
 import { activatesOnSpace, installShortcuts, isEditable } from './shortcuts';
 import { resolveStreamUrl } from './stream';
@@ -229,6 +229,29 @@ describe('источник позиции и хуки', () => {
     off();
     // после отписки rAF снят: остаётся только таймер тиков контроллера
     expect(vi.getTimerCount()).toBeLessThanOrEqual(1);
+  });
+
+  it('progressSourceFor: один источник на контроллер — один цикл rAF при двух подписчиках', () => {
+    const s = setup();
+    s.ctl.play(s.library.get(1)!, queue(s));
+    s.engine.emit({ type: 'playing' });
+    expect(progressSourceFor(s.ctl)).toBe(progressSourceFor(s.ctl));
+    const raf = vi.spyOn(globalThis, 'requestAnimationFrame');
+    const offA = progressSourceFor(s.ctl).subscribe(() => undefined);
+    const offB = progressSourceFor(s.ctl).subscribe(() => undefined);
+    const start = raf.mock.calls.length;
+    expect(start).toBe(1); // второй подписчик цикл не заводит
+    vi.advanceTimersByTime(PROGRESS_INTERVAL_MS);
+    const perTick = raf.mock.calls.length - start;
+    offB();
+    offA();
+    const single = vi.spyOn(globalThis, 'requestAnimationFrame');
+    single.mockClear();
+    const off = createProgressSource(s.ctl).subscribe(() => undefined);
+    vi.advanceTimersByTime(PROGRESS_INTERVAL_MS);
+    off();
+    expect(perTick).toBeLessThanOrEqual(single.mock.calls.length - 1);
+    raf.mockRestore();
   });
 
   it('на паузе и в скрытой вкладке rAF не крутится; изменение состояния обновляет снимок', () => {

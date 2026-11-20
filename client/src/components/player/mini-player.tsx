@@ -1,6 +1,7 @@
 import { ListMusic } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { Cover } from '@/components/library/cover';
+import { useIsWideWidth } from '@/components/ui/use-media-query';
 import { Marquee } from '@/components/ui/marquee';
 import { useT } from '@/lib/i18n/provider';
 import { currentTrack } from '@/lib/player/engine';
@@ -12,6 +13,7 @@ import { isConnecting, PlayPauseButton, SkipButton } from './transport';
 /** Мобильный мини-плеер (до `sm`): виден, пока в плеере есть трек. Нажатие на трек открывает полноэкранный. */
 export function MiniPlayer({ onOpenFull, onToggleQueue }: { onOpenFull: () => void; onToggleQueue: () => void }) {
   const t = useT();
+  const wide = useIsWideWidth();
   const player = usePlayerActions();
   const track = usePlayerState(currentTrack);
   const hasNext = useHasNext();
@@ -53,7 +55,7 @@ export function MiniPlayer({ onOpenFull, onToggleQueue }: { onOpenFull: () => vo
           </button>
         </div>
       </div>
-      <ProgressRow className="mt-2" />
+      <ProgressRow className="mt-2" paused={wide} />
       <DownloadInfo className="mt-1" />
     </div>
   );
