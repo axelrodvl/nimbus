@@ -102,6 +102,46 @@ test.describe('поиск', () => {
     await expect(page.getByTestId('search-progress')).toContainText('Ищем в MusicBrainz…');
   });
 
+  test('уточнение запроса не убирает результаты: на каждом кадре блок на месте (ревью F08)', async ({
+    page,
+    request,
+  }) => {
+    await page.goto('/');
+    await waitSynced(page);
+    await searchFor(page, 'radiohead');
+    await expect(page.getByTestId('search-albums')).toBeVisible();
+    await setSearch(request, { delayMs: 300 });
+    // Проба в странице: на каждом кадре фиксируем, есть ли блок результатов и скелет.
+    await page.evaluate(() => {
+      const w = window as unknown as { __frames: { results: boolean; skeleton: boolean }[]; __stop: boolean };
+      w.__frames = [];
+      w.__stop = false;
+      const tick = () => {
+        w.__frames.push({
+          results: !!document.querySelector('[data-testid=search-results]'),
+          skeleton: !!document.querySelector('[data-testid=search-skeleton]'),
+        });
+        if (!w.__stop) requestAnimationFrame(tick);
+      };
+      tick();
+    });
+    const box = page.getByRole('searchbox');
+    await box.click();
+    await page.keyboard.type(' ok', { delay: 300 });
+    await expect(page.getByTestId('search-results')).not.toHaveAttribute('aria-busy', 'true', { timeout: 10_000 });
+    const frames = await page.evaluate(() => {
+      const w = window as unknown as { __frames: { results: boolean; skeleton: boolean }[]; __stop: boolean };
+      w.__stop = true;
+      return w.__frames;
+    });
+    // eslint-disable-next-line no-console -- цифры нужны для журнала
+    console.log(
+      `кадров ${frames.length}, без блока результатов ${frames.filter(f => !f.results).length}, со скелетом ${frames.filter(f => f.skeleton).length}`,
+    );
+    expect(frames.filter(f => !f.results)).toHaveLength(0);
+    expect(frames.filter(f => f.skeleton)).toHaveLength(0);
+  });
+
   test('добавленное сразу видно на главной и в библиотеке, ещё до ответа сервера', async ({ page, request }) => {
     await setSearch(request, { addDelayMs: 4000 });
     await page.goto('/');

@@ -17,10 +17,12 @@ import { addToHistory, clearHistory, HISTORY_KEY, HISTORY_LIMIT, readHistory, us
 import { normalizeQuery, SEARCH_DEBOUNCE_MS } from './query';
 import {
   failedKinds,
+  isRefinement,
   mergeSearch,
   RETRY_MAX_MS,
   RETRY_MIN_MS,
   retryDelay,
+  STALE_KEEP_MS,
   shouldRetry,
   useDebounced,
   useRemoteSearch,
@@ -176,7 +178,60 @@ describe('useRemoteSearch', () => {
     expect(result.current.data).toBeUndefined();
   });
 
-  it('новый ввод сразу убирает прежний результат: пока идёт новый запрос — только загрузка', async () => {
+  it('уточнение запроса: прежние данные остаются (stale) до ответа, затем заменяются; несвязанный ввод — загрузка', async () => {
+    vi.useFakeTimers();
+    search.mockImplementationOnce(async q => response(q));
+    const { result, rerender } = renderHook(({ q }) => useRemoteSearch(q), {
+      initialProps: { q: 'radiohead' },
+      wrapper: wrapper(),
+    });
+    await run(SEARCH_DEBOUNCE_MS);
+    expect(result.current.data?.query).toBe('radiohead');
+    expect(result.current.stale).toBe(false);
+    let answer: (r: SearchResponse) => void = () => undefined;
+    search.mockImplementationOnce(() => new Promise<SearchResponse>(resolve => (answer = resolve)));
+    rerender({ q: 'radiohead o' });
+    expect(result.current.data?.query).toBe('radiohead');
+    expect(result.current.stale).toBe(true);
+    expect(result.current.loading).toBe(false);
+    await run(SEARCH_DEBOUNCE_MS);
+    expect(result.current.data?.query).toBe('radiohead');
+    expect(result.current.stale).toBe(true);
+    await act(async () => answer(response('radiohead o')));
+    await run(10);
+    expect(result.current.data?.query).toBe('radiohead o');
+    expect(result.current.stale).toBe(false);
+    search.mockImplementationOnce(() => new Promise(() => undefined));
+    rerender({ q: 'abba' });
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.loading).toBe(true);
+    await run(SEARCH_DEBOUNCE_MS); // запрос ушёл — мок не остаётся «на потом»
+  });
+
+  it('прежние данные не держатся дольше STALE_KEEP_MS без ответа', async () => {
+    vi.useFakeTimers();
+    search.mockImplementationOnce(async q => response(q));
+    const { result, rerender } = renderHook(({ q }) => useRemoteSearch(q), {
+      initialProps: { q: 'radiohead' },
+      wrapper: wrapper(),
+    });
+    await run(SEARCH_DEBOUNCE_MS);
+    search.mockImplementationOnce(() => new Promise(() => undefined));
+    rerender({ q: 'radiohead o' });
+    expect(result.current.stale).toBe(true);
+    await run(STALE_KEEP_MS + 10);
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.loading).toBe(true);
+  });
+
+  it('isRefinement: продолжение, укорочение и правка в пару символов — да; другое слово — нет', () => {
+    expect(isRefinement('radiohead', 'radiohead ok computer')).toBe(true);
+    expect(isRefinement('radiohead ok', 'radio')).toBe(true);
+    expect(isRefinement('radiohead', 'radiohed')).toBe(true);
+    expect(isRefinement('radiohead', 'abba')).toBe(false);
+  });
+
+  it('новый ввод несвязанного запроса сразу убирает прежний результат: пока идёт новый запрос — только загрузка', async () => {
     vi.useFakeTimers();
     let first: AbortSignal | undefined;
     search.mockImplementationOnce(async (q, signal) => {
@@ -190,7 +245,7 @@ describe('useRemoteSearch', () => {
     await run(SEARCH_DEBOUNCE_MS);
     expect(result.current.data?.query).toBe('radio');
     search.mockImplementationOnce(() => new Promise(() => undefined));
-    rerender({ q: 'radiohead' });
+    rerender({ q: 'abba' });
     // Ещё до debounce.
     expect(result.current.data).toBeUndefined();
     expect(result.current.loading).toBe(true);

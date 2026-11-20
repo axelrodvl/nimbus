@@ -1,4 +1,5 @@
 import { AlertTriangle } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { ArtistAvatar } from '@/components/library/artist-avatar';
 import { Cover } from '@/components/library/cover';
@@ -15,7 +16,7 @@ import type { AddRequest } from '@/lib/search/add';
 import { addToHistory, clearHistory, useSearchHistory } from '@/lib/search/history';
 import type { RemoteSearch } from '@/lib/search/use-remote-search';
 import type { MbidIndex, SearchResult } from '@/lib/store/selectors';
-import { formatDuration } from '@/lib/utils';
+import { cn, formatDuration } from '@/lib/utils';
 import { AddToLibraryButton, InLibrary } from './add-to-library-button';
 import { albumHref, albumLink, albumSubtitle, artistHref, catalogArtistHref, pickBestArtist } from './helpers';
 import { RemotePlayRow } from './remote-play';
@@ -284,6 +285,17 @@ export function RemoteSkeleton() {
   );
 }
 
+/** Скелет не мелькает на быстрых ответах: появляется, только если ответа нет дольше `SKELETON_DELAY_MS`. */
+const SKELETON_DELAY_MS = 150;
+function DelayedSkeleton() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(true), SKELETON_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  return visible ? <RemoteSkeleton /> : null;
+}
+
 function RetryButton({ onRetry }: { onRetry: () => void }) {
   const t = useT();
   return (
@@ -349,9 +361,9 @@ function RemoteResults({ remote, index, query }: { remote: RemoteSearch; index: 
       );
     }
     return remote.loading ? (
-      <div className="flex flex-col gap-8" key={query}>
+      <div className="flex flex-col gap-8">
         <SearchProgress retrying={remote.retrying} />
-        <RemoteSkeleton />
+        <DelayedSkeleton />
       </div>
     ) : null;
   }
@@ -367,7 +379,11 @@ function RemoteResults({ remote, index, query }: { remote: RemoteSearch; index: 
   }
   const best = pickBestArtist(data);
   return (
-    <div className="flex flex-col gap-10" data-testid="search-results">
+    <div
+      aria-busy={remote.stale || undefined}
+      className={cn('flex flex-col gap-10 transition-opacity', remote.stale && 'opacity-60')}
+      data-testid="search-results"
+    >
       {remote.retrying ? <SearchProgress partial retrying /> : null}
       {total === 0 ? <EmptyState body={t('search.noneBody', { query: data.query })} title={t('search.none')} /> : null}
       {best && data.tracks.length > 0 ? (

@@ -70,10 +70,38 @@ function fetchSearch(query: string): Promise<SearchResponse> {
   });
 }
 
+/** Как долго результаты прежнего запроса остаются на экране после правки ввода, пока нового ответа нет. */
+export const STALE_KEEP_MS = 1000;
+
+/** Правка в пару символов: Левенштейн ≤ 2. */
+function editDistanceWithin2(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 2) return false;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      row.push(Math.min((prev[j] ?? 0) + 1, (row[j - 1] ?? 0) + 1, (prev[j - 1] ?? 0) + cost));
+    }
+    prev = row;
+  }
+  return (prev[b.length] ?? 3) <= 2;
+}
+
+/** Новый запрос — продолжение (или укорочение, или правка в пару символов) прежнего: прежние результаты ещё годятся. */
+export function isRefinement(shown: string, next: string): boolean {
+  return shown.startsWith(next) || next.startsWith(shown) || editDistanceWithin2(shown, next);
+}
+
 export type RemoteSearch = {
-  /** Результат именно текущего запроса: прошлый на экране не остаётся. */
+  /**
+   * Результат текущего запроса. Пока он не пришёл, а ввод — уточнение прежнего (см. `isRefinement`), остаётся
+   * прежний (`stale`) не дольше `STALE_KEEP_MS`; результаты несвязанного запроса не показываются никогда.
+   */
   data: SearchResponse | undefined;
-  /** Результата ещё нет: идёт запрос (или ждёт debounce, или повтор после сбоя). */
+  /** `data` — результаты прежнего запроса: новые ещё не пришли. */
+  stale: boolean;
+  /** Показывать нечего: идёт запрос (или ждёт debounce, или повтор после сбоя). */
   loading: boolean;
   /** MusicBrainz не ответил (целиком или частью) — поиск повторяет запрос сам. */
   retrying: boolean;
@@ -113,9 +141,22 @@ export function useRemoteSearch(query: string, enabled = true): RemoteSearch {
     inflight.get(prev)?.abort();
   }, [settled, queryClient]);
   const wanted = enabled && typed.length >= MIN_QUERY_LENGTH;
-  // Ввод изменился — результаты прежнего запроса сразу убираются, даже пока ждём debounce.
+  // Ввод изменился — данные текущего запроса есть только после debounce и ответа.
   const current = wanted && settled === typed;
-  const data = current ? q.data : undefined;
+  const fresh = current ? q.data : undefined;
+
+  // Последние показанные результаты: пока новые не пришли, уточнение запроса не стирает экран (мигание на букву).
+  const [shown, setShown] = useState<{ query: string; data: SearchResponse } | null>(null);
+  if (fresh && (shown?.data !== fresh || shown.query !== typed)) setShown({ data: fresh, query: typed });
+  const staleCandidate = !fresh && wanted && shown !== null && isRefinement(shown.query, typed);
+  const [expiredFor, setExpiredFor] = useState('');
+  useEffect(() => {
+    if (!staleCandidate) return;
+    const timer = setTimeout(() => setExpiredFor(typed), STALE_KEEP_MS);
+    return () => clearTimeout(timer);
+  }, [staleCandidate, typed]);
+  const keepStale = staleCandidate && expiredFor !== typed && !(current && q.error);
+  const data = fresh ?? (keepStale ? shown?.data : undefined);
 
   // Дозапрос секций, которые не ответили (таймаут MusicBrainz): до успеха, с нарастающей паузой.
   const missing = current && q.data ? failedKinds(q.data) : [];
@@ -153,6 +194,7 @@ export function useRemoteSearch(query: string, enabled = true): RemoteSearch {
     error,
     loading: wanted && data === undefined && error === null,
     retry: () => void q.refetch(),
+    stale: fresh === undefined && data !== undefined,
     retrying: current && (missing.length > 0 || (q.isFetching && q.failureCount > 0)),
   };
 }

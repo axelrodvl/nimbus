@@ -70,13 +70,15 @@ describe('экран поиска', () => {
     expect(readHistory()).toEqual([]);
   });
 
-  it('локальные результаты видны до ответа сети, под ними — скелет', () => {
+  it('локальные результаты видны до ответа сети, под ними — скелет (через 150 мс)', async () => {
     search.mockReturnValue(new Promise(() => undefined));
     open('radio');
     const local = screen.getByTestId('search-local');
     expect(within(local).getByText('Radiohead Tribute')).toBeInTheDocument();
     expect(within(local).getByText('Radio Ga Ga')).toBeInTheDocument();
-    expect(screen.getByTestId('search-skeleton')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByTestId('search-skeleton')).not.toBeInTheDocument();
+    expect(screen.getByTestId('search-progress')).toBeInTheDocument();
+    expect(await screen.findByTestId('search-skeleton')).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByText('В вашей библиотеке')).toBeInTheDocument();
   });
 
@@ -230,15 +232,20 @@ describe('экран поиска', () => {
     expect(screen.getByText('Ничего не найдено')).toBeInTheDocument();
   });
 
-  it('новый запрос: прежние результаты сразу убираются, видна загрузка', async () => {
+  it('уточнение запроса: прежние результаты остаются приглушёнными, скелета нет; несвязанный запрос их убирает', async () => {
     const { router } = open('radiohead');
     await screen.findByTestId('search-results');
     search.mockReturnValue(new Promise(() => undefined));
     vi.useFakeTimers();
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'radiohead live' } });
+    const results = screen.getByTestId('search-results');
+    expect(results).toHaveAttribute('aria-busy', 'true');
+    expect(results).toHaveClass('opacity-60');
+    expect(screen.queryByTestId('search-skeleton')).not.toBeInTheDocument();
+    expect(router.state.location.search).toBe('?q=radiohead+live');
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'abba' } });
     expect(screen.queryByTestId('search-results')).not.toBeInTheDocument();
     expect(screen.getByTestId('search-progress')).toBeInTheDocument();
-    expect(router.state.location.search).toBe('?q=radiohead+live');
   });
 
   it('ссылка меняет ?q= снаружи — поле следует за ней', () => {
