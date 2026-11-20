@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { appRoutes } from '@/app-routes';
 import { appData, resetAppData } from '@/lib/app-data';
 import { ApiError } from '@/lib/api/errors';
-import { session } from '@/lib/auth';
+import { session, SESSION_TIMEOUT_MS, SPLASH_HINT_MS } from '@/lib/auth';
 import { describeSync } from '@/lib/sync/describe';
 import { makeLibrary, resetFactories } from '@/test/factories';
 import { renderRoutes } from '@/test/render';
@@ -16,6 +16,14 @@ import { CrashScreen } from './crash-screen';
 import { OfflineIndicator } from './offline-indicator';
 import { LoginRoute, RequireSession } from './session-routes';
 import { SyncStatus } from './sync-status';
+
+// Сетевой слой сессии подменён: тест «висящего» запроса управляет ответом сам; по умолчанию — «нет сети».
+const authApi = vi.hoisted(() => ({
+  login: vi.fn(async () => undefined),
+  logout: vi.fn(async () => undefined),
+  session: vi.fn<(signal?: AbortSignal) => Promise<{ auth_required: boolean; authenticated: boolean }>>(),
+}));
+vi.mock('@/lib/api/auth', () => ({ createAuthApi: () => authApi }));
 
 const routes = [
   { element: <LoginRoute />, path: '/login' },
@@ -39,6 +47,32 @@ describe('защита маршрутов', () => {
     expect(screen.getByTestId('splash')).toBeInTheDocument();
     act(() => setSession({ unreachable: true }));
     expect(screen.getByRole('button', { name: 'Повторить' })).toBeInTheDocument();
+  });
+
+  it('висящий /api/auth/session: через 3 с подпись у заставки, после таймаута — «Повторить»', async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    authApi.session.mockImplementationOnce(
+      s =>
+        new Promise<never>((_, reject) => {
+          signal = s;
+          s?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+        }),
+    );
+    try {
+      renderRoutes(routes, '/');
+      const started = session.start();
+      expect(screen.getByTestId('splash')).toBeInTheDocument();
+      expect(screen.queryByText('Подключение к серверу…')).not.toBeInTheDocument();
+      await act(() => vi.advanceTimersByTimeAsync(SPLASH_HINT_MS));
+      expect(screen.getByText('Подключение к серверу…')).toBeInTheDocument();
+      await act(() => vi.advanceTimersByTimeAsync(SESSION_TIMEOUT_MS - SPLASH_HINT_MS));
+      await act(() => started);
+      expect(signal?.aborted).toBe(true);
+      expect(screen.getByRole('button', { name: 'Повторить' })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('anonymous при включённой авторизации → /login?next=<путь>; корень — без next', async () => {

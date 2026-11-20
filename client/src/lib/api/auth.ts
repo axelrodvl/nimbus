@@ -5,7 +5,8 @@ export type SessionInfo = { auth_required: boolean; authenticated: boolean };
 
 /** Сетевой слой сессии (то, что нужно модулю `lib/auth` от бэкенда). */
 export interface AuthApi {
-  session(): Promise<SessionInfo>;
+  /** `signal` обрывает запрос (таймаут старта, повторная попытка). */
+  session(signal?: AbortSignal): Promise<SessionInfo>;
   login(token: string): Promise<void>;
   logout(): Promise<void>;
 }
@@ -18,8 +19,8 @@ export function createAuthApi(client: ReturnType<typeof createApiClient> = defau
     async logout() {
       unwrapEmpty(await client.POST('/api/auth/logout'));
     },
-    async session() {
-      return unwrap(await client.GET('/api/auth/session'));
+    async session(signal) {
+      return unwrap(await client.GET('/api/auth/session', { signal }));
     },
   };
 }

@@ -1,16 +1,25 @@
+import { useEffect, useState } from 'react';
 import { Navigate, useLocation, useSearchParams } from 'react-router';
 import { AppShell } from '@/components/app-shell';
 import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/ui/error-state';
 import { Spinner } from '@/components/ui/spinner';
-import { safeNext, session, useSession } from '@/lib/auth';
+import { safeNext, session, SPLASH_HINT_MS, useSession } from '@/lib/auth';
 import { useT } from '@/lib/i18n/provider';
 import { Login } from '@/screens/login';
 
+/** Заставка до ответа о сессии; если ответ задерживается — подпись «Подключение к серверу…». */
 function Splash() {
+  const t = useT();
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setSlow(true), SPLASH_HINT_MS);
+    return () => clearTimeout(timer);
+  }, []);
   return (
-    <div className="flex min-h-dvh items-center justify-center" data-testid="splash">
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-3" data-testid="splash" role="status">
       <Spinner className="size-6" />
+      {slow && <p className="text-muted text-sm">{t('login.connecting')}</p>}
     </div>
   );
 }

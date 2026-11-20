@@ -237,6 +237,7 @@ const messages: Messages = {
   'library.search.label': 'Filtrer par nom',
   'library.search.placeholder': 'Filtrer…',
   'library.tabs': 'Sections de la bibliothèque',
+  'login.connecting': 'Connexion au serveur…',
   'login.empty': 'Saisissez le jeton',
   'login.failed': 'Connexion impossible, réessayez plus tard',
   'login.invalid': 'Jeton invalide',

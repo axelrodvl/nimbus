@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AuthApi } from '@/lib/api/auth';
 import { ApiError } from '@/lib/api/errors';
-import { createSession, safeNext, SESSION_KEY } from './session';
+import { createSession, safeNext, SESSION_KEY, SESSION_TIMEOUT_MS } from './session';
 
 function setup(over: Partial<AuthApi> = {}, cached?: unknown) {
   const store = new Map<string, string>();
@@ -24,6 +24,88 @@ function setup(over: Partial<AuthApi> = {}, cached?: unknown) {
 }
 
 const net = () => new ApiError(0, 'network', 'down');
+
+/** `session()`, который не отвечает, пока его не оборвут; запоминает сигналы. */
+function hanging() {
+  const signals: AbortSignal[] = [];
+  const fn = vi.fn(
+    (signal?: AbortSignal) =>
+      new Promise<never>((_, reject) => {
+        if (signal) signals.push(signal);
+        signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      }),
+  );
+  return { fn, signals };
+}
+
+describe('сессия: сервер не отвечает', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('без кэша: через SESSION_TIMEOUT_MS → unreachable, запрос оборван', async () => {
+    vi.useFakeTimers();
+    const { fn, signals } = hanging();
+    const { session } = setup({ session: fn });
+    const started = session.start();
+    await vi.advanceTimersByTimeAsync(SESSION_TIMEOUT_MS - 1);
+    expect(session.store.getState()).toMatchObject({ status: 'unknown', unreachable: false });
+    await vi.advanceTimersByTimeAsync(1);
+    await started;
+    expect(session.store.getState()).toMatchObject({ status: 'unknown', unreachable: true });
+    expect(signals[0]?.aborted).toBe(true);
+  });
+
+  it('с кэшем: таймаут не трогает статус из кэша', async () => {
+    vi.useFakeTimers();
+    const { fn } = hanging();
+    const { onAuthenticated, session } = setup({ session: fn }, { authRequired: true, status: 'authenticated' });
+    const started = session.start();
+    await vi.advanceTimersByTimeAsync(SESSION_TIMEOUT_MS);
+    await started;
+    expect(session.store.getState()).toMatchObject({ status: 'authenticated', unreachable: false });
+    expect(onAuthenticated).toHaveBeenCalledTimes(1);
+  });
+
+  it('api не слушает сигнал — таймаут всё равно срабатывает', async () => {
+    vi.useFakeTimers();
+    const { session } = setup({ session: () => new Promise<never>(() => undefined) });
+    const started = session.start();
+    await vi.advanceTimersByTimeAsync(SESSION_TIMEOUT_MS);
+    await started;
+    expect(session.store.getState().unreachable).toBe(true);
+  });
+
+  it('«Повторить» обрывает висящий запрос; итог — за новым, старый не ставит unreachable', async () => {
+    vi.useFakeTimers();
+    const { fn, signals } = hanging();
+    const calls = vi
+      .fn<(signal?: AbortSignal) => Promise<{ auth_required: boolean; authenticated: boolean }>>()
+      .mockImplementationOnce(s => fn(s))
+      .mockResolvedValue({ auth_required: true, authenticated: true });
+    const { session } = setup({ session: calls });
+    const first = session.start();
+    const second = session.start();
+    await Promise.all([first, second]);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(session.store.getState()).toMatchObject({ status: 'authenticated', unreachable: false });
+  });
+
+  it('повтор после «недоступен» снова показывает заставку, пока ждёт ответа', async () => {
+    vi.useFakeTimers();
+    const { fn } = hanging();
+    const { session } = setup({ session: fn });
+    const first = session.start();
+    await vi.advanceTimersByTimeAsync(SESSION_TIMEOUT_MS);
+    await first;
+    expect(session.store.getState().unreachable).toBe(true);
+    const retry = session.start();
+    expect(session.store.getState().unreachable).toBe(false);
+    await vi.advanceTimersByTimeAsync(SESSION_TIMEOUT_MS);
+    await retry;
+    expect(session.store.getState().unreachable).toBe(true);
+  });
+});
 
 describe('сессия: старт', () => {
   it('вошедший пользователь → authenticated, данные запускаются, результат кэшируется', async () => {

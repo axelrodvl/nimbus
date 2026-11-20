@@ -17,6 +17,12 @@ export type SessionStore = StoreApi<SessionState>;
 
 export const SESSION_KEY = 'nimbus:session';
 
+/** Сколько старт ждёт `GET /api/auth/session`: дальше — «сервер недоступен» (без кэша) или работа по кэшу. */
+export const SESSION_TIMEOUT_MS = 10_000;
+
+/** Через сколько заставка подписывает, что идёт подключение (чтобы долгий ответ не выглядел зависанием). */
+export const SPLASH_HINT_MS = 3_000;
+
 export type SessionDeps = {
   api: AuthApi;
   /** Вход подтверждён: запустить данные и live-соединение. */
@@ -42,6 +48,8 @@ export function createSession(deps: SessionDeps) {
     unreachable: false,
   }));
   let active = false;
+  /** Запрос текущего `start()`: повторный старт обрывает прежний. */
+  let inflight: AbortController | null = null;
 
   function read(): Cached | null {
     try {
@@ -117,9 +125,17 @@ export function createSession(deps: SessionDeps) {
           unreachable: false,
         });
         if (cached.status === 'authenticated') await enter();
+      } else {
+        // Повторная попытка без кэша: снова заставка, а не «недоступен».
+        store.setState({ unreachable: false });
       }
+      inflight?.abort();
+      const ctl = new AbortController();
+      inflight = ctl;
+      const timer = setTimeout(() => ctl.abort(), SESSION_TIMEOUT_MS);
       try {
-        const info = await deps.api.session();
+        const info = await abortable(deps.api.session(ctl.signal), ctl.signal);
+        if (inflight !== ctl) return;
         if (!info.auth_required || info.authenticated) {
           set('authenticated', info.auth_required);
           await enter();
@@ -128,8 +144,13 @@ export function createSession(deps: SessionDeps) {
           await leave(false);
         }
       } catch {
-        // Нет сети (или сервер упал): остаёмся при кэше; без кэша — «не достучались».
+        // Старт перезапущен — итог за новым запросом.
+        if (inflight !== ctl) return;
+        // Нет сети, сервер упал или не ответил вовремя: остаёмся при кэше; без кэша — «не достучались».
         if (!cached) store.setState({ unreachable: true });
+      } finally {
+        clearTimeout(timer);
+        if (inflight === ctl) inflight = null;
       }
     },
     store,
@@ -137,6 +158,19 @@ export function createSession(deps: SessionDeps) {
 }
 
 export type Session = ReturnType<typeof createSession>;
+
+/** Обрыв по сигналу, даже если реализация `api` его не слушает. */
+function abortable<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new DOMException('aborted', 'AbortError'));
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
+    p.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
+}
 
 function safeLocalStorage(): Storage | null {
   try {

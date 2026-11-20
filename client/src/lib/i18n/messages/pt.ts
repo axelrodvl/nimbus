@@ -232,6 +232,7 @@ const messages: Messages = {
   'library.search.label': 'Filtrar por nome',
   'library.search.placeholder': 'Filtrar…',
   'library.tabs': 'Seções da biblioteca',
+  'login.connecting': 'Conectando ao servidor…',
   'login.empty': 'Informe o token',
   'login.failed': 'Não foi possível entrar, tente mais tarde',
   'login.invalid': 'Token inválido',

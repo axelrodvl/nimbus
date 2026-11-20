@@ -234,6 +234,7 @@ const messages: Messages = {
   'library.search.label': 'Фільтр за назвою',
   'library.search.placeholder': 'Фільтр…',
   'library.tabs': 'Розділи бібліотеки',
+  'login.connecting': 'Підключення до сервера…',
   'login.empty': 'Введіть токен',
   'login.failed': 'Не вдалося увійти, спробуйте пізніше',
   'login.invalid': 'Невірний токен',

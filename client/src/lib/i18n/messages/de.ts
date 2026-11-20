@@ -235,6 +235,7 @@ const messages: Messages = {
   'library.search.label': 'Nach Namen filtern',
   'library.search.placeholder': 'Filtern…',
   'library.tabs': 'Bereiche der Bibliothek',
+  'login.connecting': 'Verbindung zum Server wird hergestellt…',
   'login.empty': 'Token eingeben',
   'login.failed': 'Anmeldung fehlgeschlagen, bitte später erneut versuchen',
   'login.invalid': 'Ungültiges Token',

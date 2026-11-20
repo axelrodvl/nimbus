@@ -227,6 +227,7 @@ const messages: Messages = {
   'library.search.label': '按名称筛选',
   'library.search.placeholder': '筛选…',
   'library.tabs': '音乐库分区',
+  'login.connecting': '正在连接服务器…',
   'login.empty': '请输入令牌',
   'login.failed': '登录失败，请稍后重试',
   'login.invalid': '令牌无效',

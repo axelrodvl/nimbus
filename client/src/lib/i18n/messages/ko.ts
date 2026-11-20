@@ -230,6 +230,7 @@ const messages: Messages = {
   'library.search.label': '이름으로 필터',
   'library.search.placeholder': '필터…',
   'library.tabs': '라이브러리 섹션',
+  'login.connecting': '서버에 연결하는 중…',
   'login.empty': '토큰을 입력하세요',
   'login.failed': '로그인하지 못했습니다. 나중에 다시 시도하세요',
   'login.invalid': '잘못된 토큰입니다',

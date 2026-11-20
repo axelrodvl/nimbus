@@ -228,6 +228,7 @@ const messages: Messages = {
   'library.search.label': 'नाम से फ़िल्टर करें',
   'library.search.placeholder': 'फ़िल्टर…',
   'library.tabs': 'लाइब्रेरी के अनुभाग',
+  'login.connecting': 'सर्वर से कनेक्ट हो रहा है…',
   'login.empty': 'टोकन दर्ज करें',
   'login.failed': 'साइन इन नहीं हो सका, बाद में कोशिश करें',
   'login.invalid': 'अमान्य टोकन',

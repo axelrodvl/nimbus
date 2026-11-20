@@ -228,6 +228,7 @@ export const en = {
   'library.search.label': 'Filter by name',
   'library.search.placeholder': 'Filter…',
   'library.tabs': 'Library sections',
+  'login.connecting': 'Connecting to the server…',
   'login.empty': 'Enter the token',
   'login.failed': "Couldn't sign in, try again later",
   'login.invalid': 'Invalid token',

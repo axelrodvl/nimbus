@@ -7,7 +7,7 @@ import { runLogoutHandlers } from '@/lib/pwa/logout';
 import { requestPersistentStorage } from '@/lib/pwa/storage';
 import { createSession, type SessionState } from './session';
 
-export { safeNext, SESSION_KEY } from './session';
+export { safeNext, SESSION_KEY, SESSION_TIMEOUT_MS, SPLASH_HINT_MS } from './session';
 export type { SessionState, SessionStatus } from './session';
 
 /** Сессия приложения: вход подтверждён → `bootstrap()` данных и сокета; выход → остановка и очистка. */

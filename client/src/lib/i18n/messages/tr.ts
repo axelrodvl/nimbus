@@ -231,6 +231,7 @@ const messages: Messages = {
   'library.search.label': 'Ada göre filtrele',
   'library.search.placeholder': 'Filtrele…',
   'library.tabs': 'Kitaplık bölümleri',
+  'login.connecting': 'Sunucuya bağlanılıyor…',
   'login.empty': 'Belirteci girin',
   'login.failed': 'Giriş yapılamadı, daha sonra tekrar deneyin',
   'login.invalid': 'Geçersiz belirteç',

@@ -233,6 +233,7 @@ const messages: Messages = {
   'library.search.label': '名前で絞り込み',
   'library.search.placeholder': '絞り込み…',
   'library.tabs': 'ライブラリのセクション',
+  'login.connecting': 'サーバーに接続しています…',
   'login.empty': 'トークンを入力してください',
   'login.failed': 'ログインできませんでした。しばらくしてからお試しください',
   'login.invalid': 'トークンが正しくありません',
