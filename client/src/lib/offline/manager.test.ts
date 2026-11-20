@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makePlaylistTrack, makeTrack } from '@/test/factories';
-import { offlineFile, offlineHarness } from '@/test/offline';
+import { offlineFile, offlineHarness, offlineRows } from '@/test/offline';
 import {
   ESTIMATED_TRACK_BYTES,
   MAX_ATTEMPTS,
@@ -172,6 +172,27 @@ describe('закрепления и сверка', () => {
     await h.settle();
     expect(h.status.getState().pins.size).toBe(0);
     expect(h.db.pins.size).toBe(0);
+  });
+
+  it('фаза 1 гидрации (треков ещё нет) — закрепления не снимаются; после треков сверка идёт как обычно', async () => {
+    const { tracks: _tracks, ...core } = offlineRows();
+    const h = offlineHarness({
+      files: [offlineFile(1, { bytes_done: 5, state: 'done' })],
+      hydrated: false,
+      pins: [{ created_at: 1, id: 1, key: 'album:1', kind: 'album' }],
+      storage: { '1': 5 },
+    });
+    h.library.getState().hydrate(core);
+    await h.start();
+    await vi.advanceTimersByTimeAsync(RECONCILE_DEBOUNCE_MS);
+    await h.settle();
+    expect(h.db.pins.size).toBe(1);
+    expect(h.state(1)).toBe('done');
+    h.library.getState().hydrateTracks(offlineRows().tracks);
+    await vi.advanceTimersByTimeAsync(RECONCILE_DEBOUNCE_MS);
+    await h.settle();
+    expect(h.db.pins.size).toBe(1); // альбом 1 есть, закрепление живо
+    expect(h.state(1)).toBe('done');
   });
 
   it('пока библиотека не загружена или идёт снимок — ничего не удаляется', async () => {

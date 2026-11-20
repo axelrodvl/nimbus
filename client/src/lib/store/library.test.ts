@@ -19,6 +19,64 @@ const withLibrary = () => {
   return { rows, store };
 };
 
+describe('двухфазная гидрация', () => {
+  const phaseOne = () => {
+    const store = createLibraryStore();
+    const rows = makeLibrary({ albumsPerArtist: 2, artists: 2, tracksPerAlbum: 3 });
+    const { tracks, ...core } = rows;
+    store.getState().hydrate(core);
+    return { core, rows, store, tracks };
+  };
+
+  it('фаза 1: hydrated, но не tracksHydrated; hydrateTracks достраивает треки и индексы', () => {
+    const { store, tracks } = phaseOne();
+    const s = store.getState();
+    expect(s.hydrated).toBe(true);
+    expect(s.tracksHydrated).toBe(false);
+    expect(s.albums.size).toBe(4);
+    expect(s.tracks.size).toBe(0);
+    s.hydrateTracks(tracks);
+    const done = store.getState();
+    expect(done.tracksHydrated).toBe(true);
+    expect(done.tracks.size).toBe(12);
+    expect(done.tracksByAlbum.get(1)).toEqual([1, 2, 3]);
+    expect(done.tracksByArtist.get(2)).toHaveLength(6);
+  });
+
+  it('дельта между фазами новее базы: строки из базы её не перезаписывают, удалённое не воскресает', () => {
+    const { store, tracks } = phaseOne();
+    store.getState().applyBatch({
+      deleted: [{ entity: 'track', id: 2 }],
+      tracks: [
+        makeTrack({ album_id: 1, artist_id: 1, id: 1, title: 'Новее' }),
+        makeTrack({ album_id: 1, artist_id: 1, id: 50 }),
+      ],
+    });
+    store.getState().hydrateTracks(tracks);
+    const s = store.getState();
+    expect([...s.tracks.keys()].sort((a, b) => a - b)).toEqual([1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 50]);
+    expect(s.tracks.get(1)?.title).toBe('Новее');
+    expect(s.tracksByAlbum.get(1)).toEqual(expect.arrayContaining([1, 3, 50]));
+    expect(s.tracksByAlbum.get(1)).not.toContain(2);
+  });
+
+  it('replaceAll ставит tracksHydrated; запоздавшая фаза 2 и повторный вызов ничего не делают', () => {
+    const { store, rows, tracks } = phaseOne();
+    store.getState().replaceAll({ ...rows, tracks: tracks.slice(0, 2) });
+    expect(store.getState().tracksHydrated).toBe(true);
+    store.getState().hydrateTracks(tracks);
+    expect(store.getState().tracks.size).toBe(2);
+  });
+
+  it('патч статуса неизвестного трека (до фазы 2) пропускается без ошибки; reset сбрасывает флаги', () => {
+    const { store } = phaseOne();
+    expect(() => store.getState().patchTrack(1, { status: 'ready' })).not.toThrow();
+    store.getState().reset();
+    expect(store.getState().hydrated).toBe(false);
+    expect(store.getState().tracksHydrated).toBe(false);
+  });
+});
+
 describe('hydrate / replaceAll / reset', () => {
   it('hydrate строит коллекции и индексы и поднимает hydrated', () => {
     const { store } = withLibrary();

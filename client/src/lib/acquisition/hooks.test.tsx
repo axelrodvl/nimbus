@@ -4,12 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from '@/lib/api/acquisition';
 import { appData } from '@/lib/app-data';
 import { item, page, summary, torrent } from '@/test/acquisition';
-import {
-  useAcquisitionList,
-  useAcquisitionLiveSync,
-  useAcquisitionSummary,
-  useEngineTorrents,
-} from './hooks';
+import { useAcquisitionList, useAcquisitionLiveSync, useAcquisitionSummary, useEngineTorrents } from './hooks';
 import { ACQ_REFRESH_DEBOUNCE_MS, ENGINE_POLL_MS, listKey } from './keys';
 
 vi.mock('@/lib/api/acquisition', async importOriginal => ({

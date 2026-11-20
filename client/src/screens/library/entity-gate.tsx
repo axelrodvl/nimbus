@@ -2,7 +2,7 @@ import { Link } from 'react-router';
 import { PageLayout } from '@/components/page-layout';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useT } from '@/lib/i18n/provider';
-import { useHydrated } from '@/lib/store/hooks';
+import { useHydrated, useTracksHydrated } from '@/lib/store/hooks';
 
 /** Экран «такой записи нет в библиотеке» (перенос `not-found.tsx` старого интерфейса). */
 export function ItemNotFound() {
@@ -26,9 +26,15 @@ export function parseId(raw: string | undefined): number | null {
 
 export type EntityState = 'loading' | 'missing' | 'ready';
 
-/** До гидратации — skeleton, после — «не найдено» или экран. Навигация никогда не ждёт сеть. */
+/**
+ * До гидратации — skeleton, после — «не найдено» или экран. Навигация никогда не ждёт сеть. Шапки альбома, артиста и
+ * плейлиста строятся из треков (статусы, счётчики, кнопки), поэтому ждут и их: чтение треков — десятки миллисекунд
+ * (пачки в IndexedDB), а неполная шапка мигала бы «альбом не найден» и нулевыми счётчиками.
+ */
 export function useEntityState(exists: boolean): EntityState {
   const hydrated = useHydrated();
-  if (exists) return 'ready';
-  return hydrated ? 'missing' : 'loading';
+  const tracksHydrated = useTracksHydrated();
+  if (exists && tracksHydrated) return 'ready';
+  if (!hydrated || !tracksHydrated) return 'loading';
+  return 'missing';
 }

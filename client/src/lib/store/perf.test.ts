@@ -50,6 +50,19 @@ describe('производительность store', () => {
     expect(ms).toBeLessThan(500);
   });
 
+  it('фаза 1 (hydrate без треков) на 5 000 альбомов < 30 мс; фаза 2 (hydrateTracks 60 000) < 300 мс', () => {
+    const { tracks, ...core } = rows;
+    const store = createLibraryStore();
+    const [, phase1] = timed(() => store.getState().hydrate(core));
+    const [, phase2] = timed(() => store.getState().hydrateTracks(tracks));
+    process.stdout.write(
+      `perf: hydrate phase 1 (5k albums) = ${phase1.toFixed(1)} ms, phase 2 (60k tracks) = ${phase2.toFixed(1)} ms\n`,
+    );
+    expect(store.getState().tracksHydrated).toBe(true);
+    expect(phase1).toBeLessThan(30);
+    expect(phase2).toBeLessThan(300);
+  });
+
   it('applyBatch на 100 строк при 60 000 в store < 10 мс', () => {
     const store = createLibraryStore();
     store.getState().hydrate(rows);

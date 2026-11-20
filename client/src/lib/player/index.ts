@@ -24,7 +24,7 @@ export function appPlayerDeps(over: Partial<PlayerDeps> = {}): PlayerDeps {
       return view && toPlayerTrack(view);
     },
     isOffline: id => offline().playback.has(id),
-    libraryReady: () => appData().library.getState().hydrated,
+    libraryReady: () => appData().library.getState().tracksHydrated,
     notifyError: notifyPlayerError,
     offlineBroken: id => offline().playback.broken(id),
     prepareOffline: id => offline().playback.prepare(id),

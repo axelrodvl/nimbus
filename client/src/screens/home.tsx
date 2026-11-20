@@ -1,4 +1,5 @@
 import { Search } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { AlbumCard } from '@/components/library/album-card';
 import { ArtistCard } from '@/components/library/artist-card';
@@ -14,12 +15,13 @@ import { usePlayerState } from '@/lib/player/hooks';
 import {
   useAlbumView,
   useHydrated,
+  useTracksHydrated,
   useLibraryList,
   usePlaylistCards,
   useRecentlyPlayedAlbums,
 } from '@/lib/store/hooks';
 import type { AlbumView, ArtistView } from '@/lib/store/selectors';
-import { HomeSkeleton } from './library/skeletons';
+import { AlbumGridSkeleton, HomeSkeleton, SectionHeadingSkeleton } from './library/skeletons';
 
 export const PLAYED_ALBUMS = 6;
 export const HOME_PLAYLISTS = 6;
@@ -43,10 +45,33 @@ export function recentItems(albums: AlbumView[], artists: ArtistView[], limit = 
   return items.sort((x, y) => y.at - x.at).slice(0, limit);
 }
 
+type Hint = { played: number; playlists: number };
+const HINT_KEY = 'nimbus.home-hint';
+
+/** Сколько карточек было в секциях «Недавно слушали» и плейлистов в прошлый раз: под них резервируется место. */
+function readHint(): Hint {
+  try {
+    const parsed = JSON.parse(globalThis.localStorage?.getItem(HINT_KEY) ?? 'null') as Partial<Hint> | null;
+    const clamp = (n: unknown, max: number) => Math.min(max, Math.max(0, Math.trunc(Number(n)) || 0));
+    return { played: clamp(parsed?.played, PLAYED_ALBUMS), playlists: clamp(parsed?.playlists, HOME_PLAYLISTS) };
+  } catch {
+    return { played: 0, playlists: 0 };
+  }
+}
+
+function writeHint(hint: Hint) {
+  try {
+    globalThis.localStorage?.setItem(HINT_KEY, JSON.stringify(hint));
+  } catch {
+    // Хранилище недоступно (приватный режим, квота): без подсказки место просто не резервируется.
+  }
+}
+
 /** Главная: «Недавно слушали», «Недавно добавлено» — всё из локального store. */
 export function Home() {
   const t = useT();
   const hydrated = useHydrated();
+  const tracksReady = useTracksHydrated();
   const playedCounted = useRecentlyPlayedAlbums(PLAYED_ALBUMS);
   // Прослушивание засчитывается лишь после половины трека, а альбом играющего трека должен появиться сразу.
   const nowPlaying = useAlbumView(usePlayerState(s => currentTrack(s)?.albumId ?? -1));
@@ -58,11 +83,17 @@ export function Home() {
   const artists = useLibraryList('artists');
   // Только что нажатое «Добавить»: видно сразу, до ответа сервера и дельты.
   const pending = usePending().slice(0, RECENT_ITEMS);
+  const [hint] = useState(readHint);
+  useEffect(() => {
+    if (tracksReady) writeHint({ played: played.length, playlists: playlists.length });
+  }, [tracksReady, played.length, playlists.length]);
   if (!hydrated) return <HomeSkeleton />;
 
   const recent = recentItems(albums, artists, RECENT_ITEMS - pending.length);
+  // Пустая библиотека — только когда прочитаны и треки: альбом может попасть в библиотеку лишь через свои треки.
+  if (!tracksReady && recent.length === 0 && pending.length === 0) return <HomeSkeleton />;
 
-  if (recent.length === 0 && pending.length === 0 && playlists.length === 0) {
+  if (tracksReady && recent.length === 0 && pending.length === 0 && playlists.length === 0) {
     return (
       <PageLayout brand title={t('page.home.title')}>
         <EmptyState body={t('home.findMusic.body')} title={t('home.findMusic.title')}>
@@ -80,8 +111,26 @@ export function Home() {
 
   return (
     <PageLayout brand title={t('page.home.title')}>
-      <div className="flex flex-col gap-10">
-        {played.length > 0 ? (
+      <div className="flex flex-col gap-10" data-tracks-ready={tracksReady || undefined}>
+        {!tracksReady && (hint.played > 0 || hint.playlists > 0) ? (
+          // «Недавно слушали» и плейлисты строятся из треков (фаза 2 гидрации): место под них занято заранее —
+          // по тому, сколько их было в прошлый раз, чтобы «Недавно добавлено» не прыгало.
+          <div aria-busy className="contents" data-testid="home-tracks-pending">
+            {hint.played > 0 ? (
+              <section>
+                <SectionHeadingSkeleton />
+                <AlbumGridSkeleton count={hint.played} />
+              </section>
+            ) : null}
+            {hint.playlists > 0 ? (
+              <section>
+                <SectionHeadingSkeleton />
+                <AlbumGridSkeleton count={hint.playlists} />
+              </section>
+            ) : null}
+          </div>
+        ) : null}
+        {tracksReady && played.length > 0 ? (
           <section aria-labelledby="home-played" data-testid="home-played">
             <h2 className="mb-4" id="home-played">
               {t('home.played')}
@@ -95,7 +144,7 @@ export function Home() {
             </ul>
           </section>
         ) : null}
-        {playlists.length > 0 ? (
+        {tracksReady && playlists.length > 0 ? (
           <section aria-labelledby="home-playlists" data-testid="home-playlists">
             <h2 className="mb-4" id="home-playlists">
               {t('group.playlists')}

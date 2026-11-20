@@ -137,7 +137,7 @@ export function createOfflineNotifier(deps: NotifierDeps) {
     const lib = library.getState();
 
     const pending = read(storage);
-    if (pending.size > 0 && lib.hydrated) {
+    if (pending.size > 0 && lib.tracksHydrated) {
       const sums = new Map(summarizePins(s, lib, deps.favoriteIds()).map(p => [p.key, p]));
       let changed = false;
       for (const key of [...pending.keys()]) {

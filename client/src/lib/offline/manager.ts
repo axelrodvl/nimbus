@@ -322,7 +322,7 @@ export function createOfflineManager(deps: ManagerDeps) {
   async function doReconcile() {
     if (!leader || stopped) return;
     const lib = library.getState();
-    if (!lib.hydrated) return;
+    if (!lib.tracksHydrated) return; // без треков закрепления выглядели бы «осиротевшими» и файлы удалились бы
     const prune = deps.libraryComplete?.() ?? true;
     const needed = new Map<number, number>();
     const add = (id: number) => {

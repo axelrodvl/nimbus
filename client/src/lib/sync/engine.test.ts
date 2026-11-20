@@ -79,14 +79,51 @@ describe('запуск', () => {
     server.upsert('track', makeTrack({ album_id: 1, artist_id: 1, id: 50 }));
     const second = makeEnv(server, { dbName });
     await second.engine.start();
-    // Экран уже может рисовать: store гидрирован до сети.
+    // Экран уже может рисовать: фаза 1 (без треков) готова до сети.
     expect(second.store.getState().hydrated).toBe(true);
-    expect(second.store.getState().tracks.size).toBeGreaterThanOrEqual(2);
+    expect(second.store.getState().tracksHydrated).toBe(false);
+    expect(second.store.getState().albums.size).toBeGreaterThanOrEqual(1);
     await second.engine.settled();
+    expect(second.store.getState().tracksHydrated).toBe(true);
     expect(server.snapshotRequests).toBe(1);
     expect(server.changesRequests).toBe(1);
     expect(ids(second)).toEqual([1, 2, 50]);
     expect(second.state()).toBe('live');
+  });
+
+  it('треки читаются второй фазой: дельта между фазами не теряется и новее прочитанного из базы', async () => {
+    const server = new FakeSyncServer().load(makeLibrary({ albumsPerArtist: 1, artists: 1, tracksPerAlbum: 3 }));
+    const dbName = `engine-phases-${++n}`;
+    const first = makeEnv(server, { dbName });
+    await sync(first);
+    first.engine.stop();
+
+    // Между фазами: трек 1 меняется, трек 2 удаляется, появляется трек 50.
+    server.upsert('track', makeTrack({ album_id: 1, artist_id: 1, id: 1, title: 'Новее' }));
+    server.remove('track', 2);
+    server.upsert('track', makeTrack({ album_id: 1, artist_id: 1, id: 50 }));
+    const real = createDb({ name: dbName });
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>(resolve => (release = resolve));
+    const slow: Db = Object.create(real, {
+      loadTracks: {
+        value: async () => {
+          const rows = await real.loadTracks(); // старое состояние базы: трек 2 ещё есть
+          await gate;
+          return rows;
+        },
+      },
+    });
+    const second = makeEnv(server, { db: slow });
+    await second.engine.start();
+    expect(second.store.getState().tracksHydrated).toBe(false);
+    await vi.waitFor(() => expect(ids(second)).toEqual([1, 50])); // дельта уже в store, трек 2 удалён
+    expect(second.store.getState().tracksHydrated).toBe(false);
+    release();
+    await second.engine.settled();
+    expect(second.store.getState().tracksHydrated).toBe(true);
+    expect(ids(second)).toEqual([1, 3, 50]); // 3 — из базы; 2 не воскрес
+    expect(second.store.getState().tracks.get(1)?.title).toBe('Новее');
   });
 
   it('курсор другой версии формата игнорируется — берётся снимок', async () => {
@@ -115,11 +152,26 @@ describe('запуск', () => {
   it('ошибка чтения базы: старт с чистого листа, данные приходят снимком', async () => {
     const server = new FakeSyncServer().load(makeLibrary({ artists: 1, albumsPerArtist: 1, tracksPerAlbum: 1 }));
     const db = createDb({ name: `engine-broken-${++n}` });
-    vi.spyOn(db, 'loadAll').mockRejectedValueOnce(new Error('corrupt'));
+    vi.spyOn(db, 'loadCore').mockRejectedValueOnce(new Error('corrupt'));
     const env = makeEnv(server, { db });
     await sync(env);
     expect(server.snapshotRequests).toBe(1);
     expect(env.store.getState().tracks.size).toBe(1);
+  });
+
+  it('ошибка чтения треков (фаза 2): курсор сбрасывается, библиотека добирается снимком', async () => {
+    const server = new FakeSyncServer().load(makeLibrary({ artists: 1, albumsPerArtist: 1, tracksPerAlbum: 2 }));
+    const dbName = `engine-tracks-broken-${++n}`;
+    const first = makeEnv(server, { dbName });
+    await sync(first);
+    first.engine.stop();
+    const db = createDb({ name: dbName });
+    vi.spyOn(db, 'loadTracks').mockRejectedValueOnce(new Error('corrupt tracks'));
+    const env = makeEnv(server, { db });
+    await sync(env);
+    expect(server.snapshotRequests).toBe(2);
+    expect(env.store.getState().tracksHydrated).toBe(true);
+    expect(env.store.getState().tracks.size).toBe(2);
   });
 
   it('start() повторно и после stop() безопасен', async () => {

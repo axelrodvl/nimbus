@@ -334,15 +334,31 @@ export function createSyncEngine(deps: EngineDeps) {
     }
   }
 
+  /** Фаза 2 гидрации (чтение треков из базы); завершается, когда треки в store. */
+  let tracksPhase: Promise<void> = Promise.resolve();
+
   async function start(): Promise<void> {
     if (!stopped) return;
     stopped = false;
     setState('hydrating');
     try {
-      const data = await db.loadAll();
-      store.getState().hydrate(data);
-      cursor = data.meta.schema === SYNC_SCHEMA ? data.meta.cursor : undefined;
-      if (cursor) status.setState({ lastSyncedAt: data.meta.syncedAt ?? null });
+      // Фаза 1: всё, кроме треков, — экраны, которым треки не нужны, рисуют сразу.
+      const core = await db.loadCore();
+      store.getState().hydrate(core);
+      cursor = core.meta.schema === SYNC_SCHEMA ? core.meta.cursor : undefined;
+      if (cursor) status.setState({ lastSyncedAt: core.meta.syncedAt ?? null });
+      // Фаза 2: треки. Дельта, пришедшая раньше, новее прочитанного (`hydrateTracks` её не перезаписывает).
+      tracksPhase = db
+        .loadTracks()
+        .then(rows => {
+          if (!stopped) store.getState().hydrateTracks(rows);
+        })
+        .catch((e: unknown) => {
+          // Без треков библиотека неполна: берём свежий снимок (флаг, а не курсор: лидер перечитывает курсор из базы).
+          forceSnapshot = true;
+          store.getState().hydrateTracks([]);
+          status.setState({ error: e instanceof Error ? e : new Error(String(e)) });
+        });
     } catch (e) {
       // Не удалось прочитать локальные данные: начинаем с чистого листа (снимок).
       store.getState().hydrate({ albums: [], artists: [], playlistTracks: [], playlists: [], tracks: [] });
@@ -459,6 +475,7 @@ export function createSyncEngine(deps: EngineDeps) {
     /** Завершается, когда текущая синхронизация закончилась (для тестов и ожидания в оболочке). */
     settled: async () => {
       await starting;
+      await tracksPhase;
       while (running) await running;
       await flush();
     },

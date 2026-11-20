@@ -73,29 +73,58 @@ test('переход между основными экранами: медиа�
   for (const [name, ms] of Object.entries(medians)) expect(ms, `переход «${name}»`).toBeLessThan(150 * slack);
 });
 
-test('холодный старт с данными в IndexedDB: главная < 4 с (цель 1.5 с)', async ({ context, page }) => {
-  await warm(page);
-  const times: number[] = [];
-  for (let i = 0; i < 5; i++) {
-    const fresh = await context.newPage();
-    await fresh.addInitScript(() => {
-      const poll = () => {
-        if (document.querySelector('[data-testid=home-recent]'))
-          (window as unknown as { __ready: number }).__ready = performance.now();
-        else requestAnimationFrame(poll);
-      };
-      requestAnimationFrame(poll);
-    });
-    await fresh.goto('/');
-    await fresh.waitForFunction(() => (window as unknown as { __ready?: number }).__ready !== undefined, undefined, {
-      timeout: 30_000,
-    });
-    times.push(await fresh.evaluate(() => (window as unknown as { __ready: number }).__ready));
-    await fresh.close();
-  }
-  report('холодный старт, мс', `медиана ${Math.round(median(times))} (${times.map(Math.round).join(', ')})`);
-  expect(median(times)).toBeLessThan(4000 * slack);
-});
+for (const cpu of [1, 4]) {
+  // Фаза 1 гидрации (`home-recent`: артисты/альбомы из IndexedDB) и фаза 2 (треки: заглушка под «Недавно слушали»
+  // сменилась настоящими секциями). Цель шага 49 — 1,5 с до главной; ×3 — запас CI, ×4 CPU — «средний телефон».
+  test(`холодный старт с данными в IndexedDB (CPU ×${cpu}): главная < ${1500 * (cpu === 1 ? 1 : 3)} мс`, async ({
+    context,
+    page,
+  }) => {
+    await warm(page);
+    const phase1: number[] = [];
+    const phase2: number[] = [];
+    const shifts: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const fresh = await context.newPage();
+      const cdp = await context.newCDPSession(fresh);
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: cpu });
+      await fresh.addInitScript(() => {
+        const w = window as unknown as { __p1?: number; __p2?: number; __cls: number };
+        w.__cls = 0;
+        new PerformanceObserver(list => {
+          for (const e of list.getEntries() as unknown as { hadRecentInput: boolean; value: number }[])
+            if (!e.hadRecentInput) w.__cls += e.value;
+        }).observe({ buffered: true, type: 'layout-shift' });
+        const poll = () => {
+          if (w.__p1 === undefined && document.querySelector('[data-testid=home-recent]')) w.__p1 = performance.now();
+          if (w.__p1 !== undefined && w.__p2 === undefined && document.querySelector('[data-tracks-ready]'))
+            w.__p2 = performance.now();
+          if (w.__p2 === undefined) requestAnimationFrame(poll);
+        };
+        requestAnimationFrame(poll);
+      });
+      await fresh.goto('/');
+      await fresh.waitForFunction(() => (window as unknown as { __p2?: number }).__p2 !== undefined, undefined, {
+        timeout: 60_000,
+      });
+      const got = await fresh.evaluate(() => {
+        const w = window as unknown as { __p1: number; __p2: number; __cls: number };
+        return { cls: w.__cls, p1: w.__p1, p2: w.__p2 };
+      });
+      phase1.push(got.p1);
+      phase2.push(got.p2);
+      shifts.push(got.cls);
+      await fresh.close();
+    }
+    const fmt = (xs: number[]) => `медиана ${Math.round(median(xs))} (${xs.map(Math.round).join(', ')})`;
+    report(`холодный старт ×${cpu}, до главной (фаза 1), мс`, fmt(phase1));
+    report(`холодный старт ×${cpu}, до треков (фаза 2), мс`, fmt(phase2));
+    report(`холодный старт ×${cpu}, CLS`, shifts.map(x => x.toFixed(3)).join(', '));
+    expect(median(phase1)).toBeLessThan(1500 * (cpu === 1 ? 1 : 3) * slack);
+    expect(median(phase2)).toBeLessThan(2500 * (cpu === 1 ? 1 : 3) * slack);
+    expect(median(shifts)).toBeLessThan(0.1);
+  });
+}
 
 test('прокрутка 60 000 треков: кадров длиннее 50 мс за 3 с — не более 3', async ({ page }) => {
   await warm(page);

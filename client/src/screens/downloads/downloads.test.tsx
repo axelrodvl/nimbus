@@ -686,7 +686,10 @@ describe('кнопка «Скачать на сервер» на экране а
 
   it('идёт загрузка → проценты из live-store; отмена снимает закрепление', async () => {
     m.unpin.mockResolvedValue(undefined);
-    mount([{ pin: 'downloading', status: 'found' }, { pin: 'done', status: 'ready' }]);
+    mount([
+      { pin: 'downloading', status: 'found' },
+      { pin: 'done', status: 'ready' },
+    ]);
     // до первого live-прогресса байты неизвестны — без процентов
     expect(screen.getByTestId('server-download-progress')).toHaveTextContent(L('acq.server.downloading'));
     act(() =>

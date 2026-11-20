@@ -1,6 +1,13 @@
 import { useState } from 'react';
 import { MusicNote } from '@/components/ui/music-note';
-import { coverSrc, imageLoading, isImageBroken, markImageBroken, markImageShown, type CoverThumb } from '@/lib/library/cover';
+import {
+  coverSrc,
+  imageLoading,
+  isImageBroken,
+  markImageBroken,
+  markImageShown,
+  type CoverThumb,
+} from '@/lib/library/cover';
 import { cn } from '@/lib/utils';
 
 type Props = {

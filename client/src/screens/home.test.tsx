@@ -1,14 +1,17 @@
 import { act, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { appData } from '@/lib/app-data';
 import { resetPlayer, toPlayerTrack } from '@/lib/player';
 import { installTestPlayer } from '@/test/player-ui';
 import { makeArtist, makeLibrary, makePlaylist, resetFactories } from '@/test/factories';
 import { renderWithProviders } from '@/test/render';
-import { seed, seedNothing } from '@/test/seed';
+import { seed, seedNothing, seedPhaseOne } from '@/test/seed';
 import { Home } from './home';
 
-beforeEach(resetFactories);
+beforeEach(() => {
+  resetFactories();
+  localStorage.clear();
+});
 
 const names = (section: HTMLElement) =>
   within(section)
@@ -36,6 +39,57 @@ describe('Home', () => {
 
   it('до гидратации — skeleton, а не пустое состояние', () => {
     seedNothing();
+    renderWithProviders(<Home />);
+    expect(screen.getByTestId('screen-skeleton')).toBeInTheDocument();
+    expect(screen.queryByText('Найдите музыку')).not.toBeInTheDocument();
+  });
+
+  it('фаза 1 (без треков): «Недавно добавлено» рисуется, на месте «слушали»/плейлистов — заглушка, пустого состояния нет', () => {
+    const rows = makeLibrary({ albumsPerArtist: 2, artists: 2, tracksPerAlbum: 2 });
+    rows.albums.forEach(a => (a.in_library = true));
+    localStorage.setItem('nimbus.home-hint', JSON.stringify({ played: 4, playlists: 1 }));
+    seedPhaseOne(rows);
+    renderWithProviders(<Home />);
+    expect(screen.queryByTestId('screen-skeleton')).not.toBeInTheDocument();
+    expect(screen.getByTestId('home-recent')).toBeInTheDocument();
+    expect(screen.getByTestId('home-tracks-pending')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByTestId('home-played')).not.toBeInTheDocument();
+    act(() => appData().library.getState().hydrateTracks(rows.tracks));
+    expect(screen.queryByTestId('home-tracks-pending')).not.toBeInTheDocument();
+    // Сколько карточек было в секциях — запоминается для следующего холодного старта.
+    expect(JSON.parse(localStorage.getItem('nimbus.home-hint') ?? '{}')).toEqual({ played: 0, playlists: 0 });
+  });
+
+  it('испорченная подсказка и недоступное хранилище не ломают главную', () => {
+    localStorage.setItem('nimbus.home-hint', '{oops');
+    const setItem = vi.spyOn(globalThis.localStorage, 'setItem').mockImplementation(() => {
+      throw new Error('quota');
+    });
+    const rows = makeLibrary({ albumsPerArtist: 1, artists: 1, tracksPerAlbum: 1 });
+    rows.albums.forEach(a => (a.in_library = true));
+    seed(rows);
+    renderWithProviders(<Home />);
+    expect(screen.getByTestId('home-recent')).toBeInTheDocument();
+    expect(setItem).toHaveBeenCalled();
+    setItem.mockRestore();
+  });
+
+  it('фаза 1 без подсказки (первый запуск): места под секции не резервируется', () => {
+    const rows = makeLibrary({ albumsPerArtist: 1, artists: 1, tracksPerAlbum: 1 });
+    rows.albums.forEach(a => (a.in_library = true));
+    seedPhaseOne(rows);
+    renderWithProviders(<Home />);
+    expect(screen.getByTestId('home-recent')).toBeInTheDocument();
+    expect(screen.queryByTestId('home-tracks-pending')).not.toBeInTheDocument();
+  });
+
+  it('фаза 1 и нечего показать (альбомы — только через треки) — skeleton, а не «Найдите музыку»', () => {
+    seedPhaseOne({
+      albums: makeLibrary({ albumsPerArtist: 1, artists: 1, tracksPerAlbum: 1 }).albums.map(a => ({
+        ...a,
+        in_library: false,
+      })),
+    });
     renderWithProviders(<Home />);
     expect(screen.getByTestId('screen-skeleton')).toBeInTheDocument();
     expect(screen.queryByText('Найдите музыку')).not.toBeInTheDocument();

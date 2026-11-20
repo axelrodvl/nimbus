@@ -6,7 +6,7 @@ import * as libraryApi from '@/lib/api/library';
 import { appData } from '@/lib/app-data';
 import { makeAlbum, makeArtist, makeLibrary, makeTrack, resetFactories } from '@/test/factories';
 import { renderRoutes } from '@/test/render';
-import { seed, seedNothing } from '@/test/seed';
+import { seed, seedNothing, seedPhaseOne } from '@/test/seed';
 import { AlbumScreen } from './album';
 import { ArtistScreen, groupAlbums } from './artist';
 
@@ -197,6 +197,17 @@ describe('альбом', () => {
     renderRoutes(routes, '/album/999');
     expect(screen.getByRole('heading', { name: 'Не найдено' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'В библиотеку' })).toHaveAttribute('href', '/library');
+  });
+
+  it('фаза 1: экран альбома ждёт треки (skeleton, не «не найдено»), затем рисуется', () => {
+    const rows = discs();
+    seedPhaseOne(rows);
+    renderRoutes(routes, '/album/1');
+    expect(screen.getByTestId('screen-skeleton')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Не найдено' })).not.toBeInTheDocument();
+    act(() => appData().library.getState().hydrateTracks(rows.tracks));
+    expect(screen.queryByTestId('screen-skeleton')).not.toBeInTheDocument();
+    expect(screen.getByTestId('album-tracks')).toBeInTheDocument();
   });
 
   it('некорректный id — «не найдено»', () => {

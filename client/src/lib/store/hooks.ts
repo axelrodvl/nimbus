@@ -26,6 +26,12 @@ function useLibrary<T>(select: (s: LibraryState) => T): T {
 /** Данные из локальной базы уже загружены (экраны могут рисовать). */
 export const useHydrated = (): boolean => useLibrary(s => s.hydrated);
 
+/**
+ * Треки тоже прочитаны из локальной базы (фаза 2). До этого от них зависящие значения неполны: статусы и счётчики
+ * альбомов/артистов, плейлисты, «Недавно слушали», строки альбома.
+ */
+export const useTracksHydrated = (): boolean => useLibrary(s => s.tracksHydrated);
+
 /** Число строк в локальной библиотеке (0 — данных ещё нет). */
 export const useRowCount = (): number => useLibrary(s => s.artists.size + s.tracks.size);
 

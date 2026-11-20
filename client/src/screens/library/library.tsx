@@ -27,7 +27,7 @@ import {
 } from '@/lib/library/tabs';
 import { useFilteredLibraryList } from '@/lib/library/use-filtered-list';
 import { SEARCH_ENTRY } from '@/lib/nav/items';
-import { useHydrated, useLibraryCounts } from '@/lib/store/hooks';
+import { useHydrated, useLibraryCounts, useTracksHydrated } from '@/lib/store/hooks';
 import { cn } from '@/lib/utils';
 import { LibrarySkeleton } from './skeletons';
 
@@ -142,6 +142,7 @@ const LISTS: Record<LibraryTabId, (props: ListProps) => React.ReactNode> = {
 export function LibraryScreen() {
   const t = useT();
   const hydrated = useHydrated();
+  const tracksReady = useTracksHydrated();
   const counts = useLibraryCounts();
   const tab = parseTab(useParams().tab);
   const [params, setParams] = useSearchParams();
@@ -158,7 +159,9 @@ export function LibraryScreen() {
   const supported = useOfflineSupported();
   const onlyDownloaded = supported && params.get('offline') === '1';
   const downloaded = useDownloadedSets(onlyDownloaded && tab !== 'playlists');
-  if (!hydrated) {
+  // Альбомы и артисты без фильтров рисуются сразу после фазы 1; остальное строится из треков (фаза 2).
+  const needsTracks = tab === 'tracks' || tab === 'playlists' || status !== 'all' || onlyDownloaded;
+  if (!hydrated || (needsTracks && !tracksReady)) {
     return (
       <PageLayout title={t('nav.library')}>
         <LibrarySkeleton />
@@ -176,7 +179,8 @@ export function LibraryScreen() {
             id: item.id,
             label: (
               <>
-                {t(item.label)} <span className="tabular-nums">{counts[item.id]}</span>
+                {t(item.label)} {/* До фазы 2 числа неполны: место под них занято, чтобы вкладки не прыгали. */}
+                <span className="inline-block min-w-[2ch] tabular-nums">{tracksReady ? counts[item.id] : ''}</span>
               </>
             ),
             to: libraryHref(item.id, { offline: onlyDownloaded, q, status }),

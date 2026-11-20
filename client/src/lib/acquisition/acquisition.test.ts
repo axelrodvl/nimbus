@@ -236,7 +236,11 @@ describe('закрепление альбома', () => {
     seedRow(failing);
     const err = new ApiError(500, 'internal', 'boom');
     await expect(
-      pinAlbum(1, { library: seedLibrary(), queryClient: failing, requests: { pinAlbum: vi.fn().mockRejectedValue(err) } }),
+      pinAlbum(1, {
+        library: seedLibrary(),
+        queryClient: failing,
+        requests: { pinAlbum: vi.fn().mockRejectedValue(err) },
+      }),
     ).rejects.toBe(err);
     expect(row1(failing)?.download).toBeNull();
   });
@@ -261,7 +265,11 @@ describe('закрепление альбома', () => {
     const failing = seedLibrary();
     const before = pins(failing);
     await expect(
-      pinAlbum(1, { library: failing, queryClient: client(), requests: { pinAlbum: vi.fn().mockRejectedValue(new Error('x')) } }),
+      pinAlbum(1, {
+        library: failing,
+        queryClient: client(),
+        requests: { pinAlbum: vi.fn().mockRejectedValue(new Error('x')) },
+      }),
     ).rejects.toThrow('x');
     expect(pins(failing)).toEqual(before);
   });
@@ -319,7 +327,11 @@ describe('закрепление альбома', () => {
       unpinAlbum(
         1,
         { deleteFiles: false },
-        { library: failingLib, queryClient: failing, requests: { unpinAlbum: vi.fn().mockRejectedValue(new Error('x')) } },
+        {
+          library: failingLib,
+          queryClient: failing,
+          requests: { unpinAlbum: vi.fn().mockRejectedValue(new Error('x')) },
+        },
       ),
     ).rejects.toThrow('x');
     expect(row1(failing)).toMatchObject({ download: { pinned: true }, state: 'downloaded' });

@@ -170,6 +170,91 @@ describe('IndexedDB', () => {
     expect(await db.offlineLoad()).toEqual({ files: [], pins: [] });
   });
 
+  it('миграция 2 → 3: треки версий 1–2 переезжают в пачки, старого хранилища нет', async () => {
+    const dbName = name();
+    const v2 = await openDB(dbName, 2, {
+      upgrade(db) {
+        for (const store of ['artists', 'albums', 'tracks', 'playlists', 'playlist_tracks']) {
+          db.createObjectStore(store, { keyPath: 'id' });
+        }
+        db.createObjectStore('meta');
+        db.createObjectStore('outbox', { autoIncrement: true });
+        db.createObjectStore('offline_pins', { keyPath: 'key' });
+        db.createObjectStore('offline_files', { keyPath: 'track_id' });
+      },
+    });
+    for (const id of [3, 1999, 2000, 4500]) await v2.put('tracks', makeTrack({ id }));
+    await v2.put('meta', 'c', 'cursor');
+    v2.close();
+    const db = createDb({ name: dbName });
+    expect((await db.loadTracks()).map(t => t.id)).toEqual([3, 1999, 2000, 4500]);
+    expect((await db.loadMeta()).cursor).toBe('c');
+    db.close();
+    const check = await openDB(dbName);
+    expect([...check.objectStoreNames]).not.toContain('tracks');
+    expect(await check.count('track_chunks')).toBe(3);
+    check.close();
+  });
+
+  it('миграция 2 → 3 не удалась: обновление откатывается, база уходит в память', async () => {
+    const dbName = name();
+    const v2 = await openDB(dbName, 2, {
+      upgrade(db) {
+        for (const store of ['artists', 'albums', 'playlists', 'playlist_tracks']) {
+          db.createObjectStore(store, { keyPath: 'id' });
+        }
+        db.createObjectStore('tracks', { keyPath: 'id' }); // без остальных хранилищ — читать нечего, но не падаем
+        db.createObjectStore('meta');
+        db.createObjectStore('outbox', { autoIncrement: true });
+        db.createObjectStore('offline_pins', { keyPath: 'key' });
+        db.createObjectStore('offline_files', { keyPath: 'track_id' });
+      },
+    });
+    await v2.put('tracks', { id: 1 }); // строка без нужных полей — перенос идёт по id и проходит
+    v2.close();
+    // Сбой чтения старых треков: хранилище `tracks` недоступно в обновлении.
+    const real = IDBObjectStore.prototype.getAll;
+    vi.spyOn(IDBObjectStore.prototype, 'getAll').mockImplementation(function (this: IDBObjectStore, ...args) {
+      if (this.name === 'tracks') throw new Error('boom');
+      return real.apply(this, args as []);
+    });
+    const db = createDb({ name: dbName });
+    await db.ready;
+    expect(db.persistent).toBe(false);
+    vi.restoreAllMocks();
+  });
+
+  it('треки пачками по диапазону id: loadCore без треков; upsert/патч/удаление правят нужную пачку', async () => {
+    const db = createDb({ name: name() });
+    const rows = [1, 2, 2001, 2002, 6000].map(id => makeTrack({ id, status: 'adding' }));
+    await db.applyBatch({ artists: [makeArtist({ id: 1 })], meta: { cursor: 'a' }, tracks: rows });
+    const core = await db.loadCore();
+    expect(core).not.toHaveProperty('tracks');
+    expect(core.artists).toHaveLength(1);
+    expect(core.meta.cursor).toBe('a');
+    expect((await db.loadTracks()).map(t => t.id)).toEqual([1, 2, 2001, 2002, 6000]);
+
+    await db.applyBatch({
+      deleted: [
+        { entity: 'track', id: 6000 }, // последняя строка пачки — пачка исчезает
+        { entity: 'track', id: 2 },
+      ],
+      tracks: [makeTrack({ id: 2001, status: 'ready', title: 'New' }), makeTrack({ id: 4000 })],
+    });
+    await db.patchTracks(
+      new Map([
+        [1, { status: 'ready' }],
+        [777, { status: 'ready' }], // нет такого трека — пропуск
+      ]),
+    );
+    const loaded = await db.loadTracks();
+    expect(loaded.map(t => t.id).sort((a, b) => a - b)).toEqual([1, 2001, 2002, 4000]);
+    expect(loaded.find(t => t.id === 1)?.status).toBe('ready');
+    expect(loaded.find(t => t.id === 2001)?.title).toBe('New');
+    await db.replaceAll({ ...(await db.loadAll()), tracks: [makeTrack({ id: 9 })] });
+    expect((await db.loadTracks()).map(t => t.id)).toEqual([9]);
+  });
+
   it('офлайн: закрепления и файлы пишутся, читаются, удаляются; clear библиотеки их не трогает', async () => {
     const db = createDb({ name: name() });
     const file: OfflineFile = {
@@ -229,6 +314,8 @@ describe('IndexedDB недоступна', () => {
     await db.applyBatch({ ...rows, meta: { cursor: 'm' } });
     await db.patchTrack(1, { status: 'adding' });
     await db.patchTrack(404, { status: 'adding' });
+    expect((await db.loadTracks()).map(t => t.id)).toEqual([1, 2]);
+    expect(await db.loadCore()).not.toHaveProperty('tracks');
     await db.outboxAdd({ at: 1, trackId: 1 });
     await db.outboxAdd({ at: 2, trackId: 2 });
     await db.outboxRemove(1);

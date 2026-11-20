@@ -456,6 +456,8 @@ test('очередь из длинного списка: в DOM только в�
   const id = await target.getAttribute('data-track-id');
   await target.getByRole('button').first().click();
   await expect(page.locator('[data-testid=player-track]:visible').first()).toBeVisible();
-  const queued = await page.evaluate(() => document.querySelector('[data-testid=player-audio]')?.getAttribute('src'));
-  expect(queued).toContain(`/api/tracks/${id}/stream`);
+  // `src` меняется после клика, а не вместе с ним: ждём, а не читаем сразу.
+  await expect
+    .poll(() => page.evaluate(() => document.querySelector('[data-testid=player-audio]')?.getAttribute('src') ?? ''))
+    .toContain(`/api/tracks/${id}/stream`);
 });

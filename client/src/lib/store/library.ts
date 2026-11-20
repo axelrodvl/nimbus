@@ -61,14 +61,25 @@ export type LibraryState = {
   tracksByPlaylist: Index;
   /** Растёт на каждое применение; по нему мемоизируются производные данные. */
   version: number;
+  /** Артисты, альбомы, плейлисты прочитаны из локальной базы: экраны, которым треки не нужны, могут рисовать. */
   hydrated: boolean;
+  /** Треки тоже прочитаны (фаза 2): списки по статусам, строки альбомов, «Недавно слушали», плеер, офлайн. */
+  tracksHydrated: boolean;
 };
 
 export type TrackPatch = Partial<Omit<Track, 'id' | 'album_id' | 'artist_id'>>;
 
 export type LibraryActions = {
-  /** Первичная загрузка из IndexedDB: экраны могут рисовать, пока идёт синхронизация. */
-  hydrate(data: Omit<LibraryData, 'meta'>): void;
+  /**
+   * Первичная загрузка из IndexedDB: экраны могут рисовать, пока идёт синхронизация. Без `tracks` — только фаза 1
+   * (`tracksHydrated` остаётся `false` до `hydrateTracks`).
+   */
+  hydrate(data: Omit<LibraryData, 'meta' | 'tracks'> & { tracks?: Track[] }): void;
+  /**
+   * Фаза 2: добавить треки, прочитанные из базы. То, что дельта успела принести (и удалить) между фазами, новее
+   * прочитанного — строки из базы это не перезаписывают; повторный вызов и вызов после `replaceAll` ничего не делают.
+   */
+  hydrateTracks(rows: Track[]): void;
   /** Применить пачку (upsert, затем удаления): одно обновление состояния. */
   applyBatch(batch: Batch): void;
   /** Заменить всё принятым снимком. */
@@ -143,6 +154,7 @@ const initial = (): LibraryState => ({
   albumsByArtist: new Map(),
   artists: new Table(),
   hydrated: false,
+  tracksHydrated: false,
   playlistTracks: new Table(),
   playlists: new Table(),
   tracks: new Table(),
@@ -165,16 +177,19 @@ function buildIndex<T extends { id: number }>(rows: T[], key: (r: T) => number):
   return index;
 }
 
-function build(data: Omit<LibraryData, 'meta'>): Omit<LibraryState, 'version' | 'hydrated'> {
+function build(
+  data: Omit<LibraryData, 'meta' | 'tracks'> & { tracks?: Track[] },
+): Omit<LibraryState, 'version' | 'hydrated' | 'tracksHydrated'> {
+  const tracks = data.tracks ?? [];
   return {
     albums: toTable(data.albums),
     albumsByArtist: buildIndex(data.albums, a => a.artist_id),
     artists: toTable(data.artists),
     playlistTracks: toTable(data.playlistTracks),
     playlists: toTable(data.playlists),
-    tracks: toTable(data.tracks),
-    tracksByAlbum: buildIndex(data.tracks, t => t.album_id),
-    tracksByArtist: buildIndex(data.tracks, t => t.artist_id),
+    tracks: toTable(tracks),
+    tracksByAlbum: buildIndex(tracks, t => t.album_id),
+    tracksByArtist: buildIndex(tracks, t => t.artist_id),
     tracksByPlaylist: buildIndex(data.playlistTracks, p => p.playlist_id),
   };
 }
@@ -279,21 +294,48 @@ function applyBatch(s: LibraryState, batch: Batch): Partial<LibraryState> | null
 
 /** Библиотека в памяти. Каждое действие — ровно одно обновление состояния (один рендер). */
 export function createLibraryStore(): LibraryStore {
+  // Треки, удалённые дельтой до фазы 2: строка из базы (прочитанная раньше удаления) не должна воскреснуть.
+  let removedEarly = new Set<number>();
   return createStore<LibraryState & LibraryActions>()((set, get) => ({
     ...initial(),
     applyBatch(batch) {
+      if (!get().tracksHydrated) {
+        for (const d of batch.deleted ?? []) if (d.entity === 'track') removedEarly.add(d.id);
+      }
       const patch = applyBatch(get(), batch);
       if (patch) set(s => ({ ...patch, version: s.version + 1 }));
     },
     hydrate(data) {
-      set(s => ({ ...build(data), hydrated: true, version: s.version + 1 }));
+      removedEarly = new Set();
+      set(s => ({ ...build(data), hydrated: true, tracksHydrated: data.tracks !== undefined, version: s.version + 1 }));
+    },
+    hydrateTracks(rows) {
+      const s = get();
+      if (s.tracksHydrated) return;
+      const fresh = rows.filter(t => !s.tracks.raw.has(t.id) && !removedEarly.has(t.id));
+      removedEarly = new Set();
+      const tracks = new TableDraft(s.tracks);
+      const byAlbum = new IndexDraft(s.tracksByAlbum);
+      const byArtist = new IndexDraft(s.tracksByArtist);
+      for (const t of fresh) {
+        tracks.set(t.id, t);
+        byAlbum.add(t.album_id, t.id);
+        byArtist.add(t.artist_id, t.id);
+      }
+      set(st => ({
+        tracks: new Table(tracks.result().raw),
+        tracksByAlbum: byAlbum.result(),
+        tracksByArtist: byArtist.result(),
+        tracksHydrated: true,
+        version: st.version + 1,
+      }));
     },
     patchTrack(id, partial) {
       get().patchTracks(new Map([[id, partial]]));
     },
     patchTracks(patches) {
       const { tracks } = get();
-      let changed = false;
+      let changed = false; // треки, которых ещё нет (фаза 2 впереди), пропускаются: их догонит дельта
       for (const [id, partial] of patches) {
         const old = tracks.get(id);
         if (!old) continue;
@@ -303,7 +345,8 @@ export function createLibraryStore(): LibraryStore {
       if (changed) set(s => ({ tracks: new Table(s.tracks.raw), version: s.version + 1 }));
     },
     replaceAll(data) {
-      set(s => ({ ...build(data), hydrated: true, version: s.version + 1 }));
+      removedEarly = new Set();
+      set(s => ({ ...build(data), hydrated: true, tracksHydrated: true, version: s.version + 1 }));
     },
     reset() {
       set(s => ({ ...initial(), version: s.version + 1 }));

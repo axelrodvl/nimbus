@@ -5,7 +5,7 @@ import { appData } from '@/lib/app-data';
 import { makeLibrary, resetFactories } from '@/test/factories';
 import { mockLayout, ScrollHost } from '@/test/layout';
 import { renderRoutes } from '@/test/render';
-import { seed, seedNothing } from '@/test/seed';
+import { seed, seedNothing, seedPhaseOne } from '@/test/seed';
 import { LibraryScreen } from './library';
 
 let restore: () => void;
@@ -38,6 +38,20 @@ describe('библиотека', () => {
     seedNothing();
     renderLibrary('/library');
     expect(screen.getByTestId('screen-skeleton')).toBeInTheDocument();
+  });
+
+  it('фаза 1: «Альбомы»/«Артисты» без фильтров рисуются сразу (числа во вкладках — после треков); «Треки» и фильтры — skeleton', () => {
+    const rows = makeLibrary({ albumsPerArtist: 2, artists: 2, tracksPerAlbum: 2 });
+    rows.albums.forEach(a => (a.in_library = true));
+    seedPhaseOne(rows);
+    const first = renderLibrary('/library');
+    expect(within(screen.getByTestId('library-albums')).getAllByTestId('album-card')).toHaveLength(4);
+    expect(screen.getByTestId('tab-albums')).toHaveTextContent(/^Альбомы\s*$/);
+    first.unmount();
+    renderLibrary('/library/tracks');
+    expect(screen.getByTestId('screen-skeleton')).toBeInTheDocument();
+    act(() => appData().library.getState().hydrateTracks(rows.tracks));
+    expect(screen.getAllByTestId('track-row').length).toBeGreaterThan(0);
   });
 
   it('вкладки со счётчиками; по умолчанию «Альбомы»', () => {
