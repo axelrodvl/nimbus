@@ -47,8 +47,10 @@ test('вход → поиск → добавление → треки найде
 
   const card = page.getByTestId('remote-album').filter({ hasText: 'OK Computer' }).first();
   await card.getByRole('button', { name: 'Добавить в библиотеку' }).click();
-  // Дельта синхронизации принесла альбом: кнопка превратилась в ссылку.
-  await card.getByRole('link', { name: 'Открыть' }).click();
+  // Дельта синхронизации принесла альбом: кнопка превратилась в отметку «в библиотеке» (ссылки «Открыть» нет).
+  await expect(card.getByText('В библиотеке')).toBeVisible();
+  await page.getByTestId('sidebar').getByRole('link', { name: 'Библиотека' }).click();
+  await page.getByTestId('library-albums').getByRole('link', { name: /OK Computer/ }).click();
   await expect(page.getByRole('heading', { name: 'OK Computer' })).toBeVisible();
 
   // Статус трека приходит по WebSocket без перезагрузки (фейковые провайдеры нашли торрент).
