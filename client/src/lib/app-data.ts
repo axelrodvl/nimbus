@@ -35,11 +35,15 @@ export function createAppData(deps: AppDataDeps = {}) {
     store: library,
     tabs: deps.tabs ?? createTabs(),
   });
-  // Каждое событие — в движок (раньше подписчиков); при (пере)подключении — дельта.
+  // Каждое событие — в движок (раньше подписчиков); при (пере)подключении — дельта и отправка outbox: сокет открылся —
+  // сервер доступен, даже если событие `online` браузера уже прошло (или запрос по нему не прошёл).
   const socket = createLiveSocket({
     createSocket: deps.createSocket,
     onEvent: e => engine.handleEvent(e),
-    onOpen: () => engine.requestSync('ws-open'),
+    onOpen: () => {
+      engine.requestSync('ws-open');
+      void mutations.flushOutbox().catch(() => undefined);
+    },
   });
   const mutations = createMutations({
     db,

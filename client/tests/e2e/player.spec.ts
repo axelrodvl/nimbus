@@ -446,15 +446,24 @@ test('очередь из длинного списка: в DOM только в�
   await expect.poll(async () => (await state(page)).paused).toBe(false);
   await page.getByTestId('player-queue').click();
   const panel = page.getByTestId('queue-panel');
-  const rows = panel.getByTestId('queue-row');
+  // Строки «Далее» (без строки «Сейчас играет»: она в DOM всегда).
+  const rows = panel.getByRole('list').getByTestId('queue-row');
   await expect(rows.first()).toBeVisible();
   expect(await rows.count()).toBeLessThanOrEqual(60);
-  // прокрутка вниз: строки заменяются, их по-прежнему немного
+  const ids = () => rows.evaluateAll(els => els.map(e => e.getAttribute('data-track-id')));
+  const before = await ids();
+  // прокрутка вниз: строки заменяются, их по-прежнему немного. Список перерисовывается после события scroll, а не
+  // сразу: ждём, пока в DOM не останется строк верха очереди, иначе id прочитан бы из старых строк.
   await panel.locator('div.overflow-y-auto').evaluate(el => (el.scrollTop = 20_000));
-  await expect.poll(() => rows.count()).toBeLessThanOrEqual(60);
-  const target = rows.nth(3);
-  const id = await target.getAttribute('data-track-id');
-  await target.getByRole('button').first().click();
+  await expect.poll(async () => (await ids()).some(id => before.includes(id))).toBe(false);
+  expect(await rows.count()).toBeLessThanOrEqual(60);
+  // Строка — по id, а не `nth(3)`: локатор вычисляется заново при клике, и после перерисовки `nth(3)` — другая строка.
+  const id = await rows.nth(3).getAttribute('data-track-id');
+  await rows
+    .and(panel.locator(`[data-track-id="${id}"]`))
+    .getByRole('button')
+    .first()
+    .click();
   await expect(page.locator('[data-testid=player-track]:visible').first()).toBeVisible();
   // `src` меняется после клика, а не вместе с ним: ждём, а не читаем сразу.
   await expect

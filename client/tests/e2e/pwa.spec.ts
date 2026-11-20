@@ -91,6 +91,16 @@ test('онлайн снова: индикатор исчез, выполнена
 
   await expect(page.getByRole('heading', { name: 'Player Test' })).toBeVisible();
   await page.getByTestId('play-album').first().click();
+  // Звук уже идёт (5-секундный WAV загружен): без этого сеть могла пропасть раньше загрузки потока — тогда трек не
+  // играет, прослушивание не засчитывается и отправлять нечего.
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const a = document.querySelector('[data-testid=player-audio]') as HTMLAudioElement;
+        return !a.paused && a.currentTime > 0.1 ? a.currentTime : 0;
+      }),
+    )
+    .toBeGreaterThan(0);
   // Сеть пропадает до засчитывания прослушивания (≈ 3 с): запись уходит в outbox.
   await context.setOffline(true);
   await expect(page.getByText('Нет сети — переподключаемся…')).toBeVisible();

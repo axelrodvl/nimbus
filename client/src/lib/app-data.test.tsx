@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiClient } from '@/lib/api/client';
+import { ApiError } from '@/lib/api/errors';
 import { createSyncApi } from '@/lib/api/sync';
 import { createDb } from '@/lib/db';
 import { FakeSyncServer, makeLibrary, resetFactories } from '@/test/factories';
@@ -124,10 +125,14 @@ class FakeSocket implements SocketLike {
 }
 
 describe('live-соединение в данных приложения', () => {
-  async function boot(rows = makeLibrary({ albumsPerArtist: 1, artists: 1, tracksPerAlbum: 2 })) {
+  async function boot(
+    rows = makeLibrary({ albumsPerArtist: 1, artists: 1, tracksPerAlbum: 2 }),
+    postPlayed: (id: number) => Promise<unknown> = async () => undefined,
+  ) {
     const server = new FakeSyncServer().load(rows);
     const app = createAppData({
       createSocket: () => new FakeSocket(),
+      postPlayed,
       db: createDb({ name: `app-data-ws-${Math.random()}` }),
       syncApi: createSyncApi(createApiClient({ baseUrl: 'http://fake', fetch: server.fetch })),
       tabs: createTabs({ channel: null, locks: null }),
@@ -157,6 +162,23 @@ describe('live-соединение в данных приложения', () =>
 
     app.shutdown();
     expect(app.socket.state.getState().state).toBe('closed');
+  });
+
+  it('открытие сокета отправляет outbox: запись, не ушедшая по событию online, не ждёт следующего', async () => {
+    const postPlayed = vi
+      .fn<(id: number) => Promise<unknown>>()
+      .mockRejectedValueOnce(new ApiError(0, 'network', 'down'))
+      .mockResolvedValue(undefined);
+    const { app } = await boot(undefined, postPlayed);
+    // Браузер считает себя онлайн, но запрос не прошёл: прослушивание — в outbox.
+    await app.mutations.recordPlay(1);
+    expect(await app.db.outboxAll()).toHaveLength(1);
+    FakeSocket.last.readyState = 1;
+    FakeSocket.last.onopen?.({});
+    await vi.waitFor(async () => expect(await app.db.outboxAll()).toHaveLength(0));
+    expect(postPlayed).toHaveBeenCalledTimes(2);
+    expect(postPlayed).toHaveBeenLastCalledWith(1);
+    app.shutdown();
   });
 
   it('useLiveEvent и useConnectionState работают поверх сокета синглтона', async () => {
