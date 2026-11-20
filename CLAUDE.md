@@ -38,7 +38,7 @@
 1. Номер версии: если не назван — выбери по semver по изменениям с прошлого тега (`git log vПРОШЛЫЙ..HEAD`): только исправления → patch, новое → minor.
 2. Напиши `docs/releases/vX.Y.Z.md` на английском по `docs/releases/TEMPLATE.md` (черновик — `./scripts/release-notes.sh --draft`; пункты — с точки зрения пользователя, не коммиты). Проверь `./scripts/release-notes.sh vX.Y.Z`.
 3. Подними версию (`backend/Cargo.toml`, `Cargo.lock`, `client/package.json`, `client/openapi.json`; порядок — README, «To publish a release») и добавь запись в `CHANGELOG.md`.
-4. Прогони проверки (`just check`, нужные тесты), закоммить `release: version X.Y.Z`, поставь тег `git tag -a vX.Y.Z -m vX.Y.Z` и запушь `git push origin main vX.Y.Z`.
+4. Сначала прогони локально ВСЕ тесты, не только `just check`: `just test` (бэкенд, клиент) и `just client-e2e`; пока что-то красное — не тегай (CI-релиз упал на e2e, которые локально не гонялись). Затем закоммить `release: version X.Y.Z`, поставь тег `git tag -a vX.Y.Z -m vX.Y.Z` и запушь `git push origin main vX.Y.Z`.
 5. Отчитайся: версия, ссылка на notes, статус workflow `Release` (`gh run list`), если доступно.
 
 ## Полезные команды
