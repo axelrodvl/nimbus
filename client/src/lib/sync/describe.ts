@@ -11,7 +11,9 @@ export type SyncView = {
 };
 
 /** Что показывать в боковой панели по состоянию движка синхронизации. */
-export function describeSync(s: Pick<SyncStatus, 'state' | 'progress'>): SyncView {
+export function describeSync(s: Pick<SyncStatus, 'state' | 'progress' | 'lastSyncedAt'>): SyncView {
+  // `idle` без единой синхронизации — первый запуск до загрузки снимка: «синхронизировано» было бы неправдой.
+  if (s.state === 'idle' && s.lastSyncedAt === null) return { label: 'sync.syncing', retry: false, tone: 'busy' };
   switch (s.state) {
     case 'snapshot':
       return { count: s.progress?.received ?? 0, label: 'sync.loading', retry: false, tone: 'busy' };

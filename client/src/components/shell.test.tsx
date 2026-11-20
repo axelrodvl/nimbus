@@ -230,24 +230,29 @@ describe('оболочка', () => {
 
 describe('индикаторы', () => {
   it('describeSync: каждое состояние движка — свой текст, тон и кнопка повтора', () => {
-    expect(describeSync({ progress: { received: 7 }, state: 'snapshot' })).toEqual({
+    expect(describeSync({ lastSyncedAt: 1, progress: { received: 7 }, state: 'snapshot' })).toEqual({
       count: 7,
       label: 'sync.loading',
       retry: false,
       tone: 'busy',
     });
-    expect(describeSync({ progress: null, state: 'snapshot' }).count).toBe(0);
-    expect(describeSync({ progress: null, state: 'delta' }).label).toBe('sync.syncing');
-    expect(describeSync({ progress: null, state: 'hydrating' }).label).toBe('sync.syncing');
-    expect(describeSync({ progress: null, state: 'live' })).toMatchObject({ label: 'sync.live', tone: 'ok' });
-    expect(describeSync({ progress: null, state: 'idle' }).label).toBe('sync.live');
-    expect(describeSync({ progress: null, state: 'offline' })).toMatchObject({ label: 'sync.offline', retry: true });
-    expect(describeSync({ progress: null, state: 'error' })).toMatchObject({ label: 'sync.error', retry: true });
+    expect(describeSync({ lastSyncedAt: 1, progress: null, state: 'snapshot' }).count).toBe(0);
+    expect(describeSync({ lastSyncedAt: 1, progress: null, state: 'delta' }).label).toBe('sync.syncing');
+    expect(describeSync({ lastSyncedAt: 1, progress: null, state: 'hydrating' }).label).toBe('sync.syncing');
+    expect(describeSync({ lastSyncedAt: 1, progress: null, state: 'live' })).toMatchObject({ label: 'sync.live', tone: 'ok' });
+    expect(describeSync({ lastSyncedAt: 1, progress: null, state: 'idle' }).label).toBe('sync.live');
+    // Первый запуск, снимок ещё не загружен: не «синхронизировано».
+    expect(describeSync({ lastSyncedAt: null, progress: null, state: 'idle' }).label).toBe('sync.syncing');
+    expect(describeSync({ lastSyncedAt: 1, progress: null, state: 'offline' })).toMatchObject({ label: 'sync.offline', retry: true });
+    expect(describeSync({ lastSyncedAt: 1, progress: null, state: 'error' })).toMatchObject({ label: 'sync.error', retry: true });
   });
 
   it('SyncStatus показывает текст состояния; «Повторить» запрашивает синхронизацию', async () => {
     const request = vi.spyOn(appData().engine, 'requestSync');
     renderRoutes([{ element: <SyncStatus />, path: '*' }]);
+    // До первой синхронизации (первый запуск) «синхронизировано» не показываем.
+    expect(screen.getByTestId('sync-status')).toHaveTextContent('Синхронизация…');
+    act(() => appData().engine.status.setState({ lastSyncedAt: 1, state: 'live' }));
     expect(screen.getByTestId('sync-status')).toHaveTextContent('Библиотека синхронизирована');
     act(() => appData().engine.status.setState({ state: 'delta' }));
     expect(screen.getByTestId('sync-status')).toHaveTextContent('Синхронизация…');
@@ -261,6 +266,7 @@ describe('индикаторы', () => {
 
   it('SyncStatus: подпись можно скрыть классом, точка сохраняет aria-label', () => {
     renderRoutes([{ element: <SyncStatus labelClassName="hidden" />, path: '*' }]);
+    act(() => appData().engine.status.setState({ lastSyncedAt: 1, state: 'live' }));
     expect(screen.getByRole('status', { name: 'Библиотека синхронизирована' })).toBeInTheDocument();
     expect(screen.getByText('Библиотека синхронизирована')).toHaveClass('hidden');
   });
