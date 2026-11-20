@@ -1,4 +1,5 @@
 import { Search } from 'lucide-react';
+import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { AlbumCard, ALBUM_CARD_EXTRA } from '@/components/library/album-card';
 import { ARTIST_CARD_HEIGHT, ArtistCard } from '@/components/library/artist-card';
@@ -144,7 +145,15 @@ export function LibraryScreen() {
   const counts = useLibraryCounts();
   const tab = parseTab(useParams().tab);
   const [params, setParams] = useSearchParams();
-  const q = params.get('q') ?? '';
+  const urlQuery = params.get('q') ?? '';
+  // Поле держит собственное значение: беря его из URL (обновляется переходом роутера), быстрый набор терял бы символы.
+  const [q, setQ] = useState(urlQuery);
+  // Внешняя смена `?q=` (назад/вперёд, ссылка с `q`) переносится в поле; набор текста URL уже совпадает с полем.
+  const [prevUrl, setPrevUrl] = useState(urlQuery);
+  if (urlQuery !== prevUrl) {
+    setPrevUrl(urlQuery);
+    if (urlQuery !== q) setQ(urlQuery);
+  }
   const status = parseStatusFilter(params.get('status'));
   const supported = useOfflineSupported();
   const onlyDownloaded = supported && params.get('offline') === '1';
@@ -183,6 +192,7 @@ export function LibraryScreen() {
           <input
             className="border-divider dark:border-divider-dark focus-visible:ring-accent/40 w-full rounded-full border bg-white py-1.5 pr-3 pl-9 text-sm focus-visible:ring-2 focus-visible:outline-none dark:bg-black"
             onChange={e => {
+              setQ(e.target.value);
               const next = new URLSearchParams(params);
               if (e.target.value) next.set('q', e.target.value);
               else next.delete('q');

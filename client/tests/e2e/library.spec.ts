@@ -156,6 +156,17 @@ test.describe('большая библиотека', () => {
     for (const ms of [toLibrary, toTracks, toHome, toAlbum]) expect(ms).toBeLessThan(300);
   });
 
+  test('быстрый набор в фильтре не теряет символы (ревью F07)', async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.goto('/library/tracks');
+    await waitSynced(page);
+    const box = page.getByRole('searchbox');
+    await box.click();
+    await page.keyboard.type('album 12 zeta', { delay: 5 });
+    await expect(box).toHaveValue('album 12 zeta');
+    await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe('album 12 zeta');
+  });
+
   test('«назад» восстанавливает позицию прокрутки в длинном списке треков', async ({ page }) => {
     test.setTimeout(120_000);
     await page.goto('/library/tracks');

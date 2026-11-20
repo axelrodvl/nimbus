@@ -101,6 +101,36 @@ describe('библиотека', () => {
     expect(router.state.historyAction).toBe('REPLACE');
   });
 
+  it('быстрый набор на большом store не теряет символы', async () => {
+    seed(makeLibrary({ albumsPerArtist: 50, artists: 20, tracksPerAlbum: 6 }));
+    const { router } = renderLibrary('/library/tracks');
+    const box = screen.getByRole('searchbox', { name: 'Фильтр по названию' });
+    await userEvent.type(box, 'track 12 zeta', { delay: null });
+    expect(box).toHaveValue('track 12 zeta');
+    await waitFor(() => expect(router.state.location.search).toBe('?q=track+12+zeta'));
+    expect(box).toHaveValue('track 12 zeta');
+  });
+
+  it('внешняя смена ?q= переносится в поле', async () => {
+    seed(makeLibrary({ albumsPerArtist: 1, artists: 1, tracksPerAlbum: 3 }));
+    const { router } = renderLibrary('/library/tracks');
+    await act(() => router.navigate('/library/tracks?q=abc'));
+    expect(screen.getByRole('searchbox')).toHaveValue('abc');
+    await act(() => router.navigate('/library/tracks'));
+    expect(screen.getByRole('searchbox')).toHaveValue('');
+  });
+
+  it('переключение вкладки во время набора сохраняет запрос', async () => {
+    seed(makeLibrary({ albumsPerArtist: 2, artists: 2, tracksPerAlbum: 2 }));
+    const { router } = renderLibrary('/library/albums');
+    await userEvent.type(screen.getByRole('searchbox'), 'ab', { delay: null });
+    expect(screen.getByTestId('tab-tracks')).toHaveAttribute('href', '/library/tracks?q=ab');
+    await userEvent.click(screen.getByTestId('tab-tracks'));
+    expect(router.state.location.pathname).toBe('/library/tracks');
+    expect(router.state.location.search).toBe('?q=ab');
+    expect(screen.getByRole('searchbox')).toHaveValue('ab');
+  });
+
   it('вкладка и фильтр восстанавливаются из адреса («назад» возвращает то же)', () => {
     const rows = makeLibrary({ albumsPerArtist: 1, artists: 2, tracksPerAlbum: 1 });
     seed(rows);
