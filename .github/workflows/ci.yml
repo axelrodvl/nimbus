@@ -1,5 +1,6 @@
 name: CI
 
+# Тот же набор проверок вызывает Release (workflow_call): образ не собирается и релиз не создаётся, пока CI не прошёл.
 on:
   push:
     branches: [main]
@@ -10,6 +11,15 @@ on:
         description: Запустить e2e (docker compose, долго)
         type: boolean
         default: false
+  workflow_call:
+    inputs:
+      e2e:
+        description: Запустить e2e (docker compose, долго)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -92,7 +102,7 @@ jobs:
           if-no-files-found: ignore
 
   e2e:
-    if: github.event_name == 'workflow_dispatch' && inputs.e2e
+    if: inputs.e2e
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

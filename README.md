@@ -130,7 +130,7 @@ docker compose up -d
 To publish a release (version `X.Y.Z`):
 
 1. Set the version in `backend/Cargo.toml` (`[workspace.package]`, then `cargo update --workspace --offline` to refresh `Cargo.lock`), `client/package.json` and `client/openapi.json` (`info.version`; `just openapi-check` verifies it matches the backend), add the entry to `CHANGELOG.md`, and write the English release notes in `docs/releases/vX.Y.Z.md` (copy `docs/releases/TEMPLATE.md`; `scripts/release-notes.sh --draft` lists the commits since the last tag). The release workflow fails if the file is missing or breaks the fixed section order. The version shows up in `/api/health` and in the UI.
-2. Commit, then `git tag -a vX.Y.Z -m vX.Y.Z && git push origin main vX.Y.Z`. The workflow `.github/workflows/release.yml` builds the multi-arch image and creates the GitHub Release with the run bundle.
+2. Commit, then `git tag -a vX.Y.Z -m vX.Y.Z && git push origin main vX.Y.Z`. The workflow `.github/workflows/release.yml` first runs a preflight (the tag must match the versions in `backend/Cargo.toml`, `client/package.json` and `client/openapi.json`; the release notes must pass `scripts/release-notes.sh`) and the full CI suite (`ci.yml`, called as a reusable workflow). Only if both pass does it build the multi-arch image, move the GHCR tags and create the GitHub Release with the run bundle; a failure leaves the registry and releases untouched — fix, delete the tag (`git push origin :vX.Y.Z`) and tag again.
 
 The images are public (`ghcr.io/axelrodvl/nimbus`, tags `X.Y.Z`, `X.Y`, `latest`, without the `v` prefix; linux/amd64 and linux/arm64). Run a specific one with `./start.sh X.Y.Z`.
 

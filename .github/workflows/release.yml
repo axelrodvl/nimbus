@@ -1,7 +1,9 @@
 name: Release
 
-# Релиз: написать docs/releases/v1.2.3.md, затем git tag v1.2.3 && git push --tags
-# Собирает образ nimbus (бэкенд + SPA; linux/amd64 + linux/arm64) в GHCR и создаёт GitHub Release.
+# Релиз: написать docs/releases/v1.2.3.md, поднять версию, затем git tag -a v1.2.3 -m v1.2.3 && git push origin main v1.2.3
+# Порядок: preflight (тег ↔ версии, release notes) и полный CI (ci.yml через workflow_call) → сборка образа nimbus
+# (бэкенд + SPA; linux/amd64 + linux/arm64) в GHCR → манифест с тегами → GitHub Release.
+# Если CI или preflight упали, образы не собираются, теги в GHCR не двигаются и релиз не создаётся.
 on:
   push:
     tags: ["v*"]
@@ -12,10 +14,45 @@ env:
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  preflight:
+    name: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # release-notes.sh ищет предыдущий тег
+      - name: Версия в тег совпадает с версией в коде
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          want=${GITHUB_REF_NAME#v}
+          cargo=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' backend/Cargo.toml)
+          pkg=$(jq -r .version client/package.json)
+          api=$(jq -r .info.version client/openapi.json)
+          echo "tag=$want Cargo.toml=$cargo package.json=$pkg openapi.json=$api"
+          for v in "$cargo" "$pkg" "$api"; do
+            [[ "$v" == "$want" ]] || { echo "::error::версия в коде не совпадает с тегом $GITHUB_REF_NAME"; exit 1; }
+          done
+      - name: Release notes (docs/releases/${{ github.ref_name }}.md)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: scripts/release-notes.sh "$GITHUB_REF_NAME" > /dev/null
+
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   build:
+    needs: [preflight, ci]
+    permissions:
+      contents: read
+      packages: write
     name: nimbus (${{ matrix.platform }})
     strategy:
       fail-fast: false
@@ -65,6 +102,9 @@ jobs:
     name: manifest nimbus
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Имя образа
         run: echo "IMAGE=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/nimbus" >> "$GITHUB_ENV"
