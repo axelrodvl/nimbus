@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { MusicNote } from '@/components/ui/music-note';
-import { coverSrc, imageLoading, markImageShown, type CoverThumb } from '@/lib/library/cover';
+import { coverSrc, imageLoading, isImageBroken, markImageBroken, markImageShown, type CoverThumb } from '@/lib/library/cover';
 import { cn } from '@/lib/utils';
 
 type Props = {
@@ -22,7 +22,7 @@ type Props = {
 export function Cover({ src, alt, thumb = 250, priority, className }: Props) {
   const url = coverSrc(src, thumb);
   const [failed, setFailed] = useState<string | null>(null);
-  const showImage = url !== null && failed !== url;
+  const showImage = url !== null && failed !== url && !isImageBroken(url);
   const small = thumb === 250 ? null : coverSrc(src, 250);
   return (
     <div
@@ -50,7 +50,10 @@ export function Cover({ src, alt, thumb = 250, priority, className }: Props) {
           className="absolute inset-0 size-full object-cover"
           fetchPriority={priority ? 'high' : undefined}
           {...imageLoading(url, priority)}
-          onError={() => setFailed(url)}
+          onError={() => {
+            markImageBroken(url);
+            setFailed(url);
+          }}
           onLoad={() => markImageShown(url)}
           src={url}
         />

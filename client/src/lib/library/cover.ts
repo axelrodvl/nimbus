@@ -28,6 +28,17 @@ export function markImageShown(url: string): void {
   if (shown.size > MAX_SHOWN) shown.delete(shown.values().next().value as string);
 }
 
+const broken = new Set<string>();
+
+/** Картинка не загрузилась (нет обложки): при повторном монтировании сразу заглушка, без вспышки «плашка → градиент». */
+export function markImageBroken(url: string): void {
+  broken.add(url);
+}
+
+export function isImageBroken(url: string): boolean {
+  return broken.has(url);
+}
+
 /**
  * Атрибуты `<img>` по тому, видели ли картинку в этой сессии. Уже показанная (вернулись «назад» на экран) —
  * без ленивой загрузки и с синхронным декодированием: из кэша она рисуется в первом же кадре, а не пустой плашкой
@@ -71,4 +82,5 @@ export async function primeShownFromCache(
 /** Для тестов. */
 export function resetShownImages(): void {
   shown.clear();
+  broken.clear();
 }

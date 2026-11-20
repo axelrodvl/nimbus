@@ -84,6 +84,15 @@ describe('Cover', () => {
     expect(screen.queryByRole('img', { name: 'B' })).not.toBeInTheDocument();
     expect(screen.getByTestId('cover').querySelector('svg')).toBeInTheDocument();
   });
+
+  it('обложка, которая не загрузилась, при повторном монтировании сразу заглушка (возврат «назад»)', () => {
+    const first = render(<Cover alt="C" src={caa} />);
+    fireEvent.error(screen.getByRole('img', { name: 'C' }));
+    first.unmount();
+    render(<Cover alt="C" src={caa} />);
+    expect(screen.queryByRole('img', { name: 'C' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('cover').querySelector('svg')).toBeInTheDocument();
+  });
 });
 
 describe('ArtistAvatar', () => {
